@@ -142,7 +142,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   }, [transcriberModel, llmModel, voiceValue.provider, onPricingConfigChange]);
 
   const handleVoiceChange = async (val: { provider: string; voice_id: string }) => {
-    console.log('🎤 Sending:', {
+    console.log('[Voice] Sending:', {
       voice_provider: val.provider,
       elevenlabs_voice_id: val.provider === 'elevenlabs' ? val.voice_id : null,
       openai_voice: val.provider === 'openai' ? val.voice_id : null
@@ -220,7 +220,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
                   </div>
                   <div>
                     <p className="text-base font-semibold text-foreground">{agent.assistant_name}</p>
-                    <p className="text-xs text-muted-foreground">{agent.phone_number || "No phone number"} · {agent.business_name || "No business"}</p>
+                    <p className="text-xs text-muted-foreground">{agent.phone_number || "No phone number"} - {agent.business_name || "No business"}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
