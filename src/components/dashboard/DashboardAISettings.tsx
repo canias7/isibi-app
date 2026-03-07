@@ -492,17 +492,30 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
               <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="gpt-4o-realtime-preview-2025-06-03">GPT-4o Realtime ($0.00 - $0.03/min)</option>
-                <option value="gpt-4o-mini-realtime-preview">GPT-4o Mini Realtime ($0.00 - $0.01/min)</option>
-                <option value="gpt-5" disabled>GPT-5 ($0.00 - $0.12/min) (Coming Soon)</option>
-                <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
-                <option value="gpt-5-nano" disabled>GPT-5 Nano (Coming Soon)</option>
-                <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
-                <option value="gpt-4.1-mini" disabled>GPT-4.1 Mini (Coming Soon)</option>
-                <option value="gpt-4.1-nano" disabled>GPT-4.1 Nano (Coming Soon)</option>
-                <option value="o3" disabled>O3 (Coming Soon)</option>
-                <option value="o3-mini" disabled>O3 Mini (Coming Soon)</option>
-                <option value="o4-mini" disabled>O4 Mini (Coming Soon)</option>
+                <optgroup label="── GPT Realtime (GA) ──">
+                  <option value="gpt-realtime">GPT Realtime · gpt-realtime (Best quality)</option>
+                  <option value="gpt-realtime-mini">GPT Realtime Mini · gpt-realtime-mini (Fastest &amp; cheapest)</option>
+                  <option value="gpt-realtime-2025-08-28">GPT Realtime · gpt-realtime-2025-08-28 (Pinned snapshot)</option>
+                  <option value="gpt-realtime-mini-2025-10-06">GPT Realtime Mini · gpt-realtime-mini-2025-10-06 (Pinned snapshot)</option>
+                  <option value="gpt-realtime-mini-2025-12-15">GPT Realtime Mini · gpt-realtime-mini-2025-12-15 (Pinned snapshot)</option>
+                </optgroup>
+                <optgroup label="── GPT-4o Realtime (Preview) ──">
+                  <option value="gpt-4o-realtime-preview-2025-06-03">GPT-4o Realtime · gpt-4o-realtime-preview-2025-06-03</option>
+                  <option value="gpt-4o-realtime-preview-2024-12-17">GPT-4o Realtime · gpt-4o-realtime-preview-2024-12-17 (Older snapshot)</option>
+                  <option value="gpt-4o-realtime-preview-2024-10-01">GPT-4o Realtime · gpt-4o-realtime-preview-2024-10-01 (Oldest snapshot)</option>
+                </optgroup>
+                <optgroup label="── GPT-4o Mini Realtime (Preview) ──">
+                  <option value="gpt-4o-mini-realtime-preview">GPT-4o Mini Realtime · gpt-4o-mini-realtime-preview</option>
+                  <option value="gpt-4o-mini-realtime-preview-2024-12-17">GPT-4o Mini Realtime · gpt-4o-mini-realtime-preview-2024-12-17 (Pinned snapshot)</option>
+                </optgroup>
+                <optgroup label="── Coming Soon ──">
+                  <option value="gpt-5" disabled>GPT-5 (Coming Soon)</option>
+                  <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
+                  <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
+                  <option value="gpt-4.1-mini" disabled>GPT-4.1 Mini (Coming Soon)</option>
+                  <option value="o3" disabled>O3 (Coming Soon)</option>
+                  <option value="o4-mini" disabled>O4 Mini (Coming Soon)</option>
+                </optgroup>
               </select>
             </div>
           </div>
