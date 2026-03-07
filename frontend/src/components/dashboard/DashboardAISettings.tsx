@@ -98,7 +98,8 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [transcriberModel, setTranscriberModel] = useState("whisper-1");
 
   // LLM
-  const [llmModel, setLlmModel] = useState("claude-sonnet-4-5");
+  const [llmProvider, setLlmProvider] = useState("openai");
+  const [llmModel, setLlmModel] = useState("gpt-4o-realtime-preview-2025-06-03");
 
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
@@ -115,7 +116,25 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
           setFirstMessage(agent.first_message || "");
           setSystemPrompt(agent.system_prompt ?? "");
           setSavedAgentId(agent.id);
-          if (agent.model) setLlmModel(agent.model);
+          const savedProvider = (agent as any).llm_provider || "openai";
+          setLlmProvider(savedProvider);
+
+          const VALID_OPENAI_MODELS = new Set([
+            "gpt-realtime", "gpt-realtime-mini",
+            "gpt-realtime-2025-08-28", "gpt-realtime-mini-2025-10-06", "gpt-realtime-mini-2025-12-15",
+            "gpt-4o-realtime-preview", "gpt-4o-realtime-preview-2025-06-03",
+            "gpt-4o-realtime-preview-2024-12-17", "gpt-4o-realtime-preview-2024-10-01",
+            "gpt-4o-mini-realtime-preview", "gpt-4o-mini-realtime-preview-2024-12-17",
+          ]);
+          const VALID_ANTHROPIC_MODELS = new Set([
+            "claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5",
+            "claude-opus-4-20250514", "claude-sonnet-4-20250514",
+          ]);
+          if (savedProvider === "anthropic") {
+            setLlmModel(agent.model && VALID_ANTHROPIC_MODELS.has(agent.model) ? agent.model : "claude-opus-4-5");
+          } else {
+            setLlmModel(agent.model && VALID_OPENAI_MODELS.has(agent.model) ? agent.model : "gpt-4o-realtime-preview-2025-06-03");
+          }
           if (agent.voice || agent.provider) {
             setVoiceValue({
               provider: agent.provider || "openai",
@@ -160,7 +179,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
       const agentId = savedAgentId || (editId ? Number(editId) : null);
       const url = agentId ? `https://isibi-backend.onrender.com/api/agents/${agentId}` : "https://isibi-backend.onrender.com/api/agents";
       const method = agentId ? "PATCH" : "POST";
-      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, model: llmModel, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null }) });
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, model: llmModel, llm_provider: llmProvider, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null }) });
       if (response.status === 403) { toast({ title: "Session Expired", description: "Please login again", variant: "destructive" }); navigate("/login"); return; }
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Failed to save agent"); }
       const data = await response.json();
@@ -462,29 +481,54 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
           <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-6 space-y-6">
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">LLM Provider</Label>
-              <p className="text-sm text-muted-foreground mt-1">Select the language model provider that powers your agent's reasoning and responses.</p>
+              <p className="text-sm text-muted-foreground mt-1">Choose which AI provider powers your agent's reasoning. Voice is handled separately.</p>
             </div>
-            <select className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20">
-              <option value="anthropic">Anthropic</option>
-              <option value="openai" disabled>OpenAI (Coming Soon)</option>
-              <option value="google" disabled>Google (Coming Soon)</option>
-              <option value="groq" disabled>Groq (Coming Soon)</option>
-              <option value="deepseek" disabled>DeepSeek (Coming Soon)</option>
-              <option value="xai" disabled>xAI (Coming Soon)</option>
-              <option value="mistral" disabled>Mistral (Coming Soon)</option>
+            <select
+              value={llmProvider}
+              onChange={(e) => {
+                const p = e.target.value;
+                setLlmProvider(p);
+                // Reset model to a sensible default when switching provider
+                if (p === "anthropic") setLlmModel("claude-opus-4-5");
+                else setLlmModel("gpt-4o-realtime-preview-2025-06-03");
+              }}
+              className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="openai">OpenAI</option>
+              <option value="anthropic">Anthropic (Claude)</option>
             </select>
 
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
-              <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="claude-haiku-4-5">claude-haiku-4-5 -- $0.06/min -- ~150ms (Fastest and cheapest)</option>
-                <option value="claude-sonnet-4-5">claude-sonnet-4-5 -- $0.18/min -- ~250ms (Best balance)</option>
-                <option value="claude-opus-4-5">claude-opus-4-5 -- $0.30/min -- ~400ms (Most capable)</option>
-                <option value="claude-haiku-3-5">claude-haiku-3-5 -- $0.048/min -- ~150ms (Pinned snapshot)</option>
-                <option value="claude-3-5-sonnet-20241022" disabled>claude-3-5-sonnet (Coming Soon)</option>
-                <option value="claude-opus-4-6" disabled>claude-opus-4-6 (Coming Soon)</option>
-                <option value="claude-5" disabled>Claude 5 (Coming Soon)</option>
-              </select>
+              {llmProvider === "anthropic" ? (
+                <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <optgroup label="Claude (Recommended)">
+                    <option value="claude-opus-4-5">claude-opus-4-5 — Most capable</option>
+                    <option value="claude-sonnet-4-5">claude-sonnet-4-5 — Balanced</option>
+                    <option value="claude-haiku-4-5">claude-haiku-4-5 — Fastest &amp; cheapest</option>
+                  </optgroup>
+                </select>
+              ) : (
+                <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
+                  <optgroup label="GPT Realtime (GA — Recommended)">
+                    <option value="gpt-realtime">gpt-realtime — Best quality</option>
+                    <option value="gpt-realtime-mini">gpt-realtime-mini — Fastest &amp; cheapest</option>
+                  </optgroup>
+                  <optgroup label="GPT-4o Realtime (Preview)">
+                    <option value="gpt-4o-realtime-preview-2025-06-03">gpt-4o-realtime-preview-2025-06-03</option>
+                    <option value="gpt-4o-realtime-preview-2024-12-17">gpt-4o-realtime-preview-2024-12-17</option>
+                  </optgroup>
+                  <optgroup label="GPT-4o Mini Realtime (Preview)">
+                    <option value="gpt-4o-mini-realtime-preview">gpt-4o-mini-realtime-preview</option>
+                    <option value="gpt-4o-mini-realtime-preview-2024-12-17">gpt-4o-mini-realtime-preview-2024-12-17</option>
+                  </optgroup>
+                </select>
+              )}
+              {llmProvider === "anthropic" && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Anthropic mode: OpenAI Realtime handles speech-to-text, Claude handles reasoning, ElevenLabs handles voice output.
+                </p>
+              )}
             </div>
           </div>
       </div>

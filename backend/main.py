@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 PORT = int(os.getenv("PORT", 5050))
 TEMPERATURE = float(os.getenv("TEMPERATURE", 0.8))
 DOMAIN = os.getenv("DOMAIN", "isibi-backend.onrender.com")  # Your public domain or ngrok URL
@@ -384,16 +385,29 @@ async def handle_media_stream(websocket: WebSocket):
                         peek_agent = get_agent_by_id(int(peek_agent_id))
                         if peek_agent:
                             agent_model_pref = peek_agent.get("model")
-                            logger.info(f"🔍 Peek agent model from DB: '{agent_model_pref}'")
-                            if agent_model_pref:
-                                if agent_model_pref in VALID_REALTIME_MODELS:
+                            peek_llm_provider = peek_agent.get("llm_provider", "openai")
+                            logger.info(f"🔍 Peek agent model from DB: '{agent_model_pref}', llm_provider: '{peek_llm_provider}'")
+                            if peek_llm_provider == "anthropic":
+                                # Anthropic mode: use default OpenAI Realtime model for STT only
+                                # Do NOT map claude model names to OpenAI equivalents
+                                peek_use_anthropic = True
+                                logger.info(f"🤖 Peek: Anthropic LLM detected — using default realtime model for STT only: {selected_model}")
+                            else:
+                                # Legacy non-realtime OpenAI model names → map to default realtime model
+                                LEGACY_MODEL_MAP = {
+                                    "gpt-4-turbo": DEFAULT_REALTIME_MODEL,
+                                    "gpt-4": DEFAULT_REALTIME_MODEL,
+                                    "gpt-4o": DEFAULT_REALTIME_MODEL,
+                                    "gpt-3.5-turbo": DEFAULT_REALTIME_MODEL,
+                                }
+                                if agent_model_pref and agent_model_pref in VALID_REALTIME_MODELS:
                                     selected_model = agent_model_pref
-                                    logger.info(f"🧠 Using realtime model from DB: {selected_model}")
-                                elif agent_model_pref in LLM_TO_REALTIME_MAP:
-                                    selected_model = LLM_TO_REALTIME_MAP[agent_model_pref]
-                                    logger.info(f"🧠 Mapped '{agent_model_pref}' -> realtime model: {selected_model}")
+                                    logger.info(f"🧠 Using agent model from DB: {selected_model}")
+                                elif agent_model_pref and agent_model_pref in LEGACY_MODEL_MAP:
+                                    selected_model = LEGACY_MODEL_MAP[agent_model_pref]
+                                    logger.info(f"🧠 Legacy model '{agent_model_pref}' mapped to realtime: {selected_model}")
                                 else:
-                                    logger.info(f"🧠 Unknown model '{agent_model_pref}', using default: {selected_model}")
+                                    logger.info(f"🧠 Agent model '{agent_model_pref}' not in valid set, using default: {selected_model}")
                     except Exception as e:
                         logger.warning(f"⚠️ Could not peek agent model: {e}")
                 break  # found 'start', stop peeking
@@ -428,6 +442,10 @@ async def handle_media_stream(websocket: WebSocket):
         call_summary = None  # Store what happened during the call
         elevenlabs_handler = None  # ElevenLabs voice handler (initialized when agent loads)
         use_elevenlabs = False  # Flag to indicate if using ElevenLabs (set when agent loads)
+        use_anthropic = False   # Flag to indicate if using Anthropic as LLM (set when agent loads)
+        anthropic_model = "claude-opus-4-5"  # Default Anthropic model
+        anthropic_conversation_history = []  # Maintain conversation context across turns
+        current_system_prompt = SYSTEM_MESSAGE  # Shared system prompt for Anthropic calls
         
         # Cost tracking variables
         openai_input_tokens = 0
@@ -652,9 +670,17 @@ async def handle_media_stream(websocket: WebSocket):
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
                                     agent_voice = agent.get("voice") or VOICE
 
+                                    # Check if using Anthropic as LLM
+                                    llm_provider = agent.get("llm_provider", "openai")
+                                    use_anthropic = llm_provider == "anthropic"
+                                    if use_anthropic:
+                                        anthropic_model = agent.get("model") or "claude-opus-4-5"
+                                        # Anthropic mode requires ElevenLabs for TTS (no OpenAI audio)
+                                        logger.info(f"🤖 Using Anthropic LLM: {anthropic_model}")
+
                                     # Check if using ElevenLabs voice
                                     voice_provider = agent.get("voice_provider", "openai")
-                                    use_elevenlabs = voice_provider == "elevenlabs"
+                                    use_elevenlabs = voice_provider == "elevenlabs" or use_anthropic
                                     elevenlabs_voice_id = agent.get("elevenlabs_voice_id")
                                     
                                     # DEBUG: Log what we found
@@ -749,6 +775,7 @@ async def handle_media_stream(websocket: WebSocket):
                                         logger.warning(f"⚠️ Invalid voice '{agent_voice}', using default 'alloy'")
                                         agent_voice = 'alloy'
                                     
+                                    current_system_prompt = agent_instructions  # Store for Anthropic use
                                     logger.info(f"📝 System prompt loaded (length: {len(agent_instructions)} chars)")
                                     logger.info(f"📝 System prompt preview: {agent_instructions[:200]}...")
                                     logger.info(f"🎙️ Using voice: {agent_voice}")
@@ -758,8 +785,9 @@ async def handle_media_stream(websocket: WebSocket):
                                         openai_ws,
                                         instructions=agent_instructions,
                                         voice=agent_voice,  # Always pass voice (needed for audio mode)
-                                        tools=agent_tools,
-                                        use_elevenlabs=use_elevenlabs
+                                        tools=agent_tools if not use_anthropic else None,
+                                        use_elevenlabs=use_elevenlabs,
+                                        stt_only=use_anthropic,
                                     )
                                     logger.info("🔄 OpenAI session updated with agent config")
                                     
@@ -776,30 +804,50 @@ async def handle_media_stream(websocket: WebSocket):
                         
                         # Send first message if configured
                         if not first_message_sent:
-                            greeting_text = first_message if first_message else "Hello"
                             logger.info(f"📢 Triggering greeting by simulating user connection")
-                            
-                            # Add a system message to trigger the greeting
-                            await openai_ws.send(json.dumps({
-                                "type": "conversation.item.create",
-                                "item": {
-                                    "type": "message",
-                                    "role": "user",
-                                    "content": [{
-                                        "type": "input_text",
-                                        "text": "[SYSTEM: The caller has just connected. Greet them now.]"
-                                    }]
-                                }
-                            }))
-                            
-                            # Now request a response (TEXT ONLY when using ElevenLabs)
-                            await openai_ws.send(json.dumps({
-                                "type": "response.create",
-                                "response": {
-                                    "modalities": ["text"] if elevenlabs_handler else ["text", "audio"]
-                                }
-                            }))
-                            
+
+                            if use_anthropic and elevenlabs_handler:
+                                # Anthropic mode: generate greeting via Claude → ElevenLabs
+                                greeting_prompt = first_message if first_message else "[SYSTEM: The caller has just connected. Greet them warmly and introduce yourself.]"
+                                anthropic_conversation_history.append({"role": "user", "content": greeting_prompt})
+                                try:
+                                    import anthropic as anthropic_sdk
+                                    ac = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
+                                    greeting_response = ""
+                                    with ac.messages.stream(
+                                        model=anthropic_model,
+                                        max_tokens=300,
+                                        system=current_system_prompt,
+                                        messages=anthropic_conversation_history,
+                                    ) as stream:
+                                        for text_chunk in stream.text_stream:
+                                            greeting_response += text_chunk
+                                            await elevenlabs_handler.handle_text_delta(text_chunk)
+                                    await elevenlabs_handler.flush()
+                                    anthropic_conversation_history.append({"role": "assistant", "content": greeting_response})
+                                    logger.info(f"📢 Anthropic greeting sent via ElevenLabs")
+                                except Exception as e:
+                                    logger.error(f"❌ Anthropic greeting error: {e}")
+                            else:
+                                # OpenAI mode: trigger greeting via conversation item
+                                await openai_ws.send(json.dumps({
+                                    "type": "conversation.item.create",
+                                    "item": {
+                                        "type": "message",
+                                        "role": "user",
+                                        "content": [{
+                                            "type": "input_text",
+                                            "text": "[SYSTEM: The caller has just connected. Greet them now.]"
+                                        }]
+                                    }
+                                }))
+                                await openai_ws.send(json.dumps({
+                                    "type": "response.create",
+                                    "response": {
+                                        "modalities": ["text"] if elevenlabs_handler else ["text", "audio"]
+                                    }
+                                }))
+
                             first_message_sent = True
                             logger.info(f"📢 Greeting triggered via conversation item")
 
@@ -1009,7 +1057,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
 
             try:
                 async for openai_message in openai_ws:
@@ -1018,7 +1066,19 @@ async def handle_media_stream(websocket: WebSocket):
 
                     if rtype in LOG_EVENT_TYPES:
                         print("OpenAI event:", rtype)
-                    
+
+                    # In STT-only (Anthropic LLM) mode: cancel any OpenAI-generated responses
+                    # server_vad auto-triggers response.create after transcription — we don't want that
+                    if use_anthropic and rtype == "response.created":
+                        response_id = resp.get("response", {}).get("id")
+                        if response_id:
+                            try:
+                                await openai_ws.send(json.dumps({"type": "response.cancel", "response_id": response_id}))
+                                logger.debug(f"🚫 Cancelled OpenAI auto-response (Anthropic mode): {response_id}")
+                            except Exception:
+                                pass
+                        continue
+
                     # Log ALL response types when using ElevenLabs (for debugging)
                     if elevenlabs_handler and rtype and rtype.startswith("response"):
                         logger.info(f"🔍 OpenAI response type: {rtype}")
@@ -1026,9 +1086,41 @@ async def handle_media_stream(websocket: WebSocket):
                     # Log errors with full details
                     if rtype == "error":
                         error_details = resp.get("error", {})
-                        logger.error(f"❌ OpenAI Error: {error_details}")
-                        logger.error(f"Full error response: {resp}")
+                        error_code = error_details.get("code", "")
+                        # Suppress benign server_vad race condition: fires when VAD detects
+                        # speech-stop on an already-empty input buffer (harmless, no action needed)
+                        if error_code == "input_audio_buffer_commit_empty":
+                            logger.debug(f"⚠️ VAD empty-buffer commit (benign, ignoring): {error_code}")
+                        else:
+                            logger.error(f"❌ OpenAI Error: {error_details}")
+                            logger.error(f"Full error response: {resp}")
                     
+                    # ── Anthropic LLM mode: caller transcript → Claude → ElevenLabs ──
+                    # OpenAI Realtime fires this when it has finished transcribing a caller turn
+                    if use_anthropic and rtype == "conversation.item.input_audio_transcription.completed":
+                        transcript = resp.get("transcript", "").strip()
+                        if transcript and elevenlabs_handler:
+                            logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
+                            anthropic_conversation_history.append({"role": "user", "content": transcript})
+                            try:
+                                import anthropic as anthropic_sdk
+                                ac = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
+                                assistant_reply = ""
+                                with ac.messages.stream(
+                                    model=anthropic_model,
+                                    max_tokens=1024,
+                                    system=current_system_prompt,
+                                    messages=anthropic_conversation_history,
+                                ) as stream:
+                                    for text_chunk in stream.text_stream:
+                                        assistant_reply += text_chunk
+                                        await elevenlabs_handler.handle_text_delta(text_chunk)
+                                await elevenlabs_handler.flush()
+                                anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
+                                logger.info(f"🤖 Anthropic replied ({len(assistant_reply)} chars)")
+                            except Exception as e:
+                                logger.error(f"❌ Anthropic LLM error: {e}")
+
                     # Track OpenAI usage for cost calculation
                     if rtype == "response.done":
                         usage = resp.get("response", {}).get("usage", {})
@@ -1378,16 +1470,9 @@ async def handle_media_stream(websocket: WebSocket):
                         print("🗣️ speech_started → interrupt")
                         await handle_speech_started_event()
 
-                    # ✅ When caller stops speaking wait a bit, then commit and create response
-                    if rtype == "input_audio_buffer.speech_stopped":
-                        print("🛑 speech_stopped → waiting 200ms before commit")
-                        # Add small delay to ensure buffer has content
-                        await asyncio.sleep(0.2)
-                        try:
-                            await openai_ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
-                            await openai_ws.send(json.dumps({"type": "response.create"}))
-                        except Exception as commit_error:
-                            print(f"⚠️ Error committing audio buffer (likely empty): {commit_error}")
+                    # server_vad auto-commits and auto-creates a response when speech stops,
+                    # so we do NOT manually commit here — doing so causes
+                    # "input_audio_buffer_commit_empty" errors.
 
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
@@ -1498,41 +1583,62 @@ def get_calendar_tools(agent_id: int) -> list:
     ]
 
 
-async def initialize_session(openai_ws, instructions: str, voice: str | None = None, tools: dict | None = None, first_message: str | None = None, use_elevenlabs: bool = False):
+async def initialize_session(openai_ws, instructions: str, voice: str | None = None, tools: dict | None = None, first_message: str | None = None, use_elevenlabs: bool = False, stt_only: bool = False):
     """
     Configure OpenAI Realtime session for Twilio Media Streams (G.711 u-law).
-    
+
     Args:
-        use_elevenlabs: If True, we'll use audio transcripts for ElevenLabs TTS
+        use_elevenlabs: If True, only request TEXT output from OpenAI (ElevenLabs handles TTS)
+        stt_only: If True, OpenAI is used purely for STT/transcription — Anthropic handles LLM.
+                  In this mode OpenAI won't generate any responses at all.
     """
-    
-    # IMPORTANT: When using ElevenLabs, only request TEXT from OpenAI
-    # This prevents OpenAI from generating (and charging for) audio we don't use
-    modalities = ["text"] if use_elevenlabs else ["text", "audio"]
-    
-    session_update = {
-        "type": "session.update",
-        "session": {
-            "modalities": modalities,  # TEXT ONLY when using ElevenLabs (saves money!)
-            "input_audio_format": "g711_ulaw",
-            "output_audio_format": "pcm16",  # Still need to specify format even if not used
-            "input_audio_transcription": {"model": "whisper-1"},  # Enable transcription
-            "instructions": instructions,
-            "turn_detection": {
-                "type": "server_vad",
-                "threshold": 0.6,  # Slightly lower threshold (0.5-1.0, higher = more sensitive)
-                "prefix_padding_ms": 500,  # Wait longer before considering it speech
-                "silence_duration_ms": 1000  # Wait longer for silence before stopping
+
+    if stt_only:
+        # STT-only mode for Anthropic LLM: OpenAI transcribes audio, fires
+        # conversation.item.input_audio_transcription.completed, but generates NO responses.
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "modalities": ["text"],          # Minimal — no audio output needed
+                "input_audio_format": "g711_ulaw",
+                "output_audio_format": "pcm16",
+                "input_audio_transcription": {"model": "whisper-1"},
+                # Instruct OpenAI NOT to auto-respond — Anthropic will handle it
+                "instructions": "You are a transcription service only. Do not generate any responses. Just transcribe what the user says.",
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.5,
+                    "prefix_padding_ms": 300,
+                    "silence_duration_ms": 800,
+                },
             },
-        },
-    }
-    
-    # Set voice for OpenAI (required even for ElevenLabs mode)
+        }
+    else:
+        # IMPORTANT: When using ElevenLabs, only request TEXT from OpenAI
+        # This prevents OpenAI from generating (and charging for) audio we don't use
+        modalities = ["text"] if use_elevenlabs else ["text", "audio"]
+        session_update = {
+            "type": "session.update",
+            "session": {
+                "modalities": modalities,
+                "input_audio_format": "g711_ulaw",
+                "output_audio_format": "pcm16",
+                "input_audio_transcription": {"model": "whisper-1"},
+                "instructions": instructions,
+                "turn_detection": {
+                    "type": "server_vad",
+                    "threshold": 0.6,
+                    "prefix_padding_ms": 500,
+                    "silence_duration_ms": 1000,
+                },
+            },
+        }
+        if tools:
+            session_update["session"]["tools"] = tools
+
+    # Voice is always required by OpenAI Realtime
     session_update["session"]["voice"] = voice or VOICE
 
-    if tools:
-        session_update["session"]["tools"] = tools
-        
     await openai_ws.send(json.dumps(session_update))
     
     

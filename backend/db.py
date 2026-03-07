@@ -161,6 +161,9 @@ def init_db():
 
     # Add tts_provider column for GPT-4o pipeline TTS choice (migration)
     add_column_if_missing(conn, 'agents', 'tts_provider', 'TEXT')
+
+    # Add llm_provider column: "openai" (default) or "anthropic"
+    add_column_if_missing(conn, 'agents', 'llm_provider', 'TEXT')
     
     # Add detailed cost breakdown columns to call_usage (migration)
     add_column_if_missing(conn, 'call_usage', 'input_tokens', 'INTEGER DEFAULT 0')
@@ -487,8 +490,9 @@ def create_agent(
     first_message: str = None,
     tools: dict = None,   # example: {"google_calendar": True, "slack": False}
     twilio_number_sid: str = None,
-    model: str = None,         # OpenAI Realtime model (e.g. gpt-4o-realtime-preview-2025-06-03)
+    model: str = None,         # Realtime model (e.g. gpt-4o-realtime-preview-2025-06-03)
     tts_provider: str = None,  # TTS for GPT-4o pipeline: "openai" or "elevenlabs"
+    llm_provider: str = "openai",  # LLM provider: "openai" or "anthropic"
 ):
     conn = get_conn()
     cur = conn.cursor()
@@ -511,9 +515,10 @@ def create_agent(
             tools_json,
             twilio_number_sid,
             model,
-            tts_provider
+            tts_provider,
+            llm_provider
         )
-        VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
+        VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
         """ + (" RETURNING id" if USE_POSTGRES else "")),
         (
             owner_user_id,
@@ -530,6 +535,7 @@ def create_agent(
             twilio_number_sid,
             model,
             tts_provider,
+            llm_provider,
         )
     )
 
@@ -669,8 +675,9 @@ def update_agent(owner_user_id: int, agent_id: int, **fields):
         "provider",
         "first_message",
         "tools_json",   # store JSON string
-        "model",        # OpenAI Realtime model selection
+        "model",        # Realtime model selection
         "tts_provider", # TTS provider for GPT-4o pipeline
+        "llm_provider", # LLM provider: "openai" or "anthropic"
     }
 
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}

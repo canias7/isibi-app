@@ -47,8 +47,9 @@ class CreateAgentRequest(BaseModel):
     provider: Optional[str] = None
 
     # model / brain selection
-    model: Optional[str] = None  # e.g. "gpt-4o-realtime-preview-2025-06-03" or "gpt-4o"
+    model: Optional[str] = None  # e.g. "gpt-4o-realtime-preview-2025-06-03"
     tts_provider: Optional[str] = "openai"  # TTS for GPT-4o pipeline: "openai" or "elevenlabs"
+    llm_provider: Optional[str] = "openai"  # LLM provider: "openai" or "anthropic"
 
     # voice section
     voice: Optional[str] = None
@@ -73,8 +74,9 @@ class UpdateAgentRequest(BaseModel):
     first_message: Optional[str] = None
     system_prompt: Optional[str] = None
     provider: Optional[str] = None
-    model: Optional[str] = None  # Brain: realtime or gpt-4o
-    tts_provider: Optional[str] = None  # TTS for GPT-4o pipeline: "openai" or "elevenlabs"
+    model: Optional[str] = None  # Realtime model
+    tts_provider: Optional[str] = None  # TTS provider: "openai" or "elevenlabs"
+    llm_provider: Optional[str] = None  # LLM provider: "openai" or "anthropic"
     voice: Optional[str] = None
     voice_provider: Optional[str] = None  # NEW: openai or elevenlabs
     elevenlabs_voice_id: Optional[str] = None  # NEW: ElevenLabs voice ID
@@ -93,8 +95,9 @@ class AgentOut(BaseModel):
     first_message: Optional[str] = None
     system_prompt: Optional[str] = None
     provider: Optional[str] = None
-    model: Optional[str] = None  # Brain model
-    tts_provider: Optional[str] = None  # TTS for GPT-4o pipeline
+    model: Optional[str] = None  # Realtime model
+    tts_provider: Optional[str] = None  # TTS provider
+    llm_provider: Optional[str] = None  # LLM provider: "openai" or "anthropic"
     voice: Optional[str] = None
     voice_provider: Optional[str] = None  # 'openai' or 'elevenlabs'
     elevenlabs_voice_id: Optional[str] = None
@@ -123,6 +126,7 @@ def api_list_agents(user=Depends(verify_token)):
             "provider": a.get("provider"),
             "model": a.get("model"),
             "tts_provider": a.get("tts_provider"),
+            "llm_provider": a.get("llm_provider") or "openai",
             "voice": a.get("voice"),
             "voice_provider": a.get("voice_provider"),
             "elevenlabs_voice_id": a.get("elevenlabs_voice_id"),
@@ -149,6 +153,7 @@ def api_create_agent(payload: CreateAgentRequest, user=Depends(verify_token)):
         provider=payload.provider,
         model=payload.model,
         tts_provider=payload.tts_provider or "openai",
+        llm_provider=payload.llm_provider or "openai",
         voice=payload.voice,
         voice_provider=payload.voice_provider or "openai",  # NEW
         elevenlabs_voice_id=payload.elevenlabs_voice_id,  # NEW
@@ -196,6 +201,7 @@ def api_get_agent(agent_id: int, user=Depends(verify_token)):
         "provider": a.get("provider"),
         "model": a.get("model"),
         "tts_provider": a.get("tts_provider"),
+        "llm_provider": a.get("llm_provider") or "openai",
         "voice": a.get("voice"),
         "voice_provider": a.get("voice_provider"),
         "elevenlabs_voice_id": a.get("elevenlabs_voice_id"),
@@ -221,6 +227,7 @@ def api_update_agent(agent_id: int, payload: UpdateAgentRequest, user=Depends(ve
         provider=payload.provider,
         model=payload.model,
         tts_provider=payload.tts_provider,
+        llm_provider=payload.llm_provider,
         voice=payload.voice,
         voice_provider=payload.voice_provider,  # NEW
         elevenlabs_voice_id=payload.elevenlabs_voice_id,  # NEW
