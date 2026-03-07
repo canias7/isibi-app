@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { formatRange } from "@/lib/pricing";
 import { motion } from "framer-motion";
-import { Bot, Loader2, Upload, Sparkles, Phone, Headphones, Mic, Lock, Pencil, Trash2, Plus, Plug, Cpu, Globe } from "lucide-react";
+import { Bot, Loader2, Upload, Sparkles, Phone, Headphones, Mic, Pencil, Trash2, Plus, Plug, Cpu, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,6 @@ import TestAgentModal from "@/components/TestAgentModal";
 import DashboardIntegrations from "@/components/dashboard/DashboardIntegrations";
 import VoiceSelector from "@/components/dashboard/VoiceSelector";
 import RefinePromptSection from "@/components/dashboard/RefinePromptSection";
-
-const API_URL = "https://isibi-backend.onrender.com/api";
 
 export interface AgentPricingConfig {
   transcriberModel: string;
@@ -42,7 +40,6 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   useEffect(() => {
     onEditingChange?.(editing);
   }, [editing, onEditingChange]);
-  const [loadingAgent, setLoadingAgent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<"assistant" | "phone" | "transcriber" | "model" | "voice" | "integrations">("assistant");
 
@@ -101,7 +98,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [transcriberModel, setTranscriberModel] = useState("whisper-1");
 
   // LLM
-  const [llmModel, setLlmModel] = useState("gpt-4o-realtime-preview-2025-06-03");
+  const [llmModel, setLlmModel] = useState("claude-sonnet-4-5");
 
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
@@ -110,7 +107,6 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   useEffect(() => {
     if (editId) {
       setEditing(true);
-      setLoadingAgent(true);
       getAgent(Number(editId))
         .then((agent) => {
           setAssistantName(agent.assistant_name || "");
@@ -127,8 +123,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             });
           }
         })
-        .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }))
-        .finally(() => setLoadingAgent(false));
+        .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }));
     }
   }, [editId]);
 
@@ -142,7 +137,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   }, [transcriberModel, llmModel, voiceValue.provider, onPricingConfigChange]);
 
   const handleVoiceChange = async (val: { provider: string; voice_id: string }) => {
-    console.log('🎤 Sending:', {
+    console.log('[Voice] Sending:', {
       voice_provider: val.provider,
       elevenlabs_voice_id: val.provider === 'elevenlabs' ? val.voice_id : null,
       openai_voice: val.provider === 'openai' ? val.voice_id : null
@@ -220,7 +215,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
                   </div>
                   <div>
                     <p className="text-base font-semibold text-foreground">{agent.assistant_name}</p>
-                    <p className="text-xs text-muted-foreground">{agent.phone_number || "No phone number"} · {agent.business_name || "No business"}</p>
+                    <p className="text-xs text-muted-foreground">{agent.phone_number || "No phone number"} - {agent.business_name || "No business"}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -470,52 +465,25 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
               <p className="text-sm text-muted-foreground mt-1">Select the language model provider that powers your agent's reasoning and responses.</p>
             </div>
             <select className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20">
-              <option value="openai">OpenAI</option>
-              <option value="azure-openai" disabled>Azure OpenAI (Coming Soon)</option>
-              <option value="anthropic" disabled>Anthropic (Coming Soon)</option>
-              <option value="anthropic-bedrock" disabled>Anthropic Bedrock (Coming Soon)</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai" disabled>OpenAI (Coming Soon)</option>
               <option value="google" disabled>Google (Coming Soon)</option>
-              <option value="custom-llm" disabled>Custom LLM (Coming Soon)</option>
               <option value="groq" disabled>Groq (Coming Soon)</option>
-              <option value="cerebras" disabled>Cerebras (Coming Soon)</option>
               <option value="deepseek" disabled>DeepSeek (Coming Soon)</option>
               <option value="xai" disabled>xAI (Coming Soon)</option>
               <option value="mistral" disabled>Mistral (Coming Soon)</option>
-              <option value="perplexity" disabled>Perplexity AI (Coming Soon)</option>
-              <option value="together" disabled>Together AI (Coming Soon)</option>
-              <option value="anyscale" disabled>Anyscale (Coming Soon)</option>
-              <option value="openrouter" disabled>Openrouter (Coming Soon)</option>
-              <option value="deepinfra" disabled>Deepinfra (Coming Soon)</option>
-              <option value="inflection" disabled>Inflection AI (Coming Soon)</option>
             </select>
 
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
               <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <optgroup label="GPT Realtime (GA)">
-                  <option value="gpt-realtime">GPT Realtime - gpt-realtime (Best quality)</option>
-                  <option value="gpt-realtime-mini">GPT Realtime Mini - gpt-realtime-mini (Fastest and cheapest)</option>
-                  <option value="gpt-realtime-2025-08-28">GPT Realtime - gpt-realtime-2025-08-28 (Pinned snapshot)</option>
-                  <option value="gpt-realtime-mini-2025-10-06">GPT Realtime Mini - gpt-realtime-mini-2025-10-06 (Pinned snapshot)</option>
-                  <option value="gpt-realtime-mini-2025-12-15">GPT Realtime Mini - gpt-realtime-mini-2025-12-15 (Pinned snapshot)</option>
-                </optgroup>
-                <optgroup label="GPT-4o Realtime (Preview)">
-                  <option value="gpt-4o-realtime-preview-2025-06-03">GPT-4o Realtime - gpt-4o-realtime-preview-2025-06-03</option>
-                  <option value="gpt-4o-realtime-preview-2024-12-17">GPT-4o Realtime - gpt-4o-realtime-preview-2024-12-17 (Older)</option>
-                  <option value="gpt-4o-realtime-preview-2024-10-01">GPT-4o Realtime - gpt-4o-realtime-preview-2024-10-01 (Oldest)</option>
-                </optgroup>
-                <optgroup label="GPT-4o Mini Realtime (Preview)">
-                  <option value="gpt-4o-mini-realtime-preview">GPT-4o Mini Realtime - gpt-4o-mini-realtime-preview</option>
-                  <option value="gpt-4o-mini-realtime-preview-2024-12-17">GPT-4o Mini Realtime - gpt-4o-mini-realtime-preview-2024-12-17</option>
-                </optgroup>
-                <optgroup label="Coming Soon">
-                  <option value="gpt-5" disabled>GPT-5 (Coming Soon)</option>
-                  <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
-                  <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
-                  <option value="gpt-4.1-mini" disabled>GPT-4.1 Mini (Coming Soon)</option>
-                  <option value="o3" disabled>O3 (Coming Soon)</option>
-                  <option value="o4-mini" disabled>O4 Mini (Coming Soon)</option>
-                </optgroup>
+                <option value="claude-haiku-4-5">claude-haiku-4-5 -- $0.06/min -- ~150ms (Fastest and cheapest)</option>
+                <option value="claude-sonnet-4-5">claude-sonnet-4-5 -- $0.18/min -- ~250ms (Best balance)</option>
+                <option value="claude-opus-4-5">claude-opus-4-5 -- $0.30/min -- ~400ms (Most capable)</option>
+                <option value="claude-haiku-3-5">claude-haiku-3-5 -- $0.048/min -- ~150ms (Pinned snapshot)</option>
+                <option value="claude-3-5-sonnet-20241022" disabled>claude-3-5-sonnet (Coming Soon)</option>
+                <option value="claude-opus-4-6" disabled>claude-opus-4-6 (Coming Soon)</option>
+                <option value="claude-5" disabled>Claude 5 (Coming Soon)</option>
               </select>
             </div>
           </div>
