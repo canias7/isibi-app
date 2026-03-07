@@ -1,0 +1,7 @@
+project_id = "lrhsbacuuhxwtdvtkhel"
+
+[functions.ask-ai]
+verify_jwt = false
+
+[functions.generate-prompt-from-url]
+verify_jwt = false
