@@ -334,22 +334,28 @@ async def handle_media_stream(websocket: WebSocket):
 
     # --- Peek at the first Twilio message to get agent_id before opening OpenAI WS ---
     DEFAULT_REALTIME_MODEL = "gpt-4o-realtime-preview-2025-06-03"
+
+    # Map standard LLM model names → best equivalent OpenAI Realtime model
+    # (The Realtime API only accepts realtime models for the WebSocket connection)
+    LLM_TO_REALTIME_MAP = {
+        "gpt-4o":                    "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4o-2024-11-20":         "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4o-2024-08-06":         "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4-turbo":               "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4o-mini":               "gpt-4o-mini-realtime-preview-2024-12-17",
+        "gpt-4o-mini-2024-07-18":    "gpt-4o-mini-realtime-preview-2024-12-17",
+        "gpt-3.5-turbo":             "gpt-4o-mini-realtime-preview-2024-12-17",
+    }
+
     VALID_REALTIME_MODELS = {
-        # GA models
-        "gpt-realtime",
-        "gpt-realtime-mini",
-        "gpt-realtime-2025-08-28",
-        "gpt-realtime-mini-2025-10-06",
-        "gpt-realtime-mini-2025-12-15",
-        # GPT-4o Realtime preview snapshots
         "gpt-4o-realtime-preview",
         "gpt-4o-realtime-preview-2025-06-03",
         "gpt-4o-realtime-preview-2024-12-17",
         "gpt-4o-realtime-preview-2024-10-01",
-        # GPT-4o Mini Realtime preview snapshots
         "gpt-4o-mini-realtime-preview",
         "gpt-4o-mini-realtime-preview-2024-12-17",
     }
+
     buffered_messages = []
     selected_model = DEFAULT_REALTIME_MODEL
 
@@ -370,11 +376,15 @@ async def handle_media_stream(websocket: WebSocket):
                         if peek_agent:
                             agent_model_pref = peek_agent.get("model")
                             logger.info(f"🔍 Peek agent model from DB: '{agent_model_pref}'")
-                            if agent_model_pref and agent_model_pref in VALID_REALTIME_MODELS:
-                                selected_model = agent_model_pref
-                                logger.info(f"🧠 Using agent model from DB: {selected_model}")
-                            else:
-                                logger.info(f"🧠 Agent model '{agent_model_pref}' not in valid set, using default: {selected_model}")
+                            if agent_model_pref:
+                                if agent_model_pref in VALID_REALTIME_MODELS:
+                                    selected_model = agent_model_pref
+                                    logger.info(f"🧠 Using realtime model from DB: {selected_model}")
+                                elif agent_model_pref in LLM_TO_REALTIME_MAP:
+                                    selected_model = LLM_TO_REALTIME_MAP[agent_model_pref]
+                                    logger.info(f"🧠 Mapped '{agent_model_pref}' -> realtime model: {selected_model}")
+                                else:
+                                    logger.info(f"🧠 Unknown model '{agent_model_pref}', using default: {selected_model}")
                     except Exception as e:
                         logger.warning(f"⚠️ Could not peek agent model: {e}")
                 break  # found 'start', stop peeking
