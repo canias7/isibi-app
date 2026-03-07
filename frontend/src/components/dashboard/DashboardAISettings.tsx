@@ -101,7 +101,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [transcriberModel, setTranscriberModel] = useState("whisper-1");
 
   // LLM
-  const [llmModel, setLlmModel] = useState("gpt-realtime-2025-08-28");
+  const [llmModel, setLlmModel] = useState("gpt-4o-realtime-preview-2025-06-03");
 
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
@@ -119,6 +119,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
           setFirstMessage(agent.first_message || "");
           setSystemPrompt(agent.system_prompt ?? "");
           setSavedAgentId(agent.id);
+          if (agent.model) setLlmModel(agent.model);
           if (agent.voice || agent.provider) {
             setVoiceValue({
               provider: agent.provider || "openai",
@@ -164,7 +165,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
       const agentId = savedAgentId || (editId ? Number(editId) : null);
       const url = agentId ? `https://isibi-backend.onrender.com/api/agents/${agentId}` : "https://isibi-backend.onrender.com/api/agents";
       const method = agentId ? "PATCH" : "POST";
-      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null }) });
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, model: llmModel, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null }) });
       if (response.status === 403) { toast({ title: "Session Expired", description: "Please login again", variant: "destructive" }); navigate("/login"); return; }
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Failed to save agent"); }
       const data = await response.json();
@@ -491,21 +492,17 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
               <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="gpt-realtime-2025-08-28">GPT Realtime 2025-08-28 ($0.00 - $0.03/min)</option>
+                <option value="gpt-4o-realtime-preview-2025-06-03">GPT-4o Realtime ($0.00 - $0.03/min)</option>
+                <option value="gpt-4o-mini-realtime-preview">GPT-4o Mini Realtime ($0.00 - $0.01/min)</option>
                 <option value="gpt-5" disabled>GPT-5 ($0.00 - $0.12/min) (Coming Soon)</option>
                 <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
                 <option value="gpt-5-nano" disabled>GPT-5 Nano (Coming Soon)</option>
                 <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
                 <option value="gpt-4.1-mini" disabled>GPT-4.1 Mini (Coming Soon)</option>
                 <option value="gpt-4.1-nano" disabled>GPT-4.1 Nano (Coming Soon)</option>
-                <option value="gpt-4o">GPT-4o ($0.00 - $0.08/min)</option>
-                <option value="gpt-4o-mini" disabled>GPT-4o Mini ($0.00 - $0.05/min) (Coming Soon)</option>
                 <option value="o3" disabled>O3 (Coming Soon)</option>
                 <option value="o3-mini" disabled>O3 Mini (Coming Soon)</option>
-                <option value="o3-pro" disabled>O3 Pro (Coming Soon)</option>
                 <option value="o4-mini" disabled>O4 Mini (Coming Soon)</option>
-                <option value="gpt-realtime" disabled>GPT Realtime (Coming Soon)</option>
-                <option value="gpt-realtime-mini" disabled>GPT Realtime Mini (Coming Soon)</option>
               </select>
             </div>
           </div>
