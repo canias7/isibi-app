@@ -98,7 +98,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [transcriberModel, setTranscriberModel] = useState("whisper-1");
 
   // LLM
-  const [llmModel, setLlmModel] = useState("gpt-4o");
+  const [llmModel, setLlmModel] = useState("claude-sonnet-4-5");
 
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
@@ -465,41 +465,25 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
               <p className="text-sm text-muted-foreground mt-1">Select the language model provider that powers your agent's reasoning and responses.</p>
             </div>
             <select className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20">
-              <option value="openai">OpenAI</option>
-              <option value="azure-openai" disabled>Azure OpenAI (Coming Soon)</option>
-              <option value="anthropic" disabled>Anthropic (Coming Soon)</option>
-              <option value="anthropic-bedrock" disabled>Anthropic Bedrock (Coming Soon)</option>
+              <option value="anthropic">Anthropic</option>
+              <option value="openai" disabled>OpenAI (Coming Soon)</option>
               <option value="google" disabled>Google (Coming Soon)</option>
-              <option value="custom-llm" disabled>Custom LLM (Coming Soon)</option>
               <option value="groq" disabled>Groq (Coming Soon)</option>
-              <option value="cerebras" disabled>Cerebras (Coming Soon)</option>
               <option value="deepseek" disabled>DeepSeek (Coming Soon)</option>
               <option value="xai" disabled>xAI (Coming Soon)</option>
               <option value="mistral" disabled>Mistral (Coming Soon)</option>
-              <option value="perplexity" disabled>Perplexity AI (Coming Soon)</option>
-              <option value="together" disabled>Together AI (Coming Soon)</option>
-              <option value="anyscale" disabled>Anyscale (Coming Soon)</option>
-              <option value="openrouter" disabled>Openrouter (Coming Soon)</option>
-              <option value="deepinfra" disabled>Deepinfra (Coming Soon)</option>
-              <option value="inflection" disabled>Inflection AI (Coming Soon)</option>
             </select>
 
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
               <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="gpt-4o">gpt-4o -- $0.0025/1K tokens -- ~320ms (Best quality)</option>
-                <option value="gpt-4o-mini">gpt-4o-mini -- $0.00015/1K tokens -- ~200ms (Fastest and cheapest)</option>
-                <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20 -- $0.0025/1K tokens -- ~320ms (Pinned snapshot)</option>
-                <option value="gpt-4o-2024-08-06">gpt-4o-2024-08-06 -- $0.0025/1K tokens -- ~320ms (Pinned snapshot)</option>
-                <option value="gpt-4o-mini-2024-07-18">gpt-4o-mini-2024-07-18 -- $0.00015/1K tokens -- ~200ms (Pinned snapshot)</option>
-                <option value="gpt-4-turbo">gpt-4-turbo -- $0.01/1K tokens -- ~400ms</option>
-                <option value="gpt-3.5-turbo">gpt-3.5-turbo -- $0.0005/1K tokens -- ~150ms (Legacy)</option>
-                <option value="gpt-5" disabled>GPT-5 (Coming Soon)</option>
-                <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
-                <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
-                <option value="gpt-4.1-mini" disabled>GPT-4.1 Mini (Coming Soon)</option>
-                <option value="o3" disabled>O3 (Coming Soon)</option>
-                <option value="o4-mini" disabled>O4 Mini (Coming Soon)</option>
+                <option value="claude-haiku-4-5">claude-haiku-4-5 -- $0.06/min -- ~150ms (Fastest and cheapest)</option>
+                <option value="claude-sonnet-4-5">claude-sonnet-4-5 -- $0.18/min -- ~250ms (Best balance)</option>
+                <option value="claude-opus-4-5">claude-opus-4-5 -- $0.30/min -- ~400ms (Most capable)</option>
+                <option value="claude-haiku-3-5">claude-haiku-3-5 -- $0.048/min -- ~150ms (Pinned snapshot)</option>
+                <option value="claude-3-5-sonnet-20241022" disabled>claude-3-5-sonnet (Coming Soon)</option>
+                <option value="claude-opus-4-6" disabled>claude-opus-4-6 (Coming Soon)</option>
+                <option value="claude-5" disabled>Claude 5 (Coming Soon)</option>
               </select>
             </div>
           </div>
