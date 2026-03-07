@@ -335,9 +335,18 @@ async def handle_media_stream(websocket: WebSocket):
     # --- Peek at the first Twilio message to get agent_id before opening OpenAI WS ---
     DEFAULT_REALTIME_MODEL = "gpt-4o-realtime-preview-2025-06-03"
 
-    # Map standard LLM model names → best equivalent OpenAI Realtime model
-    # (The Realtime API only accepts realtime models for the WebSocket connection)
+    # Map LLM model names → best equivalent OpenAI Realtime model
+    # Anthropic/other models map to the closest quality tier in OpenAI Realtime
+    # (Haiku = mini tier, Sonnet/Opus = full tier)
     LLM_TO_REALTIME_MAP = {
+        # Anthropic Claude models
+        "claude-haiku-4-5":          "gpt-4o-mini-realtime-preview-2024-12-17",
+        "claude-haiku-3-5":          "gpt-4o-mini-realtime-preview-2024-12-17",
+        "claude-sonnet-4-5":         "gpt-4o-realtime-preview-2025-06-03",
+        "claude-opus-4-5":           "gpt-4o-realtime-preview-2025-06-03",
+        "claude-opus-4-6":           "gpt-4o-realtime-preview-2025-06-03",
+        "claude-3-5-sonnet-20241022": "gpt-4o-realtime-preview-2025-06-03",
+        # OpenAI models (legacy, kept for backwards compat)
         "gpt-4o":                    "gpt-4o-realtime-preview-2025-06-03",
         "gpt-4o-2024-11-20":         "gpt-4o-realtime-preview-2025-06-03",
         "gpt-4o-2024-08-06":         "gpt-4o-realtime-preview-2025-06-03",
