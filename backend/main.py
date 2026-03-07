@@ -368,6 +368,7 @@ async def handle_media_stream(websocket: WebSocket):
 
     buffered_messages = []
     selected_model = DEFAULT_REALTIME_MODEL
+    peek_use_anthropic = False  # Set to True if agent uses Anthropic as LLM
 
     try:
         # Twilio sends a 'connected' event before 'start', so loop until we find 'start'
@@ -430,7 +431,8 @@ async def handle_media_stream(websocket: WebSocket):
             openai_ws,
             instructions=instructions,
             voice=voice,
-            tools=tools
+            tools=tools,
+            stt_only=peek_use_anthropic,
         )
 
         stream_sid = None
