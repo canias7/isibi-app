@@ -98,7 +98,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [transcriberModel, setTranscriberModel] = useState("whisper-1");
 
   // LLM
-  const [llmModel, setLlmModel] = useState("gpt-4o-realtime-preview-2025-06-03");
+  const [llmModel, setLlmModel] = useState("gpt-4o");
 
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
@@ -487,16 +487,13 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             <div>
               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Model</Label>
               <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
-                <option value="gpt-realtime">gpt-realtime -- $0.02/min in, $0.08/min out -- ~320ms (Best quality, GA)</option>
-                <option value="gpt-realtime-mini">gpt-realtime-mini -- $0.006/min in, $0.024/min out -- ~200ms (Fastest and cheapest, GA)</option>
-                <option value="gpt-realtime-2025-08-28">gpt-realtime-2025-08-28 -- $0.02/min in, $0.08/min out -- ~320ms (Pinned snapshot, GA)</option>
-                <option value="gpt-realtime-mini-2025-10-06">gpt-realtime-mini-2025-10-06 -- $0.006/min in, $0.024/min out -- ~200ms (Pinned snapshot, GA)</option>
-                <option value="gpt-realtime-mini-2025-12-15">gpt-realtime-mini-2025-12-15 -- $0.006/min in, $0.024/min out -- ~200ms (Pinned snapshot, GA)</option>
-                <option value="gpt-4o-realtime-preview-2025-06-03">gpt-4o-realtime-preview-2025-06-03 -- $0.06/min in, $0.24/min out -- ~320ms (Preview)</option>
-                <option value="gpt-4o-realtime-preview-2024-12-17">gpt-4o-realtime-preview-2024-12-17 -- $0.06/min in, $0.24/min out -- ~320ms (Older)</option>
-                <option value="gpt-4o-realtime-preview-2024-10-01">gpt-4o-realtime-preview-2024-10-01 -- $0.06/min in, $0.24/min out -- ~320ms (Oldest)</option>
-                <option value="gpt-4o-mini-realtime-preview">gpt-4o-mini-realtime-preview -- $0.006/min in, $0.024/min out -- ~250ms (Preview)</option>
-                <option value="gpt-4o-mini-realtime-preview-2024-12-17">gpt-4o-mini-realtime-preview-2024-12-17 -- $0.006/min in, $0.024/min out -- ~250ms (Older)</option>
+                <option value="gpt-4o">gpt-4o -- $0.0025/1K tokens -- ~320ms (Best quality)</option>
+                <option value="gpt-4o-mini">gpt-4o-mini -- $0.00015/1K tokens -- ~200ms (Fastest and cheapest)</option>
+                <option value="gpt-4o-2024-11-20">gpt-4o-2024-11-20 -- $0.0025/1K tokens -- ~320ms (Pinned snapshot)</option>
+                <option value="gpt-4o-2024-08-06">gpt-4o-2024-08-06 -- $0.0025/1K tokens -- ~320ms (Pinned snapshot)</option>
+                <option value="gpt-4o-mini-2024-07-18">gpt-4o-mini-2024-07-18 -- $0.00015/1K tokens -- ~200ms (Pinned snapshot)</option>
+                <option value="gpt-4-turbo">gpt-4-turbo -- $0.01/1K tokens -- ~400ms</option>
+                <option value="gpt-3.5-turbo">gpt-3.5-turbo -- $0.0005/1K tokens -- ~150ms (Legacy)</option>
                 <option value="gpt-5" disabled>GPT-5 (Coming Soon)</option>
                 <option value="gpt-5-mini" disabled>GPT-5 Mini (Coming Soon)</option>
                 <option value="gpt-4.1" disabled>GPT-4.1 (Coming Soon)</option>
