@@ -1,0 +1,49 @@
+// src/pages/Developer.tsx
+
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import APIKeysSection from "@/components/developer/APIKeysSection";
+import WebhooksSection from "@/components/developer/WebhooksSection";
+import DocumentationSection from "@/components/developer/DocumentationSection";
+import { Code2, Webhook, BookOpen } from "lucide-react";
+
+export default function DeveloperPage() {
+  return (
+    <div className="container mx-auto p-6 max-w-7xl">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold mb-2">Developer</h1>
+        <p className="text-muted-foreground">
+          Manage API keys, webhooks, and integrate your applications
+        </p>
+      </div>
+
+      <Tabs defaultValue="api-keys" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="api-keys" className="gap-2">
+            <Code2 className="h-4 w-4" />
+            API Keys
+          </TabsTrigger>
+          <TabsTrigger value="webhooks" className="gap-2">
+            <Webhook className="h-4 w-4" />
+            Webhooks
+          </TabsTrigger>
+          <TabsTrigger value="docs" className="gap-2">
+            <BookOpen className="h-4 w-4" />
+            Docs
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="api-keys">
+          <APIKeysSection />
+        </TabsContent>
+
+        <TabsContent value="webhooks">
+          <WebhooksSection />
+        </TabsContent>
+
+        <TabsContent value="docs">
+          <DocumentationSection />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
