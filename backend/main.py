@@ -326,17 +326,49 @@ async def handle_media_stream(websocket: WebSocket):
     agent_id = None
     agent = None
     first_message = None
-    
+
     # Default values (will be updated when we receive the start event)
     instructions = SYSTEM_MESSAGE
     voice = VOICE
     tools = None
 
-    # OpenAI Realtime websocket — default model, may be overridden per-agent below
+    # --- Peek at the first Twilio message to get agent_id before opening OpenAI WS ---
     DEFAULT_REALTIME_MODEL = "gpt-4o-realtime-preview-2025-06-03"
+    VALID_REALTIME_MODELS = {
+        "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4o-mini-realtime-preview",
+        "gpt-4o-mini-realtime-preview-2024-12-17",
+        "gpt-4o-realtime-preview-2024-12-17",
+    }
+    buffered_messages = []
+    selected_model = DEFAULT_REALTIME_MODEL
+
+    try:
+        first_msg_text = await websocket.receive_text()
+        buffered_messages.append(first_msg_text)
+        first_data = json.loads(first_msg_text)
+        if first_data.get("event") == "start":
+            custom = first_data["start"].get("customParameters") or {}
+            peek_agent_id = custom.get("agent_id")
+            if peek_agent_id:
+                try:
+                    peek_agent = get_agent_by_id(int(peek_agent_id))
+                    if peek_agent:
+                        agent_model_pref = peek_agent.get("model")
+                        if agent_model_pref and agent_model_pref in VALID_REALTIME_MODELS:
+                            selected_model = agent_model_pref
+                            logger.info(f"🧠 Using agent model from DB: {selected_model}")
+                        else:
+                            logger.info(f"🧠 Agent model '{agent_model_pref}' not valid/set, using default: {selected_model}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not peek agent model: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not peek first Twilio message: {e}")
+
     realtime_url = (
-        f"wss://api.openai.com/v1/realtime?model={DEFAULT_REALTIME_MODEL}&temperature={TEMPERATURE}"
+        f"wss://api.openai.com/v1/realtime?model={selected_model}&temperature={TEMPERATURE}"
     )
+    logger.info(f"🔗 Connecting to OpenAI with model: {selected_model}")
 
     async with websockets.connect(
         realtime_url,
@@ -420,8 +452,16 @@ async def handle_media_stream(websocket: WebSocket):
         async def receive_from_twilio():
             nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, elevenlabs_handler, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
 
+            async def iter_all_messages():
+                # Replay buffered messages first (peeked before OpenAI WS was opened)
+                for buffered in buffered_messages:
+                    yield buffered
+                # Then continue with live messages
+                async for msg in websocket.iter_text():
+                    yield msg
+
             try:
-                async for message in websocket.iter_text():
+                async for message in iter_all_messages():
                     data = json.loads(message)
 
                     evt = data.get("event")
@@ -571,13 +611,7 @@ async def handle_media_stream(websocket: WebSocket):
 
                                     # Log the model this agent is configured to use
                                     agent_model = agent.get("model") or DEFAULT_REALTIME_MODEL
-                                    logger.info(f"🧠 Agent model: {agent_model} (connection uses {DEFAULT_REALTIME_MODEL})")
-                                    if agent_model != DEFAULT_REALTIME_MODEL:
-                                        logger.info(
-                                            f"ℹ️  Agent requests model '{agent_model}' but this call is already "
-                                            f"connected with '{DEFAULT_REALTIME_MODEL}'. "
-                                            f"Model takes effect on the next call."
-                                        )
+                                    logger.info(f"🧠 Agent model: {agent_model} (connection uses {selected_model})")
 
                                     # Update session with agent's configuration
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
