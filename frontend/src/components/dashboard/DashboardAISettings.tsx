@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { formatRange } from "@/lib/pricing";
 import { motion } from "framer-motion";
-import { Bot, Loader2, Upload, Sparkles, Phone, Headphones, Mic, Lock, Pencil, Trash2, Plus, Plug, Cpu, Globe } from "lucide-react";
+import { Bot, Loader2, Upload, Sparkles, Phone, Headphones, Mic, Pencil, Trash2, Plus, Plug, Cpu, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,6 @@ import TestAgentModal from "@/components/TestAgentModal";
 import DashboardIntegrations from "@/components/dashboard/DashboardIntegrations";
 import VoiceSelector from "@/components/dashboard/VoiceSelector";
 import RefinePromptSection from "@/components/dashboard/RefinePromptSection";
-
-const API_URL = "https://isibi-backend.onrender.com/api";
 
 export interface AgentPricingConfig {
   transcriberModel: string;
@@ -42,7 +40,6 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   useEffect(() => {
     onEditingChange?.(editing);
   }, [editing, onEditingChange]);
-  const [loadingAgent, setLoadingAgent] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSubTab, setActiveSubTab] = useState<"assistant" | "phone" | "transcriber" | "model" | "voice" | "integrations">("assistant");
 
@@ -110,7 +107,6 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   useEffect(() => {
     if (editId) {
       setEditing(true);
-      setLoadingAgent(true);
       getAgent(Number(editId))
         .then((agent) => {
           setAssistantName(agent.assistant_name || "");
@@ -127,8 +123,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             });
           }
         })
-        .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }))
-        .finally(() => setLoadingAgent(false));
+        .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }));
     }
   }, [editId]);
 
