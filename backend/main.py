@@ -344,26 +344,32 @@ async def handle_media_stream(websocket: WebSocket):
     selected_model = DEFAULT_REALTIME_MODEL
 
     try:
-        first_msg_text = await websocket.receive_text()
-        buffered_messages.append(first_msg_text)
-        first_data = json.loads(first_msg_text)
-        if first_data.get("event") == "start":
-            custom = first_data["start"].get("customParameters") or {}
-            peek_agent_id = custom.get("agent_id")
-            if peek_agent_id:
-                try:
-                    peek_agent = get_agent_by_id(int(peek_agent_id))
-                    if peek_agent:
-                        agent_model_pref = peek_agent.get("model")
-                        if agent_model_pref and agent_model_pref in VALID_REALTIME_MODELS:
-                            selected_model = agent_model_pref
-                            logger.info(f"🧠 Using agent model from DB: {selected_model}")
-                        else:
-                            logger.info(f"🧠 Agent model '{agent_model_pref}' not valid/set, using default: {selected_model}")
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not peek agent model: {e}")
+        # Twilio sends a 'connected' event before 'start', so loop until we find 'start'
+        for _ in range(5):  # read up to 5 messages looking for 'start'
+            msg_text = await websocket.receive_text()
+            buffered_messages.append(msg_text)
+            msg_data = json.loads(msg_text)
+            logger.info(f"🔍 Peek event: {msg_data.get('event')}")
+            if msg_data.get("event") == "start":
+                custom = msg_data["start"].get("customParameters") or {}
+                peek_agent_id = custom.get("agent_id")
+                logger.info(f"🔍 Peek agent_id: {peek_agent_id}")
+                if peek_agent_id:
+                    try:
+                        peek_agent = get_agent_by_id(int(peek_agent_id))
+                        if peek_agent:
+                            agent_model_pref = peek_agent.get("model")
+                            logger.info(f"🔍 Peek agent model from DB: '{agent_model_pref}'")
+                            if agent_model_pref and agent_model_pref in VALID_REALTIME_MODELS:
+                                selected_model = agent_model_pref
+                                logger.info(f"🧠 Using agent model from DB: {selected_model}")
+                            else:
+                                logger.info(f"🧠 Agent model '{agent_model_pref}' not in valid set, using default: {selected_model}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not peek agent model: {e}")
+                break  # found 'start', stop peeking
     except Exception as e:
-        logger.warning(f"⚠️ Could not peek first Twilio message: {e}")
+        logger.warning(f"⚠️ Could not peek Twilio messages: {e}")
 
     realtime_url = (
         f"wss://api.openai.com/v1/realtime?model={selected_model}&temperature={TEMPERATURE}"
