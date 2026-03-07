@@ -335,10 +335,20 @@ async def handle_media_stream(websocket: WebSocket):
     # --- Peek at the first Twilio message to get agent_id before opening OpenAI WS ---
     DEFAULT_REALTIME_MODEL = "gpt-4o-realtime-preview-2025-06-03"
     VALID_REALTIME_MODELS = {
+        # GA models
+        "gpt-realtime",
+        "gpt-realtime-mini",
+        "gpt-realtime-2025-08-28",
+        "gpt-realtime-mini-2025-10-06",
+        "gpt-realtime-mini-2025-12-15",
+        # GPT-4o Realtime preview snapshots
+        "gpt-4o-realtime-preview",
         "gpt-4o-realtime-preview-2025-06-03",
+        "gpt-4o-realtime-preview-2024-12-17",
+        "gpt-4o-realtime-preview-2024-10-01",
+        # GPT-4o Mini Realtime preview snapshots
         "gpt-4o-mini-realtime-preview",
         "gpt-4o-mini-realtime-preview-2024-12-17",
-        "gpt-4o-realtime-preview-2024-12-17",
     }
     buffered_messages = []
     selected_model = DEFAULT_REALTIME_MODEL
