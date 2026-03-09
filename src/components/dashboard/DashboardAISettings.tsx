@@ -121,6 +121,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
           setSavedAgentId(agent.id);
 
           const savedProvider = agent.llm_provider || "openai";
+          console.log("[AgentLoad] agent.llm_provider:", agent.llm_provider, "→ savedProvider:", savedProvider, "| agent.model:", agent.model);
           const VALID_OPENAI_MODELS = new Set([
             "gpt-realtime", "gpt-realtime-mini",
             "gpt-realtime-2025-08-28", "gpt-realtime-mini-2025-10-06", "gpt-realtime-mini-2025-12-15",
