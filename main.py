@@ -670,10 +670,6 @@ async def handle_media_stream(websocket: WebSocket):
                                     first_message = agent.get("first_message")
                                     logger.info(f"🎤 first_message loaded: '{first_message}'")
 
-                                    # Log the model this agent is configured to use
-                                    agent_model = agent.get("model") or DEFAULT_REALTIME_MODEL
-                                    logger.info(f"🧠 Agent model: {agent_model} (connection uses {selected_model})")
-
                                     # Update session with agent's configuration
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
                                     agent_voice = agent.get("voice") or VOICE
@@ -681,10 +677,12 @@ async def handle_media_stream(websocket: WebSocket):
                                     # Check if using Anthropic as LLM
                                     llm_provider = agent.get("llm_provider", "openai")
                                     use_anthropic = llm_provider == "anthropic"
+                                    agent_model = agent.get("model") or DEFAULT_REALTIME_MODEL
                                     if use_anthropic:
                                         anthropic_model = agent.get("model") or "claude-opus-4-5"
-                                        # Anthropic mode requires ElevenLabs for TTS (no OpenAI audio)
-                                        logger.info(f"🤖 Using Anthropic LLM: {anthropic_model}")
+                                        logger.info(f"🧠 LLM: {anthropic_model} | STT: {selected_model} (transcription only) | TTS: ElevenLabs")
+                                    else:
+                                        logger.info(f"🧠 LLM: {agent_model} | STT+TTS: OpenAI Realtime ({selected_model})")
 
                                     # Check if using ElevenLabs voice
                                     voice_provider = agent.get("voice_provider", "openai")
