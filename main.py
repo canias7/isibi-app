@@ -474,9 +474,10 @@ async def handle_media_stream(websocket: WebSocket):
         whisper_cost = 0.0  # Whisper transcription cost
 
         # Silence / inactivity watchdog
-        activity_event  = asyncio.Event()  # Set whenever customer or AI is active
-        silence_hangup  = False            # True when watchdog triggers hangup
-        last_transcript = ""               # Latest customer transcript (for pause-phrase check)
+        activity_event       = asyncio.Event()  # Set whenever customer or AI is active
+        silence_hangup       = False            # True when watchdog triggers hangup
+        last_transcript      = ""               # Latest customer transcript (for pause-phrase check)
+        customer_has_spoken  = False            # True once customer speaks at least once
 
         async def send_mark():
             if not stream_sid:
@@ -538,10 +539,13 @@ async def handle_media_stream(websocket: WebSocket):
             "give me a second", …) we extend the wait once by PAUSE_PHRASE_EXTENSION
             seconds before hanging up.
             """
-            nonlocal silence_hangup, last_transcript, activity_event
+            nonlocal silence_hangup, last_transcript, activity_event, customer_has_spoken
 
-            # Wait until the greeting is sent so we don't immediately time out
+            # Wait until the greeting is sent AND the customer has spoken at least once
+            # This prevents timing out while the AI is still playing the greeting
             while not first_message_sent:
+                await asyncio.sleep(0.2)
+            while not customer_has_spoken:
                 await asyncio.sleep(0.2)
 
             timeout = SILENCE_TIMEOUT_SECONDS
@@ -1174,7 +1178,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript, customer_has_spoken
 
             try:
                 async for openai_message in openai_ws:
@@ -1223,6 +1227,7 @@ async def handle_media_stream(websocket: WebSocket):
                         transcript = resp.get("transcript", "").strip()
                         if transcript:
                             last_transcript = transcript      # Save for pause-phrase detection
+                            customer_has_spoken = True        # Unlock silence watchdog
                             activity_event.set()              # Silence timer: customer just spoke
                         if transcript and elevenlabs_handler:
                             logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
@@ -1642,7 +1647,8 @@ async def handle_media_stream(websocket: WebSocket):
                     # 2) If caller starts speaking, interrupt assistant
                     if rtype == "input_audio_buffer.speech_started":
                         print("🗣️ speech_started → interrupt")
-                        activity_event.set()  # Silence timer: customer is speaking
+                        customer_has_spoken = True   # Unlock silence watchdog
+                        activity_event.set()          # Silence timer: customer is speaking
                         await handle_speech_started_event()
 
                     # server_vad auto-commits and auto-creates a response when speech stops,
