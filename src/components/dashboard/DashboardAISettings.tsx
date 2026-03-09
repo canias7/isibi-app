@@ -521,16 +521,16 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
               ) : (
                 <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
                   <optgroup label="GPT Realtime (GA — Recommended)">
-                    <option value="gpt-realtime">gpt-realtime — Best quality</option>
-                    <option value="gpt-realtime-mini">gpt-realtime-mini — Fastest &amp; cheapest</option>
+                    <option value="gpt-realtime">gpt-realtime · $0.00–$0.0285/min</option>
+                    <option value="gpt-realtime-mini">gpt-realtime-mini · $0.00–$0.0035/min</option>
                   </optgroup>
                   <optgroup label="GPT-4o Realtime (Preview)">
-                    <option value="gpt-4o-realtime-preview-2025-06-03">gpt-4o-realtime-preview-2025-06-03</option>
-                    <option value="gpt-4o-realtime-preview-2024-12-17">gpt-4o-realtime-preview-2024-12-17</option>
+                    <option value="gpt-4o-realtime-preview-2025-06-03">gpt-4o-realtime-preview-2025-06-03 · $0.00–$0.03/min</option>
+                    <option value="gpt-4o-realtime-preview-2024-12-17">gpt-4o-realtime-preview-2024-12-17 · $0.00–$0.03/min</option>
                   </optgroup>
                   <optgroup label="GPT-4o Mini Realtime (Preview)">
-                    <option value="gpt-4o-mini-realtime-preview">gpt-4o-mini-realtime-preview</option>
-                    <option value="gpt-4o-mini-realtime-preview-2024-12-17">gpt-4o-mini-realtime-preview-2024-12-17</option>
+                    <option value="gpt-4o-mini-realtime-preview">gpt-4o-mini-realtime-preview · $0.00–$0.003/min</option>
+                    <option value="gpt-4o-mini-realtime-preview-2024-12-17">gpt-4o-mini-realtime-preview-2024-12-17 · $0.00–$0.00366/min</option>
                   </optgroup>
                 </select>
               )}

@@ -1169,31 +1169,58 @@ async def handle_media_stream(websocket: WebSocket):
                             openai_input_tokens += input_tokens
                             openai_output_tokens += output_tokens
 
-                            # OpenAI Realtime API pricing (2025-08-28 rates):
-                            # Text input (uncached): $3.85  / 1M tokens = $0.00000385  per token
-                            # Text input (cached):   $0.375 / 1M tokens = $0.000000375 per token
-                            # Audio input:           $33.60 / 1M tokens = $0.0000336   per token
-                            # Text output:           $15.70 / 1M tokens = $0.0000157   per token
-                            # Audio output:          $64.00 / 1M tokens = $0.000064    per token
-                            #   (audio output only applies when NOT using ElevenLabs)
+                            # OpenAI Realtime API pricing per model:
+                            # gpt-realtime:
+                            #   text in $5/1M, cached $1.25/1M, text out $15/1M
+                            # gpt-realtime-mini:
+                            #   text in $0.60/1M, cached $0.15/1M, text out $2/1M
+                            # gpt-4o-realtime-preview (any version):
+                            #   text in $5/1M, cached $1.25/1M, audio in $100/1M, text out $20/1M
+                            # gpt-4o-mini-realtime-preview (any version):
+                            #   text in $0.60/1M, cached $0.15/1M, text out $2.40/1M
 
                             input_details = usage.get("input_token_details", {})
                             output_details = usage.get("output_token_details", {})
 
                             cached_text_tokens  = input_details.get("cached_tokens", 0)
                             audio_input_tokens  = input_details.get("audio_tokens", 0)
-                            # uncached text = total input minus audio minus cached
                             text_input_tokens   = max(0, input_tokens - audio_input_tokens - cached_text_tokens)
-
                             text_output_tokens  = output_details.get("text_tokens", output_tokens)
-                            # Audio output tokens only present when ElevenLabs is NOT used
                             audio_output_tokens = output_details.get("audio_tokens", 0)
 
-                            input_cost  = (text_input_tokens  * 0.00000385
-                                         + cached_text_tokens * 0.000000375
-                                         + audio_input_tokens * 0.0000336)
-                            output_cost = (text_output_tokens  * 0.0000157
-                                         + audio_output_tokens * 0.000064)
+                            _m = selected_model or ""
+                            if "4o-mini" in _m or "gpt-4o-mini" in _m:
+                                _text_in   = 0.0000006
+                                _cached_in = 0.00000015
+                                _audio_in  = 0.0
+                                _text_out  = 0.0000024
+                                _audio_out = 0.0
+                            elif "4o" in _m:
+                                _text_in   = 0.000005
+                                _cached_in = 0.00000125
+                                _audio_in  = 0.0001
+                                _text_out  = 0.00002
+                                _audio_out = 0.0
+                            elif "mini" in _m:
+                                # gpt-realtime-mini
+                                _text_in   = 0.0000006
+                                _cached_in = 0.00000015
+                                _audio_in  = 0.0
+                                _text_out  = 0.000002
+                                _audio_out = 0.0
+                            else:
+                                # gpt-realtime (GA)
+                                _text_in   = 0.000005
+                                _cached_in = 0.00000125
+                                _audio_in  = 0.0
+                                _text_out  = 0.000015
+                                _audio_out = 0.0
+
+                            input_cost  = (text_input_tokens  * _text_in
+                                         + cached_text_tokens * _cached_in
+                                         + audio_input_tokens * _audio_in)
+                            output_cost = (text_output_tokens  * _text_out
+                                         + audio_output_tokens * _audio_out)
 
                             openai_cost += (input_cost + output_cost)
 
