@@ -459,6 +459,7 @@ async def handle_media_stream(websocket: WebSocket):
         openai_input_tokens = 0
         openai_output_tokens = 0
         openai_cost = 0.0
+        anthropic_cost = 0.0  # Anthropic Claude LLM cost
         twilio_cost = 0.0  # Twilio streaming cost
         whisper_cost = 0.0  # Whisper transcription cost
 
@@ -511,7 +512,7 @@ async def handle_media_stream(websocket: WebSocket):
             response_start_timestamp_twilio = None
 
         async def receive_from_twilio():
-            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, use_anthropic, elevenlabs_handler, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
+            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, use_anthropic, elevenlabs_handler, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost
 
             async def iter_all_messages():
                 # Replay buffered messages first (peeked before OpenAI WS was opened)
@@ -918,20 +919,22 @@ async def handle_media_stream(websocket: WebSocket):
                                     elevenlabs_cost = elevenlabs_handler.get_cost()
                                 
                                 # Total API cost (all services)
-                                actual_api_cost = openai_cost + elevenlabs_cost + twilio_cost + whisper_cost
-                                
+                                actual_api_cost = openai_cost + anthropic_cost + elevenlabs_cost + twilio_cost + whisper_cost
+
                                 # Your markup (flat $0.05 per minute)
                                 markup_per_minute = 0.05
                                 markup_total = (duration_seconds / 60) * markup_per_minute
-                                
+
                                 # Customer pays: actual cost + your markup
                                 credits_to_deduct = actual_api_cost + markup_total
-                                
+
                                 # Your profit is just the markup
                                 profit = markup_total
-                                
+
                                 logger.info(f"📊 Call ended: {duration_seconds}s")
-                                logger.info(f"💰 OpenAI (Realtime API): ${openai_cost:.4f}")
+                                logger.info(f"💰 OpenAI (Realtime/STT): ${openai_cost:.4f}")
+                                if use_anthropic:
+                                    logger.info(f"💰 Anthropic (Claude LLM): ${anthropic_cost:.4f}")
                                 logger.info(f"💰 ElevenLabs (TTS): ${elevenlabs_cost:.4f}")
                                 logger.info(f"💰 Twilio (Streaming): ${twilio_cost:.4f}")
                                 logger.info(f"💰 Whisper (Transcription): ${whisper_cost:.4f}")
@@ -1073,7 +1076,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost
 
             try:
                 async for openai_message in openai_ws:
@@ -1136,9 +1139,23 @@ async def handle_media_stream(websocket: WebSocket):
                                     for text_chunk in stream.text_stream:
                                         assistant_reply += text_chunk
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
+                                    final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
                                 anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
-                                logger.info(f"🤖 Anthropic replied ({len(assistant_reply)} chars)")
+                                # Track Anthropic token costs
+                                # haiku-4-5:  $1/1M input,  $5/1M output
+                                # sonnet-4-5: $3/1M input, $15/1M output
+                                # opus-4-5:   $5/1M input, $25/1M output
+                                _in  = final_msg.usage.input_tokens  if final_msg else 0
+                                _out = final_msg.usage.output_tokens if final_msg else 0
+                                if "haiku" in anthropic_model:
+                                    _cost = (_in * 0.000001) + (_out * 0.000005)
+                                elif "sonnet" in anthropic_model:
+                                    _cost = (_in * 0.000003) + (_out * 0.000015)
+                                else:  # opus
+                                    _cost = (_in * 0.000005) + (_out * 0.000025)
+                                anthropic_cost += _cost
+                                logger.info(f"🤖 Anthropic replied ({len(assistant_reply)} chars) | tokens in={_in} out={_out} cost=${_cost:.6f} total=${anthropic_cost:.6f}")
                             except Exception as e:
                                 logger.error(f"❌ Anthropic LLM error: {e}")
 

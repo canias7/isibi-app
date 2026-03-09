@@ -503,9 +503,9 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
               {llmProvider === "anthropic" ? (
                 <select value={llmModel} onChange={(e) => setLlmModel(e.target.value)} className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground mt-2 focus:outline-none focus:ring-2 focus:ring-primary/20">
                   <optgroup label="Claude (Recommended)">
-                    <option value="claude-opus-4-5">claude-opus-4-5 — Most capable</option>
-                    <option value="claude-sonnet-4-5">claude-sonnet-4-5 — Balanced</option>
-                    <option value="claude-haiku-4-5">claude-haiku-4-5 — Fastest &amp; cheapest</option>
+                    <option value="claude-opus-4-5">claude-opus-4-5 — Most capable · $0.00–$0.075/min</option>
+                    <option value="claude-sonnet-4-5">claude-sonnet-4-5 — Balanced · $0.00–$0.045/min</option>
+                    <option value="claude-haiku-4-5">claude-haiku-4-5 — Fastest &amp; cheapest · $0.00–$0.015/min</option>
                   </optgroup>
                 </select>
               ) : (
