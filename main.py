@@ -108,9 +108,15 @@ class ElevenLabsVoiceHandler:
         """Generate ElevenLabs speech and stream to caller"""
         if not self.text_buffer.strip():
             return
-        
+
         text_to_speak = self.text_buffer.strip()
         self.text_buffer = ""  # Clear buffer
+
+        # Strip emojis — ElevenLabs will try to speak them as words otherwise
+        import re
+        text_to_speak = re.sub(r'[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF]', '', text_to_speak).strip()
+        if not text_to_speak:
+            return
         
         # Track characters for cost calculation
         char_count = len(text_to_speak)
@@ -1106,6 +1112,8 @@ async def handle_media_stream(websocket: WebSocket):
                         # speech-stop on an already-empty input buffer (harmless, no action needed)
                         if error_code == "input_audio_buffer_commit_empty":
                             logger.debug(f"⚠️ VAD empty-buffer commit (benign, ignoring): {error_code}")
+                        elif error_code == "response_cancel_not_active":
+                            logger.debug(f"⚠️ Cancel arrived after response already finished (benign, ignoring): {error_code}")
                         else:
                             logger.error(f"❌ OpenAI Error: {error_details}")
                             logger.error(f"Full error response: {resp}")
