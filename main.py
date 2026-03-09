@@ -830,7 +830,17 @@ async def handle_media_stream(websocket: WebSocket):
                                     logger.info(f"📢 Anthropic greeting sent via ElevenLabs")
                                 except Exception as e:
                                     logger.error(f"❌ Anthropic greeting error: {e}")
-                            else:
+                                    # Fallback: send a static greeting via ElevenLabs — never fall through to OpenAI
+                                    fallback_greeting = "Hello! Thanks for calling. How can I help you today?"
+                                    try:
+                                        for text_chunk in fallback_greeting.split():
+                                            await elevenlabs_handler.handle_text_delta(text_chunk + " ")
+                                        await elevenlabs_handler.flush()
+                                        anthropic_conversation_history.append({"role": "assistant", "content": fallback_greeting})
+                                        logger.info(f"📢 Fallback greeting sent via ElevenLabs")
+                                    except Exception as fe:
+                                        logger.error(f"❌ Fallback greeting error: {fe}")
+                            elif not use_anthropic:
                                 # OpenAI mode: trigger greeting via conversation item
                                 await openai_ws.send(json.dumps({
                                     "type": "conversation.item.create",
