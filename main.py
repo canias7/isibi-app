@@ -759,6 +759,17 @@ async def handle_media_stream(websocket: WebSocket):
 
                                     # Update session with agent's configuration
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
+
+                                    # Conversational style rules — appended to every agent
+                                    agent_instructions += (
+                                        "\n\n## Conversation Style (mandatory)\n"
+                                        "- Keep every response SHORT — 1 to 2 sentences maximum.\n"
+                                        "- Ask only ONE question at a time. Never stack multiple questions.\n"
+                                        "- Let the customer finish speaking before you respond.\n"
+                                        "- Do NOT repeat or summarize what the customer just said.\n"
+                                        "- Do NOT over-explain. Be direct and to the point.\n"
+                                        "- Speak naturally, like a real person on a phone call.\n"
+                                    )
                                     agent_voice = agent.get("voice") or VOICE
 
                                     # Check if using Anthropic as LLM
