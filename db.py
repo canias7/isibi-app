@@ -562,9 +562,14 @@ def list_agents(owner_user_id: int):
             phone_number,
             system_prompt,
             voice,
+            voice_provider,
+            elevenlabs_voice_id,
             provider,
             first_message,
             tools_json,
+            model,
+            tts_provider,
+            llm_provider,
             created_at,
             updated_at
         FROM agents
@@ -630,6 +635,7 @@ def get_agent(owner_user_id: int, agent_id: int):
             id, owner_user_id, name, business_name, phone_number,
             system_prompt, voice, voice_provider, elevenlabs_voice_id,
             provider, first_message, tools_json, model, tts_provider,
+            llm_provider,
             vad_silence_duration_ms,
             created_at, updated_at
         FROM agents
