@@ -566,17 +566,43 @@ async def handle_media_stream(websocket: WebSocket):
                         timeout = PAUSE_PHRASE_EXTENSION
                         continue  # Give the customer more time
 
-                    # Genuine silence — trigger hangup
+                    # Genuine silence — ask "are you still there?" and give one more chance
                     logger.warning(
-                        f"⏰ Silence timeout ({SILENCE_TIMEOUT_SECONDS}s) — ending call"
+                        f"⏰ Silence timeout ({SILENCE_TIMEOUT_SECONDS}s) — checking on customer"
                     )
+
+                    still_there_msg = "Are you still there?"
+                    try:
+                        if use_elevenlabs and elevenlabs_handler:
+                            await elevenlabs_handler.handle_text_delta(still_there_msg)
+                            await elevenlabs_handler.flush()
+                        elif not use_anthropic:
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {
+                                    "modalities": ["audio", "text"],
+                                    "instructions": still_there_msg,
+                                }
+                            }))
+                    except Exception as e:
+                        logger.warning(f"⚠️ Still-there message failed: {e}")
+
+                    # Wait another 5s for customer to respond
+                    activity_event.clear()
+                    try:
+                        await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
+                        # Customer responded — continue the call normally
+                        logger.info("✅ Customer responded to 'still there?' — resuming")
+                        timeout = SILENCE_TIMEOUT_SECONDS
+                        continue
+                    except asyncio.TimeoutError:
+                        pass
+
+                    # Still nothing — hang up
+                    logger.warning("⏰ No response — ending call")
                     silence_hangup = True
 
-                    # Say goodbye before hanging up
-                    goodbye_msg = (
-                        "It seems like you've stepped away. "
-                        "Thanks for calling, goodbye!"
-                    )
+                    goodbye_msg = "Thanks for calling, goodbye!"
                     try:
                         if use_elevenlabs and elevenlabs_handler:
                             await elevenlabs_handler.handle_text_delta(goodbye_msg)
@@ -592,7 +618,7 @@ async def handle_media_stream(websocket: WebSocket):
                             }))
                             await asyncio.sleep(4)
                     except Exception as e:
-                        logger.warning(f"⚠️ Silence-timeout goodbye failed: {e}")
+                        logger.warning(f"⚠️ Goodbye message failed: {e}")
 
                     # Close Twilio WebSocket — Twilio ends the call
                     try:
@@ -1244,6 +1270,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 ) as stream:
                                     for text_chunk in stream.text_stream:
                                         assistant_reply += text_chunk
+                                        activity_event.set()  # AI is actively talking — keep timer alive
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
                                     final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
@@ -1598,6 +1625,7 @@ async def handle_media_stream(websocket: WebSocket):
                         if text_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs text delta: {text_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(text_delta)
+                            activity_event.set()  # AI is actively talking — keep timer alive
 
                     # Handle audio transcripts for ElevenLabs (NEW APPROACH)
                     # Skip in Anthropic mode — Claude handles responses separately via transcription.completed
@@ -1606,6 +1634,7 @@ async def handle_media_stream(websocket: WebSocket):
                         if transcript_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs transcript delta: {transcript_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(transcript_delta)
+                            activity_event.set()  # AI is actively talking — keep timer alive
 
                     # Handle text completion for ElevenLabs
                     # Skip in Anthropic mode — flush is called after Claude responds
@@ -1626,6 +1655,8 @@ async def handle_media_stream(websocket: WebSocket):
                         audio_b64 = resp.get("delta")
                         if not audio_b64 or not stream_sid:
                             continue
+
+                        activity_event.set()  # AI is actively talking — keep timer alive
 
                         # Detect new assistant item to start truncation timer
                         item_id = resp.get("item_id")
