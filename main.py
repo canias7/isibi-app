@@ -1069,14 +1069,17 @@ async def handle_media_stream(websocket: WebSocket):
                     if rtype in LOG_EVENT_TYPES:
                         print("OpenAI event:", rtype)
 
-                    # In STT-only (Anthropic LLM) mode: cancel any OpenAI-generated responses
-                    # server_vad auto-triggers response.create after transcription — we don't want that
-                    if use_anthropic and rtype == "response.created":
-                        response_id = resp.get("response", {}).get("id")
+                    # In STT-only (Anthropic LLM) mode: cancel OpenAI response AFTER transcription
+                    # We must NOT cancel on response.created — doing so prevents
+                    # conversation.item.input_audio_transcription.completed from ever firing.
+                    # Instead cancel on response.output_item.added, which fires after transcription
+                    # is complete but before GPT generates any actual output tokens.
+                    if use_anthropic and rtype == "response.output_item.added":
+                        response_id = resp.get("response_id")
                         if response_id:
                             try:
                                 await openai_ws.send(json.dumps({"type": "response.cancel", "response_id": response_id}))
-                                logger.debug(f"🚫 Cancelled OpenAI auto-response (Anthropic mode): {response_id}")
+                                logger.debug(f"🚫 Cancelled OpenAI output (Anthropic mode, post-transcription): {response_id}")
                             except Exception:
                                 pass
                         continue
