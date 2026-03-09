@@ -505,7 +505,7 @@ async def handle_media_stream(websocket: WebSocket):
             response_start_timestamp_twilio = None
 
         async def receive_from_twilio():
-            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, elevenlabs_handler, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
+            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, use_anthropic, elevenlabs_handler, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, twilio_cost, whisper_cost
 
             async def iter_all_messages():
                 # Replay buffered messages first (peeked before OpenAI WS was opened)
