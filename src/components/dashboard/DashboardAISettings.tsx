@@ -101,6 +101,9 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const [llmProvider, setLlmProvider] = useState("openai");
   const [llmModel, setLlmModel] = useState("gpt-4o-realtime-preview-2025-06-03");
 
+  // Force re-fetch when editing same agent repeatedly
+  const [loadKey, setLoadKey] = useState(0);
+
   // Test
   const [testingAgent, setTestingAgent] = useState(false);
 
@@ -145,7 +148,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
         })
         .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }));
     }
-  }, [editId]);
+  }, [editId, loadKey]);
 
   // Push pricing config to parent
   useEffect(() => {
@@ -199,10 +202,16 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
   const startNew = () => {
     setAssistantName(""); setBusinessName(""); setPhoneNumber(""); setFirstMessage(""); setSystemPrompt("");
     setSavedAgentId(null); setEditing(true); setActiveSubTab("assistant");
+    setLlmProvider("openai");
+    setLlmModel("gpt-4o-realtime-preview-2025-06-03");
     setSearchParams({});
   };
 
   const startEdit = (id: number) => {
+    // Reset LLM state before loading so stale values don't flash while fetching
+    setLlmProvider("openai");
+    setLlmModel("gpt-4o-realtime-preview-2025-06-03");
+    setLoadKey(k => k + 1);
     setSearchParams({ edit: String(id) });
   };
 
