@@ -116,9 +116,8 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
           setFirstMessage(agent.first_message || "");
           setSystemPrompt(agent.system_prompt ?? "");
           setSavedAgentId(agent.id);
-          const savedProvider = (agent as any).llm_provider || "openai";
-          setLlmProvider(savedProvider);
 
+          const savedProvider = agent.llm_provider || "openai";
           const VALID_OPENAI_MODELS = new Set([
             "gpt-realtime", "gpt-realtime-mini",
             "gpt-realtime-2025-08-28", "gpt-realtime-mini-2025-10-06", "gpt-realtime-mini-2025-12-15",
@@ -131,8 +130,10 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
             "claude-opus-4-20250514", "claude-sonnet-4-20250514",
           ]);
           if (savedProvider === "anthropic") {
+            setLlmProvider("anthropic");
             setLlmModel(agent.model && VALID_ANTHROPIC_MODELS.has(agent.model) ? agent.model : "claude-opus-4-5");
           } else {
+            setLlmProvider("openai");
             setLlmModel(agent.model && VALID_OPENAI_MODELS.has(agent.model) ? agent.model : "gpt-4o-realtime-preview-2025-06-03");
           }
           if (agent.voice || agent.provider) {

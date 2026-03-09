@@ -36,6 +36,7 @@ export interface AgentOut {
   elevenlabs_voice_id?: string | null;
   openai_voice?: string | null;
   model?: string | null;
+  llm_provider?: string | null;
   tts_provider?: string | null;
   tools?: Record<string, unknown> | null;
   google_calendar_connected?: boolean;
