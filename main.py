@@ -50,6 +50,16 @@ SYSTEM_MESSAGE = (
 VOICE = "alloy"
 SHOW_TIMING_MATH = False
 
+# ── Silence / inactivity timeout ──────────────────────────────────────────────
+SILENCE_TIMEOUT_SECONDS = 5        # Hang up after this many seconds of silence
+PAUSE_PHRASE_EXTENSION  = 60       # Extra wait (s) when customer says "hold on" etc.
+PAUSE_PHRASES = {
+    "give me a second", "one second", "hold on", "just a moment",
+    "be right back", "brb", "wait a second", "wait a minute",
+    "i'll be back", "gimme a sec", "hold on a second", "one moment",
+    "just a moment please", "wait", "hang on",
+}
+
 # Some common event types to log (optional)
 LOG_EVENT_TYPES = {
     "error",
@@ -463,6 +473,11 @@ async def handle_media_stream(websocket: WebSocket):
         twilio_cost = 0.0  # Twilio streaming cost
         whisper_cost = 0.0  # Whisper transcription cost
 
+        # Silence / inactivity watchdog
+        activity_event  = asyncio.Event()  # Set whenever customer or AI is active
+        silence_hangup  = False            # True when watchdog triggers hangup
+        last_transcript = ""               # Latest customer transcript (for pause-phrase check)
+
         async def send_mark():
             if not stream_sid:
                 return
@@ -511,8 +526,79 @@ async def handle_media_stream(websocket: WebSocket):
             last_assistant_item = None
             response_start_timestamp_twilio = None
 
+        async def silence_watchdog():
+            """End the call after SILENCE_TIMEOUT_SECONDS of inactivity.
+
+            The activity_event is set by:
+              • greeting sent (receive_from_twilio)
+              • speech_started / transcription.completed (send_to_twilio)
+              • response.done / ElevenLabs flush (send_to_twilio)
+
+            If the last customer transcript contains a pause phrase ("hold on",
+            "give me a second", …) we extend the wait once by PAUSE_PHRASE_EXTENSION
+            seconds before hanging up.
+            """
+            nonlocal silence_hangup, last_transcript, activity_event
+
+            # Wait until the greeting is sent so we don't immediately time out
+            while not first_message_sent:
+                await asyncio.sleep(0.2)
+
+            timeout = SILENCE_TIMEOUT_SECONDS
+            while True:
+                activity_event.clear()
+                try:
+                    await asyncio.wait_for(activity_event.wait(), timeout=timeout)
+                    # Activity detected — reset to normal timeout
+                    timeout = SILENCE_TIMEOUT_SECONDS
+                except asyncio.TimeoutError:
+                    # Check for pause phrase in last customer transcript
+                    lower_t = last_transcript.lower()
+                    if any(phrase in lower_t for phrase in PAUSE_PHRASES):
+                        logger.info(
+                            f"⏸️ Pause phrase detected ('{last_transcript}') — "
+                            f"extending timeout by {PAUSE_PHRASE_EXTENSION}s"
+                        )
+                        timeout = PAUSE_PHRASE_EXTENSION
+                        continue  # Give the customer more time
+
+                    # Genuine silence — trigger hangup
+                    logger.warning(
+                        f"⏰ Silence timeout ({SILENCE_TIMEOUT_SECONDS}s) — ending call"
+                    )
+                    silence_hangup = True
+
+                    # Say goodbye before hanging up
+                    goodbye_msg = (
+                        "It seems like you've stepped away. "
+                        "Thanks for calling, goodbye!"
+                    )
+                    try:
+                        if use_elevenlabs and elevenlabs_handler:
+                            await elevenlabs_handler.handle_text_delta(goodbye_msg)
+                            await elevenlabs_handler.flush()
+                            await asyncio.sleep(3)
+                        elif not use_anthropic:
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {
+                                    "modalities": ["audio", "text"],
+                                    "instructions": goodbye_msg,
+                                }
+                            }))
+                            await asyncio.sleep(4)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Silence-timeout goodbye failed: {e}")
+
+                    # Close Twilio WebSocket — Twilio ends the call
+                    try:
+                        await websocket.close()
+                    except Exception:
+                        pass
+                    return
+
         async def receive_from_twilio():
-            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, use_anthropic, elevenlabs_handler, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost
+            nonlocal stream_sid, latest_media_timestamp, response_start_timestamp_twilio, last_assistant_item, first_message_sent, agent_id, agent, first_message, use_elevenlabs, use_anthropic, elevenlabs_handler, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript
 
             async def iter_all_messages():
                 # Replay buffered messages first (peeked before OpenAI WS was opened)
@@ -866,6 +952,7 @@ async def handle_media_stream(websocket: WebSocket):
                                 }))
 
                             first_message_sent = True
+                            activity_event.set()  # Silence timer: greeting sent, start watching
                             logger.info(f"📢 Greeting triggered via conversation item")
 
                     elif evt == "media":
@@ -1076,7 +1163,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript
 
             try:
                 async for openai_message in openai_ws:
@@ -1123,6 +1210,9 @@ async def handle_media_stream(websocket: WebSocket):
                     # OpenAI Realtime fires this when it has finished transcribing a caller turn
                     if use_anthropic and rtype == "conversation.item.input_audio_transcription.completed":
                         transcript = resp.get("transcript", "").strip()
+                        if transcript:
+                            last_transcript = transcript      # Save for pause-phrase detection
+                            activity_event.set()              # Silence timer: customer just spoke
                         if transcript and elevenlabs_handler:
                             logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
                             anthropic_conversation_history.append({"role": "user", "content": transcript})
@@ -1141,6 +1231,7 @@ async def handle_media_stream(websocket: WebSocket):
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
                                     final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
+                                activity_event.set()  # Silence timer: AI finished reply
                                 anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
                                 # Track Anthropic token costs
                                 # haiku-4-5:  $1/1M input,  $5/1M output
@@ -1231,6 +1322,10 @@ async def handle_media_stream(websocket: WebSocket):
                                 f"text_out: {text_output_tokens}, audio_out: {audio_output_tokens}"
                             )
                             logger.info(f"💰 OpenAI cost this response: ${(input_cost + output_cost):.4f}, total: ${openai_cost:.4f}")
+
+                    # Silence timer: OpenAI response complete (fires in both OpenAI and Anthropic STT mode)
+                    if rtype == "response.done" and not use_anthropic:
+                        activity_event.set()
 
                     # Handle function calls (Google Calendar)
                     if rtype == "response.function_call_arguments.done":
@@ -1536,6 +1631,7 @@ async def handle_media_stream(websocket: WebSocket):
                     # 2) If caller starts speaking, interrupt assistant
                     if rtype == "input_audio_buffer.speech_started":
                         print("🗣️ speech_started → interrupt")
+                        activity_event.set()  # Silence timer: customer is speaking
                         await handle_speech_started_event()
 
                     # server_vad auto-commits and auto-creates a response when speech stops,
@@ -1545,7 +1641,7 @@ async def handle_media_stream(websocket: WebSocket):
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 
-        await asyncio.gather(receive_from_twilio(), send_to_twilio())
+        await asyncio.gather(receive_from_twilio(), send_to_twilio(), silence_watchdog())
 
 
 def get_calendar_tools(agent_id: int) -> list:
