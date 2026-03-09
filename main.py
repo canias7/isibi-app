@@ -1418,21 +1418,24 @@ async def handle_media_stream(websocket: WebSocket):
                             logger.error(f"❌ Function call error: {e}")
 
                     # Handle text deltas for ElevenLabs (when modalities include text)
-                    if use_elevenlabs and rtype == "response.text.delta":
+                    # Skip in Anthropic mode — Claude handles responses separately via transcription.completed
+                    if use_elevenlabs and not use_anthropic and rtype == "response.text.delta":
                         text_delta = resp.get("delta", "")
                         if text_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs text delta: {text_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(text_delta)
-                    
+
                     # Handle audio transcripts for ElevenLabs (NEW APPROACH)
-                    if use_elevenlabs and rtype == "response.audio_transcript.delta":
+                    # Skip in Anthropic mode — Claude handles responses separately via transcription.completed
+                    if use_elevenlabs and not use_anthropic and rtype == "response.audio_transcript.delta":
                         transcript_delta = resp.get("delta", "")
                         if transcript_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs transcript delta: {transcript_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(transcript_delta)
-                    
+
                     # Handle text completion for ElevenLabs
-                    if use_elevenlabs and rtype in ("response.text.done", "response.audio_transcript.done"):
+                    # Skip in Anthropic mode — flush is called after Claude responds
+                    if use_elevenlabs and not use_anthropic and rtype in ("response.text.done", "response.audio_transcript.done"):
                         if elevenlabs_handler:
                             logger.info(f"✅ ElevenLabs text/transcript complete, flushing buffer")
                             await elevenlabs_handler.flush()
