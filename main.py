@@ -51,7 +51,7 @@ VOICE = "alloy"
 SHOW_TIMING_MATH = False
 
 # ── Silence / inactivity timeout ──────────────────────────────────────────────
-SILENCE_TIMEOUT_SECONDS = 15       # Seconds of silence before asking "still there?"
+SILENCE_TIMEOUT_SECONDS = 5        # Hang up after this many seconds of silence
 PAUSE_PHRASE_EXTENSION  = 60       # Extra wait (s) when customer says "hold on" etc.
 PAUSE_PHRASES = {
     "give me a second", "one second", "hold on", "just a moment",
@@ -474,10 +474,9 @@ async def handle_media_stream(websocket: WebSocket):
         whisper_cost = 0.0  # Whisper transcription cost
 
         # Silence / inactivity watchdog
-        activity_event       = asyncio.Event()  # Set whenever customer or AI is active
-        silence_hangup       = False            # True when watchdog triggers hangup
-        last_transcript      = ""               # Latest customer transcript (for pause-phrase check)
-        customer_has_spoken  = False            # True once customer speaks at least once
+        activity_event  = asyncio.Event()  # Set whenever customer or AI is active
+        silence_hangup  = False            # True when watchdog triggers hangup
+        last_transcript = ""               # Latest customer transcript (for pause-phrase check)
 
         async def send_mark():
             if not stream_sid:
@@ -539,81 +538,57 @@ async def handle_media_stream(websocket: WebSocket):
             "give me a second", …) we extend the wait once by PAUSE_PHRASE_EXTENSION
             seconds before hanging up.
             """
-            nonlocal silence_hangup, last_transcript, activity_event, customer_has_spoken
+            nonlocal silence_hangup, last_transcript, activity_event
 
-            # Wait until the greeting is sent AND the customer has spoken at least once
+            # Wait until the greeting is sent so we don't immediately time out
             while not first_message_sent:
                 await asyncio.sleep(0.2)
-            while not customer_has_spoken:
-                await asyncio.sleep(0.2)
 
+            timeout = SILENCE_TIMEOUT_SECONDS
             while True:
-                # ── Normal silence window ──
                 activity_event.clear()
                 try:
-                    await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
-                    continue  # Activity detected — reset and wait again
+                    await asyncio.wait_for(activity_event.wait(), timeout=timeout)
+                    # Activity detected — reset to normal timeout
+                    timeout = SILENCE_TIMEOUT_SECONDS
                 except asyncio.TimeoutError:
-                    pass
+                    # Check for pause phrase in last customer transcript
+                    lower_t = last_transcript.lower()
+                    if any(phrase in lower_t for phrase in PAUSE_PHRASES):
+                        logger.info(
+                            f"⏸️ Pause phrase detected ('{last_transcript}') — "
+                            f"extending timeout by {PAUSE_PHRASE_EXTENSION}s"
+                        )
+                        timeout = PAUSE_PHRASE_EXTENSION
+                        continue  # Give the customer more time
 
-                # Check for pause phrase before doing anything
-                lower_t = last_transcript.lower()
-                if any(phrase in lower_t for phrase in PAUSE_PHRASES):
-                    logger.info(f"⏸️ Pause phrase ('{last_transcript}') — waiting {PAUSE_PHRASE_EXTENSION}s")
-                    activity_event.clear()
+                    # Genuine silence — trigger hangup
+                    logger.warning(
+                        f"⏰ Silence timeout ({SILENCE_TIMEOUT_SECONDS}s) — ending call"
+                    )
+                    silence_hangup = True
+
+                    # Say goodbye before hanging up
+                    goodbye_msg = (
+                        "It seems like you've stepped away. "
+                        "Thanks for calling, goodbye!"
+                    )
                     try:
-                        await asyncio.wait_for(activity_event.wait(), timeout=PAUSE_PHRASE_EXTENSION)
-                        continue
-                    except asyncio.TimeoutError:
-                        pass
-
-                # ── Ask "still there?" once — pause the watchdog while AI speaks ──
-                logger.warning(f"⏰ {SILENCE_TIMEOUT_SECONDS}s silence — asking customer")
-                silence_hangup = False  # Not hanging up yet
-
-                # Temporarily stop tracking activity so the AI asking doesn't reset the window
-                still_there_msg = "Are you still there?"
-                try:
-                    if use_elevenlabs and elevenlabs_handler:
-                        await elevenlabs_handler.handle_text_delta(still_there_msg)
-                        await elevenlabs_handler.flush()
-                        await asyncio.sleep(2)   # Wait for audio to finish playing
-                    elif not use_anthropic:
-                        await openai_ws.send(json.dumps({
-                            "type": "response.create",
-                            "response": {"modalities": ["audio", "text"], "instructions": still_there_msg}
-                        }))
-                        await asyncio.sleep(3)
-                except Exception as e:
-                    logger.warning(f"⚠️ Still-there message failed: {e}")
-
-                # ── Now wait for CUSTOMER response only — reset event fresh ──
-                activity_event.clear()
-                try:
-                    await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
-                    logger.info("✅ Customer responded — resuming")
-                    continue  # Back to normal loop
-                except asyncio.TimeoutError:
-                    pass
-
-                # ── Still nothing — hang up ──
-                logger.warning("⏰ No response after 'still there?' — ending call")
-                silence_hangup = True
-
-                goodbye_msg = "Thanks for calling, goodbye!"
-                try:
-                    if use_elevenlabs and elevenlabs_handler:
-                        await elevenlabs_handler.handle_text_delta(goodbye_msg)
-                        await elevenlabs_handler.flush()
-                        await asyncio.sleep(3)
-                    elif not use_anthropic:
-                        await openai_ws.send(json.dumps({
-                            "type": "response.create",
-                            "response": {"modalities": ["audio", "text"], "instructions": goodbye_msg}
-                        }))
-                        await asyncio.sleep(4)
-                except Exception as e:
-                    logger.warning(f"⚠️ Goodbye message failed: {e}")
+                        if use_elevenlabs and elevenlabs_handler:
+                            await elevenlabs_handler.handle_text_delta(goodbye_msg)
+                            await elevenlabs_handler.flush()
+                            await asyncio.sleep(3)
+                        elif not use_anthropic:
+                            await openai_ws.send(json.dumps({
+                                "type": "response.create",
+                                "response": {
+                                    "modalities": ["audio", "text"],
+                                    "instructions": goodbye_msg,
+                                }
+                            }))
+                            await asyncio.sleep(4)
+                    except Exception as e:
+                        logger.warning(f"⚠️ Silence-timeout goodbye failed: {e}")
 
                     # Close Twilio WebSocket — Twilio ends the call
                     try:
@@ -784,17 +759,6 @@ async def handle_media_stream(websocket: WebSocket):
 
                                     # Update session with agent's configuration
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
-
-                                    # Conversational style rules — appended to every agent
-                                    agent_instructions += (
-                                        "\n\n## Conversation Style (mandatory)\n"
-                                        "- Keep every response SHORT — 1 to 2 sentences maximum.\n"
-                                        "- Ask only ONE question at a time. Never stack multiple questions.\n"
-                                        "- Let the customer finish speaking before you respond.\n"
-                                        "- Do NOT repeat or summarize what the customer just said.\n"
-                                        "- Do NOT over-explain. Be direct and to the point.\n"
-                                        "- Speak naturally, like a real person on a phone call.\n"
-                                    )
                                     agent_voice = agent.get("voice") or VOICE
 
                                     # Check if using Anthropic as LLM
@@ -1199,7 +1163,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript, customer_has_spoken
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript
 
             try:
                 async for openai_message in openai_ws:
@@ -1248,7 +1212,6 @@ async def handle_media_stream(websocket: WebSocket):
                         transcript = resp.get("transcript", "").strip()
                         if transcript:
                             last_transcript = transcript      # Save for pause-phrase detection
-                            customer_has_spoken = True        # Unlock silence watchdog
                             activity_event.set()              # Silence timer: customer just spoke
                         if transcript and elevenlabs_handler:
                             logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
@@ -1265,7 +1228,6 @@ async def handle_media_stream(websocket: WebSocket):
                                 ) as stream:
                                     for text_chunk in stream.text_stream:
                                         assistant_reply += text_chunk
-                                        activity_event.set()  # AI is actively talking — keep timer alive
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
                                     final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
@@ -1620,7 +1582,6 @@ async def handle_media_stream(websocket: WebSocket):
                         if text_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs text delta: {text_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(text_delta)
-                            activity_event.set()  # AI is actively talking — keep timer alive
 
                     # Handle audio transcripts for ElevenLabs (NEW APPROACH)
                     # Skip in Anthropic mode — Claude handles responses separately via transcription.completed
@@ -1629,7 +1590,6 @@ async def handle_media_stream(websocket: WebSocket):
                         if transcript_delta and elevenlabs_handler:
                             logger.info(f"📝 ElevenLabs transcript delta: {transcript_delta[:50]}")
                             await elevenlabs_handler.handle_text_delta(transcript_delta)
-                            activity_event.set()  # AI is actively talking — keep timer alive
 
                     # Handle text completion for ElevenLabs
                     # Skip in Anthropic mode — flush is called after Claude responds
@@ -1651,8 +1611,6 @@ async def handle_media_stream(websocket: WebSocket):
                         if not audio_b64 or not stream_sid:
                             continue
 
-                        activity_event.set()  # AI is actively talking — keep timer alive
-
                         # Detect new assistant item to start truncation timer
                         item_id = resp.get("item_id")
                         if item_id and item_id != last_assistant_item:
@@ -1670,12 +1628,11 @@ async def handle_media_stream(websocket: WebSocket):
                         )
                         await send_mark()
 
-                    # 2) If caller starts speaking — track for silence watchdog, never interrupt AI
+                    # 2) If caller starts speaking, interrupt assistant
                     if rtype == "input_audio_buffer.speech_started":
-                        print("🗣️ speech_started")
-                        customer_has_spoken = True   # Unlock silence watchdog
-                        activity_event.set()          # Silence timer: customer is speaking
-                        # Do NOT call handle_speech_started_event() — never cut off the AI mid-sentence
+                        print("🗣️ speech_started → interrupt")
+                        activity_event.set()  # Silence timer: customer is speaking
+                        await handle_speech_started_event()
 
                     # server_vad auto-commits and auto-creates a response when speech stops,
                     # so we do NOT manually commit here — doing so causes
