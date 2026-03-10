@@ -487,8 +487,9 @@ async def handle_media_stream(websocket: WebSocket):
         last_transcript = ""               # Latest customer transcript (for pause-phrase check)
 
         # Barge-in / turn-taking state
-        caller_speaking       = False          # True while caller's mic is active
+        caller_speaking        = False          # True while caller's mic is active
         elevenlabs_interrupted = asyncio.Event()  # Set when caller interrupts AI audio
+        current_reply_task     = None           # asyncio.Task for ongoing AI reply generation
 
         async def send_mark():
             if not stream_sid:
@@ -505,10 +506,16 @@ async def handle_media_stream(websocket: WebSocket):
             mark_queue.append("responsePart")
 
         async def handle_speech_started_event():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, mark_queue, caller_speaking
+            nonlocal response_start_timestamp_twilio, last_assistant_item, mark_queue, caller_speaking, current_reply_task
 
             caller_speaking = True
             elevenlabs_interrupted.set()  # Cancel any pending AI audio sleep
+
+            # Cancel ongoing reply generation task so the AI stops mid-sentence
+            if current_reply_task and not current_reply_task.done():
+                current_reply_task.cancel()
+                current_reply_task = None
+                logger.info("🛑 AI reply task cancelled — caller is speaking")
 
             # Always clear Twilio's audio buffer so queued AI audio stops immediately
             if stream_sid:
@@ -1180,8 +1187,59 @@ async def handle_media_stream(websocket: WebSocket):
                 except Exception:
                     pass
 
+        async def _generate_reply(transcript: str):
+            """Run Anthropic LLM + ElevenLabs TTS as a cancellable task."""
+            nonlocal anthropic_conversation_history, anthropic_cost, current_reply_task
+            import anthropic as anthropic_sdk
+            ac = anthropic_sdk.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+            assistant_reply = ""
+            final_msg = None
+            try:
+                elevenlabs_interrupted.clear()
+                async with ac.messages.stream(
+                    model=anthropic_model,
+                    max_tokens=1024,
+                    system=current_system_prompt,
+                    messages=anthropic_conversation_history,
+                ) as stream:
+                    async for text_chunk in stream.text_stream:
+                        assistant_reply += text_chunk
+                        await elevenlabs_handler.handle_text_delta(text_chunk)
+                    final_msg = await stream.get_final_message()
+                await elevenlabs_handler.flush()
+                reply_duration = elevenlabs_handler.pop_pending_duration()
+                elevenlabs_interrupted.clear()
+                try:
+                    await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=reply_duration)
+                    logger.info("🗣️ Caller interrupted AI reply")
+                except asyncio.TimeoutError:
+                    activity_event.set()  # Silence timer: AI finished speaking
+            except asyncio.CancelledError:
+                logger.info("🛑 AI reply cancelled — caller barged in")
+                elevenlabs_handler.pending_audio_bytes = 0  # Reset pending audio
+                if assistant_reply:
+                    anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
+                return
+            except Exception as e:
+                logger.error(f"❌ Anthropic LLM error: {e}")
+                return
+
+            anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
+            if final_msg:
+                _in  = final_msg.usage.input_tokens
+                _out = final_msg.usage.output_tokens
+                if "haiku" in anthropic_model:
+                    _cost = (_in * 0.000001) + (_out * 0.000005)
+                elif "sonnet" in anthropic_model:
+                    _cost = (_in * 0.000003) + (_out * 0.000015)
+                else:
+                    _cost = (_in * 0.000005) + (_out * 0.000025)
+                anthropic_cost += _cost
+                logger.info(f"🤖 Anthropic replied ({len(assistant_reply)} chars) | tokens in={_in} out={_out} cost=${_cost:.6f} total=${anthropic_cost:.6f}")
+            current_reply_task = None
+
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript, caller_speaking
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript, caller_speaking, current_reply_task
 
             try:
                 async for openai_message in openai_ws:
@@ -1234,49 +1292,10 @@ async def handle_media_stream(websocket: WebSocket):
                         if transcript and elevenlabs_handler and not caller_speaking:
                             logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
                             anthropic_conversation_history.append({"role": "user", "content": transcript})
-                            try:
-                                import anthropic as anthropic_sdk
-                                ac = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
-                                assistant_reply = ""
-                                elevenlabs_interrupted.clear()
-                                with ac.messages.stream(
-                                    model=anthropic_model,
-                                    max_tokens=1024,
-                                    system=current_system_prompt,
-                                    messages=anthropic_conversation_history,
-                                ) as stream:
-                                    for text_chunk in stream.text_stream:
-                                        if caller_speaking:
-                                            logger.info("🗣️ Caller started speaking mid-reply — stopping AI generation")
-                                            break
-                                        assistant_reply += text_chunk
-                                        await elevenlabs_handler.handle_text_delta(text_chunk)
-                                    final_msg = stream.get_final_message()
-                                await elevenlabs_handler.flush()
-                                reply_duration = elevenlabs_handler.pop_pending_duration()
-                                elevenlabs_interrupted.clear()
-                                try:
-                                    await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=reply_duration)
-                                    logger.info("🗣️ Caller interrupted AI reply")
-                                except asyncio.TimeoutError:
-                                    activity_event.set()  # Silence timer: AI finished reply
-                                anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
-                                # Track Anthropic token costs
-                                # haiku-4-5:  $1/1M input,  $5/1M output
-                                # sonnet-4-5: $3/1M input, $15/1M output
-                                # opus-4-5:   $5/1M input, $25/1M output
-                                _in  = final_msg.usage.input_tokens  if final_msg else 0
-                                _out = final_msg.usage.output_tokens if final_msg else 0
-                                if "haiku" in anthropic_model:
-                                    _cost = (_in * 0.000001) + (_out * 0.000005)
-                                elif "sonnet" in anthropic_model:
-                                    _cost = (_in * 0.000003) + (_out * 0.000015)
-                                else:  # opus
-                                    _cost = (_in * 0.000005) + (_out * 0.000025)
-                                anthropic_cost += _cost
-                                logger.info(f"🤖 Anthropic replied ({len(assistant_reply)} chars) | tokens in={_in} out={_out} cost=${_cost:.6f} total=${anthropic_cost:.6f}")
-                            except Exception as e:
-                                logger.error(f"❌ Anthropic LLM error: {e}")
+                            # Cancel any ongoing reply before starting a new one
+                            if current_reply_task and not current_reply_task.done():
+                                current_reply_task.cancel()
+                            current_reply_task = asyncio.create_task(_generate_reply(transcript))
 
                     # Track OpenAI usage for cost calculation
                     if rtype == "response.done":
