@@ -69,11 +69,17 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
     }
     setIsGeneratingFromUrl(true);
     try {
-      const { supabase } = await import("@/integrations/supabase/client");
-      const { data, error } = await supabase.functions.invoke("generate-prompt-from-url", {
-        body: { url: websiteUrl, agent_name: assistantName.trim() },
+      const token = localStorage.getItem("token");
+      const res = await fetch("https://isibi-backend.onrender.com/api/agents/generate-prompt-from-url", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ url: websiteUrl }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || "Unknown error");
       if (data?.success) {
         setSystemPrompt(data.prompt);
         toast({ title: "System prompt generated!", description: `From: ${data.page_title || data.url}` });
