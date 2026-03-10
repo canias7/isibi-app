@@ -1207,16 +1207,31 @@ async def handle_media_stream(websocket: WebSocket):
                         await elevenlabs_handler.handle_text_delta(text_chunk)
                     final_msg = await stream.get_final_message()
                 await elevenlabs_handler.flush()
+
+                # Wait for AI audio to finish playing, keeping the silence watchdog alive
+                # by pulsing activity_event every (SILENCE_TIMEOUT_SECONDS - 2) seconds.
                 reply_duration = elevenlabs_handler.pop_pending_duration()
                 elevenlabs_interrupted.clear()
-                try:
-                    await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=reply_duration)
-                    logger.info("🗣️ Caller interrupted AI reply")
-                except asyncio.TimeoutError:
-                    activity_event.set()  # Silence timer: AI finished speaking
+                elapsed = 0.0
+                pulse_interval = max(1.0, SILENCE_TIMEOUT_SECONDS - 2)
+                interrupted = False
+                while elapsed < reply_duration:
+                    wait_for = min(pulse_interval, reply_duration - elapsed)
+                    try:
+                        await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=wait_for)
+                        interrupted = True
+                        logger.info("🗣️ Caller interrupted AI reply")
+                        break
+                    except asyncio.TimeoutError:
+                        elapsed += wait_for
+                        if elapsed < reply_duration:
+                            activity_event.set()  # AI still speaking — reset watchdog
+                if not interrupted:
+                    activity_event.set()  # AI finished — start caller silence countdown
+
             except asyncio.CancelledError:
                 logger.info("🛑 AI reply cancelled — caller barged in")
-                elevenlabs_handler.pending_audio_bytes = 0  # Reset pending audio
+                elevenlabs_handler.pending_audio_bytes = 0
                 if assistant_reply:
                     anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
                 return
@@ -1694,7 +1709,15 @@ async def handle_media_stream(websocket: WebSocket):
             except Exception as e:
                 print(f"Error in send_to_twilio: {e}")
 
-        await asyncio.gather(receive_from_twilio(), send_to_twilio(), silence_watchdog())
+        try:
+            await asyncio.gather(receive_from_twilio(), send_to_twilio(), silence_watchdog())
+        finally:
+            if current_reply_task and not current_reply_task.done():
+                current_reply_task.cancel()
+                try:
+                    await current_reply_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
 
 def get_calendar_tools(agent_id: int) -> list:
