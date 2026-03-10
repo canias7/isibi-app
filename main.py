@@ -1670,12 +1670,12 @@ async def handle_media_stream(websocket: WebSocket):
                         )
                         await send_mark()
 
-                    # 2) If caller starts speaking, interrupt assistant
+                    # 2) If caller starts speaking — track for silence watchdog, never interrupt AI
                     if rtype == "input_audio_buffer.speech_started":
-                        print("🗣️ speech_started → interrupt")
+                        print("🗣️ speech_started")
                         customer_has_spoken = True   # Unlock silence watchdog
                         activity_event.set()          # Silence timer: customer is speaking
-                        await handle_speech_started_event()
+                        # Do NOT call handle_speech_started_event() — never cut off the AI mid-sentence
 
                     # server_vad auto-commits and auto-creates a response when speech stops,
                     # so we do NOT manually commit here — doing so causes
