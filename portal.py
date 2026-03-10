@@ -3395,6 +3395,7 @@ def delete_webhook(webhook_id: int, user=Depends(verify_token)):
 # ========== WEBSITE TO PROMPT GENERATOR ==========
 
 @router.post("/agents/generate-prompt-from-url")
+@router.post("/generate-prompt-from-url")  # alias for older frontend builds
 def generate_prompt_from_url(payload: GeneratePromptFromURLRequest, user=Depends(verify_token)):
     """
     Scrape a website and generate a system prompt using Claude
