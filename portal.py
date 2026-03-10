@@ -1536,7 +1536,7 @@ Generate a SHORT, NATURAL, FLEXIBLE system prompt now:"""
         
         # Call Claude API
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4000,
             messages=[
                 {"role": "user", "content": generation_prompt}
@@ -1647,7 +1647,7 @@ Return the complete refined prompt:"""
         
         # Call Claude API
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4000,
             messages=[
                 {"role": "user", "content": refinement_prompt}
@@ -3481,7 +3481,7 @@ DO NOT include:
 Make it practical and ready to use."""
 
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=1500,
             messages=[
                 {"role": "user", "content": prompt}
