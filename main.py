@@ -75,6 +75,93 @@ LOG_EVENT_TYPES = {
 app = FastAPI()
 
 
+# ========== OpenAI TTS Voice Handler ==========
+
+class OpenAITTSHandler:
+    """
+    Handles OpenAI TTS voice generation for Anthropic+OpenAI-voice mode.
+    Same interface as ElevenLabsVoiceHandler so the rest of the code works unchanged.
+    """
+
+    def __init__(self, voice: str, websocket, stream_sid: str, api_key: str):
+        self.voice = voice or "alloy"
+        self.websocket = websocket
+        self.stream_sid = stream_sid
+        self.api_key = api_key
+        self.text_buffer = ""
+        self.total_characters = 0
+        self.pending_audio_bytes = 0
+        logger.info(f"🎙️ OpenAITTSHandler initialized with voice: {self.voice}")
+
+    def pop_pending_duration(self) -> float:
+        duration = self.pending_audio_bytes / 8000.0
+        self.pending_audio_bytes = 0
+        return duration
+
+    async def handle_text_delta(self, text_delta: str):
+        self.text_buffer += text_delta
+        if self._should_generate():
+            await self._generate_and_stream()
+
+    def _should_generate(self) -> bool:
+        if not self.text_buffer.strip():
+            return False
+        if any(self.text_buffer.strip().endswith(p) for p in ['.', '!', '?', '。']):
+            return True
+        if len(self.text_buffer) > 200:
+            return True
+        return False
+
+    async def flush(self):
+        if self.text_buffer.strip():
+            await self._generate_and_stream()
+
+    async def _generate_and_stream(self):
+        import re
+        text = re.sub(r'[^\x00-\x7F\u00C0-\u024F\u1E00-\u1EFF]', '', self.text_buffer.strip())
+        self.text_buffer = ""
+        if not text:
+            return
+        self.total_characters += len(text)
+        logger.info(f"🎤 OpenAI TTS generating: {text[:80]}...")
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                    json={"model": "tts-1", "input": text, "voice": self.voice, "response_format": "mp3"},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                mp3_audio = resp.content
+            logger.info(f"🎵 OpenAI TTS received {len(mp3_audio)} bytes")
+            audio_segment = AudioSegment.from_mp3(io.BytesIO(mp3_audio))
+            if audio_segment.channels > 1:
+                audio_segment = audio_segment.set_channels(1)
+            audio_segment = audio_segment.set_frame_rate(8000)
+            pcm = audio_segment.raw_data
+            audio_ulaw = audioop.lin2ulaw(pcm, 2)
+            self.pending_audio_bytes += len(audio_ulaw)
+            chunk_size = 160
+            chunks_sent = 0
+            for i in range(0, len(audio_ulaw), chunk_size):
+                chunk = audio_ulaw[i:i + chunk_size]
+                await self.websocket.send_text(json.dumps({
+                    "event": "media",
+                    "streamSid": self.stream_sid,
+                    "media": {"payload": base64.b64encode(chunk).decode('utf-8')}
+                }))
+                chunks_sent += 1
+            logger.info(f"✅ OpenAI TTS sent {chunks_sent} chunks to Twilio")
+        except Exception as e:
+            logger.error(f"❌ OpenAI TTS error: {e}")
+
+    def get_cost(self) -> float:
+        # OpenAI TTS-1: $15 per 1M characters
+        return (self.total_characters / 1_000_000) * 15.0
+
+
 # ========== ElevenLabs Voice Handler ==========
 
 class ElevenLabsVoiceHandler:
@@ -779,39 +866,60 @@ async def handle_media_stream(websocket: WebSocket):
                                     llm_provider = agent.get("llm_provider", "openai")
                                     use_anthropic = llm_provider == "anthropic"
                                     agent_model = agent.get("model") or DEFAULT_REALTIME_MODEL
+                                    # Determine voice provider
+                                    voice_provider = agent.get("voice_provider", "openai")
+                                    elevenlabs_voice_id = agent.get("elevenlabs_voice_id")
+
+                                    # use_elevenlabs = True means: intercept OpenAI audio and use our own TTS
+                                    # This applies when: ElevenLabs is selected, OR Anthropic LLM is used
+                                    # (in Anthropic mode we always handle TTS ourselves)
+                                    use_elevenlabs = voice_provider == "elevenlabs" or use_anthropic
+
                                     if use_anthropic:
                                         anthropic_model = agent.get("model") or "claude-opus-4-5"
-                                        logger.info(f"🧠 LLM: {anthropic_model} | STT: {selected_model} (transcription only) | TTS: ElevenLabs")
+                                        tts_label = "ElevenLabs" if voice_provider == "elevenlabs" else f"OpenAI TTS ({agent_voice})"
+                                        logger.info(f"🧠 LLM: {anthropic_model} | STT: {selected_model} (transcription only) | TTS: {tts_label}")
                                     else:
                                         logger.info(f"🧠 LLM: {agent_model} | STT+TTS: OpenAI Realtime ({selected_model})")
 
-                                    # Check if using ElevenLabs voice
-                                    voice_provider = agent.get("voice_provider", "openai")
-                                    use_elevenlabs = voice_provider == "elevenlabs" or use_anthropic
-                                    elevenlabs_voice_id = agent.get("elevenlabs_voice_id")
-                                    
-                                    # DEBUG: Log what we found
                                     logger.info(f"🔍 DEBUG - Agent voice config:")
                                     logger.info(f"   voice_provider: {voice_provider}")
                                     logger.info(f"   elevenlabs_voice_id: {elevenlabs_voice_id}")
                                     logger.info(f"   use_elevenlabs: {use_elevenlabs}")
                                     logger.info(f"   stream_sid: {stream_sid}")
-                                    
-                                    if use_elevenlabs and elevenlabs_voice_id:
+
+                                    if use_anthropic and voice_provider == "elevenlabs" and elevenlabs_voice_id:
+                                        # Anthropic LLM + ElevenLabs TTS
                                         logger.info(f"🎙️ Using ElevenLabs voice provider (voice_id: {elevenlabs_voice_id})")
-                                        # Initialize ElevenLabs handler (will be used in receive_from_openai)
                                         elevenlabs_handler = ElevenLabsVoiceHandler(
                                             voice_id=elevenlabs_voice_id,
                                             websocket=websocket,
                                             stream_sid=stream_sid or "unknown"
                                         )
                                         logger.info(f"✅ ElevenLabsVoiceHandler initialized")
-                                        logger.info(f"🔍 DEBUG: elevenlabs_handler is now {elevenlabs_handler}")
+                                    elif use_anthropic and voice_provider == "openai":
+                                        # Anthropic LLM + OpenAI TTS
+                                        logger.info(f"🎙️ Using OpenAI TTS voice provider (voice: {agent_voice})")
+                                        elevenlabs_handler = OpenAITTSHandler(
+                                            voice=agent_voice or "alloy",
+                                            websocket=websocket,
+                                            stream_sid=stream_sid or "unknown",
+                                            api_key=OPENAI_API_KEY,
+                                        )
+                                        logger.info(f"✅ OpenAITTSHandler initialized")
+                                    elif not use_anthropic and voice_provider == "elevenlabs" and elevenlabs_voice_id:
+                                        # OpenAI LLM + ElevenLabs TTS
+                                        logger.info(f"🎙️ Using ElevenLabs voice provider (voice_id: {elevenlabs_voice_id})")
+                                        elevenlabs_handler = ElevenLabsVoiceHandler(
+                                            voice_id=elevenlabs_voice_id,
+                                            websocket=websocket,
+                                            stream_sid=stream_sid or "unknown"
+                                        )
+                                        logger.info(f"✅ ElevenLabsVoiceHandler initialized")
                                     else:
+                                        # OpenAI LLM + OpenAI Realtime TTS (native)
                                         elevenlabs_handler = None
-                                        logger.info(f"🎤 Using OpenAI voice: {agent_voice}")
-                                        if use_elevenlabs:
-                                            logger.warning(f"⚠️ voice_provider is 'elevenlabs' but elevenlabs_voice_id is missing!")
+                                        logger.info(f"🎤 Using OpenAI Realtime voice: {agent_voice}")
                                     
                                     # Enforce English language unless specified otherwise in system prompt
                                     # Check if language is explicitly mentioned in the system prompt
@@ -1041,7 +1149,8 @@ async def handle_media_stream(websocket: WebSocket):
                                 logger.info(f"💰 Whisper (STT): ${openai_cost:.4f}")
                                 if use_anthropic:
                                     logger.info(f"💰 Anthropic (Claude LLM): ${anthropic_cost:.4f}")
-                                logger.info(f"💰 ElevenLabs (TTS): ${elevenlabs_cost:.4f}")
+                                tts_label = "ElevenLabs" if isinstance(elevenlabs_handler, ElevenLabsVoiceHandler) else "OpenAI TTS" if isinstance(elevenlabs_handler, OpenAITTSHandler) else "OpenAI Realtime"
+                                logger.info(f"💰 {tts_label} (TTS): ${elevenlabs_cost:.4f}")
                                 logger.info(f"💰 Twilio (Streaming): ${twilio_cost:.4f}")
                                 logger.info(f"💰 Total API cost: ${actual_api_cost:.4f}")
                                 logger.info(f"💰 Your markup (+$0.05/min): ${markup_total:.4f}")
