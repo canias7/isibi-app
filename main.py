@@ -89,7 +89,14 @@ class ElevenLabsVoiceHandler:
         self.stream_sid = stream_sid
         self.text_buffer = ""
         self.total_characters = 0  # Track characters for cost calculation
+        self.pending_audio_bytes = 0  # Bytes queued to Twilio but not yet played
         logger.info(f"🎙️ ElevenLabsVoiceHandler initialized with voice: {voice_id}")
+
+    def pop_pending_duration(self) -> float:
+        """Return seconds of audio queued to Twilio, then reset counter."""
+        duration = self.pending_audio_bytes / 8000.0
+        self.pending_audio_bytes = 0
+        return duration
     
     async def handle_text_delta(self, text_delta: str):
         """Buffer text and generate speech when ready"""
@@ -171,7 +178,8 @@ class ElevenLabsVoiceHandler:
             # Convert to μ-law using audioop.lin2ulaw
             audio_ulaw = audioop.lin2ulaw(pcm_8khz, 2)
             logger.info(f"🔊 Converted to {len(audio_ulaw)} bytes of μ-law audio")
-            
+            self.pending_audio_bytes += len(audio_ulaw)
+
             # Send in chunks to Twilio (20ms chunks = 160 bytes at 8kHz μ-law)
             chunk_size = 160
             chunks_sent = 0
@@ -952,7 +960,12 @@ async def handle_media_stream(websocket: WebSocket):
                                 }))
 
                             first_message_sent = True
-                            activity_event.set()  # Silence timer: greeting sent, start watching
+                            # Delay silence timer until after the greeting audio has finished playing
+                            if elevenlabs_handler:
+                                greeting_duration = elevenlabs_handler.pop_pending_duration()
+                                logger.info(f"⏳ Waiting {greeting_duration:.1f}s for greeting audio to finish playing")
+                                await asyncio.sleep(greeting_duration)
+                            activity_event.set()  # Silence timer: greeting audio done, start watching
                             logger.info(f"📢 Greeting triggered via conversation item")
 
                     elif evt == "media":
@@ -1231,6 +1244,8 @@ async def handle_media_stream(websocket: WebSocket):
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
                                     final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
+                                reply_duration = elevenlabs_handler.pop_pending_duration()
+                                await asyncio.sleep(reply_duration)
                                 activity_event.set()  # Silence timer: AI finished reply
                                 anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
                                 # Track Anthropic token costs
