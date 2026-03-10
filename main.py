@@ -51,7 +51,7 @@ VOICE = "alloy"
 SHOW_TIMING_MATH = False
 
 # ── Silence / inactivity timeout ──────────────────────────────────────────────
-SILENCE_TIMEOUT_SECONDS = 5        # Hang up after this many seconds of silence
+SILENCE_TIMEOUT_SECONDS = 15       # Seconds of silence before asking "still there?"
 PAUSE_PHRASE_EXTENSION  = 60       # Extra wait (s) when customer says "hold on" etc.
 PAUSE_PHRASES = {
     "give me a second", "one second", "hold on", "just a moment",
@@ -542,83 +542,78 @@ async def handle_media_stream(websocket: WebSocket):
             nonlocal silence_hangup, last_transcript, activity_event, customer_has_spoken
 
             # Wait until the greeting is sent AND the customer has spoken at least once
-            # This prevents timing out while the AI is still playing the greeting
             while not first_message_sent:
                 await asyncio.sleep(0.2)
             while not customer_has_spoken:
                 await asyncio.sleep(0.2)
 
-            timeout = SILENCE_TIMEOUT_SECONDS
             while True:
+                # ── Normal silence window ──
                 activity_event.clear()
                 try:
-                    await asyncio.wait_for(activity_event.wait(), timeout=timeout)
-                    # Activity detected — reset to normal timeout
-                    timeout = SILENCE_TIMEOUT_SECONDS
+                    await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
+                    continue  # Activity detected — reset and wait again
                 except asyncio.TimeoutError:
-                    # Check for pause phrase in last customer transcript
-                    lower_t = last_transcript.lower()
-                    if any(phrase in lower_t for phrase in PAUSE_PHRASES):
-                        logger.info(
-                            f"⏸️ Pause phrase detected ('{last_transcript}') — "
-                            f"extending timeout by {PAUSE_PHRASE_EXTENSION}s"
-                        )
-                        timeout = PAUSE_PHRASE_EXTENSION
-                        continue  # Give the customer more time
+                    pass
 
-                    # Genuine silence — ask "are you still there?" and give one more chance
-                    logger.warning(
-                        f"⏰ Silence timeout ({SILENCE_TIMEOUT_SECONDS}s) — checking on customer"
-                    )
-
-                    still_there_msg = "Are you still there?"
-                    try:
-                        if use_elevenlabs and elevenlabs_handler:
-                            await elevenlabs_handler.handle_text_delta(still_there_msg)
-                            await elevenlabs_handler.flush()
-                        elif not use_anthropic:
-                            await openai_ws.send(json.dumps({
-                                "type": "response.create",
-                                "response": {
-                                    "modalities": ["audio", "text"],
-                                    "instructions": still_there_msg,
-                                }
-                            }))
-                    except Exception as e:
-                        logger.warning(f"⚠️ Still-there message failed: {e}")
-
-                    # Wait another 5s for customer to respond
+                # Check for pause phrase before doing anything
+                lower_t = last_transcript.lower()
+                if any(phrase in lower_t for phrase in PAUSE_PHRASES):
+                    logger.info(f"⏸️ Pause phrase ('{last_transcript}') — waiting {PAUSE_PHRASE_EXTENSION}s")
                     activity_event.clear()
                     try:
-                        await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
-                        # Customer responded — continue the call normally
-                        logger.info("✅ Customer responded to 'still there?' — resuming")
-                        timeout = SILENCE_TIMEOUT_SECONDS
+                        await asyncio.wait_for(activity_event.wait(), timeout=PAUSE_PHRASE_EXTENSION)
                         continue
                     except asyncio.TimeoutError:
                         pass
 
-                    # Still nothing — hang up
-                    logger.warning("⏰ No response — ending call")
-                    silence_hangup = True
+                # ── Ask "still there?" once — pause the watchdog while AI speaks ──
+                logger.warning(f"⏰ {SILENCE_TIMEOUT_SECONDS}s silence — asking customer")
+                silence_hangup = False  # Not hanging up yet
 
-                    goodbye_msg = "Thanks for calling, goodbye!"
-                    try:
-                        if use_elevenlabs and elevenlabs_handler:
-                            await elevenlabs_handler.handle_text_delta(goodbye_msg)
-                            await elevenlabs_handler.flush()
-                            await asyncio.sleep(3)
-                        elif not use_anthropic:
-                            await openai_ws.send(json.dumps({
-                                "type": "response.create",
-                                "response": {
-                                    "modalities": ["audio", "text"],
-                                    "instructions": goodbye_msg,
-                                }
-                            }))
-                            await asyncio.sleep(4)
-                    except Exception as e:
-                        logger.warning(f"⚠️ Goodbye message failed: {e}")
+                # Temporarily stop tracking activity so the AI asking doesn't reset the window
+                still_there_msg = "Are you still there?"
+                try:
+                    if use_elevenlabs and elevenlabs_handler:
+                        await elevenlabs_handler.handle_text_delta(still_there_msg)
+                        await elevenlabs_handler.flush()
+                        await asyncio.sleep(2)   # Wait for audio to finish playing
+                    elif not use_anthropic:
+                        await openai_ws.send(json.dumps({
+                            "type": "response.create",
+                            "response": {"modalities": ["audio", "text"], "instructions": still_there_msg}
+                        }))
+                        await asyncio.sleep(3)
+                except Exception as e:
+                    logger.warning(f"⚠️ Still-there message failed: {e}")
+
+                # ── Now wait for CUSTOMER response only — reset event fresh ──
+                activity_event.clear()
+                try:
+                    await asyncio.wait_for(activity_event.wait(), timeout=SILENCE_TIMEOUT_SECONDS)
+                    logger.info("✅ Customer responded — resuming")
+                    continue  # Back to normal loop
+                except asyncio.TimeoutError:
+                    pass
+
+                # ── Still nothing — hang up ──
+                logger.warning("⏰ No response after 'still there?' — ending call")
+                silence_hangup = True
+
+                goodbye_msg = "Thanks for calling, goodbye!"
+                try:
+                    if use_elevenlabs and elevenlabs_handler:
+                        await elevenlabs_handler.handle_text_delta(goodbye_msg)
+                        await elevenlabs_handler.flush()
+                        await asyncio.sleep(3)
+                    elif not use_anthropic:
+                        await openai_ws.send(json.dumps({
+                            "type": "response.create",
+                            "response": {"modalities": ["audio", "text"], "instructions": goodbye_msg}
+                        }))
+                        await asyncio.sleep(4)
+                except Exception as e:
+                    logger.warning(f"⚠️ Goodbye message failed: {e}")
 
                     # Close Twilio WebSocket — Twilio ends the call
                     try:
