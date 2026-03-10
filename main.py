@@ -486,6 +486,10 @@ async def handle_media_stream(websocket: WebSocket):
         silence_hangup  = False            # True when watchdog triggers hangup
         last_transcript = ""               # Latest customer transcript (for pause-phrase check)
 
+        # Barge-in / turn-taking state
+        caller_speaking       = False          # True while caller's mic is active
+        elevenlabs_interrupted = asyncio.Event()  # Set when caller interrupts AI audio
+
         async def send_mark():
             if not stream_sid:
                 return
@@ -501,36 +505,33 @@ async def handle_media_stream(websocket: WebSocket):
             mark_queue.append("responsePart")
 
         async def handle_speech_started_event():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, mark_queue
+            nonlocal response_start_timestamp_twilio, last_assistant_item, mark_queue, caller_speaking
 
-            # Only truncate if we actually have an in-progress assistant audio item
-            if not last_assistant_item:
-                return
+            caller_speaking = True
+            elevenlabs_interrupted.set()  # Cancel any pending AI audio sleep
 
-            if response_start_timestamp_twilio is None:
-                return
-
-            elapsed_time = latest_media_timestamp - response_start_timestamp_twilio
-            if SHOW_TIMING_MATH:
-                print(
-                    f"Truncate math: {latest_media_timestamp} - {response_start_timestamp_twilio} = {elapsed_time}ms"
+            # Always clear Twilio's audio buffer so queued AI audio stops immediately
+            if stream_sid:
+                await websocket.send_text(
+                    json.dumps({"event": "clear", "streamSid": stream_sid})
                 )
-
-            # Ask OpenAI to truncate the last audio item
-            truncate_event = {
-                "type": "conversation.item.truncate",
-                "item_id": last_assistant_item,
-                "content_index": 0,
-                "audio_end_ms": max(0, elapsed_time),
-            }
-            await openai_ws.send(json.dumps(truncate_event))
-
-            # Clear Twilio buffer so it stops playing the old audio
-            await websocket.send_text(
-                json.dumps({"event": "clear", "streamSid": stream_sid})
-            )
-
             mark_queue.clear()
+
+            # If OpenAI was mid-response, truncate it too
+            if last_assistant_item and response_start_timestamp_twilio is not None:
+                elapsed_time = latest_media_timestamp - response_start_timestamp_twilio
+                if SHOW_TIMING_MATH:
+                    print(
+                        f"Truncate math: {latest_media_timestamp} - {response_start_timestamp_twilio} = {elapsed_time}ms"
+                    )
+                truncate_event = {
+                    "type": "conversation.item.truncate",
+                    "item_id": last_assistant_item,
+                    "content_index": 0,
+                    "audio_end_ms": max(0, elapsed_time),
+                }
+                await openai_ws.send(json.dumps(truncate_event))
+
             last_assistant_item = None
             response_start_timestamp_twilio = None
 
@@ -964,8 +965,12 @@ async def handle_media_stream(websocket: WebSocket):
                             if elevenlabs_handler:
                                 greeting_duration = elevenlabs_handler.pop_pending_duration()
                                 logger.info(f"⏳ Waiting {greeting_duration:.1f}s for greeting audio to finish playing")
-                                await asyncio.sleep(greeting_duration)
-                            activity_event.set()  # Silence timer: greeting audio done, start watching
+                                elevenlabs_interrupted.clear()
+                                try:
+                                    await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=greeting_duration)
+                                    logger.info("🗣️ Caller interrupted greeting")
+                                except asyncio.TimeoutError:
+                                    activity_event.set()  # Silence timer: greeting audio done, start watching
                             logger.info(f"📢 Greeting triggered via conversation item")
 
                     elif evt == "media":
@@ -1176,7 +1181,7 @@ async def handle_media_stream(websocket: WebSocket):
                     pass
 
         async def send_to_twilio():
-            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript
+            nonlocal response_start_timestamp_twilio, last_assistant_item, elevenlabs_handler, use_elevenlabs, use_anthropic, anthropic_model, anthropic_conversation_history, current_system_prompt, openai_input_tokens, openai_output_tokens, openai_cost, anthropic_cost, twilio_cost, whisper_cost, activity_event, silence_hangup, last_transcript, caller_speaking
 
             try:
                 async for openai_message in openai_ws:
@@ -1226,13 +1231,14 @@ async def handle_media_stream(websocket: WebSocket):
                         if transcript:
                             last_transcript = transcript      # Save for pause-phrase detection
                             activity_event.set()              # Silence timer: customer just spoke
-                        if transcript and elevenlabs_handler:
+                        if transcript and elevenlabs_handler and not caller_speaking:
                             logger.info(f"🎙️ Caller said (Anthropic mode): {transcript}")
                             anthropic_conversation_history.append({"role": "user", "content": transcript})
                             try:
                                 import anthropic as anthropic_sdk
                                 ac = anthropic_sdk.Anthropic(api_key=ANTHROPIC_API_KEY)
                                 assistant_reply = ""
+                                elevenlabs_interrupted.clear()
                                 with ac.messages.stream(
                                     model=anthropic_model,
                                     max_tokens=1024,
@@ -1240,13 +1246,20 @@ async def handle_media_stream(websocket: WebSocket):
                                     messages=anthropic_conversation_history,
                                 ) as stream:
                                     for text_chunk in stream.text_stream:
+                                        if caller_speaking:
+                                            logger.info("🗣️ Caller started speaking mid-reply — stopping AI generation")
+                                            break
                                         assistant_reply += text_chunk
                                         await elevenlabs_handler.handle_text_delta(text_chunk)
                                     final_msg = stream.get_final_message()
                                 await elevenlabs_handler.flush()
                                 reply_duration = elevenlabs_handler.pop_pending_duration()
-                                await asyncio.sleep(reply_duration)
-                                activity_event.set()  # Silence timer: AI finished reply
+                                elevenlabs_interrupted.clear()
+                                try:
+                                    await asyncio.wait_for(elevenlabs_interrupted.wait(), timeout=reply_duration)
+                                    logger.info("🗣️ Caller interrupted AI reply")
+                                except asyncio.TimeoutError:
+                                    activity_event.set()  # Silence timer: AI finished reply
                                 anthropic_conversation_history.append({"role": "assistant", "content": assistant_reply})
                                 # Track Anthropic token costs
                                 # haiku-4-5:  $1/1M input,  $5/1M output
@@ -1648,6 +1661,12 @@ async def handle_media_stream(websocket: WebSocket):
                         print("🗣️ speech_started → interrupt")
                         activity_event.set()  # Silence timer: customer is speaking
                         await handle_speech_started_event()
+
+                    # 3) Caller stopped speaking — clear the barge-in flag
+                    if rtype == "input_audio_buffer.speech_stopped":
+                        caller_speaking = False
+                        elevenlabs_interrupted.clear()  # Reset for next AI turn
+                        logger.info("🔇 Caller stopped speaking")
 
                     # server_vad auto-commits and auto-creates a response when speech stops,
                     # so we do NOT manually commit here — doing so causes
