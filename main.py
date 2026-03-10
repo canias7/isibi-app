@@ -51,7 +51,7 @@ VOICE = "alloy"
 SHOW_TIMING_MATH = False
 
 # ── Silence / inactivity timeout ──────────────────────────────────────────────
-SILENCE_TIMEOUT_SECONDS = 5        # Hang up after this many seconds of silence
+SILENCE_TIMEOUT_SECONDS = 15       # Hang up after this many seconds of silence
 PAUSE_PHRASE_EXTENSION  = 60       # Extra wait (s) when customer says "hold on" etc.
 PAUSE_PHRASES = {
     "give me a second", "one second", "hold on", "just a moment",
@@ -901,7 +901,7 @@ async def handle_media_stream(websocket: WebSocket):
 
                             if use_anthropic and elevenlabs_handler:
                                 # Anthropic mode: generate greeting via Claude → ElevenLabs
-                                greeting_prompt = first_message if first_message else "[SYSTEM: The caller has just connected. Greet them warmly and introduce yourself.]"
+                                greeting_prompt = first_message if first_message else "[SYSTEM: The caller just connected. Say a brief greeting only — one short sentence, then stop and wait for them to speak.]"
                                 anthropic_conversation_history.append({"role": "user", "content": greeting_prompt})
                                 try:
                                     import anthropic as anthropic_sdk
@@ -909,7 +909,7 @@ async def handle_media_stream(websocket: WebSocket):
                                     greeting_response = ""
                                     with ac.messages.stream(
                                         model=anthropic_model,
-                                        max_tokens=300,
+                                        max_tokens=60,
                                         system=current_system_prompt,
                                         messages=anthropic_conversation_history,
                                     ) as stream:
