@@ -96,6 +96,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
 
   // Voice
   const [voiceValue, setVoiceValue] = useState<{ provider: string; voice_id: string }>({ provider: "elevenlabs", voice_id: "21m00Tcm4TlvDq8ikWAM" });
+  const [language, setLanguage] = useState("en");
 
 
 
@@ -151,6 +152,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
               voice_id: agent.voice || "alloy",
             });
           }
+          setLanguage(agent.language || "en");
         })
         .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }));
     }
@@ -189,7 +191,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
       const agentId = savedAgentId || (editId ? Number(editId) : null);
       const url = agentId ? `https://isibi-backend.onrender.com/api/agents/${agentId}` : "https://isibi-backend.onrender.com/api/agents";
       const method = agentId ? "PATCH" : "POST";
-      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, model: llmModel, llm_provider: llmProvider, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null }) });
+      const response = await fetch(url, { method, headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ phone_number: phoneNumber || null, business_name: businessName || null, assistant_name: assistantName, first_message: firstMessage || null, system_prompt: systemPrompt || null, model: llmModel, llm_provider: llmProvider, voice_provider: voiceValue.provider, elevenlabs_voice_id: voiceValue.provider === 'elevenlabs' ? voiceValue.voice_id : null, openai_voice: voiceValue.provider === 'openai' ? voiceValue.voice_id : null, language }) });
       if (response.status === 403) { toast({ title: "Session Expired", description: "Please login again", variant: "destructive" }); navigate("/login"); return; }
       if (!response.ok) { const error = await response.json(); throw new Error(error.detail || "Failed to save agent"); }
       const data = await response.json();
@@ -210,6 +212,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
     setSavedAgentId(null); setEditing(true); setActiveSubTab("assistant");
     setLlmProvider("openai");
     setLlmModel("gpt-4o-realtime-preview-2025-06-03");
+    setLanguage("en");
     setSearchParams({});
   };
 
@@ -550,7 +553,7 @@ export default function DashboardAISettings({ agents, onAgentsRefresh, onPricing
       </div>
 
       <div className={activeSubTab === "voice" ? "" : "hidden"}>
-          <VoiceSelector value={voiceValue} onChange={handleVoiceChange} />
+          <VoiceSelector value={voiceValue} onChange={handleVoiceChange} language={language} onLanguageChange={setLanguage} />
       </div>
 
       <div className={activeSubTab === "integrations" ? "" : "hidden"}>

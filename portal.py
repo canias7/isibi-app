@@ -55,6 +55,7 @@ class CreateAgentRequest(BaseModel):
     voice: Optional[str] = None
     voice_provider: Optional[str] = "openai"  # NEW: openai or elevenlabs
     elevenlabs_voice_id: Optional[str] = None  # NEW: ElevenLabs voice ID
+    language: Optional[str] = "en"  # Agent response language code
 
     # tools section
     tools: Optional[ToolsModel] = None
@@ -80,6 +81,7 @@ class UpdateAgentRequest(BaseModel):
     voice: Optional[str] = None
     voice_provider: Optional[str] = None  # NEW: openai or elevenlabs
     elevenlabs_voice_id: Optional[str] = None  # NEW: ElevenLabs voice ID
+    language: Optional[str] = None  # Agent response language code
     tools: Optional[ToolsModel] = None
 
 class PurchaseCreditsRequest(BaseModel):
@@ -101,6 +103,7 @@ class AgentOut(BaseModel):
     voice: Optional[str] = None
     voice_provider: Optional[str] = None  # 'openai' or 'elevenlabs'
     elevenlabs_voice_id: Optional[str] = None
+    language: Optional[str] = None  # Agent response language code
     tools: Optional[Dict[str, Any]] = None
     google_calendar_connected: Optional[bool] = None
     created_at: Optional[str] = None
@@ -157,6 +160,7 @@ def api_create_agent(payload: CreateAgentRequest, user=Depends(verify_token)):
         voice=payload.voice,
         voice_provider=payload.voice_provider or "openai",  # NEW
         elevenlabs_voice_id=payload.elevenlabs_voice_id,  # NEW
+        language=payload.language or "en",
         tools=(payload.tools.model_dump() if payload.tools else {}),
         twilio_number_sid=payload.twilio_number_sid,
     )
@@ -205,6 +209,7 @@ def api_get_agent(agent_id: int, user=Depends(verify_token)):
         "voice": a.get("voice"),
         "voice_provider": a.get("voice_provider"),
         "elevenlabs_voice_id": a.get("elevenlabs_voice_id"),
+        "language": a.get("language") or "en",
         "tools": a.get("tools"),
         "google_calendar_connected": bool(a.get("google_calendar_id")),
         "created_at": a.get("created_at"),
@@ -231,6 +236,7 @@ def api_update_agent(agent_id: int, payload: UpdateAgentRequest, user=Depends(ve
         voice=payload.voice,
         voice_provider=payload.voice_provider,  # NEW
         elevenlabs_voice_id=payload.elevenlabs_voice_id,  # NEW
+        language=payload.language,
         tools=(payload.tools.model_dump() if payload.tools else None),
     )
 

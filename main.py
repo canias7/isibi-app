@@ -862,6 +862,23 @@ async def handle_media_stream(websocket: WebSocket):
                                     agent_instructions = agent.get("system_prompt") or SYSTEM_MESSAGE
                                     agent_voice = agent.get("voice") or VOICE
 
+                                    # Inject language instruction
+                                    _lang_code = agent.get("language") or "en"
+                                    _lang_names = {
+                                        "en": "English", "es": "Spanish", "fr": "French",
+                                        "de": "German", "it": "Italian", "pt": "Portuguese",
+                                        "ja": "Japanese", "ko": "Korean", "zh": "Chinese (Mandarin)",
+                                        "ar": "Arabic", "hi": "Hindi", "nl": "Dutch",
+                                        "ru": "Russian", "tr": "Turkish", "pl": "Polish",
+                                        "sv": "Swedish", "da": "Danish", "no": "Norwegian",
+                                        "fi": "Finnish", "he": "Hebrew", "id": "Indonesian",
+                                        "th": "Thai", "vi": "Vietnamese",
+                                    }
+                                    _lang_name = _lang_names.get(_lang_code, _lang_code)
+                                    if _lang_code != "en":
+                                        agent_instructions = f"IMPORTANT: Always respond in {_lang_name}. Start the conversation in {_lang_name}.\n\n" + agent_instructions
+                                        logger.info(f"🌍 Language set to: {_lang_name} ({_lang_code})")
+
                                     # Check if using Anthropic as LLM
                                     llm_provider = agent.get("llm_provider", "openai")
                                     use_anthropic = llm_provider == "anthropic"
@@ -921,20 +938,6 @@ async def handle_media_stream(websocket: WebSocket):
                                         elevenlabs_handler = None
                                         logger.info(f"🎤 Using OpenAI Realtime voice: {agent_voice}")
                                     
-                                    # Enforce English language unless specified otherwise in system prompt
-                                    # Check if language is explicitly mentioned in the system prompt
-                                    language_keywords = ['spanish', 'french', 'german', 'italian', 'portuguese', 'chinese', 'japanese', 'korean', 'arabic', 'hindi', 'language:', 'speak in', 'respond in']
-                                    has_language_instruction = any(keyword in agent_instructions.lower() for keyword in language_keywords)
-                                    
-                                    if not has_language_instruction:
-                                        # Add English enforcement to the beginning of instructions
-                                        english_enforcement = """CRITICAL LANGUAGE REQUIREMENT: You MUST respond ONLY in English to all customers, regardless of what language they speak to you in. If a customer speaks to you in Spanish, Chinese, or any other language, you must respond in English. Do not switch languages. Always use English.
-
-"""
-                                        agent_instructions = english_enforcement + agent_instructions
-                                        logger.info("🌍 Language enforcement: English-only mode enabled")
-                                    else:
-                                        logger.info("🌍 Custom language instruction detected in system prompt")
                                     
                                     # Parse tools - must be array for OpenAI, not object
                                     tools_raw = agent.get("tools_json") or "null"

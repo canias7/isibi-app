@@ -35,6 +35,7 @@ export interface AgentOut {
   voice_provider?: string | null;
   elevenlabs_voice_id?: string | null;
   openai_voice?: string | null;
+  language?: string | null;
   model?: string | null;
   llm_provider?: string | null;
   tts_provider?: string | null;

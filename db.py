@@ -337,6 +337,7 @@ def init_db():
     add_column_if_missing(conn, "users", "elevenlabs_api_key", "TEXT")
     add_column_if_missing(conn, "users", "elevenlabs_enabled", "BOOLEAN DEFAULT FALSE")
     add_column_if_missing(conn, "agents", "elevenlabs_voice_id", "TEXT")  # Per-agent voice selection
+    add_column_if_missing(conn, "agents", "language", "TEXT DEFAULT 'en'")  # Agent response language
     
     # Voice Activity Detection (VAD) settings for noise suppression
     add_column_if_missing(conn, "agents", "vad_threshold", "REAL")  # 0.0-1.0, higher = less sensitive
@@ -493,6 +494,7 @@ def create_agent(
     model: str = None,         # Realtime model (e.g. gpt-4o-realtime-preview-2025-06-03)
     tts_provider: str = None,  # TTS for GPT-4o pipeline: "openai" or "elevenlabs"
     llm_provider: str = "openai",  # LLM provider: "openai" or "anthropic"
+    language: str = "en",  # Agent response language code (e.g. "en", "es")
 ):
     conn = get_conn()
     cur = conn.cursor()
@@ -516,9 +518,10 @@ def create_agent(
             twilio_number_sid,
             model,
             tts_provider,
-            llm_provider
+            llm_provider,
+            language
         )
-        VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
+        VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
         """ + (" RETURNING id" if USE_POSTGRES else "")),
         (
             owner_user_id,
@@ -536,6 +539,7 @@ def create_agent(
             model,
             tts_provider,
             llm_provider,
+            language,
         )
     )
 
@@ -570,6 +574,7 @@ def list_agents(owner_user_id: int):
             model,
             tts_provider,
             llm_provider,
+            language,
             created_at,
             updated_at
         FROM agents
@@ -635,7 +640,7 @@ def get_agent(owner_user_id: int, agent_id: int):
             id, owner_user_id, name, business_name, phone_number,
             system_prompt, voice, voice_provider, elevenlabs_voice_id,
             provider, first_message, tools_json, model, tts_provider,
-            llm_provider,
+            llm_provider, language,
             vad_silence_duration_ms,
             created_at, updated_at
         FROM agents
@@ -684,6 +689,7 @@ def update_agent(owner_user_id: int, agent_id: int, **fields):
         "model",        # Realtime model selection
         "tts_provider", # TTS provider for GPT-4o pipeline
         "llm_provider", # LLM provider: "openai" or "anthropic"
+        "language",     # Agent response language code
     }
 
     updates = {k: v for k, v in fields.items() if k in allowed and v is not None}

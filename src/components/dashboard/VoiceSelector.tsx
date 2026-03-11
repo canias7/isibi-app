@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Volume2, Check, Loader2, Play, Pause, Lock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Volume2, Check, Loader2, Play, Pause, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -48,6 +48,57 @@ const DEFAULT_ELEVENLABS_VOICES: VoiceOption[] = [
   { id: 'U9VgC8Xinl7nnNsyDd3J', name: 'Drew', desc: 'Male, confident and clear' },
 ];
 
+// Languages supported by OpenAI Realtime API
+const OPENAI_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'it', name: 'Italian' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'ko', name: 'Korean' },
+  { code: 'zh', name: 'Chinese (Mandarin)' },
+  { code: 'ar', name: 'Arabic' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'nl', name: 'Dutch' },
+  { code: 'ru', name: 'Russian' },
+  { code: 'tr', name: 'Turkish' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'sv', name: 'Swedish' },
+  { code: 'da', name: 'Danish' },
+  { code: 'fi', name: 'Finnish' },
+  { code: 'he', name: 'Hebrew' },
+  { code: 'id', name: 'Indonesian' },
+  { code: 'th', name: 'Thai' },
+  { code: 'vi', name: 'Vietnamese' },
+];
+
+// Languages supported by ElevenLabs multilingual_v2 model
+const ELEVENLABS_LANGUAGES = [
+  { code: 'en', name: 'English' },
+  { code: 'es', name: 'Spanish' },
+  { code: 'fr', name: 'French' },
+  { code: 'de', name: 'German' },
+  { code: 'it', name: 'Italian' },
+  { code: 'pt', name: 'Portuguese' },
+  { code: 'pl', name: 'Polish' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'ar', name: 'Arabic' },
+  { code: 'zh', name: 'Chinese (Mandarin)' },
+  { code: 'ja', name: 'Japanese' },
+  { code: 'ko', name: 'Korean' },
+  { code: 'nl', name: 'Dutch' },
+  { code: 'tr', name: 'Turkish' },
+  { code: 'sv', name: 'Swedish' },
+  { code: 'id', name: 'Indonesian' },
+  { code: 'ro', name: 'Romanian' },
+  { code: 'el', name: 'Greek' },
+  { code: 'cs', name: 'Czech' },
+  { code: 'da', name: 'Danish' },
+  { code: 'fi', name: 'Finnish' },
+];
+
 interface VoiceValue {
   provider: string;
   voice_id: string;
@@ -56,9 +107,11 @@ interface VoiceValue {
 interface VoiceSelectorProps {
   value: VoiceValue;
   onChange: (value: VoiceValue) => void;
+  language: string;
+  onLanguageChange: (lang: string) => void;
 }
 
-export default function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
+export default function VoiceSelector({ value, onChange, language, onLanguageChange }: VoiceSelectorProps) {
   const [elevenlabsVoices, setElevenlabsVoices] = useState<VoiceOption[]>([]);
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
   const [loadingVoice, setLoadingVoice] = useState<string | null>(null);
@@ -110,9 +163,12 @@ export default function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
   const currentVoices = value.provider === 'openai' ? OPENAI_VOICES : displayedElevenlabsVoices;
 
   const handleProviderChange = (providerId: string) => {
-    // Stop any playing audio
     stopAudio();
-
+    const langs = providerId === 'elevenlabs' ? ELEVENLABS_LANGUAGES : OPENAI_LANGUAGES;
+    // Keep current language if supported by new provider, otherwise reset to English
+    if (!langs.some((l) => l.code === language)) {
+      onLanguageChange('en');
+    }
     if (providerId === 'openai') {
       onChange({ provider: providerId, voice_id: 'alloy' });
     } else if (providerId === 'elevenlabs') {
@@ -199,6 +255,24 @@ export default function VoiceSelector({ value, onChange }: VoiceSelectorProps) {
             <option key={p.id} value={p.id} disabled={!p.enabled}>
               {p.name}{p.enabled ? ` (${p.price})` : ' (Coming Soon)'}
             </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Language Selection */}
+      <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <Globe className="h-4 w-4 text-primary" />
+          <Label className="text-sm font-semibold text-foreground">Language</Label>
+          <span className="text-xs text-muted-foreground ml-auto">Agent will always start in this language</span>
+        </div>
+        <select
+          value={language}
+          onChange={(e) => onLanguageChange(e.target.value)}
+          className="w-full rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+        >
+          {(value.provider === 'elevenlabs' ? ELEVENLABS_LANGUAGES : OPENAI_LANGUAGES).map((l) => (
+            <option key={l.code} value={l.code}>{l.name}</option>
           ))}
         </select>
       </div>
