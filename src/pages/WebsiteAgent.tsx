@@ -108,7 +108,7 @@ export default function WebsiteAgent() {
   const [orderId, setOrderId] = useState<number | null>(null);
   const [paymentDone, setPaymentDone] = useState(false);
 
-  const FALLBACK_PAYMENT_URL = "https://buy.stripe.com/3cIeV7eer2ks0U624MeIw07";
+  const FALLBACK_PAYMENT_URL = "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06";
 
   // File upload state
   const [logoFile, setLogoFile] = useState<File | null>(null);
