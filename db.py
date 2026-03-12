@@ -1475,7 +1475,8 @@ def create_website_order(
     placeholders = ",".join(["{PH}"] * len(vals))
     if USE_POSTGRES:
         cur.execute(sql(f"INSERT INTO website_agent_orders ({cols}) VALUES ({placeholders}) RETURNING id"), vals)
-        order_id = cur.fetchone()[0]
+        row = cur.fetchone()
+        order_id = row["id"] if isinstance(row, dict) else row[0]
     else:
         cur.execute(sql(f"INSERT INTO website_agent_orders ({cols}) VALUES ({placeholders})"), vals)
         order_id = cur.lastrowid
