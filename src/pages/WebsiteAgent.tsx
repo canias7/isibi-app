@@ -250,7 +250,7 @@ export default function WebsiteAgent() {
             </Link>
             <h1 className="text-2xl font-bold">Complete Your Payment</h1>
             <p className="text-muted-foreground text-sm">
-              Order <span className="font-semibold text-foreground">#{orderId}</span> — Website Build Service · $199.99 + tax
+              Order <span className="font-semibold text-foreground">#{orderId}</span> — Website Build Service · $1.00
             </p>
           </div>
 
@@ -301,7 +301,7 @@ export default function WebsiteAgent() {
           <h1 className="text-4xl font-bold">Website Project Questionnaire</h1>
           <p className="text-muted-foreground text-lg max-w-lg mx-auto">
             Fill out the form below so we can build your perfect website.{" "}
-            <span className="font-semibold text-foreground">$199.99 + tax</span> — one flat fee.
+            <span className="font-semibold text-foreground">$1.00</span> — one flat fee.
           </p>
         </motion.div>
 
@@ -591,7 +591,7 @@ export default function WebsiteAgent() {
                 <p className="text-sm text-muted-foreground">Professional · Mobile responsive · 5–7 business days</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold">$199.99</p>
+                <p className="text-2xl font-bold">$1.00</p>
                 <p className="text-xs text-muted-foreground">+ applicable tax</p>
               </div>
             </div>
