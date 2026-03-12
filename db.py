@@ -486,6 +486,33 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'users', 'website', 'TEXT')
     add_column_if_missing(conn, 'users', 'use_case', 'TEXT')
     add_column_if_missing(conn, 'users', 'call_volume', 'TEXT')
+
+    # website_agent_orders — ensure all columns exist on existing tables
+    add_column_if_missing(conn, 'website_agent_orders', 'phone', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'business_name', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'business_address', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'business_hours', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'current_website', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'business_description', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'services_offered', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'competitive_advantage', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'website_goals', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'customer_actions', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'services_list', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'pricing_info', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'special_offers', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'preferred_colors', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'website_examples', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'has_logo', "TEXT DEFAULT 'no'")
+    add_column_if_missing(conn, 'website_agent_orders', 'has_photos', "TEXT DEFAULT 'no'")
+    add_column_if_missing(conn, 'website_agent_orders', 'features_needed', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'social_facebook', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'social_instagram', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'social_tiktok', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'social_google', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'additional_notes', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'stripe_session_id', 'TEXT')
+
     conn.close()
 
 def create_user(
