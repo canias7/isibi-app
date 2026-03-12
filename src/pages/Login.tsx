@@ -36,7 +36,18 @@ export default function Login() {
       }
 
       const data = await response.json();
-      
+
+      // Handle pending approval — backend may return is_approved: false or status: "pending"
+      if (data.is_approved === false || data.status === "pending") {
+        localStorage.setItem("pending_email", email);
+        toast({
+          title: "Access pending review",
+          description: "Your developer application is still under review. We'll email you when it's approved.",
+        });
+        navigate("/developer-pending");
+        return;
+      }
+
       // Store the token for authenticated requests
       localStorage.setItem("token", data.access_token);
       localStorage.setItem("account_type", "developer");

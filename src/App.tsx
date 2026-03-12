@@ -23,6 +23,7 @@ import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Security from "./pages/Security";
 import AdminDashboard from "./pages/AdminDashboard";
+import DeveloperPending from "./pages/DeveloperPending";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -60,6 +61,7 @@ const App = () => (
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
+          <Route path="/developer-pending" element={<DeveloperPending />} />
           <Route path="/integrations" element={<IntegrationsShowcase />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<TermsOfService />} />
