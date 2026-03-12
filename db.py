@@ -432,50 +432,88 @@ def create_tenant_if_missing(phone_number: str):
 # --- AUTH HELPERS (customer login) ---
 import bcrypt
 
-def create_user(email: str, password: str, tenant_phone: str | None = None):
+def ensure_user_columns():
+    """Add new user columns if they don't exist (safe to call multiple times)."""
+    conn = get_conn()
+    add_column_if_missing(conn, 'users', 'account_type', "TEXT DEFAULT 'developer'")
+    add_column_if_missing(conn, 'users', 'status', "TEXT DEFAULT 'approved'")
+    add_column_if_missing(conn, 'users', 'is_banned', 'BOOLEAN DEFAULT FALSE')
+    add_column_if_missing(conn, 'users', 'full_name', 'TEXT')
+    add_column_if_missing(conn, 'users', 'company_name', 'TEXT')
+    add_column_if_missing(conn, 'users', 'website', 'TEXT')
+    add_column_if_missing(conn, 'users', 'use_case', 'TEXT')
+    add_column_if_missing(conn, 'users', 'call_volume', 'TEXT')
+    conn.close()
+
+def create_user(
+    email: str,
+    password: str,
+    tenant_phone: str | None = None,
+    account_type: str = "developer",
+    full_name: str | None = None,
+    company_name: str | None = None,
+    website: str | None = None,
+    use_case: str | None = None,
+    call_volume: str | None = None,
+):
+    ensure_user_columns()
     password_hash = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    # Developers start as 'pending' until approved; customers are auto-approved
+    initial_status = "pending" if account_type == "developer" else "approved"
 
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        sql("INSERT INTO users (email, password_hash, tenant_phone) VALUES ({PH}, {PH}, {PH})"),
-        (email.strip().lower(), password_hash, tenant_phone),
+        sql("""INSERT INTO users
+               (email, password_hash, tenant_phone, account_type, status,
+                full_name, company_name, website, use_case, call_volume)
+               VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})"""),
+        (email.strip().lower(), password_hash, tenant_phone, account_type,
+         initial_status, full_name, company_name, website, use_case, call_volume),
     )
     conn.commit()
     conn.close()
 
 def get_user_by_email(email: str):
+    ensure_user_columns()
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        sql("SELECT id, email, password_hash, tenant_phone FROM users WHERE email = {PH}"),
+        sql("""SELECT id, email, password_hash, tenant_phone,
+                      account_type, status, is_banned
+               FROM users WHERE email = {PH}"""),
         (email.strip().lower(),),
     )
     row = cur.fetchone()
     conn.close()
-    return row  # (id, email, password_hash, tenant_phone) or None
+    return row
 
 def verify_user(email: str, password: str):
     row = get_user_by_email(email)
     if not row:
         return None
-    
-    # Handle both SQLite (tuple) and PostgreSQL (dict) row formats
+
     if isinstance(row, dict):
-        user_id = row['id']
-        user_email = row['email']
+        user_id       = row['id']
+        user_email    = row['email']
         password_hash = row['password_hash']
-        tenant_phone = row.get('tenant_phone')
+        tenant_phone  = row.get('tenant_phone')
+        account_type  = row.get('account_type', 'developer')
+        status        = row.get('status', 'approved')
+        is_banned     = row.get('is_banned', False)
     else:
-        user_id, user_email, password_hash, tenant_phone = row
-    
+        user_id, user_email, password_hash, tenant_phone, account_type, status, is_banned = row
+
     ok = bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     if not ok:
         return None
     return {
         "id": user_id,
         "email": user_email,
-        "tenant_phone": tenant_phone
+        "tenant_phone": tenant_phone,
+        "account_type": account_type or "developer",
+        "status": status or "approved",
+        "is_banned": bool(is_banned),
     }
 
 def create_agent(

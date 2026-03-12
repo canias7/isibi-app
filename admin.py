@@ -141,12 +141,16 @@ def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
             COALESCE(uc.total_purchased, 0) as total_purchased,
             COALESCE(uc.total_used, 0) as total_used,
             COUNT(DISTINCT a.id) as agent_count,
-            COUNT(DISTINCT c.id) as call_count
+            COUNT(DISTINCT c.id) as call_count,
+            COALESCE(u.account_type, 'developer') as account_type,
+            COALESCE(u.status, 'approved') as status,
+            COALESCE(u.is_banned, FALSE) as is_banned
         FROM users u
         LEFT JOIN user_credits uc ON u.id = uc.user_id
         LEFT JOIN agents a ON u.id = a.owner_user_id
         LEFT JOIN call_usage c ON u.id = c.user_id
-        GROUP BY u.id, u.email, u.created_at, uc.balance, uc.total_purchased, uc.total_used
+        GROUP BY u.id, u.email, u.created_at, uc.balance, uc.total_purchased, uc.total_used,
+                 u.account_type, u.status, u.is_banned
         ORDER BY u.created_at DESC
         LIMIT {PH} OFFSET {PH}
     """), (limit, offset))
@@ -162,7 +166,10 @@ def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
                 "total_purchased": float(row['total_purchased']),
                 "total_used": float(row['total_used']),
                 "agent_count": row['agent_count'],
-                "call_count": row['call_count']
+                "call_count": row['call_count'],
+                "account_type": row.get('account_type', 'developer'),
+                "status": row.get('status', 'approved'),
+                "is_banned": bool(row.get('is_banned', False)),
             })
         else:
             users.append({
@@ -173,7 +180,10 @@ def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
                 "total_purchased": float(row[4]),
                 "total_used": float(row[5]),
                 "agent_count": row[6],
-                "call_count": row[7]
+                "call_count": row[7],
+                "account_type": row[8] or 'developer',
+                "status": row[9] or 'approved',
+                "is_banned": bool(row[10]),
             })
 
     conn.close()
