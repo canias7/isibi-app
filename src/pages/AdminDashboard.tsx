@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
-import { Users, DollarSign, Phone, Bot, CreditCard, TrendingUp, Activity, MessageSquare, LogOut, UserCircle, ShieldCheck, ShieldX, UserX, UserCheck, Clock, Building2, Globe, Zap, BarChart3 } from "lucide-react";
+import { Users, DollarSign, Phone, Bot, CreditCard, TrendingUp, Activity, MessageSquare, LogOut, UserCircle, ShieldCheck, ShieldX, UserX, UserCheck, Clock, Building2, Globe, Zap, BarChart3, Layout, CheckCircle2, CircleDollarSign, ExternalLink } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -51,6 +51,24 @@ interface DeveloperRequest {
   created_at: string;
 }
 
+interface WebsiteOrder {
+  id: number;
+  full_name: string;
+  email: string;
+  phone?: string;
+  business_name?: string;
+  industry?: string;
+  website_purpose?: string;
+  current_website?: string;
+  pages_needed?: string;
+  color_preferences?: string;
+  inspiration_links?: string;
+  additional_notes?: string;
+  payment_status: 'pending' | 'paid' | 'completed';
+  stripe_session_id?: string;
+  created_at: string;
+}
+
 interface ActivityItem {
   type: string;
   user_email: string;
@@ -87,6 +105,8 @@ export default function AdminDashboard() {
   const [creditAmount, setCreditAmount] = useState('');
   const [banDialogUser, setBanDialogUser] = useState<AdminUser | null>(null);
   const [requestFilter, setRequestFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
+  const [websiteOrders, setWebsiteOrders] = useState<WebsiteOrder[]>([]);
+  const [expandedOrder, setExpandedOrder] = useState<number | null>(null);
   const { toast } = useToast();
 
   const token = localStorage.getItem('token');
@@ -194,6 +214,35 @@ export default function AdminDashboard() {
       }
     } catch (error) {
       console.error('Failed to load voice logs:', error);
+    }
+  };
+
+  const loadWebsiteOrders = async () => {
+    try {
+      const res = await adminFetch('/admin/website-orders?limit=100', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        const data = await res.json();
+        setWebsiteOrders(data.orders || []);
+      }
+    } catch (error) {
+      console.error('Failed to load website orders:', error);
+    }
+  };
+
+  const handleMarkOrderStatus = async (orderId: number, action: 'mark-paid' | 'mark-complete') => {
+    try {
+      const res = await adminFetch(`/admin/website-orders/${orderId}/${action}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        toast({ title: action === 'mark-paid' ? 'Marked as paid' : 'Marked as completed' });
+        loadWebsiteOrders();
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Could not update order.', variant: 'destructive' });
     }
   };
 
@@ -378,7 +427,7 @@ export default function AdminDashboard() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users" onClick={loadUsers}>Users</TabsTrigger>
           <TabsTrigger value="access-requests" onClick={loadAccessRequests} className="relative">
@@ -386,6 +435,14 @@ export default function AdminDashboard() {
             {accessRequests.filter(r => r.status === 'pending').length > 0 && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
                 {accessRequests.filter(r => r.status === 'pending').length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="website-orders" onClick={loadWebsiteOrders} className="relative">
+            Website Orders
+            {websiteOrders.filter(o => o.payment_status === 'pending').length > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                {websiteOrders.filter(o => o.payment_status === 'pending').length}
               </span>
             )}
           </TabsTrigger>
@@ -691,6 +748,181 @@ export default function AdminDashboard() {
                         )}
                       </div>
                     ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* WEBSITE ORDERS TAB */}
+        <TabsContent value="website-orders" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layout className="w-5 h-5" /> Website Build Orders
+                  </CardTitle>
+                  <CardDescription>Form submissions from /website-agent page</CardDescription>
+                </div>
+                <Badge variant="outline" className="text-sm">
+                  {websiteOrders.length} total
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {websiteOrders.length === 0 ? (
+                <div className="text-center py-16">
+                  <Layout className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground">No website orders yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {websiteOrders.map((order) => (
+                    <div
+                      key={order.id}
+                      className={`rounded-xl border p-5 space-y-3 transition-all ${
+                        order.payment_status === 'completed'
+                          ? 'border-green-500/30 bg-green-500/5'
+                          : order.payment_status === 'paid'
+                          ? 'border-blue-500/30 bg-blue-500/5'
+                          : 'border-amber-500/30 bg-amber-500/5'
+                      }`}
+                    >
+                      {/* Header row */}
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0">
+                          <p className="font-semibold">{order.full_name}</p>
+                          <p className="text-sm text-muted-foreground">{order.email}</p>
+                          {order.phone && <p className="text-xs text-muted-foreground">{order.phone}</p>}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge
+                            className={`text-xs capitalize ${
+                              order.payment_status === 'completed' ? 'bg-green-600' :
+                              order.payment_status === 'paid' ? 'bg-blue-600' :
+                              'border-amber-500/50 text-amber-600'
+                            }`}
+                            variant={order.payment_status === 'pending' ? 'outline' : 'default'}
+                          >
+                            {order.payment_status === 'completed' && <CheckCircle2 className="h-3 w-3 mr-1" />}
+                            {order.payment_status === 'paid' && <CircleDollarSign className="h-3 w-3 mr-1" />}
+                            {order.payment_status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                            {order.payment_status}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">#{order.id}</span>
+                          <span className="text-xs text-muted-foreground">{formatDate(order.created_at)}</span>
+                        </div>
+                      </div>
+
+                      {/* Business info */}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                        {order.business_name && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Building2 className="h-3 w-3 shrink-0" />
+                            <span className="truncate font-medium text-foreground">{order.business_name}</span>
+                          </div>
+                        )}
+                        {order.industry && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Zap className="h-3 w-3 shrink-0" />
+                            <span className="truncate">{order.industry}</span>
+                          </div>
+                        )}
+                        {order.current_website && (
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Globe className="h-3 w-3 shrink-0" />
+                            <a href={order.current_website} target="_blank" rel="noopener noreferrer" className="truncate hover:text-primary flex items-center gap-1">
+                              {order.current_website.replace(/^https?:\/\//, '')}
+                              <ExternalLink className="h-2.5 w-2.5" />
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Expandable details */}
+                      <button
+                        className="text-xs text-primary hover:underline"
+                        onClick={() => setExpandedOrder(expandedOrder === order.id ? null : order.id)}
+                      >
+                        {expandedOrder === order.id ? 'Hide details ▲' : 'View full details ▼'}
+                      </button>
+
+                      {expandedOrder === order.id && (
+                        <div className="space-y-3 pt-2 border-t text-sm">
+                          {order.website_purpose && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Purpose</p>
+                              <p>{order.website_purpose}</p>
+                            </div>
+                          )}
+                          {order.pages_needed && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Pages Needed</p>
+                              <div className="flex flex-wrap gap-1">
+                                {order.pages_needed.split(',').map((p) => (
+                                  <Badge key={p} variant="secondary" className="text-xs">{p.trim()}</Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {order.color_preferences && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Color Preferences</p>
+                              <p>{order.color_preferences}</p>
+                            </div>
+                          )}
+                          {order.inspiration_links && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Inspiration / Examples</p>
+                              <p className="whitespace-pre-wrap">{order.inspiration_links}</p>
+                            </div>
+                          )}
+                          {order.additional_notes && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Additional Notes</p>
+                              <p className="whitespace-pre-wrap">{order.additional_notes}</p>
+                            </div>
+                          )}
+                          {order.stripe_session_id && (
+                            <div>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Stripe Session</p>
+                              <p className="font-mono text-xs text-muted-foreground">{order.stripe_session_id}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-1">
+                        {order.payment_status === 'pending' && (
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            onClick={() => handleMarkOrderStatus(order.id, 'mark-paid')}
+                          >
+                            <CircleDollarSign className="h-3.5 w-3.5 mr-1" />
+                            Mark Paid
+                          </Button>
+                        )}
+                        {(order.payment_status === 'paid') && (
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            onClick={() => handleMarkOrderStatus(order.id, 'mark-complete')}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                            Mark Completed
+                          </Button>
+                        )}
+                        {order.payment_status === 'completed' && (
+                          <span className="text-sm text-green-600 flex items-center gap-1">
+                            <CheckCircle2 className="h-4 w-4" /> Website delivered
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>

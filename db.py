@@ -305,6 +305,49 @@ def init_db():
     )
     """)
 
+    # Website Agent orders table
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS website_agent_orders (
+        id {ID},
+        -- Contact
+        full_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT,
+        business_name TEXT,
+        business_address TEXT,
+        business_hours TEXT,
+        current_website TEXT,
+        -- About the business
+        business_description TEXT,
+        services_offered TEXT,
+        competitive_advantage TEXT,
+        -- Goals
+        website_goals TEXT,
+        customer_actions TEXT,
+        -- Services / products
+        services_list TEXT,
+        pricing_info TEXT,
+        special_offers TEXT,
+        -- Design
+        preferred_colors TEXT,
+        website_examples TEXT,
+        has_logo TEXT DEFAULT 'no',
+        has_photos TEXT DEFAULT 'no',
+        -- Features
+        features_needed TEXT,
+        -- Social media
+        social_facebook TEXT,
+        social_instagram TEXT,
+        social_tiktok TEXT,
+        social_google TEXT,
+        -- Misc
+        additional_notes TEXT,
+        payment_status TEXT DEFAULT 'pending',
+        stripe_session_id TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # --- MIGRATIONS (keep Render DB in sync) ---
     add_column_if_missing(conn, "agents", "phone_number", "TEXT")
     add_column_if_missing(conn, "agents", "provider", "TEXT")
@@ -1382,3 +1425,108 @@ def get_agent_by_phone(phone_number: str):
     row = cur.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# ── Website Agent Orders ───────────────────────────────────────────────────────
+
+def create_website_order(
+    full_name: str,
+    email: str,
+    phone: str | None = None,
+    business_name: str | None = None,
+    business_address: str | None = None,
+    business_hours: str | None = None,
+    current_website: str | None = None,
+    business_description: str | None = None,
+    services_offered: str | None = None,
+    competitive_advantage: str | None = None,
+    website_goals: str | None = None,
+    customer_actions: str | None = None,
+    services_list: str | None = None,
+    pricing_info: str | None = None,
+    special_offers: str | None = None,
+    preferred_colors: str | None = None,
+    website_examples: str | None = None,
+    has_logo: str = 'no',
+    has_photos: str = 'no',
+    features_needed: str | None = None,
+    social_facebook: str | None = None,
+    social_instagram: str | None = None,
+    social_tiktok: str | None = None,
+    social_google: str | None = None,
+    additional_notes: str | None = None,
+    stripe_session_id: str | None = None,
+) -> int:
+    """Insert a new website order and return its ID."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cols = ("full_name,email,phone,business_name,business_address,business_hours,"
+            "current_website,business_description,services_offered,competitive_advantage,"
+            "website_goals,customer_actions,services_list,pricing_info,special_offers,"
+            "preferred_colors,website_examples,has_logo,has_photos,features_needed,"
+            "social_facebook,social_instagram,social_tiktok,social_google,"
+            "additional_notes,stripe_session_id")
+    vals = (full_name, email, phone, business_name, business_address, business_hours,
+            current_website, business_description, services_offered, competitive_advantage,
+            website_goals, customer_actions, services_list, pricing_info, special_offers,
+            preferred_colors, website_examples, has_logo, has_photos, features_needed,
+            social_facebook, social_instagram, social_tiktok, social_google,
+            additional_notes, stripe_session_id)
+    placeholders = ",".join(["{PH}"] * len(vals))
+    if USE_POSTGRES:
+        cur.execute(sql(f"INSERT INTO website_agent_orders ({cols}) VALUES ({placeholders}) RETURNING id"), vals)
+        order_id = cur.fetchone()[0]
+    else:
+        cur.execute(sql(f"INSERT INTO website_agent_orders ({cols}) VALUES ({placeholders})"), vals)
+        order_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return order_id
+
+
+def get_all_website_orders(limit: int = 100) -> list:
+    """Return all website orders, newest first."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, full_name, email, phone, business_name, business_address, business_hours,
+               current_website, business_description, services_offered, competitive_advantage,
+               website_goals, customer_actions, services_list, pricing_info, special_offers,
+               preferred_colors, website_examples, has_logo, has_photos, features_needed,
+               social_facebook, social_instagram, social_tiktok, social_google,
+               additional_notes, payment_status, stripe_session_id, created_at
+        FROM website_agent_orders
+        ORDER BY created_at DESC
+        LIMIT {PH}
+    """), (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    keys = ['id','full_name','email','phone','business_name','business_address','business_hours',
+            'current_website','business_description','services_offered','competitive_advantage',
+            'website_goals','customer_actions','services_list','pricing_info','special_offers',
+            'preferred_colors','website_examples','has_logo','has_photos','features_needed',
+            'social_facebook','social_instagram','social_tiktok','social_google',
+            'additional_notes','payment_status','stripe_session_id','created_at']
+    result = []
+    for row in rows:
+        if isinstance(row, dict):
+            d = dict(row)
+            d['created_at'] = d['created_at'].isoformat() if d.get('created_at') else None
+        else:
+            d = dict(zip(keys, row))
+            if d.get('created_at') and hasattr(d['created_at'], 'isoformat'):
+                d['created_at'] = d['created_at'].isoformat()
+        result.append(d)
+    return result
+
+
+def update_website_order_payment(order_id: int, stripe_session_id: str, status: str = 'paid'):
+    """Update payment status after Stripe webhook or redirect."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        sql("UPDATE website_agent_orders SET payment_status={PH}, stripe_session_id={PH} WHERE id={PH}"),
+        (status, stripe_session_id, order_id),
+    )
+    conn.commit()
+    conn.close()

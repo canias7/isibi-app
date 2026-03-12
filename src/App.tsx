@@ -24,6 +24,7 @@ import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Security from "./pages/Security";
 import AdminDashboard from "./pages/AdminDashboard";
 import DeveloperPending from "./pages/DeveloperPending";
+import WebsiteAgent from "./pages/WebsiteAgent";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -67,6 +68,7 @@ const App = () => (
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/security" element={<Security />} />
+          <Route path="/website-agent" element={<WebsiteAgent />} />
 
           {/* Developer dashboard */}
           <Route path="/developer-dashboard" element={<DevP><DeveloperDashboard /></DevP>} />

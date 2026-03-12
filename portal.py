@@ -3150,6 +3150,129 @@ def admin_reject_request(user_id: int, user=Depends(verify_admin)):
     return {"ok": True}
 
 
+# ========== Website Agent Endpoints ==========
+
+class WebsiteOrderIn(BaseModel):
+    # Section 1 – Business info
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    business_name: Optional[str] = None
+    business_address: Optional[str] = None
+    business_hours: Optional[str] = None
+    current_website: Optional[str] = None
+    # Section 2 – About
+    business_description: Optional[str] = None
+    services_offered: Optional[str] = None
+    competitive_advantage: Optional[str] = None
+    # Section 3 – Goals
+    website_goals: Optional[str] = None       # comma-separated
+    customer_actions: Optional[str] = None    # comma-separated
+    # Section 4 – Services / products
+    services_list: Optional[str] = None
+    pricing_info: Optional[str] = None
+    special_offers: Optional[str] = None
+    # Section 5 – Design
+    preferred_colors: Optional[str] = None
+    website_examples: Optional[str] = None
+    has_logo: Optional[str] = "no"
+    # Section 6 – Content
+    has_photos: Optional[str] = "no"
+    # Section 7 – Features
+    features_needed: Optional[str] = None     # comma-separated
+    # Section 8 – Social media
+    social_facebook: Optional[str] = None
+    social_instagram: Optional[str] = None
+    social_tiktok: Optional[str] = None
+    social_google: Optional[str] = None
+    # Section 9 – Additional
+    additional_notes: Optional[str] = None
+
+
+@router.post("/website-agent/submit")
+def submit_website_order(data: WebsiteOrderIn):
+    """Save a website order and return a Stripe checkout URL."""
+    from db import create_website_order, update_website_order_payment
+
+    order_id = create_website_order(
+        full_name=data.full_name,
+        email=data.email,
+        phone=data.phone,
+        business_name=data.business_name,
+        business_address=data.business_address,
+        business_hours=data.business_hours,
+        current_website=data.current_website,
+        business_description=data.business_description,
+        services_offered=data.services_offered,
+        competitive_advantage=data.competitive_advantage,
+        website_goals=data.website_goals,
+        customer_actions=data.customer_actions,
+        services_list=data.services_list,
+        pricing_info=data.pricing_info,
+        special_offers=data.special_offers,
+        preferred_colors=data.preferred_colors,
+        website_examples=data.website_examples,
+        has_logo=data.has_logo or "no",
+        has_photos=data.has_photos or "no",
+        features_needed=data.features_needed,
+        social_facebook=data.social_facebook,
+        social_instagram=data.social_instagram,
+        social_tiktok=data.social_tiktok,
+        social_google=data.social_google,
+        additional_notes=data.additional_notes,
+    )
+
+    try:
+        frontend_url = os.getenv("FRONTEND_URL", "https://isibi-app.lovable.app")
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": "ISIBI Website Build Service",
+                        "description": f"Custom website for {data.business_name or data.full_name}",
+                    },
+                    "unit_amount": 19999,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            customer_email=data.email,
+            success_url=f"{frontend_url}/website-agent/success?order_id={order_id}&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{frontend_url}/website-agent",
+            metadata={"order_id": str(order_id)},
+        )
+        update_website_order_payment(order_id, session.id, "pending")
+        return {"order_id": order_id, "checkout_url": session.url}
+    except Exception as e:
+        return {"order_id": order_id, "checkout_url": None, "error": str(e)}
+
+
+@router.get("/admin/website-orders")
+def admin_get_website_orders(user=Depends(verify_admin), limit: int = 100):
+    """Get all website agent order submissions (admin only)."""
+    from db import get_all_website_orders
+    orders = get_all_website_orders(limit=limit)
+    return {"orders": orders, "total": len(orders)}
+
+
+@router.post("/admin/website-orders/{order_id}/mark-paid")
+def admin_mark_order_paid(order_id: int, user=Depends(verify_admin)):
+    """Manually mark a website order as paid."""
+    from db import update_website_order_payment
+    update_website_order_payment(order_id, "ADMIN-MANUAL", "paid")
+    return {"ok": True}
+
+
+@router.post("/admin/website-orders/{order_id}/mark-complete")
+def admin_mark_order_complete(order_id: int, user=Depends(verify_admin)):
+    """Mark a website order as completed (website delivered)."""
+    from db import update_website_order_payment
+    update_website_order_payment(order_id, "ADMIN-COMPLETE", "completed")
+    return {"ok": True}
+
+
 # ========== Voice Provider Endpoints ==========
 
 from elevenlabs_integration import get_all_voice_options, get_available_voices, get_user_subscription
