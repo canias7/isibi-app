@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Globe, CheckCircle, Loader2, ArrowRight, ChevronDown, ChevronUp, Upload, X, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,10 @@ import { useToast } from "@/hooks/use-toast";
 import { loadStripe } from "@stripe/stripe-js";
 import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
 
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
+// Only call loadStripe when a valid publishable key is present (starts with "pk_")
+// Passing an empty string throws an error that breaks rendering
+const _stripeKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+const stripePromise = _stripeKey.startsWith("pk_") ? loadStripe(_stripeKey) : null;
 
 const API_BASE_URL = "https://isibi-backend.onrender.com";
 
@@ -260,7 +263,7 @@ export default function WebsiteAgent() {
             </p>
           </div>
 
-          {clientSecret ? (
+          {clientSecret && stripePromise ? (
             <Card className="border-border/50 bg-card/50 backdrop-blur-xl overflow-hidden">
               <CardContent className="p-0">
                 <EmbeddedCheckoutProvider
