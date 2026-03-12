@@ -3255,7 +3255,7 @@ def submit_website_order(data: WebsiteOrderIn):
         return {"order_id": order_id, "client_secret": session.client_secret}
     except Exception as e:
         # Fallback: return static Stripe link if embedded checkout fails
-        return {"order_id": order_id, "client_secret": None, "checkout_url": "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06"}
+        return {"order_id": order_id, "client_secret": None, "checkout_url": "https://buy.stripe.com/3cIeV7eer2ks0U624MeIw07"}
 
 
 @router.get("/admin/website-orders")
