@@ -224,16 +224,14 @@ export default function WebsiteAgent() {
             </CardContent>
           </Card>
 
-          {checkoutUrl ? (
-            <Button size="lg" className="w-full text-base font-semibold" onClick={() => window.location.href = checkoutUrl}>
-              Proceed to Payment
-              <ExternalLink className="ml-2 h-4 w-4" />
-            </Button>
-          ) : (
-            <div className="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-400">
-              Payment link unavailable — our team will reach out to <strong>{form.email}</strong> to complete the order.
-            </div>
-          )}
+          <Button
+            size="lg"
+            className="w-full text-base font-semibold"
+            onClick={() => window.open(checkoutUrl || "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06", "_blank")}
+          >
+            Proceed to Payment — $199.99
+            <ExternalLink className="ml-2 h-4 w-4" />
+          </Button>
 
           <p className="text-xs text-muted-foreground">Secured by Stripe · Order #{orderId}</p>
         </motion.div>

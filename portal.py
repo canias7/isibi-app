@@ -3222,31 +3222,9 @@ def submit_website_order(data: WebsiteOrderIn):
         additional_notes=data.additional_notes,
     )
 
-    try:
-        frontend_url = os.getenv("FRONTEND_URL", "https://isibi-app.lovable.app")
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": "ISIBI Website Build Service",
-                        "description": f"Custom website for {data.business_name or data.full_name}",
-                    },
-                    "unit_amount": 19999,
-                },
-                "quantity": 1,
-            }],
-            mode="payment",
-            customer_email=data.email,
-            success_url=f"{frontend_url}/website-agent/success?order_id={order_id}&session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{frontend_url}/website-agent",
-            metadata={"order_id": str(order_id)},
-        )
-        update_website_order_payment(order_id, session.id, "pending")
-        return {"order_id": order_id, "checkout_url": session.url}
-    except Exception as e:
-        return {"order_id": order_id, "checkout_url": None, "error": str(e)}
+    # Use the fixed Stripe payment link — no dynamic session needed
+    STRIPE_PAYMENT_LINK = "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06"
+    return {"order_id": order_id, "checkout_url": STRIPE_PAYMENT_LINK}
 
 
 @router.get("/admin/website-orders")
