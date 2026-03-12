@@ -101,8 +101,11 @@ export default function WebsiteAgent() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [paymentDone, setPaymentDone] = useState(false);
+
+  const FALLBACK_PAYMENT_URL = "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06";
 
   // File upload state
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -195,6 +198,7 @@ export default function WebsiteAgent() {
       const data = await res.json();
       setOrderId(data.order_id);
       setClientSecret(data.client_secret || null);
+      setCheckoutUrl(data.checkout_url || null);
 
       toast({
         title: "Request submitted!",
@@ -239,8 +243,10 @@ export default function WebsiteAgent() {
     );
   }
 
-  // ── Embedded Stripe Checkout ────────────────────────────────────────────────
-  if (clientSecret) {
+  // ── Payment screen (shown after successful form submit) ────────────────────
+  if (orderId && !paymentDone) {
+    const payUrl = checkoutUrl || FALLBACK_PAYMENT_URL;
+
     return (
       <div className="min-h-screen relative py-12 px-4">
         <div className="relative z-10 max-w-2xl mx-auto space-y-6">
@@ -254,19 +260,46 @@ export default function WebsiteAgent() {
             </p>
           </div>
 
-          <Card className="border-border/50 bg-card/50 backdrop-blur-xl overflow-hidden">
-            <CardContent className="p-0">
-              <EmbeddedCheckoutProvider
-                stripe={stripePromise}
-                options={{
-                  clientSecret,
-                  onComplete: () => setPaymentDone(true),
-                }}
-              >
-                <EmbeddedCheckout />
-              </EmbeddedCheckoutProvider>
-            </CardContent>
-          </Card>
+          {clientSecret ? (
+            <Card className="border-border/50 bg-card/50 backdrop-blur-xl overflow-hidden">
+              <CardContent className="p-0">
+                <EmbeddedCheckoutProvider
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret,
+                    onComplete: () => setPaymentDone(true),
+                  }}
+                >
+                  <EmbeddedCheckout />
+                </EmbeddedCheckoutProvider>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
+              <CardContent className="pt-6 space-y-5 text-center">
+                <div className="space-y-1">
+                  <p className="font-semibold text-lg">ISIBI Website Build Service</p>
+                  <p className="text-muted-foreground text-sm">Custom website for {form.business_name || form.full_name}</p>
+                </div>
+                <div className="text-4xl font-bold">$1.00</div>
+                <div className="border-t pt-4 space-y-1.5 text-sm text-muted-foreground text-left">
+                  <p>✓ Custom design tailored to your brand</p>
+                  <p>✓ Mobile responsive</p>
+                  <p>✓ All requested features included</p>
+                  <p>✓ Delivered within 5–7 business days</p>
+                </div>
+                <Button
+                  size="lg"
+                  className="w-full text-base font-semibold"
+                  onClick={() => window.open(payUrl, "_blank")}
+                >
+                  Pay Now — $1.00
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+                <p className="text-xs text-muted-foreground">Secured by Stripe · Order #{orderId}</p>
+              </CardContent>
+            </Card>
+          )}
 
           <p className="text-xs text-center text-muted-foreground">
             Payments are processed securely by Stripe. ISIBI never stores your card details.
