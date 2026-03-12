@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import VoiceChatISIBI from "@/components/VoiceChatISIBI";
 
 export function HeroSection() {
   return (
