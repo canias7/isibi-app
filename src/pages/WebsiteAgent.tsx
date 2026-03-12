@@ -259,7 +259,7 @@ export default function WebsiteAgent() {
             </Link>
             <h1 className="text-2xl font-bold">Complete Your Payment</h1>
             <p className="text-muted-foreground text-sm">
-              Order <span className="font-semibold text-foreground">#{orderId}</span> — Website Build Service · $1.00
+              Order <span className="font-semibold text-foreground">#{orderId}</span> — Website Build Service · $199.99 + tax
             </p>
           </div>
 
@@ -284,7 +284,7 @@ export default function WebsiteAgent() {
                   <p className="font-semibold text-lg">ISIBI Website Build Service</p>
                   <p className="text-muted-foreground text-sm">Custom website for {form.business_name || form.full_name}</p>
                 </div>
-                <div className="text-4xl font-bold">$1.00</div>
+                <div className="text-4xl font-bold">$199.99 + tax</div>
                 <div className="border-t pt-4 space-y-1.5 text-sm text-muted-foreground text-left">
                   <p>✓ Custom design tailored to your brand</p>
                   <p>✓ Mobile responsive</p>
@@ -296,7 +296,7 @@ export default function WebsiteAgent() {
                   className="w-full text-base font-semibold"
                   onClick={() => window.open(payUrl, "_blank")}
                 >
-                  Pay Now — $1.00
+                  Pay Now — $199.99 + tax
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
                 <p className="text-xs text-muted-foreground">Secured by Stripe · Order #{orderId}</p>
@@ -337,7 +337,7 @@ export default function WebsiteAgent() {
           <h1 className="text-4xl font-bold">Website Project Questionnaire</h1>
           <p className="text-muted-foreground text-lg max-w-lg mx-auto">
             Fill out the form below so we can build your perfect website.{" "}
-            <span className="font-semibold text-foreground">$1.00</span> — one flat fee.
+            <span className="font-semibold text-foreground">$199.99 + tax</span> — one flat fee.
           </p>
         </motion.div>
 
@@ -627,7 +627,7 @@ export default function WebsiteAgent() {
                 <p className="text-sm text-muted-foreground">Professional · Mobile responsive · 5–7 business days</p>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold">$1.00</p>
+                <p className="text-2xl font-bold">$199.99 + tax</p>
                 <p className="text-xs text-muted-foreground">+ applicable tax</p>
               </div>
             </div>

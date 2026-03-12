@@ -3242,7 +3242,7 @@ def submit_website_order(data: WebsiteOrderIn):
                         "name": "ISIBI Website Build Service",
                         "description": f"Custom website for {data.business_name or data.full_name}",
                     },
-                    "unit_amount": 100,   # $1.00 in cents (test — change to 19999 for $199.99)
+                    "unit_amount": 19999,   # $199.99 in cents
                 },
                 "quantity": 1,
             }],
