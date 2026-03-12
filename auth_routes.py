@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from db import create_user, verify_user
@@ -28,12 +28,6 @@ class RegisterIn(BaseModel):
     use_case: Optional[str] = None
     call_volume: Optional[str] = None
 
-class LoginRequest(BaseModel):
-    # All Optional so an incomplete/null body returns 401, never 422
-    email: Optional[str] = None
-    password: Optional[str] = None
-    account_type: Optional[str] = None
-
 @router.post("/register")
 def register(data: RegisterIn):
     try:
@@ -53,15 +47,24 @@ def register(data: RegisterIn):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/login")
-def login_user(payload: LoginRequest):
-    if not payload.email or not payload.password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    user = verify_user(payload.email.strip().lower(), payload.password)
+async def login_user(request: Request):
+    # Parse body manually — never returns 422 regardless of what browser sends
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+    requested_type = body.get("account_type")  # optional hint from frontend
+
+    if not email or not password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    user = verify_user(email, password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    # Block banned accounts
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="This account has been suspended.")
 
@@ -69,16 +72,13 @@ def login_user(payload: LoginRequest):
     status = user.get("status", "approved")
 
     # Enforce login portal separation
-    requested_type = payload.account_type  # what the login page claims
     if requested_type == "customer" and account_type != "customer":
         raise HTTPException(status_code=403, detail="This account is not a customer account. Please use the developer login.")
     if requested_type != "customer" and account_type == "customer":
         raise HTTPException(status_code=403, detail="Please use the customer login portal.")
 
-    # Block developers who haven't been approved yet
     if account_type == "developer" and status == "pending":
         raise HTTPException(status_code=403, detail="Your developer access is pending review.")
-
     if account_type == "developer" and status == "rejected":
         raise HTTPException(status_code=403, detail="Your developer access request was not approved.")
 
@@ -114,20 +114,27 @@ def customer_register(data: CustomerRegisterIn):
 
 
 @router.post("/customer-login")
-def customer_login(payload: LoginRequest):
-    """Dedicated login for customer accounts."""
-    if not payload.email or not payload.password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    user = verify_user(payload.email.strip().lower(), payload.password)
+async def customer_login(request: Request):
+    """Dedicated login for customer accounts — never returns 422."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
 
+    email = (body.get("email") or "").strip().lower()
+    password = body.get("password") or ""
+
+    if not email or not password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    user = verify_user(email, password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if user.get("is_banned"):
         raise HTTPException(status_code=403, detail="This account has been suspended.")
 
-    account_type = user.get("account_type", "developer")
-    if account_type != "customer":
+    if user.get("account_type", "developer") != "customer":
         raise HTTPException(status_code=403, detail="This account is not a customer account. Please use the developer login.")
 
     token = make_token({
