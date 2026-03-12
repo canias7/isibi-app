@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing, BookUser } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logoImg from "@/assets/logo.png";
 import {
@@ -10,13 +10,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-export type DashboardTab = "assistant" | "overview" | "phone-numbers" | "billing" | "voice-library" | "settings" | "developer" | "outbound-calls";
+export type DashboardTab = "assistant" | "overview" | "phone-numbers" | "billing" | "voice-library" | "settings" | "developer" | "outbound-calls" | "contacts";
 export type SidebarMode = "developer" | "customer";
 
 const developerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
   { id: "assistant", label: "Agent", icon: Bot },
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "outbound-calls", label: "Outbound Calls", icon: PhoneOutgoing },
+  { id: "contacts", label: "Contacts", icon: BookUser },
   { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
   { id: "billing", label: "Billing & Credits", icon: CreditCard },
   { id: "voice-library", label: "Voice Library", icon: Headphones },
@@ -27,6 +28,7 @@ const customerNavItems: { id: DashboardTab; label: string; icon: React.ElementTy
   { id: "assistant", label: "Agent", icon: Bot },
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "outbound-calls", label: "Outbound Calls", icon: PhoneOutgoing },
+  { id: "contacts", label: "Contacts", icon: BookUser },
   { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
   { id: "billing", label: "Billing", icon: CreditCard },
   { id: "settings", label: "Settings", icon: Settings },

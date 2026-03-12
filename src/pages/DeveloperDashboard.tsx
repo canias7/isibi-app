@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { listAgents, type AgentOut, getCreditsBalance, getCreditsStatus, getTransactions, getCurrentUsage, getUsageCalls } from "@/lib/api";
+import { listAgents, type AgentOut, getCreditsBalance, getCreditsStatus, getTransactions, getCurrentUsage, getUsageCalls, type Contact } from "@/lib/api";
 import { getMyPhoneNumbers, type PurchasedNumber } from "@/lib/phone-numbers-api";
 import DashboardSidebar, { type DashboardTab } from "@/components/dashboard/DashboardSidebar";
 import DashboardOverview from "@/components/dashboard/DashboardOverview";
@@ -12,6 +12,7 @@ import DashboardVoiceLibrary from "@/components/dashboard/DashboardVoiceLibrary"
 import DashboardDeveloper from "@/components/dashboard/DashboardDeveloper";
 import DashboardRightPanel, { type RightPanelTab, type AgentConfigForPricing } from "@/components/dashboard/DashboardRightPanel";
 import DashboardOutboundCalls from "@/components/dashboard/DashboardOutboundCalls";
+import DashboardContacts from "@/components/dashboard/DashboardContacts";
 
 export default function DeveloperDashboard() {
   const navigate = useNavigate();
@@ -24,6 +25,9 @@ export default function DeveloperDashboard() {
   const [agentPricingConfig, setAgentPricingConfig] = useState<AgentConfigForPricing>({});
   const [isEditingAgent, setIsEditingAgent] = useState(!!editId);
 
+  // Contact → Outbound Calls bridge
+  const [callContact, setCallContact] = useState<Contact | null>(null);
+
   // Shared data
   const [agents, setAgents] = useState<AgentOut[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
@@ -33,9 +37,7 @@ export default function DeveloperDashboard() {
   const [calls, setCalls] = useState<any[]>([]);
   const [myNumbers, setMyNumbers] = useState<PurchasedNumber[]>([]);
 
-  const fetchAgents = () => {
-    listAgents().then(setAgents).catch(() => setAgents([]));
-  };
+  const fetchAgents = () => { listAgents().then(setAgents).catch(() => setAgents([])); };
 
   const fetchCreditsData = async () => {
     try {
@@ -67,9 +69,13 @@ export default function DeveloperDashboard() {
     return () => clearInterval(i);
   }, []);
 
+  const handleCallContact = (contact: Contact) => {
+    setCallContact(contact);
+    setActiveTab("outbound-calls");
+  };
+
   return (
     <div className="flex min-h-screen relative">
-      {/* Sidebar */}
       <DashboardSidebar
         mode="developer"
         activeTab={activeTab}
@@ -80,57 +86,34 @@ export default function DeveloperDashboard() {
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
 
-      {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === "overview" && (
-            <DashboardOverview
-              balance={balance}
-              lowBalance={lowBalance}
-              usage={usage}
-              calls={calls}
-              agents={agents}
-              transactions={transactions}
-            />
+            <DashboardOverview balance={balance} lowBalance={lowBalance} usage={usage} calls={calls} agents={agents} transactions={transactions} />
           )}
           {activeTab === "phone-numbers" && (
-            <DashboardPhoneNumbers
-              myNumbers={myNumbers}
-              onRefresh={fetchMyNumbers}
-              onCreditsRefresh={fetchCreditsData}
-            />
+            <DashboardPhoneNumbers myNumbers={myNumbers} onRefresh={fetchMyNumbers} onCreditsRefresh={fetchCreditsData} />
           )}
           {activeTab === "billing" && (
-            <DashboardBilling
-              balance={balance}
-              lowBalance={lowBalance}
-              transactions={transactions}
-              onRefresh={fetchCreditsData}
-            />
+            <DashboardBilling balance={balance} lowBalance={lowBalance} transactions={transactions} onRefresh={fetchCreditsData} />
           )}
           <div className={activeTab === "assistant" ? "" : "hidden"}>
-            <DashboardAISettings
-              agents={agents}
-              onAgentsRefresh={fetchAgents}
-              onPricingConfigChange={setAgentPricingConfig}
-              onEditingChange={setIsEditingAgent}
-            />
+            <DashboardAISettings agents={agents} onAgentsRefresh={fetchAgents} onPricingConfigChange={setAgentPricingConfig} onEditingChange={setIsEditingAgent} />
           </div>
-          {activeTab === "outbound-calls" && <DashboardOutboundCalls agents={agents} />}
+          {activeTab === "outbound-calls" && (
+            <DashboardOutboundCalls agents={agents} prefilledContact={callContact} />
+          )}
+          {activeTab === "contacts" && (
+            <DashboardContacts agents={agents} onCallContact={handleCallContact} />
+          )}
           {activeTab === "voice-library" && <DashboardVoiceLibrary />}
           {activeTab === "settings" && <DashboardSettings />}
           {activeTab === "developer" && <DashboardDeveloper />}
         </div>
       </main>
 
-      {/* Right panel – only visible when editing/creating an agent */}
       {activeTab === "assistant" && isEditingAgent && (
-        <DashboardRightPanel
-          activeTab={rightPanelTab}
-          onTabChange={setRightPanelTab}
-          agentConfig={agentPricingConfig}
-          calls={calls}
-        />
+        <DashboardRightPanel activeTab={rightPanelTab} onTabChange={setRightPanelTab} agentConfig={agentPricingConfig} calls={calls} />
       )}
     </div>
   );

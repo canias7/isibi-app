@@ -807,3 +807,81 @@ export async function cancelOutboundCall(callId: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to cancel call: ${res.status}`);
 }
+
+// ── Contacts API ─────────────────────────────────────────────────────────────
+
+export interface Contact {
+  id: number;
+  first_name: string;
+  last_name?: string | null;
+  phone_number: string;
+  email?: string | null;
+  company?: string | null;
+  tags?: string[] | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface ContactCreateRequest {
+  first_name: string;
+  last_name?: string;
+  phone_number: string;
+  email?: string;
+  company?: string;
+  tags?: string[];
+  notes?: string;
+}
+
+export async function listContacts(): Promise<Contact[]> {
+  const res = await fetch(`${API_BASE}/api/contacts`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`Failed to list contacts: ${res.status}`);
+  return res.json();
+}
+
+export async function createContact(data: ContactCreateRequest): Promise<Contact> {
+  const res = await fetch(`${API_BASE}/api/contacts`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to create contact: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function updateContact(id: number, data: Partial<ContactCreateRequest>): Promise<Contact> {
+  const res = await fetch(`${API_BASE}/api/contacts/${id}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to update contact: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function deleteContact(id: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/contacts/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete contact: ${res.status}`);
+}
+
+export async function importContacts(contacts: ContactCreateRequest[]): Promise<{ created: number; errors: number }> {
+  const res = await fetch(`${API_BASE}/api/contacts/import`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ contacts }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to import contacts: ${res.status}`);
+  }
+  return res.json();
+}
