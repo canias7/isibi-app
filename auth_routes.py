@@ -65,6 +65,13 @@ def login_user(payload: LoginRequest):
     account_type = user.get("account_type", "developer")
     status = user.get("status", "approved")
 
+    # Enforce login portal separation
+    requested_type = payload.account_type  # what the login page claims
+    if requested_type == "customer" and account_type != "customer":
+        raise HTTPException(status_code=403, detail="This account is not a customer account. Please use the developer login.")
+    if requested_type != "customer" and account_type == "customer":
+        raise HTTPException(status_code=403, detail="Please use the customer login portal.")
+
     # Block developers who haven't been approved yet
     if account_type == "developer" and status == "pending":
         raise HTTPException(status_code=403, detail="Your developer access is pending review.")
@@ -83,6 +90,52 @@ def login_user(payload: LoginRequest):
         "access_token": token,
         "token_type": "bearer",
         "account_type": account_type,
+    }
+
+
+# ── Dedicated customer endpoints ──────────────────────────────────────────────
+
+class CustomerRegisterIn(BaseModel):
+    email: EmailStr
+    password: str
+
+@router.post("/customer-register")
+def customer_register(data: CustomerRegisterIn):
+    """Register a new customer account (auto-approved, no review needed)."""
+    try:
+        from db import create_user
+        create_user(email=data.email, password=data.password, account_type="customer")
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/customer-login")
+def customer_login(payload: LoginRequest):
+    """Dedicated login for customer accounts."""
+    user = verify_user(payload.email, payload.password)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if user.get("is_banned"):
+        raise HTTPException(status_code=403, detail="This account has been suspended.")
+
+    account_type = user.get("account_type", "developer")
+    if account_type != "customer":
+        raise HTTPException(status_code=403, detail="This account is not a customer account. Please use the developer login.")
+
+    token = make_token({
+        "id": user["id"],
+        "email": user["email"],
+        "tenant_phone": user.get("tenant_phone"),
+        "account_type": "customer",
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "account_type": "customer",
     }
 
 
