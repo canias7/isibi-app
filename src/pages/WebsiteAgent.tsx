@@ -1,14 +1,18 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Globe, CheckCircle, ExternalLink, Loader2, ArrowRight, ChevronDown, ChevronUp } from "lucide-react";
+import { Globe, CheckCircle, Loader2, ArrowRight, ChevronDown, ChevronUp, Upload, X, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
+import { loadStripe } from "@stripe/stripe-js";
+import { EmbeddedCheckout, EmbeddedCheckoutProvider } from "@stripe/react-stripe-js";
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "");
 
 const API_BASE_URL = "https://isibi-backend.onrender.com";
 
@@ -84,11 +88,25 @@ function MultiCheck({
   );
 }
 
+// Convert a File to a base64 data-URL string
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
 export default function WebsiteAgent() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [orderId, setOrderId] = useState<number | null>(null);
+  const [paymentDone, setPaymentDone] = useState(false);
+
+  // File upload state
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
 
   // Multi-select state
   const [goals, setGoals] = useState<string[]>([]);
@@ -140,6 +158,20 @@ export default function WebsiteAgent() {
 
     setIsLoading(true);
     try {
+      // Encode uploaded files as base64
+      let logoData: string | null = null;
+      let logoFilename: string | null = null;
+      if (logoFile) {
+        logoData = await fileToBase64(logoFile);
+        logoFilename = logoFile.name;
+      }
+      let photosData: string[] = [];
+      let photosFilenames: string[] = [];
+      for (const f of photoFiles) {
+        photosData.push(await fileToBase64(f));
+        photosFilenames.push(f.name);
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/website-agent/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -148,6 +180,10 @@ export default function WebsiteAgent() {
           website_goals: goals.join(", "),
           customer_actions: actions.join(", "),
           features_needed: features.join(", "),
+          logo_data: logoData,
+          logo_filename: logoFilename,
+          photos_data: photosData.length ? JSON.stringify(photosData) : null,
+          photos_filenames: photosFilenames.length ? JSON.stringify(photosFilenames) : null,
         }),
       });
 
@@ -158,13 +194,11 @@ export default function WebsiteAgent() {
 
       const data = await res.json();
       setOrderId(data.order_id);
-      setCheckoutUrl(data.checkout_url);
+      setClientSecret(data.client_secret || null);
 
       toast({
         title: "Request submitted!",
-        description: data.checkout_url
-          ? "Proceed to payment to confirm your order."
-          : "We received your request and will be in touch shortly.",
+        description: "Complete the payment below to confirm your order.",
       });
     } catch (error) {
       toast({
@@ -177,8 +211,8 @@ export default function WebsiteAgent() {
     }
   };
 
-  // ── Payment / success screen ───────────────────────────────────────────────
-  if (checkoutUrl || orderId) {
+  // ── Payment success screen ─────────────────────────────────────────────────
+  if (paymentDone) {
     return (
       <div className="min-h-screen flex items-center justify-center px-4">
         <motion.div
@@ -192,49 +226,52 @@ export default function WebsiteAgent() {
               <CheckCircle className="w-10 h-10 text-green-500" />
             </div>
           </div>
+          <h1 className="text-3xl font-bold">Payment Confirmed!</h1>
+          <p className="text-muted-foreground">
+            Thank you! Your order <span className="font-semibold text-foreground">#{orderId}</span> is confirmed.
+            We'll start building your website and reach out within 1 business day.
+          </p>
+          <Link to="/">
+            <Button variant="outline" className="mt-4">Back to Home</Button>
+          </Link>
+        </motion.div>
+      </div>
+    );
+  }
 
-          <div>
-            <h1 className="text-3xl font-bold mb-2">Request Received!</h1>
-            <p className="text-muted-foreground">
-              Your website order <span className="font-semibold text-foreground">#{orderId}</span> has been submitted.
-              Complete the payment below to confirm your spot.
+  // ── Embedded Stripe Checkout ────────────────────────────────────────────────
+  if (clientSecret) {
+    return (
+      <div className="min-h-screen relative py-12 px-4">
+        <div className="relative z-10 max-w-2xl mx-auto space-y-6">
+          <div className="text-center space-y-2">
+            <Link to="/" className="inline-flex items-center gap-2 mb-2">
+              <span className="text-2xl font-bold gradient-text">ISIBI</span>
+            </Link>
+            <h1 className="text-2xl font-bold">Complete Your Payment</h1>
+            <p className="text-muted-foreground text-sm">
+              Order <span className="font-semibold text-foreground">#{orderId}</span> — Website Build Service · $199.99 + tax
             </p>
           </div>
 
-          <Card className="border-border/50 bg-card/50 backdrop-blur-xl text-left">
-            <CardContent className="pt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-lg">ISIBI Website Build Service</p>
-                  <p className="text-sm text-muted-foreground">
-                    Custom website for {form.business_name || form.full_name}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold">$199.99</p>
-                  <p className="text-xs text-muted-foreground">+ applicable tax</p>
-                </div>
-              </div>
-              <div className="border-t pt-4 space-y-1.5 text-sm text-muted-foreground">
-                <p>✓ Custom design tailored to your brand</p>
-                <p>✓ Mobile responsive</p>
-                <p>✓ All requested features included</p>
-                <p>✓ Delivered within 5–7 business days</p>
-              </div>
+          <Card className="border-border/50 bg-card/50 backdrop-blur-xl overflow-hidden">
+            <CardContent className="p-0">
+              <EmbeddedCheckoutProvider
+                stripe={stripePromise}
+                options={{
+                  clientSecret,
+                  onComplete: () => setPaymentDone(true),
+                }}
+              >
+                <EmbeddedCheckout />
+              </EmbeddedCheckoutProvider>
             </CardContent>
           </Card>
 
-          <Button
-            size="lg"
-            className="w-full text-base font-semibold"
-            onClick={() => window.open(checkoutUrl || "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06", "_blank")}
-          >
-            Proceed to Payment — $199.99
-            <ExternalLink className="ml-2 h-4 w-4" />
-          </Button>
-
-          <p className="text-xs text-muted-foreground">Secured by Stripe · Order #{orderId}</p>
-        </motion.div>
+          <p className="text-xs text-center text-muted-foreground">
+            Payments are processed securely by Stripe. ISIBI never stores your card details.
+          </p>
+        </div>
       </div>
     );
   }
@@ -400,9 +437,29 @@ export default function WebsiteAgent() {
                     ))}
                   </div>
                   {form.has_logo === "yes" && (
-                    <p className="text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded px-3 py-2">
-                      📎 Please email your logo file to <strong>support@isibi.ai</strong> with your order number after payment.
-                    </p>
+                    <div className="space-y-2">
+                      <Label className="text-sm text-muted-foreground">Upload your logo</Label>
+                      {logoFile ? (
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary/30 bg-primary/5">
+                          <ImageIcon className="h-5 w-5 text-primary shrink-0" />
+                          <span className="text-sm font-medium truncate flex-1">{logoFile.name}</span>
+                          <button type="button" onClick={() => setLogoFile(null)} className="text-muted-foreground hover:text-destructive transition-colors">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-border/60 hover:border-primary/40 cursor-pointer transition-colors">
+                          <Upload className="h-6 w-6 text-muted-foreground" />
+                          <span className="text-sm text-muted-foreground">Click to upload logo (PNG, JPG, SVG)</span>
+                          <input
+                            type="file"
+                            accept="image/*,.svg"
+                            className="hidden"
+                            onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="space-y-1.5">
@@ -442,9 +499,38 @@ export default function WebsiteAgent() {
                   ))}
                 </div>
                 {form.has_photos === "yes" && (
-                  <p className="text-xs text-muted-foreground bg-primary/5 border border-primary/20 rounded px-3 py-2">
-                    📎 Please email your photos to <strong>support@isibi.ai</strong> with your order number after payment.
-                  </p>
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground">Upload your photos <span className="font-normal">(up to 5 images)</span></Label>
+                    {photoFiles.length > 0 && (
+                      <div className="space-y-1.5">
+                        {photoFiles.map((f, i) => (
+                          <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg border border-primary/30 bg-primary/5">
+                            <ImageIcon className="h-4 w-4 text-primary shrink-0" />
+                            <span className="text-sm truncate flex-1">{f.name}</span>
+                            <button type="button" onClick={() => setPhotoFiles(photoFiles.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-destructive transition-colors">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {photoFiles.length < 5 && (
+                      <label className="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-border/60 hover:border-primary/40 cursor-pointer transition-colors">
+                        <Upload className="h-6 w-6 text-muted-foreground" />
+                        <span className="text-sm text-muted-foreground">Click to upload photos (PNG, JPG)</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            setPhotoFiles((prev) => [...prev, ...files].slice(0, 5));
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
                 )}
                 {form.has_photos === "no" && (
                   <p className="text-xs text-muted-foreground bg-secondary/30 border border-border/50 rounded px-3 py-2">

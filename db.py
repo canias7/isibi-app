@@ -340,6 +340,11 @@ def init_db():
         social_instagram TEXT,
         social_tiktok TEXT,
         social_google TEXT,
+        -- Uploaded files (base64 data-URLs)
+        logo_data TEXT,
+        logo_filename TEXT,
+        photos_data TEXT,
+        photos_filenames TEXT,
         -- Misc
         additional_notes TEXT,
         payment_status TEXT DEFAULT 'pending',
@@ -512,6 +517,10 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'website_agent_orders', 'social_google', 'TEXT')
     add_column_if_missing(conn, 'website_agent_orders', 'additional_notes', 'TEXT')
     add_column_if_missing(conn, 'website_agent_orders', 'stripe_session_id', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'logo_data', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'logo_filename', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'photos_data', 'TEXT')
+    add_column_if_missing(conn, 'website_agent_orders', 'photos_filenames', 'TEXT')
 
     conn.close()
 
@@ -1483,6 +1492,10 @@ def create_website_order(
     social_google: str | None = None,
     additional_notes: str | None = None,
     stripe_session_id: str | None = None,
+    logo_data: str | None = None,
+    logo_filename: str | None = None,
+    photos_data: str | None = None,
+    photos_filenames: str | None = None,
 ) -> int:
     """Insert a new website order and return its ID."""
     conn = get_conn()
@@ -1492,13 +1505,13 @@ def create_website_order(
             "website_goals,customer_actions,services_list,pricing_info,special_offers,"
             "preferred_colors,website_examples,has_logo,has_photos,features_needed,"
             "social_facebook,social_instagram,social_tiktok,social_google,"
-            "additional_notes,stripe_session_id")
+            "additional_notes,stripe_session_id,logo_data,logo_filename,photos_data,photos_filenames")
     vals = (full_name, email, phone, business_name, business_address, business_hours,
             current_website, business_description, services_offered, competitive_advantage,
             website_goals, customer_actions, services_list, pricing_info, special_offers,
             preferred_colors, website_examples, has_logo, has_photos, features_needed,
             social_facebook, social_instagram, social_tiktok, social_google,
-            additional_notes, stripe_session_id)
+            additional_notes, stripe_session_id, logo_data, logo_filename, photos_data, photos_filenames)
     placeholders = ",".join(["{PH}"] * len(vals))
     if USE_POSTGRES:
         cur.execute(sql(f"INSERT INTO website_agent_orders ({cols}) VALUES ({placeholders}) RETURNING id"), vals)
@@ -1522,7 +1535,8 @@ def get_all_website_orders(limit: int = 100) -> list:
                website_goals, customer_actions, services_list, pricing_info, special_offers,
                preferred_colors, website_examples, has_logo, has_photos, features_needed,
                social_facebook, social_instagram, social_tiktok, social_google,
-               additional_notes, payment_status, stripe_session_id, created_at
+               additional_notes, payment_status, stripe_session_id, created_at,
+               logo_data, logo_filename, photos_data, photos_filenames
         FROM website_agent_orders
         ORDER BY created_at DESC
         LIMIT {PH}
@@ -1534,7 +1548,8 @@ def get_all_website_orders(limit: int = 100) -> list:
             'website_goals','customer_actions','services_list','pricing_info','special_offers',
             'preferred_colors','website_examples','has_logo','has_photos','features_needed',
             'social_facebook','social_instagram','social_tiktok','social_google',
-            'additional_notes','payment_status','stripe_session_id','created_at']
+            'additional_notes','payment_status','stripe_session_id','created_at',
+            'logo_data','logo_filename','photos_data','photos_filenames']
     result = []
     for row in rows:
         if isinstance(row, dict):

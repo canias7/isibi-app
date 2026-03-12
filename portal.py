@@ -3187,6 +3187,11 @@ class WebsiteOrderIn(BaseModel):
     social_google: Optional[str] = None
     # Section 9 – Additional
     additional_notes: Optional[str] = None
+    # Uploaded files (base64 data-URLs from browser FileReader)
+    logo_data: Optional[str] = None
+    logo_filename: Optional[str] = None
+    photos_data: Optional[str] = None        # JSON-encoded list of base64 strings
+    photos_filenames: Optional[str] = None   # JSON-encoded list of filenames
 
 
 @router.post("/website-agent/submit")
@@ -3220,11 +3225,37 @@ def submit_website_order(data: WebsiteOrderIn):
         social_tiktok=data.social_tiktok,
         social_google=data.social_google,
         additional_notes=data.additional_notes,
+        logo_data=data.logo_data,
+        logo_filename=data.logo_filename,
+        photos_data=data.photos_data,
+        photos_filenames=data.photos_filenames,
     )
 
-    # Use the fixed Stripe payment link — no dynamic session needed
-    STRIPE_PAYMENT_LINK = "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06"
-    return {"order_id": order_id, "checkout_url": STRIPE_PAYMENT_LINK}
+    # Create Stripe Embedded Checkout Session (stays on our platform)
+    try:
+        session = stripe.checkout.Session.create(
+            ui_mode="embedded",
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {
+                        "name": "ISIBI Website Build Service",
+                        "description": f"Custom website for {data.business_name or data.full_name}",
+                    },
+                    "unit_amount": 19999,   # $199.99 in cents
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            return_url=f"https://isibi.ai/website-agent?payment=success&order_id={order_id}&session_id={{CHECKOUT_SESSION_ID}}",
+            metadata={"order_id": str(order_id)},
+        )
+        from db import update_website_order_payment
+        update_website_order_payment(order_id, session.id, "pending")
+        return {"order_id": order_id, "client_secret": session.client_secret}
+    except Exception as e:
+        # Fallback: return static Stripe link if embedded checkout fails
+        return {"order_id": order_id, "client_secret": None, "checkout_url": "https://buy.stripe.com/aFaaER3zN0ckdGS8taeIw06"}
 
 
 @router.get("/admin/website-orders")

@@ -88,6 +88,11 @@ interface WebsiteOrder {
   payment_status: 'pending' | 'paid' | 'completed';
   stripe_session_id?: string;
   created_at: string;
+  // Uploaded files
+  logo_data?: string;
+  logo_filename?: string;
+  photos_data?: string;
+  photos_filenames?: string;
 }
 
 interface ActivityItem {
@@ -970,6 +975,63 @@ export default function AdminDashboard() {
                                     </div>
                                   </div>
                                 )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Uploaded Files */}
+                          {(order.logo_data || order.photos_data) && (
+                            <div>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">📎 Uploaded Files</p>
+                              <div className="space-y-3 bg-muted/30 rounded-lg p-3">
+                                {order.logo_data && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1.5">Logo — <span className="font-medium text-foreground">{order.logo_filename || 'uploaded'}</span></p>
+                                    <div className="flex items-start gap-3">
+                                      <img
+                                        src={order.logo_data}
+                                        alt="Customer logo"
+                                        className="max-h-24 max-w-[200px] rounded border border-border/50 bg-white object-contain p-1"
+                                      />
+                                      <a
+                                        href={order.logo_data}
+                                        download={order.logo_filename || 'logo'}
+                                        className="text-xs text-primary hover:underline mt-1"
+                                      >
+                                        ⬇ Download logo
+                                      </a>
+                                    </div>
+                                  </div>
+                                )}
+                                {order.photos_data && (() => {
+                                  try {
+                                    const photos: string[] = JSON.parse(order.photos_data);
+                                    const names: string[] = order.photos_filenames ? JSON.parse(order.photos_filenames) : [];
+                                    return (
+                                      <div>
+                                        <p className="text-xs text-muted-foreground mb-1.5">Business Photos ({photos.length})</p>
+                                        <div className="flex flex-wrap gap-2">
+                                          {photos.map((src, i) => (
+                                            <div key={i} className="relative group">
+                                              <img
+                                                src={src}
+                                                alt={`Photo ${i + 1}`}
+                                                className="h-24 w-24 object-cover rounded border border-border/50"
+                                              />
+                                              <a
+                                                href={src}
+                                                download={names[i] || `photo-${i + 1}`}
+                                                className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded text-white text-xs"
+                                              >
+                                                ⬇ Download
+                                              </a>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  } catch { return null; }
+                                })()}
                               </div>
                             </div>
                           )}
