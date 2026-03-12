@@ -4,12 +4,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
-import { Users, DollarSign, Phone, Bot, CreditCard, TrendingUp, Activity, MessageSquare, LogOut, UserCircle } from "lucide-react";
+import { Users, DollarSign, Phone, Bot, CreditCard, TrendingUp, Activity, MessageSquare, LogOut, UserCircle, ShieldCheck, ShieldX, UserX, UserCheck, Clock, Building2, Globe, Zap, BarChart3 } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -27,11 +27,27 @@ interface DashboardStats {
 interface AdminUser {
   id: number;
   email: string;
+  account_type?: string;
   balance: number;
   total_purchased: number;
   total_used: number;
   agent_count: number;
   call_count: number;
+  created_at: string;
+  is_banned?: boolean;
+  is_active?: boolean;
+  status?: string;
+}
+
+interface DeveloperRequest {
+  id: number;
+  email: string;
+  full_name?: string;
+  company_name?: string;
+  website?: string;
+  use_case?: string;
+  call_volume?: string;
+  status: 'pending' | 'approved' | 'rejected';
   created_at: string;
 }
 
@@ -64,10 +80,13 @@ export default function AdminDashboard() {
   const [voiceLogs, setVoiceLogs] = useState<VoiceLog[]>([]);
   const [revenueData, setRevenueData] = useState<RevenueDataPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessRequests, setAccessRequests] = useState<DeveloperRequest[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<VoiceLog | null>(null);
   const [creditDialogOpen, setCreditDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [creditAmount, setCreditAmount] = useState('');
+  const [banDialogUser, setBanDialogUser] = useState<AdminUser | null>(null);
+  const [requestFilter, setRequestFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending');
   const { toast } = useToast();
 
   const token = localStorage.getItem('token');
@@ -211,6 +230,79 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadAccessRequests = async () => {
+    try {
+      const res = await adminFetch('/admin/access-requests', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        const data = await res.json();
+        setAccessRequests(data.requests ?? (Array.isArray(data) ? data : []));
+      }
+    } catch (error) {
+      console.error('Failed to load access requests:', error);
+    }
+  };
+
+  const handleApproveRequest = async (id: number) => {
+    try {
+      const res = await adminFetch(`/admin/access-requests/${id}/approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        toast({ title: 'Access approved', description: 'The developer can now sign in.' });
+        loadAccessRequests();
+      } else {
+        throw new Error('Failed');
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Could not approve request.', variant: 'destructive' });
+    }
+  };
+
+  const handleRejectRequest = async (id: number) => {
+    try {
+      const res = await adminFetch(`/admin/access-requests/${id}/reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        toast({ title: 'Request rejected' });
+        loadAccessRequests();
+      } else {
+        throw new Error('Failed');
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Could not reject request.', variant: 'destructive' });
+    }
+  };
+
+  const handleBanUser = async () => {
+    if (!banDialogUser) return;
+    const isBanned = banDialogUser.is_banned;
+    try {
+      const res = await adminFetch(`/admin/users/${banDialogUser.id}/${isBanned ? 'unban' : 'ban'}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res?.ok) {
+        toast({
+          title: isBanned ? 'Account reinstated' : 'Account eliminated',
+          description: isBanned
+            ? `${banDialogUser.email} can now sign in again.`
+            : `${banDialogUser.email} has been blocked from signing in.`,
+        });
+        setBanDialogUser(null);
+        loadUsers();
+      } else {
+        throw new Error('Failed');
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Could not update account status.', variant: 'destructive' });
+    }
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -286,9 +378,17 @@ export default function AdminDashboard() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users" onClick={loadUsers}>Users</TabsTrigger>
+          <TabsTrigger value="access-requests" onClick={loadAccessRequests} className="relative">
+            Access Requests
+            {accessRequests.filter(r => r.status === 'pending').length > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+                {accessRequests.filter(r => r.status === 'pending').length}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="revenue">Revenue</TabsTrigger>
           <TabsTrigger value="voice-chats" onClick={loadVoiceLogs}>Voice Chats</TabsTrigger>
           <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -401,16 +501,17 @@ export default function AdminDashboard() {
           <Card>
             <CardHeader>
               <CardTitle>All Users</CardTitle>
-              <CardDescription>Manage platform users</CardDescription>
+              <CardDescription>Manage platform users and account status</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Email</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Status</TableHead>
                     <TableHead>Balance</TableHead>
                     <TableHead>Purchased</TableHead>
-                    <TableHead>Used</TableHead>
                     <TableHead>Agents</TableHead>
                     <TableHead>Calls</TableHead>
                     <TableHead>Joined</TableHead>
@@ -419,30 +520,179 @@ export default function AdminDashboard() {
                 </TableHeader>
                 <TableBody>
                   {users.map((user) => (
-                    <TableRow key={user.id}>
+                    <TableRow key={user.id} className={user.is_banned ? 'opacity-60' : ''}>
                       <TableCell className="font-medium">{user.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={user.account_type === 'developer' ? 'default' : 'secondary'} className="text-xs">
+                          {user.account_type ?? 'developer'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {user.is_banned ? (
+                          <Badge variant="destructive" className="text-xs gap-1">
+                            <UserX className="h-3 w-3" /> Banned
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-xs text-green-600 border-green-300 gap-1">
+                            <UserCheck className="h-3 w-3" /> Active
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell>{formatCurrency(user.balance)}</TableCell>
                       <TableCell>{formatCurrency(user.total_purchased)}</TableCell>
-                      <TableCell>{formatCurrency(user.total_used)}</TableCell>
                       <TableCell>{user.agent_count}</TableCell>
                       <TableCell>{user.call_count}</TableCell>
                       <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setSelectedUser(user);
-                            setCreditDialogOpen(true);
-                          }}
-                        >
-                          Add Credits
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => { setSelectedUser(user); setCreditDialogOpen(true); }}
+                          >
+                            Add Credits
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={user.is_banned ? 'outline' : 'destructive'}
+                            onClick={() => setBanDialogUser(user)}
+                          >
+                            {user.is_banned ? 'Reinstate' : 'Eliminate'}
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ACCESS REQUESTS TAB */}
+        <TabsContent value="access-requests" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Developer Access Requests</CardTitle>
+                  <CardDescription>Review and approve developer account applications</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  {(['pending', 'approved', 'rejected', 'all'] as const).map((f) => (
+                    <Button
+                      key={f}
+                      size="sm"
+                      variant={requestFilter === f ? 'default' : 'outline'}
+                      onClick={() => setRequestFilter(f)}
+                      className="capitalize"
+                    >
+                      {f}
+                      {f !== 'all' && (
+                        <span className="ml-1.5 text-xs opacity-70">
+                          ({accessRequests.filter(r => r.status === f).length})
+                        </span>
+                      )}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {accessRequests.filter(r => requestFilter === 'all' || r.status === requestFilter).length === 0 ? (
+                <div className="text-center py-16">
+                  <Clock className="w-12 h-12 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-muted-foreground">No {requestFilter !== 'all' ? requestFilter : ''} requests found.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2">
+                  {accessRequests
+                    .filter(r => requestFilter === 'all' || r.status === requestFilter)
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    .map((req) => (
+                      <div key={req.id} className={`rounded-xl border p-5 space-y-3 transition-all ${
+                        req.status === 'pending'
+                          ? 'border-amber-500/30 bg-amber-500/5'
+                          : req.status === 'approved'
+                          ? 'border-green-500/30 bg-green-500/5'
+                          : 'border-border/50 bg-secondary/20'
+                      }`}>
+                        {/* Header row */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">{req.full_name || '—'}</p>
+                            <p className="text-xs text-muted-foreground truncate">{req.email}</p>
+                          </div>
+                          <Badge
+                            variant={req.status === 'pending' ? 'outline' : req.status === 'approved' ? 'default' : 'secondary'}
+                            className={`shrink-0 text-xs capitalize ${req.status === 'pending' ? 'border-amber-500/50 text-amber-600' : req.status === 'approved' ? 'bg-green-600' : ''}`}
+                          >
+                            {req.status === 'pending' && <Clock className="h-3 w-3 mr-1" />}
+                            {req.status === 'approved' && <ShieldCheck className="h-3 w-3 mr-1" />}
+                            {req.status === 'rejected' && <ShieldX className="h-3 w-3 mr-1" />}
+                            {req.status}
+                          </Badge>
+                        </div>
+
+                        {/* Details */}
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {req.company_name && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Building2 className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{req.company_name}</span>
+                            </div>
+                          )}
+                          {req.website && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Globe className="h-3 w-3 shrink-0" />
+                              <a href={req.website} target="_blank" rel="noopener noreferrer" className="truncate hover:text-primary">
+                                {req.website.replace(/^https?:\/\//, '')}
+                              </a>
+                            </div>
+                          )}
+                          {req.use_case && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <Zap className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{req.use_case}</span>
+                            </div>
+                          )}
+                          {req.call_volume && (
+                            <div className="flex items-center gap-1.5 text-muted-foreground">
+                              <BarChart3 className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{req.call_volume}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                          Applied {formatDate(req.created_at)}
+                        </p>
+
+                        {req.status === 'pending' && (
+                          <div className="flex gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                              onClick={() => handleApproveRequest(req.id)}
+                            >
+                              <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="flex-1 border-destructive/40 text-destructive hover:bg-destructive/10"
+                              onClick={() => handleRejectRequest(req.id)}
+                            >
+                              <ShieldX className="h-3.5 w-3.5 mr-1" />
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -594,6 +844,45 @@ export default function AdminDashboard() {
               ))}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Ban / Reinstate Dialog */}
+      <Dialog open={!!banDialogUser} onOpenChange={(open) => !open && setBanDialogUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {banDialogUser?.is_banned ? (
+                <><UserCheck className="h-5 w-5 text-green-600" /> Reinstate Account</>
+              ) : (
+                <><UserX className="h-5 w-5 text-destructive" /> Eliminate Account</>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              {banDialogUser?.is_banned ? (
+                <>
+                  This will <strong>reinstate</strong> <span className="font-mono text-foreground">{banDialogUser?.email}</span>.
+                  They will be able to sign in and use the platform again.
+                </>
+              ) : (
+                <>
+                  This will <strong>permanently block</strong> <span className="font-mono text-foreground">{banDialogUser?.email}</span>.
+                  They will not be able to sign in or create a new account with this email.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2 pt-2">
+            <Button variant="outline" onClick={() => setBanDialogUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={banDialogUser?.is_banned ? 'default' : 'destructive'}
+              onClick={handleBanUser}
+            >
+              {banDialogUser?.is_banned ? 'Yes, reinstate' : 'Yes, eliminate account'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
