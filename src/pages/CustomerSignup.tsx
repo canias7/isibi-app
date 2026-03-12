@@ -35,10 +35,10 @@ export default function CustomerSignup() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      const response = await fetch(`${API_BASE_URL}/auth/customer-register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, account_type: "customer" }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (!response.ok) {
