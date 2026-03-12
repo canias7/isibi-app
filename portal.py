@@ -3026,6 +3026,130 @@ def admin_add_credits(user_id: int, amount: float, user=Depends(verify_admin)):
         raise HTTPException(status_code=500, detail=f"Failed to add credits: {str(e)}")
 
 
+# ── Ban / Unban ────────────────────────────────────────────────────────────────
+
+@router.post("/admin/users/{user_id}/ban")
+def admin_ban_user(user_id: int, user=Depends(verify_admin)):
+    """Ban a user — blocks login."""
+    from db import get_conn, sql, ensure_user_columns
+    ensure_user_columns()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id, email FROM users WHERE id = {PH}"), (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    email = row['email'] if isinstance(row, dict) else row[1]
+    cur.execute(sql("UPDATE users SET is_banned = TRUE WHERE id = {PH}"), (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "email": email}
+
+
+@router.post("/admin/users/{user_id}/unban")
+def admin_unban_user(user_id: int, user=Depends(verify_admin)):
+    """Reinstate a banned user."""
+    from db import get_conn, sql, ensure_user_columns
+    ensure_user_columns()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id, email FROM users WHERE id = {PH}"), (user_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    email = row['email'] if isinstance(row, dict) else row[1]
+    cur.execute(sql("UPDATE users SET is_banned = FALSE WHERE id = {PH}"), (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "email": email}
+
+
+# ── Developer Access Requests ──────────────────────────────────────────────────
+
+@router.get("/admin/access-requests")
+def admin_list_access_requests(user=Depends(verify_admin)):
+    """List all developer signup applications."""
+    from db import get_conn, sql, ensure_user_columns
+    ensure_user_columns()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, email, full_name, company_name, website,
+               use_case, call_volume, status, created_at
+        FROM users
+        WHERE account_type = 'developer'
+        ORDER BY
+            CASE WHEN status = 'pending' THEN 0
+                 WHEN status = 'approved' THEN 1
+                 ELSE 2 END,
+            created_at DESC
+    """))
+    requests_list = []
+    for row in cur.fetchall():
+        if isinstance(row, dict):
+            requests_list.append({
+                "id": row['id'],
+                "email": row['email'],
+                "full_name": row.get('full_name'),
+                "company_name": row.get('company_name'),
+                "website": row.get('website'),
+                "use_case": row.get('use_case'),
+                "call_volume": row.get('call_volume'),
+                "status": row.get('status') or 'pending',
+                "created_at": row['created_at'].isoformat() if row['created_at'] else None,
+            })
+        else:
+            requests_list.append({
+                "id": row[0],
+                "email": row[1],
+                "full_name": row[2],
+                "company_name": row[3],
+                "website": row[4],
+                "use_case": row[5],
+                "call_volume": row[6],
+                "status": row[7] or 'pending',
+                "created_at": row[8].isoformat() if row[8] else None,
+            })
+    conn.close()
+    return {"requests": requests_list}
+
+
+@router.post("/admin/access-requests/{user_id}/approve")
+def admin_approve_request(user_id: int, user=Depends(verify_admin)):
+    """Approve a developer access request."""
+    from db import get_conn, sql, ensure_user_columns
+    ensure_user_columns()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM users WHERE id = {PH}"), (user_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    cur.execute(sql("UPDATE users SET status = 'approved' WHERE id = {PH}"), (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@router.post("/admin/access-requests/{user_id}/reject")
+def admin_reject_request(user_id: int, user=Depends(verify_admin)):
+    """Reject a developer access request."""
+    from db import get_conn, sql, ensure_user_columns
+    ensure_user_columns()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM users WHERE id = {PH}"), (user_id,))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    cur.execute(sql("UPDATE users SET status = 'rejected' WHERE id = {PH}"), (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
 # ========== Voice Provider Endpoints ==========
 
 from elevenlabs_integration import get_all_voice_options, get_available_voices, get_user_subscription
