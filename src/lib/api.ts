@@ -746,3 +746,64 @@ export async function deleteDeveloperWebhook(webhookId: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to delete webhook: ${res.status}`);
 }
+
+// ── Outbound Calls API ───────────────────────────────────────────────────────
+
+export interface OutboundCallRequest {
+  agent_id: number;
+  to_number: string;
+  contact_name?: string;
+  notes?: string;
+}
+
+export interface OutboundCall {
+  id: string;
+  agent_id: number;
+  agent_name?: string;
+  to_number: string;
+  contact_name?: string;
+  notes?: string;
+  status: "queued" | "initiated" | "ringing" | "in-progress" | "completed" | "failed" | "busy" | "no-answer" | "canceled";
+  duration_seconds?: number | null;
+  cost?: number | null;
+  created_at: string;
+  updated_at?: string | null;
+  error_message?: string | null;
+}
+
+export async function initiateOutboundCall(data: OutboundCallRequest): Promise<OutboundCall> {
+  const res = await fetch(`${API_BASE}/api/calls/outbound`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to initiate call: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function getOutboundCalls(): Promise<OutboundCall[]> {
+  const res = await fetch(`${API_BASE}/api/calls/outbound`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to get outbound calls: ${res.status}`);
+  return res.json();
+}
+
+export async function getOutboundCallStatus(callId: string): Promise<OutboundCall> {
+  const res = await fetch(`${API_BASE}/api/calls/outbound/${callId}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to get call status: ${res.status}`);
+  return res.json();
+}
+
+export async function cancelOutboundCall(callId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/calls/outbound/${callId}/cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to cancel call: ${res.status}`);
+}

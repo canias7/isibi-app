@@ -8,6 +8,7 @@ import DashboardPhoneNumbers from "@/components/dashboard/DashboardPhoneNumbers"
 import DashboardBilling from "@/components/dashboard/DashboardBilling";
 import DashboardSettings from "@/components/dashboard/DashboardSettings";
 import CustomerDashboardAISettings from "@/components/dashboard/CustomerDashboardAISettings";
+import DashboardOutboundCalls from "@/components/dashboard/DashboardOutboundCalls";
 
 // Customer tabs only – no Voice Library, no Developer
 export type CustomerTab = "assistant" | "overview" | "phone-numbers" | "billing" | "settings";
@@ -110,6 +111,7 @@ export default function CustomerDashboard() {
               onAgentsRefresh={fetchAgents}
             />
           </div>
+          {activeTab === "outbound-calls" && <DashboardOutboundCalls agents={agents} />}
           {activeTab === "settings" && <DashboardSettings />}
         </div>
       </main>

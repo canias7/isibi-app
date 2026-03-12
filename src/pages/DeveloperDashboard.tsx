@@ -11,6 +11,7 @@ import DashboardSettings from "@/components/dashboard/DashboardSettings";
 import DashboardVoiceLibrary from "@/components/dashboard/DashboardVoiceLibrary";
 import DashboardDeveloper from "@/components/dashboard/DashboardDeveloper";
 import DashboardRightPanel, { type RightPanelTab, type AgentConfigForPricing } from "@/components/dashboard/DashboardRightPanel";
+import DashboardOutboundCalls from "@/components/dashboard/DashboardOutboundCalls";
 
 export default function DeveloperDashboard() {
   const navigate = useNavigate();
@@ -115,6 +116,7 @@ export default function DeveloperDashboard() {
               onEditingChange={setIsEditingAgent}
             />
           </div>
+          {activeTab === "outbound-calls" && <DashboardOutboundCalls agents={agents} />}
           {activeTab === "voice-library" && <DashboardVoiceLibrary />}
           {activeTab === "settings" && <DashboardSettings />}
           {activeTab === "developer" && <DashboardDeveloper />}
