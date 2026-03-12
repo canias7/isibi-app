@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Bot, Eye, EyeOff, UserPlus } from "lucide-react";
+import { Eye, EyeOff, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,58 +10,44 @@ import { useToast } from "@/hooks/use-toast";
 
 const API_BASE_URL = "https://isibi-backend.onrender.com";
 
-export default function Signup() {
+export default function CustomerLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (password !== confirmPassword) {
-      toast({
-        title: "Passwords don't match",
-        description: "Please make sure your passwords match.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email,
-          password,
-          account_type: "developer",
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, account_type: "customer" }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || "Registration failed");
+        throw new Error(errorData.detail || "Invalid credentials");
       }
 
+      const data = await response.json();
+      localStorage.setItem("token", data.access_token);
+      localStorage.setItem("account_type", "customer");
+
       toast({
-        title: "Account created!",
-        description: "Please sign in with your new account.",
+        title: "Welcome back!",
+        description: "You have successfully signed in.",
       });
 
-      navigate("/login");
+      navigate("/customer-dashboard");
     } catch (error) {
       toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "Please try again.",
+        title: "Login failed",
+        description: error instanceof Error ? error.message : "Please check your credentials and try again.",
         variant: "destructive",
       });
     } finally {
@@ -86,19 +72,14 @@ export default function Signup() {
         {/* Logo */}
         <div className="flex justify-center mb-8">
           <Link to="/" className="flex items-center gap-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
-              <Bot className="h-7 w-7 text-primary-foreground" />
-            </div>
             <span className="text-2xl font-bold gradient-text">ISIBI</span>
           </Link>
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-xl">
           <CardHeader className="text-center">
-            <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
-            <CardDescription>
-              Sign up to get started with ISIBI
-            </CardDescription>
+            <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+            <CardDescription>Sign in to your customer account</CardDescription>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -116,7 +97,12 @@ export default function Signup() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+                    Forgot password?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -132,72 +118,37 @@ export default function Signup() {
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <div className="relative">
-                  <Input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    required
-                    className="bg-background/50 border-border focus:border-primary pr-10"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showConfirmPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                variant="hero"
-                className="w-full"
-                disabled={isLoading}
-              >
+              <Button type="submit" variant="hero" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <div className="flex items-center gap-2">
                     <div className="h-4 w-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                    Creating account...
+                    Signing in...
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <UserPlus className="h-4 w-4" />
-                    Sign up
+                    <LogIn className="h-4 w-4" />
+                    Sign in
                   </div>
                 )}
               </Button>
             </form>
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <Link to="/login" className="text-primary hover:underline font-medium">
-                Sign in
+              Don't have an account?{" "}
+              <Link to="/customer-signup" className="text-primary hover:underline font-medium">
+                Sign up
               </Link>
             </div>
 
             <div className="mt-3 text-center text-xs text-muted-foreground">
-              Looking for the customer portal?{" "}
-              <Link to="/customer-signup" className="text-primary hover:underline font-medium">
-                Customer sign up
+              Are you a developer?{" "}
+              <Link to="/login" className="text-primary hover:underline font-medium">
+                Developer login
               </Link>
             </div>
           </CardContent>

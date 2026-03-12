@@ -11,13 +11,22 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export type DashboardTab = "assistant" | "overview" | "phone-numbers" | "billing" | "voice-library" | "settings" | "developer";
+export type SidebarMode = "developer" | "customer";
 
-const navItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
+const developerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
   { id: "assistant", label: "Agent", icon: Bot },
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
   { id: "billing", label: "Billing & Credits", icon: CreditCard },
   { id: "voice-library", label: "Voice Library", icon: Headphones },
+  { id: "settings", label: "Settings", icon: Settings },
+];
+
+const customerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
+  { id: "assistant", label: "Agent", icon: Bot },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
+  { id: "billing", label: "Billing", icon: CreditCard },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -32,31 +41,39 @@ interface DashboardSidebarProps {
   lowBalance?: boolean;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  mode?: SidebarMode;
 }
 
-export default function DashboardSidebar({ activeTab, onTabChange, balance, lowBalance, collapsed = false, onToggleCollapse }: DashboardSidebarProps) {
+export default function DashboardSidebar({ activeTab, onTabChange, balance, lowBalance, collapsed = false, onToggleCollapse, mode = "developer" }: DashboardSidebarProps) {
   const navigate = useNavigate();
+  const navItems = mode === "customer" ? customerNavItems : developerNavItems;
+  // Customer mode: hide developer sub-items
+  const visibleSubItems = mode === "customer" ? [] : subItems;
 
   return (
     <aside className={cn(
       "flex flex-col shrink-0 border-r border-border/30 bg-card/30 backdrop-blur-xl h-screen sticky top-0 z-40 transition-all duration-300",
       collapsed ? "w-16" : "w-52 lg:w-64"
     )}>
-      {/* Voice Agent Dropdown + Collapse toggle */}
+      {/* Header + Collapse toggle */}
       <div className="flex items-center gap-2 px-3 h-16 border-b border-border/30 shrink-0">
         {!collapsed && (
-          <DropdownMenu>
-            <DropdownMenuTrigger className="flex items-center gap-2 outline-none">
-              <span className="text-lg font-bold gradient-text">Voice Agent</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-48">
-              <DropdownMenuItem onClick={() => navigate("/workflow")} className="cursor-pointer">
-                <WorkflowIcon className="h-4 w-4 mr-2" />
-                <span className="gradient-text font-semibold">Workflow</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          mode === "developer" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger className="flex items-center gap-2 outline-none">
+                <span className="text-lg font-bold gradient-text">Voice Agent</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-48">
+                <DropdownMenuItem onClick={() => navigate("/workflow")} className="cursor-pointer">
+                  <WorkflowIcon className="h-4 w-4 mr-2" />
+                  <span className="gradient-text font-semibold">Workflow</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <span className="text-lg font-bold gradient-text">ISIBI</span>
+          )
         )}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -94,13 +111,17 @@ export default function DashboardSidebar({ activeTab, onTabChange, balance, lowB
               </>
             )}
           </div>
+          {/* Flat-rate indicator for customer mode */}
+          {mode === "customer" && !collapsed && (
+            <p className="text-xs text-muted-foreground text-center mt-1.5">$0.20/min flat rate</p>
+          )}
         </div>
       )}
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
-          const children = subItems.filter((s) => s.parent === item.id);
+          const children = visibleSubItems.filter((s) => s.parent === item.id);
           return (
             <div key={item.id}>
               <Tooltip>
@@ -152,7 +173,7 @@ export default function DashboardSidebar({ activeTab, onTabChange, balance, lowB
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              onClick={() => { localStorage.removeItem("token"); navigate("/"); }}
+              onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("account_type"); navigate(mode === "customer" ? "/customer-login" : "/"); }}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors",
                 collapsed && "justify-center px-2"

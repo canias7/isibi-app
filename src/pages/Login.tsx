@@ -39,7 +39,8 @@ export default function Login() {
       
       // Store the token for authenticated requests
       localStorage.setItem("token", data.access_token);
-      
+      localStorage.setItem("account_type", "developer");
+
       // Check if user is admin by email
       const isAdmin = email.toLowerCase().trim() === "cristiananias7@gmail.com";
 
@@ -47,8 +48,8 @@ export default function Login() {
         title: "Welcome back!",
         description: "You have successfully signed in.",
       });
-      
-      navigate(isAdmin ? "/admin" : "/customer-dashboard");
+
+      navigate(isAdmin ? "/admin" : "/developer-dashboard");
     } catch (error) {
       toast({
         title: "Login failed",
@@ -161,6 +162,13 @@ export default function Login() {
               Don't have an account?{" "}
               <Link to="/signup" className="text-primary hover:underline font-medium">
                 Sign up
+              </Link>
+            </div>
+
+            <div className="mt-3 text-center text-xs text-muted-foreground">
+              Looking for the customer portal?{" "}
+              <Link to="/customer-login" className="text-primary hover:underline font-medium">
+                Customer login
               </Link>
             </div>
           </CardContent>

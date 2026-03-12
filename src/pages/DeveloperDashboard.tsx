@@ -1,23 +1,27 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { listAgents, type AgentOut, getCreditsBalance, getCreditsStatus, getTransactions, getCurrentUsage, getUsageCalls } from "@/lib/api";
 import { getMyPhoneNumbers, type PurchasedNumber } from "@/lib/phone-numbers-api";
 import DashboardSidebar, { type DashboardTab } from "@/components/dashboard/DashboardSidebar";
 import DashboardOverview from "@/components/dashboard/DashboardOverview";
 import DashboardPhoneNumbers from "@/components/dashboard/DashboardPhoneNumbers";
 import DashboardBilling from "@/components/dashboard/DashboardBilling";
+import DashboardAISettings, { type AgentPricingConfig } from "@/components/dashboard/DashboardAISettings";
 import DashboardSettings from "@/components/dashboard/DashboardSettings";
-import CustomerDashboardAISettings from "@/components/dashboard/CustomerDashboardAISettings";
+import DashboardVoiceLibrary from "@/components/dashboard/DashboardVoiceLibrary";
+import DashboardDeveloper from "@/components/dashboard/DashboardDeveloper";
+import DashboardRightPanel, { type RightPanelTab, type AgentConfigForPricing } from "@/components/dashboard/DashboardRightPanel";
 
-// Customer tabs only – no Voice Library, no Developer
-export type CustomerTab = "assistant" | "overview" | "phone-numbers" | "billing" | "settings";
-
-export default function CustomerDashboard() {
+export default function DeveloperDashboard() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get("edit");
 
   const [activeTab, setActiveTab] = useState<DashboardTab>("assistant");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("pricing");
+  const [agentPricingConfig, setAgentPricingConfig] = useState<AgentConfigForPricing>({});
+  const [isEditingAgent, setIsEditingAgent] = useState(!!editId);
 
   // Shared data
   const [agents, setAgents] = useState<AgentOut[]>([]);
@@ -64,9 +68,9 @@ export default function CustomerDashboard() {
 
   return (
     <div className="flex min-h-screen relative">
-      {/* Sidebar – customer mode (no Voice Library, no Developer, no Workflow) */}
+      {/* Sidebar */}
       <DashboardSidebar
-        mode="customer"
+        mode="developer"
         activeTab={activeTab}
         onTabChange={setActiveTab}
         balance={balance}
@@ -75,7 +79,7 @@ export default function CustomerDashboard() {
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
 
-      {/* Main content – no right panel */}
+      {/* Main content */}
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === "overview" && (
@@ -103,17 +107,29 @@ export default function CustomerDashboard() {
               onRefresh={fetchCreditsData}
             />
           )}
-          {/* Keep AI Settings mounted so in-progress work isn't lost */}
           <div className={activeTab === "assistant" ? "" : "hidden"}>
-            <CustomerDashboardAISettings
+            <DashboardAISettings
               agents={agents}
               onAgentsRefresh={fetchAgents}
+              onPricingConfigChange={setAgentPricingConfig}
+              onEditingChange={setIsEditingAgent}
             />
           </div>
+          {activeTab === "voice-library" && <DashboardVoiceLibrary />}
           {activeTab === "settings" && <DashboardSettings />}
+          {activeTab === "developer" && <DashboardDeveloper />}
         </div>
       </main>
-      {/* No right panel for customer dashboard */}
+
+      {/* Right panel – only visible when editing/creating an agent */}
+      {activeTab === "assistant" && isEditingAgent && (
+        <DashboardRightPanel
+          activeTab={rightPanelTab}
+          onTabChange={setRightPanelTab}
+          agentConfig={agentPricingConfig}
+          calls={calls}
+        />
+      )}
     </div>
   );
 }
