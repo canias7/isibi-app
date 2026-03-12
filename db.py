@@ -1498,6 +1498,7 @@ def create_website_order(
     photos_filenames: str | None = None,
 ) -> int:
     """Insert a new website order and return its ID."""
+    ensure_user_columns()   # run migrations so new columns exist before insert
     conn = get_conn()
     cur = conn.cursor()
     cols = ("full_name,email,phone,business_name,business_address,business_hours,"
