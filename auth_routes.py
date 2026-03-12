@@ -29,8 +29,9 @@ class RegisterIn(BaseModel):
     call_volume: Optional[str] = None
 
 class LoginRequest(BaseModel):
-    email: str          # str (not EmailStr) — strict format check not needed for login
-    password: str
+    # All Optional so an incomplete/null body returns 401, never 422
+    email: Optional[str] = None
+    password: Optional[str] = None
     account_type: Optional[str] = None
 
 @router.post("/register")
@@ -53,6 +54,8 @@ def register(data: RegisterIn):
 
 @router.post("/login")
 def login_user(payload: LoginRequest):
+    if not payload.email or not payload.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     user = verify_user(payload.email.strip().lower(), payload.password)
 
     if not user:
@@ -113,6 +116,8 @@ def customer_register(data: CustomerRegisterIn):
 @router.post("/customer-login")
 def customer_login(payload: LoginRequest):
     """Dedicated login for customer accounts."""
+    if not payload.email or not payload.password:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
     user = verify_user(payload.email.strip().lower(), payload.password)
 
     if not user:
