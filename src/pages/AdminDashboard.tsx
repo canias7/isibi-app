@@ -57,12 +57,33 @@ interface WebsiteOrder {
   email: string;
   phone?: string;
   business_name?: string;
-  industry?: string;
-  website_purpose?: string;
+  business_address?: string;
+  business_hours?: string;
   current_website?: string;
-  pages_needed?: string;
-  color_preferences?: string;
-  inspiration_links?: string;
+  // About
+  business_description?: string;
+  services_offered?: string;
+  competitive_advantage?: string;
+  // Goals
+  website_goals?: string;
+  customer_actions?: string;
+  // Services
+  services_list?: string;
+  pricing_info?: string;
+  special_offers?: string;
+  // Design
+  preferred_colors?: string;
+  website_examples?: string;
+  has_logo?: string;
+  // Content
+  has_photos?: string;
+  features_needed?: string;
+  // Social
+  social_facebook?: string;
+  social_instagram?: string;
+  social_tiktok?: string;
+  social_google?: string;
+  // Extra
   additional_notes?: string;
   payment_status: 'pending' | 'paid' | 'completed';
   stripe_session_id?: string;
@@ -849,47 +870,133 @@ export default function AdminDashboard() {
                       </button>
 
                       {expandedOrder === order.id && (
-                        <div className="space-y-3 pt-2 border-t text-sm">
-                          {order.website_purpose && (
-                            <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Purpose</p>
-                              <p>{order.website_purpose}</p>
+                        <div className="space-y-4 pt-3 border-t text-sm">
+
+                          {/* Contact */}
+                          <div>
+                            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">📋 Contact Info</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-muted/30 rounded-lg p-3">
+                              <div><span className="text-xs text-muted-foreground">Name: </span><span className="font-medium">{order.full_name}</span></div>
+                              <div><span className="text-xs text-muted-foreground">Email: </span><span className="font-medium">{order.email}</span></div>
+                              {order.phone && <div><span className="text-xs text-muted-foreground">Phone: </span><span className="font-medium">{order.phone}</span></div>}
+                              {order.business_address && <div><span className="text-xs text-muted-foreground">Address: </span><span className="font-medium">{order.business_address}</span></div>}
+                              {order.business_hours && <div><span className="text-xs text-muted-foreground">Hours: </span><span className="font-medium">{order.business_hours}</span></div>}
+                              {order.current_website && (
+                                <div><span className="text-xs text-muted-foreground">Current site: </span>
+                                  <a href={order.current_website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{order.current_website}</a>
+                                </div>
+                              )}
                             </div>
-                          )}
-                          {order.pages_needed && (
+                          </div>
+
+                          {/* About */}
+                          {(order.business_description || order.services_offered || order.competitive_advantage) && (
                             <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Pages Needed</p>
-                              <div className="flex flex-wrap gap-1">
-                                {order.pages_needed.split(',').map((p) => (
-                                  <Badge key={p} variant="secondary" className="text-xs">{p.trim()}</Badge>
-                                ))}
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">🏢 About the Business</p>
+                              <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                                {order.business_description && (
+                                  <div><p className="text-xs text-muted-foreground mb-0.5">Description:</p><p className="whitespace-pre-wrap">{order.business_description}</p></div>
+                                )}
+                                {order.services_offered && (
+                                  <div><p className="text-xs text-muted-foreground mb-0.5">Services / Products:</p><p className="whitespace-pre-wrap">{order.services_offered}</p></div>
+                                )}
+                                {order.competitive_advantage && (
+                                  <div><p className="text-xs text-muted-foreground mb-0.5">What makes them different:</p><p className="whitespace-pre-wrap">{order.competitive_advantage}</p></div>
+                                )}
                               </div>
                             </div>
                           )}
-                          {order.color_preferences && (
+
+                          {/* Goals */}
+                          {(order.website_goals || order.customer_actions) && (
                             <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Color Preferences</p>
-                              <p>{order.color_preferences}</p>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">🎯 Website Goals</p>
+                              <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                                {order.website_goals && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1">Main goals:</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {order.website_goals.split(',').map((g) => <Badge key={g} variant="secondary" className="text-xs">{g.trim()}</Badge>)}
+                                    </div>
+                                  </div>
+                                )}
+                                {order.customer_actions && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1">Customer actions:</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {order.customer_actions.split(',').map((a) => <Badge key={a} variant="secondary" className="text-xs">{a.trim()}</Badge>)}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
-                          {order.inspiration_links && (
+
+                          {/* Services list */}
+                          {(order.services_list || order.pricing_info || order.special_offers) && (
                             <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Inspiration / Examples</p>
-                              <p className="whitespace-pre-wrap">{order.inspiration_links}</p>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">🛒 Services & Pricing</p>
+                              <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                                {order.services_list && <div><p className="text-xs text-muted-foreground mb-0.5">Services list:</p><p className="whitespace-pre-wrap">{order.services_list}</p></div>}
+                                {order.pricing_info && <div><p className="text-xs text-muted-foreground mb-0.5">Pricing:</p><p>{order.pricing_info}</p></div>}
+                                {order.special_offers && <div><p className="text-xs text-muted-foreground mb-0.5">Special offers:</p><p>{order.special_offers}</p></div>}
+                              </div>
                             </div>
                           )}
+
+                          {/* Design */}
+                          {(order.preferred_colors || order.website_examples || order.has_logo) && (
+                            <div>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">🎨 Design Preferences</p>
+                              <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                                {order.has_logo && <div><span className="text-xs text-muted-foreground">Has logo: </span><Badge variant={order.has_logo === 'yes' ? 'default' : 'secondary'} className="text-xs capitalize">{order.has_logo}</Badge></div>}
+                                {order.preferred_colors && <div><p className="text-xs text-muted-foreground mb-0.5">Colors:</p><p>{order.preferred_colors}</p></div>}
+                                {order.website_examples && <div><p className="text-xs text-muted-foreground mb-0.5">Inspiration sites:</p><p className="whitespace-pre-wrap">{order.website_examples}</p></div>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Content */}
+                          {(order.has_photos || order.features_needed) && (
+                            <div>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">📁 Content & Features</p>
+                              <div className="space-y-2 bg-muted/30 rounded-lg p-3">
+                                {order.has_photos && <div><span className="text-xs text-muted-foreground">Has photos: </span><Badge variant={order.has_photos === 'yes' ? 'default' : 'secondary'} className="text-xs capitalize">{order.has_photos}</Badge></div>}
+                                {order.features_needed && (
+                                  <div>
+                                    <p className="text-xs text-muted-foreground mb-1">Features needed:</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {order.features_needed.split(',').map((f) => <Badge key={f} variant="secondary" className="text-xs">{f.trim()}</Badge>)}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Social Media */}
+                          {(order.social_facebook || order.social_instagram || order.social_tiktok || order.social_google) && (
+                            <div>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">📱 Social Media</p>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-muted/30 rounded-lg p-3">
+                                {order.social_facebook && <div><span className="text-xs text-muted-foreground">Facebook: </span><a href={order.social_facebook} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">{order.social_facebook}</a></div>}
+                                {order.social_instagram && <div><span className="text-xs text-muted-foreground">Instagram: </span><a href={order.social_instagram} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">{order.social_instagram}</a></div>}
+                                {order.social_tiktok && <div><span className="text-xs text-muted-foreground">TikTok: </span><a href={order.social_tiktok} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">{order.social_tiktok}</a></div>}
+                                {order.social_google && <div><span className="text-xs text-muted-foreground">Google: </span><a href={order.social_google} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">{order.social_google}</a></div>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Notes */}
                           {order.additional_notes && (
                             <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Additional Notes</p>
-                              <p className="whitespace-pre-wrap">{order.additional_notes}</p>
+                              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">📝 Additional Notes</p>
+                              <div className="bg-muted/30 rounded-lg p-3">
+                                <p className="whitespace-pre-wrap">{order.additional_notes}</p>
+                              </div>
                             </div>
                           )}
-                          {order.stripe_session_id && (
-                            <div>
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Stripe Session</p>
-                              <p className="font-mono text-xs text-muted-foreground">{order.stripe_session_id}</p>
-                            </div>
-                          )}
+
                         </div>
                       )}
 
