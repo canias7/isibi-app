@@ -25,6 +25,7 @@ import Security from "./pages/Security";
 import AdminDashboard from "./pages/AdminDashboard";
 import DeveloperPending from "./pages/DeveloperPending";
 import WebsiteAgent from "./pages/WebsiteAgent";
+import CRMAgent from "./pages/CRMAgent";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -69,6 +70,7 @@ const App = () => (
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/security" element={<Security />} />
           <Route path="/website-agent" element={<WebsiteAgent />} />
+          <Route path="/crm-agent" element={<DevP><CRMAgent /></DevP>} />
 
           {/* Developer dashboard */}
           <Route path="/developer-dashboard" element={<DevP><DeveloperDashboard /></DevP>} />

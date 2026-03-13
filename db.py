@@ -307,6 +307,39 @@ def init_db():
 
     # Website Agent orders table
     cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS contacts (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT,
+        phone_number TEXT NOT NULL,
+        email TEXT,
+        company TEXT,
+        address TEXT,
+        tags TEXT,
+        notes TEXT,
+        status TEXT DEFAULT 'new_lead',
+        disposition TEXT,
+        source TEXT,
+        next_followup TEXT,
+        last_contacted TEXT,
+        call_count INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP,
+        updated_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    conn.execute(sql("""
+    CREATE TABLE IF NOT EXISTS contact_notes (
+        id {ID},
+        contact_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """))
+
+    conn.execute(sql("""
     CREATE TABLE IF NOT EXISTS website_agent_orders (
         id {ID},
         -- Contact
@@ -521,6 +554,15 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'website_agent_orders', 'logo_filename', 'TEXT')
     add_column_if_missing(conn, 'website_agent_orders', 'photos_data', 'TEXT')
     add_column_if_missing(conn, 'website_agent_orders', 'photos_filenames', 'TEXT')
+
+    # contacts — CRM fields
+    add_column_if_missing(conn, 'contacts', 'status', "TEXT DEFAULT 'new_lead'")
+    add_column_if_missing(conn, 'contacts', 'disposition', 'TEXT')
+    add_column_if_missing(conn, 'contacts', 'source', 'TEXT')
+    add_column_if_missing(conn, 'contacts', 'address', 'TEXT')
+    add_column_if_missing(conn, 'contacts', 'next_followup', 'TEXT')
+    add_column_if_missing(conn, 'contacts', 'last_contacted', 'TEXT')
+    add_column_if_missing(conn, 'contacts', 'call_count', 'INTEGER DEFAULT 0')
 
     conn.close()
 

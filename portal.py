@@ -3771,3 +3771,185 @@ Make it practical and ready to use."""
         raise HTTPException(status_code=400, detail=f"Failed to fetch website: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating prompt: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRM AGENT — CONTACTS API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ContactIn(BaseModel):
+    first_name: str
+    last_name: Optional[str] = None
+    phone_number: str
+    email: Optional[str] = None
+    company: Optional[str] = None
+    address: Optional[str] = None
+    tags: Optional[list] = None
+    notes: Optional[str] = None
+    status: Optional[str] = "new_lead"
+    disposition: Optional[str] = None
+    source: Optional[str] = None
+    next_followup: Optional[str] = None
+
+class ContactStatusIn(BaseModel):
+    status: str
+    disposition: Optional[str] = None
+
+class ContactNoteIn(BaseModel):
+    note: str
+
+def _row_to_contact(row) -> dict:
+    """Convert a DB row (dict or tuple) to a contact dict."""
+    if isinstance(row, dict):
+        d = dict(row)
+        if d.get("tags") and isinstance(d["tags"], str):
+            try:
+                import json as _json
+                d["tags"] = _json.loads(d["tags"])
+            except Exception:
+                d["tags"] = [t.strip() for t in d["tags"].split(",") if t.strip()]
+        return d
+    # Tuple fallback (SQLite)
+    cols = ["id","user_id","first_name","last_name","phone_number","email","company",
+            "address","tags","notes","status","disposition","source","next_followup",
+            "last_contacted","call_count","created_at","updated_at"]
+    d = dict(zip(cols, row))
+    if d.get("tags") and isinstance(d["tags"], str):
+        try:
+            import json as _json
+            d["tags"] = _json.loads(d["tags"])
+        except Exception:
+            d["tags"] = [t.strip() for t in d["tags"].split(",") if t.strip()]
+    return d
+
+@router.get("/contacts")
+def list_contacts(user=Depends(verify_token)):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, user_id, first_name, last_name, phone_number, email, company,
+               address, tags, notes, status, disposition, source, next_followup,
+               last_contacted, call_count, created_at, updated_at
+        FROM contacts WHERE user_id = %s ORDER BY created_at DESC
+    """), (PH,), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    return [_row_to_contact(r) for r in rows]
+
+@router.post("/contacts")
+def create_contact_endpoint(body: ContactIn, user=Depends(verify_token)):
+    import json as _json
+    conn = get_conn()
+    cur = conn.cursor()
+    tags_val = _json.dumps(body.tags) if body.tags else None
+    cur.execute(sql("""
+        INSERT INTO contacts (user_id, first_name, last_name, phone_number, email, company,
+            address, tags, notes, status, disposition, source, next_followup)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+    """), (PH,)*13, (
+        user["id"], body.first_name, body.last_name, body.phone_number,
+        body.email, body.company, body.address, tags_val, body.notes,
+        body.status or "new_lead", body.disposition, body.source, body.next_followup
+    ))
+    row = cur.fetchone()
+    new_id = row["id"] if isinstance(row, dict) else row[0]
+    conn.commit()
+    conn.close()
+    return {**body.dict(), "id": new_id, "user_id": user["id"]}
+
+@router.patch("/contacts/{contact_id}")
+def update_contact_endpoint(contact_id: int, body: ContactIn, user=Depends(verify_token)):
+    import json as _json
+    conn = get_conn()
+    cur = conn.cursor()
+    tags_val = _json.dumps(body.tags) if body.tags else None
+    cur.execute(sql("""
+        UPDATE contacts SET first_name=%s, last_name=%s, phone_number=%s, email=%s,
+            company=%s, address=%s, tags=%s, notes=%s, status=%s, disposition=%s,
+            source=%s, next_followup=%s, updated_at=CURRENT_TIMESTAMP
+        WHERE id=%s AND user_id=%s
+    """), (PH,)*14, (
+        body.first_name, body.last_name, body.phone_number, body.email,
+        body.company, body.address, tags_val, body.notes, body.status,
+        body.disposition, body.source, body.next_followup, contact_id, user["id"]
+    ))
+    conn.commit()
+    conn.close()
+    return {**body.dict(), "id": contact_id}
+
+@router.patch("/contacts/{contact_id}/status")
+def update_contact_status(contact_id: int, body: ContactStatusIn, user=Depends(verify_token)):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        UPDATE contacts SET status=%s, disposition=%s,
+            last_contacted=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
+        WHERE id=%s AND user_id=%s
+    """), (PH,)*4, (body.status, body.disposition, contact_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"id": contact_id, "status": body.status, "disposition": body.disposition}
+
+@router.delete("/contacts/{contact_id}")
+def delete_contact_endpoint(contact_id: int, user=Depends(verify_token)):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("DELETE FROM contacts WHERE id=%s AND user_id=%s"), (PH,)*2, (contact_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"deleted": True}
+
+@router.post("/contacts/import")
+def import_contacts_endpoint(body: dict, user=Depends(verify_token)):
+    import json as _json
+    contacts = body.get("contacts", [])
+    created = 0
+    errors = 0
+    conn = get_conn()
+    cur = conn.cursor()
+    for c in contacts:
+        try:
+            cur.execute(sql("""
+                INSERT INTO contacts (user_id, first_name, last_name, phone_number,
+                    email, company, notes, status)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'new_lead')
+            """), (PH,)*8, (
+                user["id"], c.get("first_name",""), c.get("last_name"),
+                c.get("phone_number",""), c.get("email"), c.get("company"), c.get("notes")
+            ))
+            created += 1
+        except Exception:
+            errors += 1
+    conn.commit()
+    conn.close()
+    return {"created": created, "errors": errors}
+
+@router.get("/contacts/{contact_id}/notes")
+def list_contact_notes(contact_id: int, user=Depends(verify_token)):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, note, created_at FROM contact_notes
+        WHERE contact_id=%s AND user_id=%s ORDER BY created_at DESC
+    """), (PH,)*2, (contact_id, user["id"]))
+    rows = cur.fetchall()
+    conn.close()
+    if rows and isinstance(rows[0], dict):
+        return [dict(r) for r in rows]
+    return [{"id": r[0], "note": r[1], "created_at": str(r[2])} for r in rows]
+
+@router.post("/contacts/{contact_id}/notes")
+def add_contact_note(contact_id: int, body: ContactNoteIn, user=Depends(verify_token)):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO contact_notes (contact_id, user_id, note) VALUES (%s,%s,%s) RETURNING id, created_at
+    """), (PH,)*3, (contact_id, user["id"], body.note))
+    row = cur.fetchone()
+    note_id = row["id"] if isinstance(row, dict) else row[0]
+    created_at = row["created_at"] if isinstance(row, dict) else row[1]
+    # bump last_contacted
+    cur.execute(sql("UPDATE contacts SET last_contacted=CURRENT_TIMESTAMP WHERE id=%s AND user_id=%s"), (PH,)*2, (contact_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"id": note_id, "note": body.note, "created_at": str(created_at)}

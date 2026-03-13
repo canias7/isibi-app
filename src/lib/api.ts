@@ -821,6 +821,14 @@ export interface Contact {
   notes?: string | null;
   created_at: string;
   updated_at?: string | null;
+  // CRM fields
+  status?: string | null;
+  disposition?: string | null;
+  source?: string | null;
+  address?: string | null;
+  next_followup?: string | null;
+  last_contacted?: string | null;
+  call_count?: number | null;
 }
 
 export interface ContactCreateRequest {
@@ -831,6 +839,41 @@ export interface ContactCreateRequest {
   company?: string;
   tags?: string[];
   notes?: string;
+  // CRM fields
+  status?: string;
+  disposition?: string;
+  source?: string;
+  address?: string;
+  next_followup?: string;
+}
+
+export async function updateContactStatus(id: number, status: string, disposition?: string): Promise<Contact> {
+  const res = await fetch(`${API_BASE}/api/contacts/${id}/status`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify({ status, disposition }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to update status: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function addContactNote(id: number, note: string): Promise<{ id: number; note: string; created_at: string }> {
+  const res = await fetch(`${API_BASE}/api/contacts/${id}/notes`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ note }),
+  });
+  if (!res.ok) throw new Error("Failed to add note");
+  return res.json();
+}
+
+export async function listContactNotes(id: number): Promise<{ id: number; note: string; created_at: string }[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${id}/notes`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load notes");
+  return res.json();
 }
 
 export async function listContacts(): Promise<Contact[]> {

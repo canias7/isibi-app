@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing, BookUser } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing, BookUser, Users2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logoImg from "@/assets/logo.png";
 import {
@@ -72,6 +72,10 @@ export default function DashboardSidebar({ activeTab, onTabChange, balance, lowB
                 <DropdownMenuItem onClick={() => navigate("/workflow")} className="cursor-pointer">
                   <WorkflowIcon className="h-4 w-4 mr-2" />
                   <span className="gradient-text font-semibold">Workflow</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/crm-agent")} className="cursor-pointer">
+                  <Users2 className="h-4 w-4 mr-2" />
+                  <span className="gradient-text font-semibold">CRM Agent</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
