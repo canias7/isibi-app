@@ -7,7 +7,8 @@ import {
   Bot, MessageSquare, Calendar, ClipboardList, LayoutDashboard,
   Send, ArrowLeft, Inbox, Clock, ChevronLeft, ChevronRight,
   AlertCircle, CheckSquare, Square, Paperclip, BarChart2, TrendingUp,
-  Activity, RefreshCw,
+  Activity, RefreshCw, Zap, Layers, BarChart3, PhoneOff, PhoneIncoming,
+  SkipForward, Play, Target, ArrowRight, Columns3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +44,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -1200,6 +1201,543 @@ function DashboardView({ contacts }: { contacts: Contact[] }) {
   );
 }
 
+// ── Pipeline (Kanban) View ────────────────────────────────────────────────────
+
+function PipelineView({ contacts, onStatusChange, onEdit, onDelete }: {
+  contacts: Contact[];
+  onStatusChange: (id: number, status: string) => Promise<void>;
+  onEdit: (c: Contact) => void;
+  onDelete: (id: number) => void;
+}) {
+  const [selected, setSelected] = useState<Contact | null>(null);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Columns3 className="h-5 w-5 text-primary" /> Sales Pipeline</h1>
+          <p className="text-xs text-muted-foreground">{contacts.length} contacts across {STATUSES.length} stages</p>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Kanban board */}
+        <div className="flex gap-3 overflow-x-auto p-4 flex-1">
+          {STATUSES.map((status) => {
+            const cols = contacts.filter((c) => (c as any).status === status.id);
+            return (
+              <div key={status.id} className="w-60 shrink-0 flex flex-col gap-2">
+                {/* Column header */}
+                <div className={cn("flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold", status.color)}>
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", status.dot)} />
+                  <span className="flex-1">{status.label}</span>
+                  <span className="bg-white/10 rounded-full px-2 py-0.5">{cols.length}</span>
+                </div>
+                {/* Cards */}
+                <div className="flex flex-col gap-2 flex-1 overflow-y-auto min-h-[200px] max-h-[calc(100vh-200px)]">
+                  {cols.map((c) => (
+                    <div key={c.id}
+                      onClick={() => setSelected(selected?.id === c.id ? null : c)}
+                      className={cn("bg-card/60 border border-border/30 rounded-xl p-3 cursor-pointer hover:bg-secondary/30 hover:border-border/60 transition-all group",
+                        selected?.id === c.id && "border-primary/30 bg-primary/5")}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                          {c.company && <p className="text-[10px] text-muted-foreground truncate">{c.company}</p>}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Phone className="h-3 w-3" />{c.phone_number}</p>
+                        {c.email && <p className="text-xs text-muted-foreground flex items-center gap-1.5 truncate"><Mail className="h-3 w-3" />{c.email}</p>}
+                      </div>
+                      {/* Quick move */}
+                      <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                        {STATUSES.filter(s => s.id !== status.id).slice(0, 3).map(s => (
+                          <button key={s.id} onClick={() => onStatusChange(c.id, s.id)}
+                            title={`Move to ${s.label}`}
+                            className={cn("flex-1 text-[9px] rounded-lg py-1 border truncate transition-colors", s.color)}>
+                            → {s.label.split(" ")[0]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {cols.length === 0 && (
+                    <div className="flex-1 flex items-center justify-center border-2 border-dashed border-border/20 rounded-xl">
+                      <p className="text-xs text-muted-foreground/50">Empty</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Contact detail side panel when selected */}
+        {selected && (
+          <div className="w-80 shrink-0 border-l border-border/30 overflow-hidden">
+            <DetailPanel contact={selected} contacts={contacts}
+              onClose={() => setSelected(null)}
+              onStatusChange={onStatusChange}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Power Dialer View ──────────────────────────────────────────────────────────
+
+function PowerDialerView({ contacts, onStatusChange }: {
+  contacts: Contact[];
+  onStatusChange: (id: number, status: string) => Promise<void>;
+}) {
+  const dialList = contacts.filter((c) =>
+    ["new_lead", "callback", "interested"].includes((c as any).status ?? "")
+  );
+  const [index, setIndex] = useState(0);
+  const [active, setActive] = useState(false);
+  const [callNote, setCallNote] = useState("");
+  const [skipped, setSkipped] = useState<number[]>([]);
+  const [called, setCalled] = useState<number[]>([]);
+
+  const remaining = dialList.filter((c) => !called.includes(c.id) && !skipped.includes(c.id));
+  const current = remaining[0] ?? null;
+  const done = dialList.length > 0 && remaining.length === 0;
+
+  const handleDisposition = async (status: string) => {
+    if (!current) return;
+    await onStatusChange(current.id, status);
+    setCalled((prev) => [...prev, current.id]);
+    setCallNote("");
+  };
+
+  const handleSkip = () => {
+    if (!current) return;
+    setSkipped((prev) => [...prev, current.id]);
+  };
+
+  const handleReset = () => {
+    setSkipped([]); setCalled([]); setCallNote(""); setActive(false);
+  };
+
+  const sm = current ? statusMeta((current as any).status) : null;
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Zap className="h-5 w-5 text-yellow-400" /> Power Dialer</h1>
+          <p className="text-xs text-muted-foreground">{remaining.length} remaining · {called.length} called · {skipped.length} skipped</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {!active && !done && (
+            <Button size="sm" onClick={() => setActive(true)} className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700">
+              <Play className="h-3.5 w-3.5" /> Start Dialer
+            </Button>
+          )}
+          {(active || done) && (
+            <Button size="sm" variant="outline" onClick={handleReset} className="h-8 text-xs">Reset</Button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden gap-0">
+        {/* Left — current contact */}
+        <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6">
+          {!active && !done && (
+            <div className="text-center space-y-4">
+              <Zap className="h-16 w-16 mx-auto text-yellow-400/40" />
+              <p className="text-lg font-semibold">Ready to dial</p>
+              <p className="text-sm text-muted-foreground max-w-xs">
+                {dialList.length} contacts in queue (new leads, callbacks, interested)
+              </p>
+              <Button onClick={() => setActive(true)} size="lg" className="gap-2 bg-green-600 hover:bg-green-700">
+                <Play className="h-4 w-4" /> Start Power Dialer
+              </Button>
+            </div>
+          )}
+
+          {active && done && (
+            <div className="text-center space-y-4">
+              <CheckCircle2 className="h-16 w-16 mx-auto text-green-400" />
+              <p className="text-lg font-semibold text-green-400">All contacts dialed!</p>
+              <p className="text-sm text-muted-foreground">{called.length} contacted · {skipped.length} skipped</p>
+              <Button variant="outline" onClick={handleReset}>Reset Queue</Button>
+            </div>
+          )}
+
+          {active && current && (
+            <>
+              {/* Contact card */}
+              <div className="w-full max-w-md bg-card/60 border border-border/30 rounded-2xl p-6 space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/25 flex items-center justify-center text-2xl font-bold text-primary">
+                    {initials(current)}
+                  </div>
+                  <div>
+                    <p className="text-xl font-bold">{fullName(current)}</p>
+                    {current.company && <p className="text-sm text-muted-foreground">{current.company}</p>}
+                    {sm && <Badge className={cn("text-xs border mt-1", sm.color)}>{sm.label}</Badge>}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="bg-secondary/30 rounded-xl p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Phone</p>
+                    <p className="font-medium">{current.phone_number}</p>
+                  </div>
+                  {current.email && (
+                    <div className="bg-secondary/30 rounded-xl p-3 space-y-1">
+                      <p className="text-xs text-muted-foreground">Email</p>
+                      <p className="font-medium truncate">{current.email}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Call button */}
+                <a href={`tel:${current.phone_number}`}
+                  className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold text-lg transition-colors">
+                  <Phone className="h-5 w-5" /> Call {current.phone_number}
+                </a>
+
+                {/* Note */}
+                <div>
+                  <textarea value={callNote} onChange={(e) => setCallNote(e.target.value)}
+                    placeholder="Call notes…"
+                    className="w-full h-20 rounded-xl border border-border/40 bg-background/50 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                </div>
+              </div>
+
+              {/* Disposition buttons */}
+              <div className="w-full max-w-md">
+                <p className="text-xs text-muted-foreground mb-2 text-center">Set outcome:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "✅ Interested", status: "interested", cls: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" },
+                    { label: "📞 Callback", status: "callback", cls: "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20" },
+                    { label: "🚫 Not Interested", status: "not_interested", cls: "bg-slate-500/10 border-slate-500/30 text-slate-400 hover:bg-slate-500/20" },
+                    { label: "🏆 Closed Won", status: "closed_won", cls: "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20" },
+                  ].map((d) => (
+                    <button key={d.status} onClick={() => handleDisposition(d.status)}
+                      className={cn("py-3 rounded-xl border text-sm font-medium transition-colors", d.cls)}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={handleSkip}
+                  className="w-full mt-2 py-2.5 rounded-xl border border-border/30 text-muted-foreground hover:text-foreground hover:bg-secondary/40 text-sm transition-colors flex items-center justify-center gap-2">
+                  <SkipForward className="h-4 w-4" /> Skip for now
+                </button>
+              </div>
+
+              {/* Progress */}
+              <div className="w-full max-w-md">
+                <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                  <span>{called.length + skipped.length} / {dialList.length}</span>
+                  <span>{remaining.length} left</span>
+                </div>
+                <div className="h-1.5 bg-secondary/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${((called.length + skipped.length) / Math.max(dialList.length, 1)) * 100}%` }} />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Right — queue */}
+        <div className="w-72 border-l border-border/30 flex flex-col shrink-0">
+          <div className="px-4 py-3 border-b border-border/20 bg-card/20">
+            <p className="text-sm font-semibold">Queue</p>
+            <p className="text-xs text-muted-foreground">{remaining.length} remaining</p>
+          </div>
+          <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
+            {remaining.map((c, i) => {
+              const sm = statusMeta((c as any).status);
+              return (
+                <div key={c.id} className={cn("flex items-center gap-3 p-2.5 rounded-xl",
+                  i === 0 && active ? "bg-primary/10 border border-primary/20" : "bg-secondary/20")}>
+                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                    {initials(c)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{fullName(c)}</p>
+                    <Badge className={cn("text-[9px] px-1 border mt-0.5", sm.color)}>{sm.label}</Badge>
+                  </div>
+                  {i === 0 && active && <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />}
+                </div>
+              );
+            })}
+            {called.length > 0 && (
+              <div className="pt-2 border-t border-border/20">
+                <p className="text-xs text-muted-foreground px-2 mb-1">Called ({called.length})</p>
+                {dialList.filter(c => called.includes(c.id)).map(c => (
+                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl opacity-50">
+                    <div className="w-8 h-8 rounded-full bg-green-500/15 flex items-center justify-center text-xs font-bold text-green-400 shrink-0">{initials(c)}</div>
+                    <p className="text-xs truncate">{fullName(c)}</p>
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Reports View ──────────────────────────────────────────────────────────────
+
+function ReportsView({ contacts }: { contacts: Contact[] }) {
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loadingCalls, setLoadingCalls] = useState(true);
+
+  useEffect(() => {
+    getUsageCalls().then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false));
+  }, []);
+
+  const total = contacts.length;
+  const closedWon = contacts.filter(c => (c as any).status === "closed_won").length;
+  const closedLost = contacts.filter(c => (c as any).status === "closed_lost").length;
+  const convRate = total > 0 ? ((closedWon / total) * 100).toFixed(1) : "0.0";
+  const totalCallMin = calls.reduce((s, c) => s + (c.duration_seconds ?? 0), 0);
+  const completedCalls = calls.filter(c => c.status === "completed").length;
+  const totalCost = calls.reduce((s, c) => s + Number(c.cost_usd ?? 0), 0);
+
+  const sourceBreakdown = SOURCES.map(src => ({
+    label: src,
+    count: contacts.filter(c => (c as any).source === src).length,
+  })).filter(s => s.count > 0).sort((a, b) => b.count - a.count);
+
+  const maxSource = Math.max(...sourceBreakdown.map(s => s.count), 1);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" /> Reports</h1>
+          <p className="text-xs text-muted-foreground">Performance overview</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-6">
+        {/* KPIs */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: "Total Contacts", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+            { label: "Closed Won", value: closedWon, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
+            { label: "Conversion Rate", value: `${convRate}%`, icon: Target, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+            { label: "Total Calls", value: completedCalls, icon: PhoneCall, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+          ].map(s => (
+            <div key={s.label} className={cn("rounded-xl border p-4 space-y-2", s.bg)}>
+              <s.icon className={cn("h-5 w-5", s.color)} />
+              <p className="text-2xl font-bold">{s.value}</p>
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Pipeline funnel */}
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><Activity className="h-4 w-4" /> Pipeline Breakdown</h2>
+            <div className="space-y-3">
+              {STATUSES.map(s => {
+                const count = contacts.filter(c => (c as any).status === s.id).length;
+                const pct = total > 0 ? (count / total) * 100 : 0;
+                return (
+                  <div key={s.id}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={cn("w-2 h-2 rounded-full", s.dot)} />
+                        <span className="text-xs">{s.label}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{count}</span>
+                        <span className="text-xs text-muted-foreground w-10 text-right">{pct.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    <div className="h-2 bg-secondary/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Lead sources */}
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4" /> Lead Sources</h2>
+            {sourceBreakdown.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-8">No source data yet</p>
+            ) : (
+              <div className="space-y-3">
+                {sourceBreakdown.map(s => (
+                  <div key={s.label}>
+                    <div className="flex justify-between mb-1">
+                      <span className="text-xs">{s.label}</span>
+                      <span className="text-xs text-muted-foreground">{s.count}</span>
+                    </div>
+                    <div className="h-2 bg-secondary/40 rounded-full overflow-hidden">
+                      <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${(s.count / maxSource) * 100}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Call stats */}
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><PhoneCall className="h-4 w-4" /> Call Statistics</h2>
+            {loadingCalls ? <p className="text-xs text-center text-muted-foreground py-6">Loading…</p> : (
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: "Total Calls", value: calls.length },
+                  { label: "Completed", value: completedCalls },
+                  { label: "Talk Time", value: `${Math.round(totalCallMin / 60)}m` },
+                  { label: "Total Cost", value: `$${totalCost.toFixed(2)}` },
+                ].map(s => (
+                  <div key={s.label} className="bg-secondary/30 rounded-xl p-3 text-center">
+                    <p className="text-xl font-bold">{s.value}</p>
+                    <p className="text-xs text-muted-foreground">{s.label}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Win/Loss */}
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><Target className="h-4 w-4" /> Win / Loss</h2>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs text-green-400 font-medium">Won ({closedWon})</span>
+                  <span className="text-xs text-muted-foreground">{total > 0 ? ((closedWon / total) * 100).toFixed(0) : 0}%</span>
+                </div>
+                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-green-500/60 rounded-full" style={{ width: `${total > 0 ? (closedWon / total) * 100 : 0}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs text-red-400 font-medium">Lost ({closedLost})</span>
+                  <span className="text-xs text-muted-foreground">{total > 0 ? ((closedLost / total) * 100).toFixed(0) : 0}%</span>
+                </div>
+                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-red-500/60 rounded-full" style={{ width: `${total > 0 ? (closedLost / total) * 100 : 0}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs text-blue-400 font-medium">In Progress ({total - closedWon - closedLost})</span>
+                  <span className="text-xs text-muted-foreground">{total > 0 ? (((total - closedWon - closedLost) / total) * 100).toFixed(0) : 0}%</span>
+                </div>
+                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
+                  <div className="h-full bg-blue-500/60 rounded-full" style={{ width: `${total > 0 ? ((total - closedWon - closedLost) / total) * 100 : 0}%` }} />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Inbox View ────────────────────────────────────────────────────────────────
+
+function InboxView({ contacts, onStatusChange, onEdit, onDelete }: {
+  contacts: Contact[];
+  onStatusChange: (id: number, status: string) => Promise<void>;
+  onEdit: (c: Contact) => void;
+  onDelete: (id: number) => void;
+}) {
+  const [tab, setTab] = useState<"sms" | "email">("sms");
+  const [selected, setSelected] = useState<Contact | null>(null);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Inbox className="h-5 w-5 text-primary" /> Inbox</h1>
+          <p className="text-xs text-muted-foreground">All messages and emails in one place</p>
+        </div>
+        <div className="flex gap-1 bg-secondary/40 rounded-xl p-1">
+          {(["sms", "email"] as const).map((t) => (
+            <button key={t} onClick={() => { setTab(t); setSelected(null); }}
+              className={cn("px-4 py-1.5 rounded-lg text-xs font-medium transition-all capitalize",
+                tab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>
+              {t === "sms" ? "📱 SMS" : "✉️ Email"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Contact list */}
+        <div className="w-72 border-r border-border/30 flex flex-col shrink-0">
+          <div className="flex-1 overflow-y-auto p-3 space-y-1">
+            {contacts.length === 0 ? (
+              <p className="text-xs text-center text-muted-foreground py-8">No contacts</p>
+            ) : contacts.map((c) => {
+              const sm = statusMeta((c as any).status);
+              return (
+                <button key={c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)}
+                  className={cn("w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all",
+                    selected?.id === c.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/40 border border-transparent")}>
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center text-sm font-bold text-primary shrink-0">{initials(c)}</div>
+                    {tab === "sms"
+                      ? <MessageSquare className="h-3.5 w-3.5 text-blue-400 absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
+                      : <Mail className="h-3.5 w-3.5 text-purple-400 absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
+                    }
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                    <p className="text-xs text-muted-foreground truncate">{tab === "sms" ? c.phone_number : (c.email ?? c.phone_number)}</p>
+                  </div>
+                  <Badge className={cn("text-[9px] px-1 border shrink-0", sm.color)}>{sm.label}</Badge>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Thread */}
+        {selected ? (
+          <div className="flex-1 overflow-hidden">
+            <DetailPanel contact={selected} contacts={contacts} initialTab={tab === "sms" ? "sms" : "emails"}
+              onClose={() => setSelected(null)}
+              onStatusChange={onStatusChange}
+              onEdit={onEdit}
+              onDelete={onDelete}
+            />
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+            <div className="text-center">
+              {tab === "sms"
+                ? <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                : <Mail className="h-12 w-12 mx-auto mb-3 opacity-30" />
+              }
+              <p>Select a contact to view {tab === "sms" ? "messages" : "emails"}</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
 
 export default function CRMAgent() {
@@ -1298,14 +1836,18 @@ export default function CRMAgent() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "contacts_sample.csv"; a.click();
   };
 
-  const NAV_ITEMS: { id: View; label: string; icon: React.ElementType }[] = [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "contacts", label: "Contacts", icon: Users },
-    { id: "calls", label: "Calls", icon: PhoneCall },
-    { id: "sms", label: "Messages", icon: MessageSquare },
-    { id: "emails", label: "Emails", icon: Mail },
-    { id: "calendar", label: "Calendar", icon: Calendar },
-    { id: "tasks", label: "Tasks", icon: ClipboardList },
+  const NAV_ITEMS: { id: View; label: string; icon: React.ElementType; badge?: string }[] = [
+    { id: "dashboard",    label: "Dashboard",     icon: LayoutDashboard },
+    { id: "contacts",     label: "Leads",         icon: Users },
+    { id: "power_dialer", label: "Power Dialer",  icon: Zap, badge: "New" },
+    { id: "inbox",        label: "Inbox",         icon: Inbox },
+    { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
+    { id: "calls",        label: "Calls",         icon: PhoneCall },
+    { id: "sms",          label: "Messages",      icon: MessageSquare },
+    { id: "emails",       label: "Emails",        icon: Mail },
+    { id: "calendar",     label: "Calendar",      icon: Calendar },
+    { id: "tasks",        label: "Tasks",         icon: ClipboardList },
+    { id: "reports",      label: "Reports",       icon: BarChart3 },
   ];
 
   // SMS global view
@@ -1334,6 +1876,9 @@ export default function CRMAgent() {
                 view === item.id ? "bg-primary/10 text-primary border border-primary/15" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50")}>
               <item.icon className="h-4 w-4 shrink-0" />
               {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+              {!sidebarCollapsed && item.badge && (
+                <span className="text-[10px] bg-yellow-500/20 text-yellow-400 rounded-full px-1.5 py-0.5 border border-yellow-500/30">{item.badge}</span>
+              )}
               {!sidebarCollapsed && item.id === "contacts" && contacts.length > 0 && (
                 <span className="text-xs bg-secondary/60 rounded-full px-1.5 py-0.5">{contacts.length}</span>
               )}
@@ -1577,6 +2122,28 @@ export default function CRMAgent() {
 
         {/* Tasks */}
         {view === "tasks" && <TasksView contacts={contacts} />}
+
+        {/* Sales Pipeline */}
+        {view === "pipeline" && (
+          <PipelineView contacts={contacts} onStatusChange={handleStatusChange}
+            onEdit={(c) => { setEditContact(c); setShowForm(true); }}
+            onDelete={handleDelete} />
+        )}
+
+        {/* Power Dialer */}
+        {view === "power_dialer" && (
+          <PowerDialerView contacts={contacts} onStatusChange={handleStatusChange} />
+        )}
+
+        {/* Reports */}
+        {view === "reports" && <ReportsView contacts={contacts} />}
+
+        {/* Inbox */}
+        {view === "inbox" && (
+          <InboxView contacts={contacts} onStatusChange={handleStatusChange}
+            onEdit={(c) => { setEditContact(c); setShowForm(true); }}
+            onDelete={handleDelete} />
+        )}
       </div>
 
       {/* Add/Edit Modal */}
