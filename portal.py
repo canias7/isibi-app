@@ -3824,20 +3824,22 @@ def _row_to_contact(row) -> dict:
 
 @router.get("/contacts")
 def list_contacts(user=Depends(verify_token)):
+    from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT id, user_id, first_name, last_name, phone_number, email, company,
                address, tags, notes, status, disposition, source, next_followup,
                last_contacted, call_count, created_at, updated_at
-        FROM contacts WHERE user_id = %s ORDER BY created_at DESC
-    """), (PH,), (user["id"],))
+        FROM contacts WHERE user_id={PH} ORDER BY created_at DESC
+    """), (user["id"],))
     rows = cur.fetchall()
     conn.close()
     return [_row_to_contact(r) for r in rows]
 
 @router.post("/contacts")
 def create_contact_endpoint(body: ContactIn, user=Depends(verify_token)):
+    from db import get_conn, sql
     import json as _json
     conn = get_conn()
     cur = conn.cursor()
@@ -3845,8 +3847,8 @@ def create_contact_endpoint(body: ContactIn, user=Depends(verify_token)):
     cur.execute(sql("""
         INSERT INTO contacts (user_id, first_name, last_name, phone_number, email, company,
             address, tags, notes, status, disposition, source, next_followup)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
-    """), (PH,)*13, (
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH}) RETURNING id
+    """), (
         user["id"], body.first_name, body.last_name, body.phone_number,
         body.email, body.company, body.address, tags_val, body.notes,
         body.status or "new_lead", body.disposition, body.source, body.next_followup
@@ -3859,16 +3861,17 @@ def create_contact_endpoint(body: ContactIn, user=Depends(verify_token)):
 
 @router.patch("/contacts/{contact_id}")
 def update_contact_endpoint(contact_id: int, body: ContactIn, user=Depends(verify_token)):
+    from db import get_conn, sql
     import json as _json
     conn = get_conn()
     cur = conn.cursor()
     tags_val = _json.dumps(body.tags) if body.tags else None
     cur.execute(sql("""
-        UPDATE contacts SET first_name=%s, last_name=%s, phone_number=%s, email=%s,
-            company=%s, address=%s, tags=%s, notes=%s, status=%s, disposition=%s,
-            source=%s, next_followup=%s, updated_at=CURRENT_TIMESTAMP
-        WHERE id=%s AND user_id=%s
-    """), (PH,)*14, (
+        UPDATE contacts SET first_name={PH}, last_name={PH}, phone_number={PH}, email={PH},
+            company={PH}, address={PH}, tags={PH}, notes={PH}, status={PH}, disposition={PH},
+            source={PH}, next_followup={PH}, updated_at=CURRENT_TIMESTAMP
+        WHERE id={PH} AND user_id={PH}
+    """), (
         body.first_name, body.last_name, body.phone_number, body.email,
         body.company, body.address, tags_val, body.notes, body.status,
         body.disposition, body.source, body.next_followup, contact_id, user["id"]
@@ -3879,28 +3882,31 @@ def update_contact_endpoint(contact_id: int, body: ContactIn, user=Depends(verif
 
 @router.patch("/contacts/{contact_id}/status")
 def update_contact_status(contact_id: int, body: ContactStatusIn, user=Depends(verify_token)):
+    from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(sql("""
-        UPDATE contacts SET status=%s, disposition=%s,
+        UPDATE contacts SET status={PH}, disposition={PH},
             last_contacted=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-        WHERE id=%s AND user_id=%s
-    """), (PH,)*4, (body.status, body.disposition, contact_id, user["id"]))
+        WHERE id={PH} AND user_id={PH}
+    """), (body.status, body.disposition, contact_id, user["id"]))
     conn.commit()
     conn.close()
     return {"id": contact_id, "status": body.status, "disposition": body.disposition}
 
 @router.delete("/contacts/{contact_id}")
 def delete_contact_endpoint(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(sql("DELETE FROM contacts WHERE id=%s AND user_id=%s"), (PH,)*2, (contact_id, user["id"]))
+    cur.execute(sql("DELETE FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
     conn.commit()
     conn.close()
     return {"deleted": True}
 
 @router.post("/contacts/import")
 def import_contacts_endpoint(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
     import json as _json
     contacts = body.get("contacts", [])
     created = 0
@@ -3912,8 +3918,8 @@ def import_contacts_endpoint(body: dict, user=Depends(verify_token)):
             cur.execute(sql("""
                 INSERT INTO contacts (user_id, first_name, last_name, phone_number,
                     email, company, notes, status)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,'new_lead')
-            """), (PH,)*8, (
+                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},'new_lead')
+            """), (
                 user["id"], c.get("first_name",""), c.get("last_name"),
                 c.get("phone_number",""), c.get("email"), c.get("company"), c.get("notes")
             ))
@@ -3926,12 +3932,13 @@ def import_contacts_endpoint(body: dict, user=Depends(verify_token)):
 
 @router.get("/contacts/{contact_id}/notes")
 def list_contact_notes(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(sql("""
         SELECT id, note, created_at FROM contact_notes
-        WHERE contact_id=%s AND user_id=%s ORDER BY created_at DESC
-    """), (PH,)*2, (contact_id, user["id"]))
+        WHERE contact_id={PH} AND user_id={PH} ORDER BY created_at DESC
+    """), (contact_id, user["id"]))
     rows = cur.fetchall()
     conn.close()
     if rows and isinstance(rows[0], dict):
@@ -3940,16 +3947,16 @@ def list_contact_notes(contact_id: int, user=Depends(verify_token)):
 
 @router.post("/contacts/{contact_id}/notes")
 def add_contact_note(contact_id: int, body: ContactNoteIn, user=Depends(verify_token)):
+    from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(sql("""
-        INSERT INTO contact_notes (contact_id, user_id, note) VALUES (%s,%s,%s) RETURNING id, created_at
-    """), (PH,)*3, (contact_id, user["id"], body.note))
+        INSERT INTO contact_notes (contact_id, user_id, note) VALUES ({PH},{PH},{PH}) RETURNING id, created_at
+    """), (contact_id, user["id"], body.note))
     row = cur.fetchone()
     note_id = row["id"] if isinstance(row, dict) else row[0]
     created_at = row["created_at"] if isinstance(row, dict) else row[1]
-    # bump last_contacted
-    cur.execute(sql("UPDATE contacts SET last_contacted=CURRENT_TIMESTAMP WHERE id=%s AND user_id=%s"), (PH,)*2, (contact_id, user["id"]))
+    cur.execute(sql("UPDATE contacts SET last_contacted=CURRENT_TIMESTAMP WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
     conn.commit()
     conn.close()
     return {"id": note_id, "note": body.note, "created_at": str(created_at)}
