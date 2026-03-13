@@ -29,6 +29,10 @@ import {
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task,
 } from "@/lib/api";
+import {
+  searchAvailableNumbers, purchasePhoneNumber, getMyPhoneNumbers, releasePhoneNumber,
+  type AvailableNumber, type PurchasedNumber,
+} from "@/lib/phone-numbers-api";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1980,25 +1984,63 @@ function CampaignsView({ contacts }: { contacts: Contact[] }) {
 
 function PhoneSetupView() {
   const [phoneTab, setPhoneTab] = useState<"numbers" | "business" | "compliance">("numbers");
-  const [searchBy, setSearchBy] = useState<"states" | "area_code" | "toll_free">("states");
-  const [myNumbers, setMyNumbers] = useState<any[]>([]);
-  const [loadingNumbers, setLoadingNumbers] = useState(true);
+  const [areaCode, setAreaCode]       = useState("");
+  const [myNumbers, setMyNumbers]     = useState<PurchasedNumber[]>([]);
+  const [available, setAvailable]     = useState<AvailableNumber[]>([]);
+  const [loadingMy, setLoadingMy]     = useState(true);
+  const [searching, setSearching]     = useState(false);
+  const [purchasing, setPurchasing]   = useState<string | null>(null);
+  const [releasing, setReleasing]     = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch("/api/phone/my-numbers", { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } })
-      .then(r => r.json()).then(d => setMyNumbers(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingNumbers(false));
-  }, []);
+  const fetchMyNumbers = async () => {
+    setLoadingMy(true);
+    try { setMyNumbers(await getMyPhoneNumbers()); }
+    catch { /* silent */ }
+    finally { setLoadingMy(false); }
+  };
 
-  const faqs = [
-    "Does local ID work automatically?",
-    "Can I get multiple numbers in the same state for area code matching?",
-    "Can I get multiple numbers in states all over the country?",
-    "Can I change the caller ID number for a lead anytime?",
-    "Can I monitor the spam rate and deliverability of my numbers?",
-    "If I don't have a number in a particular state, will my default number be used?",
-    "Can I dedicate 1 number for calling, and the rest for texting?",
-    "Can toll-free phone numbers use SHAKEN/STIR and branded calling?",
-  ];
+  useEffect(() => { fetchMyNumbers(); }, []);
+
+  const handleSearch = async () => {
+    setSearching(true);
+    try {
+      const nums = await searchAvailableNumbers("US", areaCode || undefined);
+      setAvailable(nums);
+      if (nums.length === 0) toast({ title: "No numbers found", description: "Try a different area code." });
+    } catch (err: any) {
+      toast({ title: "Search failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handlePurchase = async (phone: string) => {
+    setPurchasing(phone);
+    try {
+      await purchasePhoneNumber(phone);
+      toast({ title: "Number purchased!", description: `${phone} — $1.15/mo` });
+      setAvailable(prev => prev.filter(n => n.phone_number !== phone));
+      fetchMyNumbers();
+    } catch (err: any) {
+      toast({ title: "Purchase failed", description: err.message, variant: "destructive" });
+    } finally {
+      setPurchasing(null);
+    }
+  };
+
+  const handleRelease = async (phone: string) => {
+    if (!confirm(`Release ${phone}? This cannot be undone.`)) return;
+    setReleasing(phone);
+    try {
+      await releasePhoneNumber(phone);
+      toast({ title: "Number released", description: phone });
+      fetchMyNumbers();
+    } catch (err: any) {
+      toast({ title: "Release failed", description: err.message, variant: "destructive" });
+    } finally {
+      setReleasing(null);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -2027,92 +2069,132 @@ function PhoneSetupView() {
       <div className="flex-1 overflow-auto p-6 space-y-6 max-w-5xl">
         {phoneTab === "numbers" && (
           <>
-            {/* Purchase section */}
+            {/* Search & Purchase */}
             <div className="rounded-xl border border-border/30 bg-card/40 p-6">
-              <div className="flex items-center gap-3 mb-4">
+              <div className="flex items-center gap-3 mb-5">
                 <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center">
-                  <Phone className="h-5 w-5 text-green-400" />
+                  <Search className="h-5 w-5 text-green-400" />
                 </div>
-                <h2 className="text-base font-semibold">Purchase Phone Numbers</h2>
+                <div>
+                  <h2 className="text-base font-semibold">Find a Phone Number</h2>
+                  <p className="text-xs text-muted-foreground">Search available US numbers and purchase instantly.</p>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium mb-3">Search by</p>
-                    <div className="flex gap-4">
-                      {[{id:"states",label:"States"},{id:"area_code",label:"Area code"},{id:"toll_free",label:"Toll-free"}].map(opt => (
-                        <label key={opt.id} className="flex items-center gap-2 cursor-pointer text-sm">
-                          <div onClick={() => setSearchBy(opt.id as any)}
-                            className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center",
-                              searchBy === opt.id ? "border-primary" : "border-border/50")}>
-                            {searchBy === opt.id && <div className="w-2 h-2 rounded-full bg-primary" />}
-                          </div>
-                          {opt.label}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="relative">
-                      <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
-                        <option>Select states you want phone numbers in</option>
-                        {["Alabama","Alaska","Arizona","California","Florida","Georgia","Illinois","New York","Texas"].map(s => <option key={s}>{s}</option>)}
-                      </select>
-                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                    </div>
-                    <Button className="w-full gap-1.5" variant="outline">
-                      <Phone className="h-3.5 w-3.5" /> Purchase
-                    </Button>
-                  </div>
+              <div className="flex gap-3 items-end">
+                <div className="flex-1 space-y-1">
+                  <label className="text-xs text-muted-foreground">Area Code (optional)</label>
+                  <Input
+                    placeholder="e.g. 212, 310, 415 — leave blank for any"
+                    value={areaCode}
+                    onChange={e => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 3))}
+                    className="h-9 text-sm"
+                    maxLength={3}
+                  />
                 </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-semibold text-green-400">Yes you can!</p>
-                  {faqs.map((q, i) => (
-                    <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
-                      <span>{q}</span>
+                <Button onClick={handleSearch} disabled={searching} className="h-9 gap-2">
+                  {searching
+                    ? <><RefreshCw className="h-4 w-4 animate-spin" /> Searching…</>
+                    : <><Search className="h-4 w-4" /> Find Numbers</>}
+                </Button>
+              </div>
+
+              {/* Available results */}
+              {available.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs text-muted-foreground font-medium">{available.length} numbers available</p>
+                  {available.map((num, i) => (
+                    <div key={num.phone_number ?? i} className="flex items-center justify-between p-3 rounded-xl bg-secondary/20 border border-border/20">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Phone className="h-3.5 w-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold">{num.phone_number}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {[num.region, num.country].filter(Boolean).join(", ") || "US"} ·{" "}
+                            <span className="text-primary font-medium">$1.15/mo</span>
+                          </p>
+                        </div>
+                      </div>
+                      <Button size="sm" disabled={purchasing === num.phone_number} onClick={() => handlePurchase(num.phone_number)} className="gap-1.5">
+                        {purchasing === num.phone_number
+                          ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                          : <><Download className="h-3.5 w-3.5" /> Purchase</>}
+                      </Button>
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* My Phone Numbers */}
+            {/* My Numbers */}
             <div className="rounded-xl border border-border/30 bg-card/40 p-6">
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
-                  <ClipboardList className="h-5 w-5 text-primary" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                    <ClipboardList className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-semibold">My Phone Numbers</h2>
+                    <p className="text-xs text-muted-foreground">{myNumbers.length} number{myNumbers.length !== 1 ? "s" : ""} owned</p>
+                  </div>
                 </div>
-                <h2 className="text-base font-semibold">My Phone Numbers</h2>
+                <Button variant="outline" size="sm" onClick={fetchMyNumbers} disabled={loadingMy} className="gap-1.5">
+                  <RefreshCw className={cn("h-3.5 w-3.5", loadingMy && "animate-spin")} /> Refresh
+                </Button>
               </div>
-              <div className="space-y-1 text-xs text-muted-foreground mb-4">
-                <p>Phone number status legend</p>
-                <ul className="list-disc list-inside space-y-0.5 ml-2">
-                  <li><strong className="text-foreground">Active</strong> — can send and receive calls and texts.</li>
-                  <li><strong className="text-foreground">Inactive</strong> — can receive calls and texts, but will not be used for outbound calls.</li>
-                  <li><strong className="text-foreground">Default</strong> — if you do not have a phone number in a particular state, we will choose this number.</li>
-                </ul>
+
+              {/* Legend */}
+              <div className="flex gap-4 text-xs text-muted-foreground mb-4">
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-400 inline-block" /> Active — sending & receiving</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" /> Inactive — receive only</span>
+                <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Default — used when no state match</span>
               </div>
-              {loadingNumbers ? <p className="text-xs text-muted-foreground">Loading…</p>
-                : myNumbers.length === 0 ? (
-                  <div className="flex items-center justify-center py-8 text-muted-foreground/60 text-xs gap-2">
-                    <AlertCircle className="h-4 w-4" /> No phone numbers yet. Purchase one above.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {myNumbers.map((n: any) => (
-                      <div key={n.sid ?? n.phone_number} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20">
-                        <Phone className="h-4 w-4 text-green-400 shrink-0" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{n.phone_number}</p>
-                          {n.friendly_name && <p className="text-xs text-muted-foreground">{n.friendly_name}</p>}
+
+              {loadingMy ? (
+                <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground text-sm">
+                  <RefreshCw className="h-4 w-4 animate-spin" /> Loading numbers…
+                </div>
+              ) : myNumbers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground/60">
+                  <Phone className="h-8 w-8" />
+                  <p className="text-sm">No phone numbers yet.</p>
+                  <p className="text-xs">Search above to purchase your first number.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {myNumbers.map((num, i) => (
+                    <div key={num.twilio_sid ?? num.phone_number ?? i} className="flex items-center justify-between p-3 rounded-xl bg-secondary/20 border border-border/20">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
+                          <Phone className="h-3.5 w-3.5 text-green-400" />
                         </div>
-                        <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Active</Badge>
+                        <div>
+                          <p className="text-sm font-semibold">{num.phone_number}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {num.agent_name ? `→ ${num.agent_name}` : "Unassigned"}
+                            {num.purchased_at ? ` · Purchased ${new Date(num.purchased_at).toLocaleDateString()}` : ""}
+                          </p>
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )
-              }
+                      <div className="flex items-center gap-2">
+                        <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Active</Badge>
+                        <Button
+                          variant="ghost" size="sm"
+                          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
+                          onClick={() => handleRelease(num.phone_number)}
+                          disabled={releasing === num.phone_number}
+                          title="Release number"
+                        >
+                          {releasing === num.phone_number
+                            ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                            : <Trash2 className="h-3.5 w-3.5" />}
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
