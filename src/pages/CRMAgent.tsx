@@ -834,19 +834,53 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <h1 className="text-xl font-bold">Calendar</h1>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <button onClick={() => setCurrent(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="font-medium text-sm w-36 text-center">{MONTHS[month]} {year}</span>
-            <button onClick={() => setCurrent(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronRight className="h-4 w-4" /></button>
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+            <Calendar className="h-5 w-5 text-primary" />
           </div>
-          <Button size="sm" onClick={() => { setEditApt(undefined); setShowModal(true); }} className="h-8 text-xs gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> Schedule
+          <div>
+            <h1 className="text-lg font-bold">Google Calendar</h1>
+            <p className="text-xs text-muted-foreground">{MONTHS[month]} {year}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setCurrent(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronLeft className="h-4 w-4" /></button>
+          <span className="font-medium text-sm w-28 text-center">{MONTHS[month]} {year}</span>
+          <button onClick={() => setCurrent(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" /> Sync Google
+        </Button>
+        <Button size="sm" onClick={() => { setEditApt(undefined); setShowModal(true); }} className="h-8 text-xs gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Schedule
+        </Button>
+      </div>
+
+      {/* Google Calendar connect banner */}
+      {appointments.length === 0 && !loading && (
+        <div className="mx-4 mt-4 rounded-xl border border-border/30 bg-card/40 p-6 space-y-4 shrink-0">
+          <p className="text-base font-semibold">Your Google Calendar is not yet connected!</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              "Import all of your Google calendars and events into your account.",
+              "Keep the same color scheme and settings from your Google account.",
+              "View, create, edit, and reschedule events.",
+              "Automatically assign leads to events.",
+              "Receive popup reminders for upcoming events.",
+              "When viewing individual leads, view all events for that lead on the same page.",
+            ].map((feat, i) => (
+              <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                <span>{feat}</span>
+              </div>
+            ))}
+          </div>
+          <Button className="gap-2" onClick={() => window.open("/api/google/auth", "_blank")}>
+            <Calendar className="h-4 w-4" /> Connect Google Calendar
           </Button>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">
@@ -1213,11 +1247,22 @@ function PipelineView({ contacts, onStatusChange, onEdit, onDelete }: {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Columns3 className="h-5 w-5 text-primary" /> Sales Pipeline</h1>
-          <p className="text-xs text-muted-foreground">{contacts.length} contacts across {STATUSES.length} stages</p>
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="flex items-center gap-3 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+            <Columns3 className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold">Sales Pipeline</h1>
+            <p className="text-xs text-muted-foreground">{contacts.length} contacts across {STATUSES.length} stages</p>
+          </div>
         </div>
+        <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+          <ClipboardList className="h-3.5 w-3.5" /> Call Scripts
+        </Button>
+        <Button size="sm" className="h-8 text-xs gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> New Stage
+        </Button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -1497,6 +1542,7 @@ function PowerDialerView({ contacts, onStatusChange }: {
 function ReportsView({ contacts }: { contacts: Contact[] }) {
   const [calls, setCalls] = useState<any[]>([]);
   const [loadingCalls, setLoadingCalls] = useState(true);
+  const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "custom">("week");
 
   useEffect(() => {
     getUsageCalls().then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false));
@@ -1519,10 +1565,44 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><BarChart3 className="h-5 w-5 text-primary" /> Reports</h1>
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="flex-1">
+          <h1 className="text-xl font-bold">My Analytics</h1>
           <p className="text-xs text-muted-foreground">Performance overview</p>
+        </div>
+        {/* Time range selector */}
+        <div className="flex gap-1 bg-secondary/40 rounded-lg p-1">
+          {(["day", "week", "month", "custom"] as const).map(t => (
+            <button key={t} onClick={() => setTimeRange(t)}
+              className={cn("px-3 py-1.5 rounded-md text-xs font-medium uppercase transition-all",
+                timeRange === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Power Dialer Report banner */}
+      <div className="px-6 pt-4 shrink-0">
+        <div className="rounded-xl border border-border/30 bg-card/40 p-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-yellow-500/15 flex items-center justify-center shrink-0">
+            <BarChart3 className="h-5 w-5 text-yellow-400" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-sm font-semibold">Power Dialer Report</h2>
+            <p className="text-xs text-muted-foreground">Now viewing performance data</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <select className="h-8 rounded-lg border border-border/40 bg-background/50 px-2 text-xs text-muted-foreground">
+              <option>Select campaigns</option>
+            </select>
+            <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
+              <div className="w-8 h-4 rounded-full bg-secondary/60 relative">
+                <div className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow" />
+              </div>
+              Total view
+            </label>
+          </div>
         </div>
       </div>
 
@@ -1661,76 +1741,166 @@ function InboxView({ contacts, onStatusChange, onEdit, onDelete }: {
   onEdit: (c: Contact) => void;
   onDelete: (id: number) => void;
 }) {
-  const [tab, setTab] = useState<"sms" | "email">("sms");
+  const [inboxTab, setInboxTab] = useState<"received" | "scheduled" | "sent" | "rejected">("received");
   const [selected, setSelected] = useState<Contact | null>(null);
+  const [msgType, setMsgType] = useState<"sms" | "email">("sms");
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [showBlocked, setShowBlocked] = useState(false);
+  const [page, setPage] = useState(1);
+  const PER_PAGE = 20;
+
+  const pagedContacts = contacts.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  const totalPages = Math.ceil(contacts.length / PER_PAGE);
+
+  const toggleCheck = (id: number) => setCheckedIds(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allChecked = pagedContacts.length > 0 && pagedContacts.every(c => checkedIds.has(c.id));
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Inbox className="h-5 w-5 text-primary" /> Inbox</h1>
-          <p className="text-xs text-muted-foreground">All messages and emails in one place</p>
+      {/* Header */}
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+            <MessageSquare className="h-5 w-5 text-primary" />
+          </div>
+          <h1 className="text-lg font-bold">View Inbox</h1>
         </div>
-        <div className="flex gap-1 bg-secondary/40 rounded-xl p-1">
-          {(["sms", "email"] as const).map((t) => (
-            <button key={t} onClick={() => { setTab(t); setSelected(null); }}
-              className={cn("px-4 py-1.5 rounded-lg text-xs font-medium transition-all capitalize",
-                tab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>
-              {t === "sms" ? "📱 SMS" : "✉️ Email"}
+        <div className="ml-auto flex items-center gap-2 flex-wrap">
+          {/* Inbox type tabs */}
+          {(["received", "scheduled", "sent", "rejected"] as const).map((t) => (
+            <button key={t} onClick={() => { setInboxTab(t); setPage(1); }}
+              className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all whitespace-nowrap",
+                inboxTab === t ? "bg-primary/10 text-primary border-primary/30" : "border-border/30 text-muted-foreground hover:bg-secondary/40")}>
+              {t === "scheduled" && <Clock className="h-3 w-3" />}
+              {t === "sent" && <Send className="h-3 w-3" />}
+              {t === "rejected" && <X className="h-3 w-3" />}
+              {t === "received" && <Inbox className="h-3 w-3" />}
+              {t === "scheduled" ? "Scheduled Texts" : t === "sent" ? "Sent Texts" : t === "rejected" ? "Rejected Texts" : "Received"}
             </button>
           ))}
+          {/* Message type toggle */}
+          <div className="flex gap-1 bg-secondary/40 rounded-lg p-0.5 ml-2">
+            {(["sms", "email"] as const).map(t => (
+              <button key={t} onClick={() => { setMsgType(t); setSelected(null); }}
+                className={cn("px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                  msgType === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>
+                {t === "sms" ? "📱 SMS" : "✉️ Email"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Action bar */}
+      <div className="flex items-center justify-between px-6 py-2 border-b border-border/20 bg-background/10 shrink-0">
+        <div className="flex items-center gap-2">
+          {/* Show blocked toggle */}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <div onClick={() => setShowBlocked(v => !v)}
+              className={cn("w-8 h-4 rounded-full transition-colors relative", showBlocked ? "bg-primary" : "bg-secondary/60")}>
+              <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all", showBlocked ? "left-4" : "left-0.5")} />
+            </div>
+            <span className="text-xs text-muted-foreground">Show blocked</span>
+          </label>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Pagination */}
+          <span className="text-xs text-muted-foreground">{contacts.length === 0 ? "0-0" : `${(page-1)*PER_PAGE+1}-${Math.min(page*PER_PAGE, contacts.length)}`} of {contacts.length}</span>
+          <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-border/30 text-xs disabled:opacity-40 hover:bg-secondary/40">
+            <ChevronLeft className="h-3 w-3" /> Prev
+          </button>
+          <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page >= totalPages}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-border/30 text-xs disabled:opacity-40 hover:bg-secondary/40">
+            Next <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      {/* Bulk action toolbar */}
+      {checkedIds.size > 0 && (
+        <div className="flex items-center gap-2 px-6 py-2 border-b border-border/20 bg-primary/5 shrink-0">
+          <span className="text-xs font-medium text-primary mr-2">{checkedIds.size} selected</span>
+          {[
+            { label: "Disposition", icon: ChevronDown },
+            { label: "Block", icon: PhoneOff },
+            { label: "Unblock", icon: PhoneIncoming },
+            { label: "Mark Read", icon: CheckCircle2 },
+            { label: "Delete", icon: Trash2 },
+          ].map(a => (
+            <button key={a.label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border/30 text-xs font-medium text-muted-foreground hover:bg-secondary/40 hover:text-foreground transition-colors">
+              <a.icon className="h-3 w-3" />{a.label}
+            </button>
+          ))}
+          <button onClick={() => setCheckedIds(new Set())} className="ml-auto text-xs text-muted-foreground hover:text-foreground">Clear</button>
+        </div>
+      )}
+
       <div className="flex flex-1 overflow-hidden">
-        {/* Contact list */}
-        <div className="w-72 border-r border-border/30 flex flex-col shrink-0">
-          <div className="flex-1 overflow-y-auto p-3 space-y-1">
-            {contacts.length === 0 ? (
-              <p className="text-xs text-center text-muted-foreground py-8">No contacts</p>
-            ) : contacts.map((c) => {
-              const sm = statusMeta((c as any).status);
-              return (
-                <button key={c.id} onClick={() => setSelected(selected?.id === c.id ? null : c)}
-                  className={cn("w-full flex items-center gap-3 p-3 rounded-xl text-left transition-all",
-                    selected?.id === c.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/40 border border-transparent")}>
-                  <div className="relative">
-                    <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center text-sm font-bold text-primary shrink-0">{initials(c)}</div>
-                    {tab === "sms"
-                      ? <MessageSquare className="h-3.5 w-3.5 text-blue-400 absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
-                      : <Mail className="h-3.5 w-3.5 text-purple-400 absolute -bottom-0.5 -right-0.5 bg-background rounded-full p-0.5" />
-                    }
+        {/* Table */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[32px_2fr_3fr_1fr] gap-4 px-6 py-2 border-b border-border/20 text-xs font-medium text-muted-foreground bg-card/10 shrink-0">
+            <button onClick={() => { if (allChecked) setCheckedIds(new Set()); else setCheckedIds(new Set(pagedContacts.map(c => c.id))); }}>
+              {allChecked ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5" />}
+            </button>
+            <span>From</span>
+            <span>Message / Preview</span>
+            <span>Received On</span>
+          </div>
+
+          {/* Table body */}
+          <div className="flex-1 overflow-y-auto">
+            {pagedContacts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                <MessageSquare className="h-10 w-10 opacity-20 mb-3" />
+                <p className="text-sm">No messages found</p>
+              </div>
+            ) : (
+              pagedContacts.map((c) => {
+                const sm = statusMeta((c as any).status);
+                const isChecked = checkedIds.has(c.id);
+                return (
+                  <div key={c.id}
+                    className={cn("grid grid-cols-[32px_2fr_3fr_1fr] gap-4 px-6 py-3 border-b border-border/10 items-center cursor-pointer transition-colors",
+                      isChecked ? "bg-primary/5" : "hover:bg-secondary/20",
+                      selected?.id === c.id && "bg-primary/8")}>
+                    <button onClick={(e) => { e.stopPropagation(); toggleCheck(c.id); }}>
+                      {isChecked ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
+                    </button>
+                    {/* From */}
+                    <div className="flex items-center gap-2 min-w-0" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
+                      <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                        <p className="text-xs text-muted-foreground truncate">{msgType === "sms" ? c.phone_number : (c.email ?? c.phone_number)}</p>
+                      </div>
+                    </div>
+                    {/* Message preview */}
+                    <div className="min-w-0" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
+                      <p className="text-xs text-muted-foreground truncate italic">Click to view {msgType === "sms" ? "SMS conversation" : "email thread"}…</p>
+                      <Badge className={cn("text-[9px] px-1 border mt-0.5", sm.color)}>{sm.label}</Badge>
+                    </div>
+                    {/* Date */}
+                    <p className="text-xs text-muted-foreground" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
+                      {formatDate((c as any).created_at)}
+                    </p>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
-                    <p className="text-xs text-muted-foreground truncate">{tab === "sms" ? c.phone_number : (c.email ?? c.phone_number)}</p>
-                  </div>
-                  <Badge className={cn("text-[9px] px-1 border shrink-0", sm.color)}>{sm.label}</Badge>
-                </button>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
-        {/* Thread */}
-        {selected ? (
-          <div className="flex-1 overflow-hidden">
-            <DetailPanel contact={selected} contacts={contacts} initialTab={tab === "sms" ? "sms" : "emails"}
+        {/* Thread panel */}
+        {selected && (
+          <div className="w-96 border-l border-border/30 shrink-0 overflow-hidden">
+            <DetailPanel contact={selected} contacts={contacts} initialTab={msgType === "sms" ? "sms" : "emails"}
               onClose={() => setSelected(null)}
               onStatusChange={onStatusChange}
               onEdit={onEdit}
               onDelete={onDelete}
             />
-          </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-muted-foreground">
-            <div className="text-center">
-              {tab === "sms"
-                ? <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                : <Mail className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              }
-              <p>Select a contact to view {tab === "sms" ? "messages" : "emails"}</p>
-            </div>
           </div>
         )}
       </div>
@@ -1853,6 +2023,13 @@ export default function CRMAgent() {
   // SMS global view
   const [allSmsContacts, setAllSmsContacts] = useState<Contact | null>(null);
 
+  // Advanced leads filters
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterPowerDialer, setFilterPowerDialer] = useState(false);
+  const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
+  const [showFilters, setShowFilters] = useState(false);
+
   return (
     <div className="flex h-screen bg-background overflow-hidden">
       {/* Sidebar */}
@@ -1926,35 +2103,117 @@ export default function CRMAgent() {
         {/* Dashboard */}
         {view === "dashboard" && <DashboardView contacts={contacts} />}
 
-        {/* Contacts */}
+        {/* Contacts / Leads */}
         {view === "contacts" && (
           <>
             {/* Topbar */}
-            <div className="flex items-center gap-3 px-6 h-16 border-b border-border/30 bg-card/20 shrink-0">
-              <div className="flex-1">
-                <h1 className="text-xl font-bold">{filterStatus === "all" ? "All Contacts" : statusMeta(filterStatus).label}</h1>
-                <p className="text-xs text-muted-foreground">{filtered.length} contact{filtered.length !== 1 ? "s" : ""}</p>
+            <div className="flex items-center gap-3 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+              <div className="flex items-center gap-3 flex-1">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                  <Users className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <h1 className="text-lg font-bold">View Leads</h1>
+                  <p className="text-xs text-muted-foreground">{filtered.length} lead{filtered.length !== 1 ? "s" : ""}{filterStatus !== "all" ? ` · ${statusMeta(filterStatus).label}` : ""}</p>
+                </div>
               </div>
-              <div className="relative w-56">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="pl-9 h-8 text-sm bg-background/50" />
-              </div>
-              <Button size="sm" variant="outline" onClick={downloadSample} className="h-8 text-xs gap-1.5"><Download className="h-3.5 w-3.5" /> CSV</Button>
-              <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 text-xs gap-1.5"><Upload className="h-3.5 w-3.5" /> Import</Button>
-              <Button size="sm" onClick={() => { setEditContact(null); setShowForm(true); }} className="h-8 text-xs gap-1.5"><Plus className="h-3.5 w-3.5" /> Add</Button>
+              {/* Filter chip */}
+              {filterStatus !== "all" && (
+                <div className="flex items-center gap-1.5 bg-secondary/50 border border-border/40 rounded-lg px-2.5 py-1 text-xs">
+                  <span className={cn("w-2 h-2 rounded-full", statusMeta(filterStatus).dot)} />
+                  {statusMeta(filterStatus).label}
+                  <button onClick={() => setFilterStatus("all")} className="ml-1 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+                </div>
+              )}
+              <Button size="sm" variant="outline" onClick={downloadSample} className="h-8 text-xs gap-1.5">
+                <Download className="h-3.5 w-3.5" /> Generate CSV
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 text-xs gap-1.5">
+                <Upload className="h-3.5 w-3.5" /> Upload CSV File
+              </Button>
+              <Button size="sm" onClick={() => { setEditContact(null); setShowForm(true); }} className="h-8 text-xs gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Create Lead
+              </Button>
               <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
             </div>
 
-            {/* Pipeline bar */}
-            <div className="flex gap-2 px-6 py-3 border-b border-border/20 overflow-x-auto shrink-0 bg-background/30">
-              {STATUSES.map((s) => (
-                <button key={s.id} onClick={() => setFilterStatus(s.id)}
-                  className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all",
-                    filterStatus === s.id ? cn(s.color, "border-current") : "border-border/30 text-muted-foreground hover:bg-secondary/40")}>
-                  <span className={cn("w-2 h-2 rounded-full", s.dot)} />{s.label}
-                  <span className="font-bold">{counts[s.id] ?? 0}</span>
+            {/* Advanced Filters Panel */}
+            <div className="border-b border-border/20 bg-background/20 shrink-0">
+              <div className="px-6 py-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Date range */}
+                <div className="flex gap-2 col-span-1 md:col-span-2">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs text-muted-foreground">Leads from</label>
+                    <div className="relative">
+                      <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                        className="h-8 text-xs bg-background/50 pr-7" />
+                      {filterDateFrom && <button onClick={() => setFilterDateFrom("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs text-muted-foreground">Leads to</label>
+                    <div className="relative">
+                      <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                        className="h-8 text-xs bg-background/50 pr-7" />
+                      {filterDateTo && <button onClick={() => setFilterDateTo("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
+                    </div>
+                  </div>
+                </div>
+                {/* Power Dialer toggle */}
+                <div className="flex items-end justify-end gap-3 pb-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <div onClick={() => setFilterPowerDialer(v => !v)}
+                      className={cn("w-9 h-5 rounded-full transition-colors relative", filterPowerDialer ? "bg-primary" : "bg-secondary/60")}>
+                      <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", filterPowerDialer ? "left-4" : "left-0.5")} />
+                    </div>
+                    <span className="text-xs text-muted-foreground">Only Power Dialer leads</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Status filter row */}
+              <div className="flex items-center gap-2 px-6 pb-3 overflow-x-auto">
+                <button onClick={() => setFilterStatus("all")}
+                  className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all",
+                    filterStatus === "all" ? "bg-primary/10 text-primary border-primary/30" : "border-border/30 text-muted-foreground hover:bg-secondary/40")}>
+                  <Filter className="h-3 w-3" /> All <span className="font-bold">{contacts.length}</span>
                 </button>
-              ))}
+                {STATUSES.map((s) => (
+                  <button key={s.id} onClick={() => setFilterStatus(s.id)}
+                    className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all",
+                      filterStatus === s.id ? cn(s.color, "border-current") : "border-border/30 text-muted-foreground hover:bg-secondary/40")}>
+                    <span className={cn("w-2 h-2 rounded-full", s.dot)} />{s.label}
+                    <span className="font-bold">{counts[s.id] ?? 0}</span>
+                  </button>
+                ))}
+                <div className="ml-auto flex items-center gap-2 shrink-0">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                    <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, phone or email…"
+                      className="pl-8 h-8 text-xs bg-background/50 w-52" />
+                  </div>
+                  {(search || filterDateFrom || filterDateTo || filterPowerDialer) && (
+                    <Button size="sm" variant="outline" onClick={() => { setSearch(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterPowerDialer(false); }}
+                      className="h-8 text-xs gap-1">
+                      <X className="h-3 w-3" /> Reset
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => setView("power_dialer")} className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700">
+                    <Zap className="h-3.5 w-3.5" /> Start Dialing
+                  </Button>
+                </div>
+              </div>
+
+              {/* Bulk action bar */}
+              {selectedLeads.size > 0 && (
+                <div className="flex items-center gap-2 px-6 py-2 bg-primary/5 border-t border-primary/20">
+                  <span className="text-xs font-medium text-primary">{selectedLeads.size} selected</span>
+                  <button onClick={() => setSelectedLeads(new Set())} className="text-xs text-muted-foreground hover:text-foreground ml-2">Deselect all</button>
+                  <div className="ml-auto flex gap-2">
+                    <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { filtered.forEach(c => setSelectedLeads(s => { const n = new Set(s); n.add(c.id); return n; })); }}>Select All</Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Contact list + detail panel */}
@@ -1972,36 +2231,58 @@ export default function CRMAgent() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
+                    {/* Header row */}
+                    <div className="grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_120px] gap-3 px-3 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+                      <button onClick={() => {
+                        if (selectedLeads.size === filtered.length) setSelectedLeads(new Set());
+                        else setSelectedLeads(new Set(filtered.map(c => c.id)));
+                      }}>
+                        {selectedLeads.size === filtered.length && filtered.length > 0
+                          ? <CheckSquare className="h-3.5 w-3.5 text-primary" />
+                          : <Square className="h-3.5 w-3.5" />}
+                      </button>
+                      <span />
+                      <span>Name</span><span>Phone</span><span>Status</span><span>Source</span><span>Actions</span>
+                    </div>
                     {filtered.map((c) => {
                       const sm = statusMeta((c as any).status);
                       const isActive = selected?.id === c.id;
+                      const isChecked = selectedLeads.has(c.id);
                       return (
-                        <div key={c.id} onClick={() => setSelected(isActive ? null : c)}
-                          className={cn("flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all",
-                            isActive ? "bg-primary/5 border-primary/20" : "bg-card/40 border-border/30 hover:bg-secondary/30 hover:border-border/50")}>
-                          <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                        <div key={c.id}
+                          className={cn("grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_120px] gap-3 items-center p-3 rounded-xl border cursor-pointer transition-all",
+                            isActive ? "bg-primary/5 border-primary/20" : isChecked ? "bg-secondary/30 border-border/50" : "bg-card/40 border-border/30 hover:bg-secondary/20 hover:border-border/50")}>
+                          {/* Checkbox */}
+                          <button onClick={(e) => { e.stopPropagation(); setSelectedLeads(s => { const n = new Set(s); isChecked ? n.delete(c.id) : n.add(c.id); return n; }); }}>
+                            {isChecked ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
+                          </button>
+                          <div className="w-9 h-9 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-xs font-bold text-primary shrink-0" onClick={() => setSelected(isActive ? null : c)}>
                             {initials(c)}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm truncate">{fullName(c)}</span>
-                              <Badge className={cn("text-[10px] px-1.5 py-0 border shrink-0", sm.color)}>{sm.label}</Badge>
-                            </div>
-                            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone_number}</span>
-                              {c.company && <span className="flex items-center gap-1 truncate"><Building2 className="h-3 w-3" />{c.company}</span>}
-                              {c.email && <span className="truncate hidden sm:flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
-                            </div>
+                          {/* Name + company */}
+                          <div className="min-w-0" onClick={() => setSelected(isActive ? null : c)}>
+                            <p className="font-medium text-sm truncate">{fullName(c)}</p>
+                            {c.company && <p className="text-xs text-muted-foreground truncate">{c.company}</p>}
+                            {c.email && <p className="text-xs text-muted-foreground/70 truncate">{c.email}</p>}
                           </div>
-                          <div className="text-right shrink-0 hidden md:block">
-                            {(c as any).last_contacted && <p className="text-xs text-muted-foreground">{formatDate((c as any).last_contacted)}</p>}
-                            {(c as any).source && <p className="text-xs text-muted-foreground/60">{(c as any).source}</p>}
+                          {/* Phone */}
+                          <div className="text-xs text-muted-foreground" onClick={() => setSelected(isActive ? null : c)}>
+                            {c.phone_number}
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Phone className="h-3.5 w-3.5" /></a>
-                            {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Mail className="h-3.5 w-3.5" /></a>}
-                            <button onClick={() => { setEditContact(c); setShowForm(true); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                          {/* Status */}
+                          <div onClick={() => setSelected(isActive ? null : c)}>
+                            <Badge className={cn("text-[10px] px-1.5 py-0 border", sm.color)}>{sm.label}</Badge>
+                          </div>
+                          {/* Source */}
+                          <div className="text-xs text-muted-foreground truncate" onClick={() => setSelected(isActive ? null : c)}>
+                            {(c as any).source ?? "—"}
+                          </div>
+                          {/* Actions */}
+                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Call"><Phone className="h-3.5 w-3.5" /></a>
+                            {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="Email"><Mail className="h-3.5 w-3.5" /></a>}
+                            <button onClick={() => { setEditContact(c); setShowForm(true); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                           </div>
                         </div>
                       );
