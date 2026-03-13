@@ -44,7 +44,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -1582,152 +1582,575 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
         </div>
       </div>
 
-      {/* Power Dialer Report banner */}
-      <div className="px-6 pt-4 shrink-0">
-        <div className="rounded-xl border border-border/30 bg-card/40 p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-yellow-500/15 flex items-center justify-center shrink-0">
-            <BarChart3 className="h-5 w-5 text-yellow-400" />
-          </div>
-          <div className="flex-1">
-            <h2 className="text-sm font-semibold">Power Dialer Report</h2>
-            <p className="text-xs text-muted-foreground">Now viewing performance data</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select className="h-8 rounded-lg border border-border/40 bg-background/50 px-2 text-xs text-muted-foreground">
-              <option>Select campaigns</option>
-            </select>
-            <label className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground">
-              <div className="w-8 h-4 rounded-full bg-secondary/60 relative">
-                <div className="absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow" />
+      <div className="flex-1 overflow-auto">
+        <div className="p-6 space-y-6 max-w-7xl mx-auto">
+
+          {/* KPI row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: "Total Leads", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+              { label: "Closed Won", value: closedWon, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
+              { label: "Conversion Rate", value: `${convRate}%`, icon: Target, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+              { label: "Total Calls", value: completedCalls, icon: PhoneCall, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+            ].map(s => (
+              <div key={s.label} className={cn("rounded-xl border p-4 space-y-2", s.bg)}>
+                <s.icon className={cn("h-5 w-5", s.color)} />
+                <p className="text-2xl font-bold">{s.value}</p>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
               </div>
-              Total view
-            </label>
+            ))}
           </div>
-        </div>
-      </div>
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
-        {/* KPIs */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: "Total Contacts", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
-            { label: "Closed Won", value: closedWon, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
-            { label: "Conversion Rate", value: `${convRate}%`, icon: Target, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
-            { label: "Total Calls", value: completedCalls, icon: PhoneCall, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
-          ].map(s => (
-            <div key={s.label} className={cn("rounded-xl border p-4 space-y-2", s.bg)}>
-              <s.icon className={cn("h-5 w-5", s.color)} />
-              <p className="text-2xl font-bold">{s.value}</p>
-              <p className="text-xs text-muted-foreground">{s.label}</p>
+          {/* Power Dialer Report */}
+          <ReportCard title="Power Dialer Report" icon={<Zap className="h-5 w-5 text-yellow-400" />} iconBg="bg-yellow-500/15"
+            timeRange={timeRange} setTimeRange={setTimeRange}
+            extra={<select className="h-7 rounded-lg border border-border/40 bg-background/50 px-2 text-xs text-muted-foreground"><option>Select campaigns</option></select>}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-muted-foreground border-b border-border/20">
+                  {["Type","Target","Status","Leads reached","Carrier violations","Response rate","Avg response time"].map(h => (
+                    <th key={h} className="pb-2 pr-4 font-medium">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody><tr className="text-muted-foreground/70">
+                  <td className="py-2 pr-4">Totals</td><td className="pr-4">—</td><td className="pr-4">—</td>
+                  <td className="pr-4">0</td><td className="pr-4">0</td><td className="pr-4">0%</td><td>—</td>
+                </tr></tbody>
+              </table>
             </div>
-          ))}
-        </div>
+          </ReportCard>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Pipeline funnel */}
-          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><Activity className="h-4 w-4" /> Pipeline Breakdown</h2>
-            <div className="space-y-3">
+          {/* Drip Marketing Analytics */}
+          <ReportCard title="Drip Marketing Analytics" icon={<BarChart3 className="h-5 w-5 text-purple-400" />} iconBg="bg-purple-500/15"
+            timeRange={timeRange} setTimeRange={setTimeRange} downloadCsv>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="text-left text-muted-foreground border-b border-border/20">
+                  {["Type","Target","Status","Leads reached","Carrier violations","Response rate","Avg response time"].map(h => (
+                    <th key={h} className="pb-2 pr-4 font-medium">{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody><tr><td colSpan={7} className="py-6 text-center text-muted-foreground/60 text-xs">No campaigns found</td></tr></tbody>
+              </table>
+            </div>
+          </ReportCard>
+
+          {/* Outbound/Inbound Texts & Call Stats — side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ReportCard title="Outbound & Inbound Texts" icon={<MessageSquare className="h-5 w-5 text-blue-400" />} iconBg="bg-blue-500/15"
+              timeRange={timeRange} setTimeRange={setTimeRange} showTable>
+              <CSSLineChart legend={[{label:"Outbound texts",color:"bg-teal-400"},{label:"Inbound texts",color:"bg-emerald-400"}]}
+                data={calls} dateKey="started_at" />
+            </ReportCard>
+            <ReportCard title="Call Statistics" icon={<PhoneCall className="h-5 w-5 text-purple-400" />} iconBg="bg-purple-500/15"
+              timeRange={timeRange} setTimeRange={setTimeRange} showTable>
+              <CSSLineChart legend={[{label:"Outbound calls",color:"bg-teal-400"},{label:"Inbound calls",color:"bg-emerald-400"}]}
+                data={calls} dateKey="started_at" />
+            </ReportCard>
+          </div>
+
+          {/* Lead sources / Pipeline breakdown side by side */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <ReportCard title="Leads By Vendor" icon={<TrendingUp className="h-5 w-5 text-orange-400" />} iconBg="bg-orange-500/15"
+              timeRange={timeRange} setTimeRange={setTimeRange}>
+              {sourceBreakdown.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">No source data yet</p>
+              ) : sourceBreakdown.map(s => (
+                <div key={s.label} className="mb-2">
+                  <div className="flex justify-between mb-0.5"><span className="text-xs">{s.label}</span><span className="text-xs text-muted-foreground">{s.count}</span></div>
+                  <div className="h-2 bg-secondary/40 rounded-full overflow-hidden"><div className="h-full bg-purple-500/60 rounded-full" style={{width:`${(s.count/maxSource)*100}%`}} /></div>
+                </div>
+              ))}
+            </ReportCard>
+            <ReportCard title="Sales Pipeline Stats" icon={<BarChart2 className="h-5 w-5 text-primary" />} iconBg="bg-primary/15"
+              timeRange={timeRange} setTimeRange={setTimeRange} showTable
+              extra={<select className="h-7 rounded-lg border border-border/40 bg-background/50 px-2 text-xs text-muted-foreground"><option>Select folders</option></select>}>
               {STATUSES.map(s => {
                 const count = contacts.filter(c => (c as any).status === s.id).length;
                 const pct = total > 0 ? (count / total) * 100 : 0;
                 return (
-                  <div key={s.id}>
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className={cn("w-2 h-2 rounded-full", s.dot)} />
-                        <span className="text-xs">{s.label}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{count}</span>
-                        <span className="text-xs text-muted-foreground w-10 text-right">{pct.toFixed(0)}%</span>
-                      </div>
+                  <div key={s.id} className="mb-2">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <div className="flex items-center gap-1.5"><span className={cn("w-2 h-2 rounded-full",s.dot)}/><span className="text-xs">{s.label}</span></div>
+                      <span className="text-xs text-muted-foreground">{count}</span>
                     </div>
-                    <div className="h-2 bg-secondary/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                    </div>
+                    <div className="h-2 bg-secondary/40 rounded-full overflow-hidden"><div className="h-full bg-primary/60 rounded-full" style={{width:`${pct}%`}} /></div>
                   </div>
                 );
               })}
+            </ReportCard>
+          </div>
+
+          {/* Master Switch History */}
+          <ReportCard title="Master Switch History" icon={<Activity className="h-5 w-5 text-green-400" />} iconBg="bg-green-500/15"
+            timeRange={timeRange} setTimeRange={setTimeRange} downloadCsv active>
+            <div className="flex items-center justify-center py-8 text-muted-foreground/60 text-xs gap-2">
+              <AlertCircle className="h-4 w-4" /> No results found.
             </div>
-          </div>
+          </ReportCard>
 
-          {/* Lead sources */}
-          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><TrendingUp className="h-4 w-4" /> Lead Sources</h2>
-            {sourceBreakdown.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-8">No source data yet</p>
-            ) : (
-              <div className="space-y-3">
-                {sourceBreakdown.map(s => (
-                  <div key={s.label}>
-                    <div className="flex justify-between mb-1">
-                      <span className="text-xs">{s.label}</span>
-                      <span className="text-xs text-muted-foreground">{s.count}</span>
-                    </div>
-                    <div className="h-2 bg-secondary/40 rounded-full overflow-hidden">
-                      <div className="h-full bg-purple-500/60 rounded-full" style={{ width: `${(s.count / maxSource) * 100}%` }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Rejected Leads */}
+          <ReportCard title="Rejected Leads" icon={<Users className="h-5 w-5 text-red-400" />} iconBg="bg-red-500/15"
+            timeRange={timeRange} setTimeRange={setTimeRange} downloadCsv>
+            <div className="flex items-center justify-center py-8 text-muted-foreground/60 text-xs gap-2">
+              <AlertCircle className="h-4 w-4" /> No results found.
+            </div>
+          </ReportCard>
 
-          {/* Call stats */}
-          <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><PhoneCall className="h-4 w-4" /> Call Statistics</h2>
-            {loadingCalls ? <p className="text-xs text-center text-muted-foreground py-6">Loading…</p> : (
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Total Calls", value: calls.length },
-                  { label: "Completed", value: completedCalls },
-                  { label: "Talk Time", value: `${Math.round(totalCallMin / 60)}m` },
-                  { label: "Total Cost", value: `$${totalCost.toFixed(2)}` },
-                ].map(s => (
-                  <div key={s.label} className="bg-secondary/30 rounded-xl p-3 text-center">
-                    <p className="text-xl font-bold">{s.value}</p>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Win/Loss */}
+          {/* Win / Loss */}
           <div className="rounded-xl border border-border/30 bg-card/40 p-4">
             <h2 className="text-sm font-semibold mb-4 flex items-center gap-2"><Target className="h-4 w-4" /> Win / Loss</h2>
-            <div className="space-y-4">
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs text-green-400 font-medium">Won ({closedWon})</span>
-                  <span className="text-xs text-muted-foreground">{total > 0 ? ((closedWon / total) * 100).toFixed(0) : 0}%</span>
+            <div className="space-y-3">
+              {[
+                {label:`Won (${closedWon})`,pct:total>0?(closedWon/total)*100:0,color:"bg-green-500/60",text:"text-green-400"},
+                {label:`Lost (${closedLost})`,pct:total>0?(closedLost/total)*100:0,color:"bg-red-500/60",text:"text-red-400"},
+                {label:`In Progress (${total-closedWon-closedLost})`,pct:total>0?((total-closedWon-closedLost)/total)*100:0,color:"bg-blue-500/60",text:"text-blue-400"},
+              ].map(s => (
+                <div key={s.label}>
+                  <div className="flex justify-between mb-1">
+                    <span className={cn("text-xs font-medium",s.text)}>{s.label}</span>
+                    <span className="text-xs text-muted-foreground">{s.pct.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-2.5 bg-secondary/40 rounded-full overflow-hidden">
+                    <div className={cn("h-full rounded-full",s.color)} style={{width:`${s.pct}%`}} />
+                  </div>
                 </div>
-                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
-                  <div className="h-full bg-green-500/60 rounded-full" style={{ width: `${total > 0 ? (closedWon / total) * 100 : 0}%` }} />
+              ))}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-between pt-4 border-t border-border/20 text-xs text-muted-foreground/60">
+            <div className="flex gap-4">
+              <a href="#" className="hover:text-foreground">Terms of Service</a>
+              <a href="#" className="hover:text-foreground">Privacy Policy</a>
+            </div>
+            <span>2026 © ISIBI.AI. All Rights Reserved.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Reusable Report Card ──────────────────────────────────────────────────────
+
+function ReportCard({ title, icon, iconBg, children, timeRange, setTimeRange, showTable, downloadCsv, extra, active }: {
+  title: string; icon: React.ReactNode; iconBg: string; children: React.ReactNode;
+  timeRange: string; setTimeRange: (t: any) => void;
+  showTable?: boolean; downloadCsv?: boolean; extra?: React.ReactNode; active?: boolean;
+}) {
+  const [showTableState, setShowTableState] = useState(false);
+  return (
+    <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-4">
+      <div className="flex items-center gap-3">
+        {active !== undefined && (
+          <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", active ? "bg-primary/80" : iconBg)}>{icon}</div>
+        )}
+        {active === undefined && <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", iconBg)}>{icon}</div>}
+        <h2 className="text-sm font-semibold flex-1">{title}</h2>
+        {showTable && (
+          <label className="flex items-center gap-1.5 cursor-pointer text-xs text-muted-foreground">
+            <div onClick={() => setShowTableState(v => !v)}
+              className={cn("w-8 h-4 rounded-full transition-colors relative", showTableState ? "bg-primary" : "bg-secondary/60")}>
+              <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all", showTableState ? "left-4" : "left-0.5")} />
+            </div>
+            Show table
+          </label>
+        )}
+      </div>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        {extra ?? <div />}
+        <div className="flex items-center gap-2">
+          {downloadCsv && (
+            <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border/30 text-xs text-muted-foreground hover:bg-secondary/40">
+              <Download className="h-3 w-3" /> Download CSV
+            </button>
+          )}
+          <div className="flex gap-0.5 bg-secondary/40 rounded-lg p-0.5">
+            {(["day","week","month","custom"] as const).map(t => (
+              <button key={t} onClick={() => setTimeRange(t)}
+                className={cn("px-2.5 py-1 rounded-md text-[10px] font-medium uppercase transition-all",
+                  timeRange === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ── CSS Line Chart ────────────────────────────────────────────────────────────
+
+function CSSLineChart({ legend, data, dateKey }: { legend: {label:string;color:string}[]; data: any[]; dateKey: string }) {
+  const yLabels = [1.0,0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0];
+  const today = new Date().toISOString().slice(0,10);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+        {legend.map(l => (<div key={l.label} className="flex items-center gap-1.5"><span className={cn("w-3 h-2 rounded",l.color)} />{l.label}</div>))}
+      </div>
+      <div className="flex gap-2">
+        <div className="flex flex-col justify-between text-[10px] text-muted-foreground/60 pr-1" style={{height:140}}>
+          {yLabels.map(y => <span key={y}>{y.toFixed(1)}</span>)}
+        </div>
+        <div className="flex-1 border border-border/20 rounded-lg bg-secondary/10 relative" style={{height:140}}>
+          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+            {yLabels.slice(0,-1).map(y => <div key={y} className="border-t border-border/10" />)}
+          </div>
+          {data.length === 0 && (
+            <div className="absolute inset-0 flex items-end justify-center pb-2 text-[10px] text-muted-foreground/60">{today}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Campaigns View ────────────────────────────────────────────────────────────
+
+function CampaignsView({ contacts }: { contacts: Contact[] }) {
+  const [campaignTab, setCampaignTab] = useState<"create" | "past">("create");
+  const [cDateFrom, setCDateFrom] = useState("");
+  const [cDateTo, setCDateTo] = useState("");
+  const [cSearch, setCSearch] = useState("");
+  const [cPowerDialer, setCPowerDialer] = useState(false);
+  const [searchResults, setSearchResults] = useState<Contact[] | null>(null);
+
+  const handleSearch = () => {
+    let results = contacts;
+    if (cSearch) results = results.filter(c =>
+      fullName(c).toLowerCase().includes(cSearch.toLowerCase()) ||
+      c.phone_number.includes(cSearch) || c.email?.toLowerCase().includes(cSearch.toLowerCase())
+    );
+    if (cPowerDialer) results = results.filter(c => ["new_lead","callback"].includes((c as any).status ?? ""));
+    if (cDateFrom) results = results.filter(c => new Date((c as any).created_at) >= new Date(cDateFrom));
+    if (cDateTo) results = results.filter(c => new Date((c as any).created_at) <= new Date(cDateTo));
+    setSearchResults(results);
+  };
+
+  const handleReset = () => { setCDateFrom(""); setCDateTo(""); setCSearch(""); setCPowerDialer(false); setSearchResults(null); };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <Send className="h-5 w-5 text-primary" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">Campaigns</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-border/20 shrink-0">
+        {(["create","past"] as const).map(t => (
+          <button key={t} onClick={() => setCampaignTab(t)}
+            className={cn("px-8 py-3 text-sm font-medium border-b-2 transition-all uppercase tracking-wide",
+              campaignTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {t === "create" ? "Create Campaign" : "Past Campaigns"}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-auto p-6">
+        {campaignTab === "create" ? (
+          <div className="max-w-4xl space-y-6">
+            <div className="rounded-xl border border-border/30 bg-card/40 p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+                  <Send className="h-5 w-5 text-primary" />
+                </div>
+                <h2 className="text-base font-semibold">Create Campaign</h2>
+              </div>
+              <p className="text-sm text-muted-foreground">Campaigns allow you to bulk text and / or email your leads. Begin by specifying which leads you'd like to include in this campaign below.</p>
+              <p className="text-xs text-muted-foreground/80">Leads that are blocked will not be included in campaigns.</p>
+
+              {/* Filter form */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Leads from</label>
+                  <div className="relative">
+                    <Input type="date" value={cDateFrom} onChange={e => setCDateFrom(e.target.value)} className="h-8 text-xs pr-7" />
+                    {cDateFrom && <button onClick={() => setCDateFrom("")} className="absolute right-2 top-1/2 -translate-y-1/2"><X className="h-3 w-3 text-muted-foreground" /></button>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Leads to</label>
+                  <div className="relative">
+                    <Input type="date" value={cDateTo} onChange={e => setCDateTo(e.target.value)} className="h-8 text-xs pr-7" />
+                    {cDateTo && <button onClick={() => setCDateTo("")} className="absolute right-2 top-1/2 -translate-y-1/2"><X className="h-3 w-3 text-muted-foreground" /></button>}
+                  </div>
                 </div>
               </div>
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs text-red-400 font-medium">Lost ({closedLost})</span>
-                  <span className="text-xs text-muted-foreground">{total > 0 ? ((closedLost / total) * 100).toFixed(0) : 0}%</span>
+
+              <div className="grid grid-cols-3 gap-3">
+                {["Lead vendors","States","Time zones"].map(p => (
+                  <div key={p} className="relative">
+                    <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
+                      <option>{p}</option>
+                    </select>
+                    <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
+                    <option>Only show</option>
+                    {STATUSES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 </div>
-                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
-                  <div className="h-full bg-red-500/60 rounded-full" style={{ width: `${total > 0 ? (closedLost / total) * 100 : 0}%` }} />
+                <div className="relative">
+                  <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
+                    <option>Disposition tags</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 </div>
               </div>
-              <div>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs text-blue-400 font-medium">In Progress ({total - closedWon - closedLost})</span>
-                  <span className="text-xs text-muted-foreground">{total > 0 ? (((total - closedWon - closedLost) / total) * 100).toFixed(0) : 0}%</span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
+                    <option>Exclude disposition tags</option>
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 </div>
-                <div className="h-3 bg-secondary/40 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500/60 rounded-full" style={{ width: `${total > 0 ? ((total - closedWon - closedLost) / total) * 100 : 0}%` }} />
+                <Input value={cSearch} onChange={e => setCSearch(e.target.value)} placeholder="Enter name, phone number or email" className="h-9 text-sm" />
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5"><X className="h-3.5 w-3.5" /> Reset</Button>
+                <Button size="sm" onClick={handleSearch} className="gap-1.5"><Search className="h-3.5 w-3.5" /> Search</Button>
+              </div>
+            </div>
+
+            {/* Results */}
+            {searchResults !== null && (
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+                <p className="text-sm font-medium mb-3">Search results: {searchResults.length} leads</p>
+                {searchResults.length === 0 ? (
+                  <p className="text-xs text-muted-foreground text-center py-6">No leads match your filters</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {searchResults.slice(0, 20).map(c => {
+                      const sm = statusMeta((c as any).status);
+                      return (
+                        <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-secondary/20">
+                          <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                            <p className="text-xs text-muted-foreground">{c.phone_number}</p>
+                          </div>
+                          <Badge className={cn("text-[10px] px-1.5 border", sm.color)}>{sm.label}</Badge>
+                        </div>
+                      );
+                    })}
+                    {searchResults.length > 20 && <p className="text-xs text-muted-foreground text-center">+{searchResults.length - 20} more</p>}
+                  </div>
+                )}
+                {searchResults.length > 0 && (
+                  <div className="flex justify-end mt-4 gap-2">
+                    <Button size="sm" className="gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> Send SMS Campaign</Button>
+                    <Button size="sm" variant="outline" className="gap-1.5"><Mail className="h-3.5 w-3.5" /> Send Email Campaign</Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-16 text-muted-foreground">
+            <Send className="h-12 w-12 mx-auto mb-3 opacity-20" />
+            <p className="text-sm">No past campaigns yet</p>
+            <p className="text-xs mt-1">Create your first campaign to get started</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Phone Setup View ──────────────────────────────────────────────────────────
+
+function PhoneSetupView() {
+  const [phoneTab, setPhoneTab] = useState<"numbers" | "business" | "compliance">("numbers");
+  const [searchBy, setSearchBy] = useState<"states" | "area_code" | "toll_free">("states");
+  const [myNumbers, setMyNumbers] = useState<any[]>([]);
+  const [loadingNumbers, setLoadingNumbers] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/phone/my-numbers", { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } })
+      .then(r => r.json()).then(d => setMyNumbers(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingNumbers(false));
+  }, []);
+
+  const faqs = [
+    "Does local ID work automatically?",
+    "Can I get multiple numbers in the same state for area code matching?",
+    "Can I get multiple numbers in states all over the country?",
+    "Can I change the caller ID number for a lead anytime?",
+    "Can I monitor the spam rate and deliverability of my numbers?",
+    "If I don't have a number in a particular state, will my default number be used?",
+    "Can I dedicate 1 number for calling, and the rest for texting?",
+    "Can toll-free phone numbers use SHAKEN/STIR and branded calling?",
+  ];
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center shrink-0">
+          <Phone className="h-5 w-5 text-green-400" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">Phone Setup</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-border/20 shrink-0">
+        {[
+          { id: "numbers", label: "Phone Numbers" },
+          { id: "business", label: "Business Profile" },
+          { id: "compliance", label: "Compliance" },
+        ].map(t => (
+          <button key={t.id} onClick={() => setPhoneTab(t.id as any)}
+            className={cn("px-8 py-3 text-sm font-medium border-b-2 transition-all uppercase tracking-wide",
+              phoneTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-6 max-w-5xl">
+        {phoneTab === "numbers" && (
+          <>
+            {/* Purchase section */}
+            <div className="rounded-xl border border-border/30 bg-card/40 p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center">
+                  <Phone className="h-5 w-5 text-green-400" />
+                </div>
+                <h2 className="text-base font-semibold">Purchase Phone Numbers</h2>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-medium mb-3">Search by</p>
+                    <div className="flex gap-4">
+                      {[{id:"states",label:"States"},{id:"area_code",label:"Area code"},{id:"toll_free",label:"Toll-free"}].map(opt => (
+                        <label key={opt.id} className="flex items-center gap-2 cursor-pointer text-sm">
+                          <div onClick={() => setSearchBy(opt.id as any)}
+                            className={cn("w-4 h-4 rounded-full border-2 flex items-center justify-center",
+                              searchBy === opt.id ? "border-primary" : "border-border/50")}>
+                            {searchBy === opt.id && <div className="w-2 h-2 rounded-full bg-primary" />}
+                          </div>
+                          {opt.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 pr-8 text-sm text-muted-foreground appearance-none">
+                        <option>Select states you want phone numbers in</option>
+                        {["Alabama","Alaska","Arizona","California","Florida","Georgia","Illinois","New York","Texas"].map(s => <option key={s}>{s}</option>)}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <Button className="w-full gap-1.5" variant="outline">
+                      <Phone className="h-3.5 w-3.5" /> Purchase
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-green-400">Yes you can!</p>
+                  {faqs.map((q, i) => (
+                    <div key={i} className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0 mt-0.5" />
+                      <span>{q}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
+
+            {/* My Phone Numbers */}
+            <div className="rounded-xl border border-border/30 bg-card/40 p-6">
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                  <ClipboardList className="h-5 w-5 text-primary" />
+                </div>
+                <h2 className="text-base font-semibold">My Phone Numbers</h2>
+              </div>
+              <div className="space-y-1 text-xs text-muted-foreground mb-4">
+                <p>Phone number status legend</p>
+                <ul className="list-disc list-inside space-y-0.5 ml-2">
+                  <li><strong className="text-foreground">Active</strong> — can send and receive calls and texts.</li>
+                  <li><strong className="text-foreground">Inactive</strong> — can receive calls and texts, but will not be used for outbound calls.</li>
+                  <li><strong className="text-foreground">Default</strong> — if you do not have a phone number in a particular state, we will choose this number.</li>
+                </ul>
+              </div>
+              {loadingNumbers ? <p className="text-xs text-muted-foreground">Loading…</p>
+                : myNumbers.length === 0 ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground/60 text-xs gap-2">
+                    <AlertCircle className="h-4 w-4" /> No phone numbers yet. Purchase one above.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {myNumbers.map((n: any) => (
+                      <div key={n.sid ?? n.phone_number} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20">
+                        <Phone className="h-4 w-4 text-green-400 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium">{n.phone_number}</p>
+                          {n.friendly_name && <p className="text-xs text-muted-foreground">{n.friendly_name}</p>}
+                        </div>
+                        <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Active</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+            </div>
+          </>
+        )}
+
+        {phoneTab === "business" && (
+          <div className="rounded-xl border border-border/30 bg-card/40 p-6 space-y-4">
+            <h2 className="text-base font-semibold">Business Profile</h2>
+            <p className="text-sm text-muted-foreground">Set up your business profile for SMS compliance and branded calling.</p>
+            <div className="grid grid-cols-2 gap-3">
+              {["Business Name","Business Website","Business Type","EIN / Tax ID","Business Address","Contact Email"].map(f => (
+                <div key={f} className="space-y-1">
+                  <label className="text-xs text-muted-foreground">{f}</label>
+                  <Input placeholder={f} className="h-8 text-sm" />
+                </div>
+              ))}
+            </div>
+            <Button size="sm">Save Business Profile</Button>
           </div>
-        </div>
+        )}
+
+        {phoneTab === "compliance" && (
+          <div className="rounded-xl border border-border/30 bg-card/40 p-6 space-y-4">
+            <h2 className="text-base font-semibold">Compliance</h2>
+            <div className="space-y-3">
+              {[
+                { title: "A2P 10DLC Registration", status: "Pending", desc: "Required for sending SMS messages in the US." },
+                { title: "SHAKEN/STIR", status: "Not configured", desc: "Reduces spam flagging on outbound calls." },
+                { title: "SMS Company Name", status: "Submitted", desc: "Displayed to recipients when receiving your texts." },
+              ].map(c => (
+                <div key={c.title} className="flex items-start gap-4 p-4 rounded-xl bg-secondary/20">
+                  <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium">{c.title}</p>
+                    <p className="text-xs text-muted-foreground">{c.desc}</p>
+                  </div>
+                  <Badge className="text-xs border border-yellow-500/30 text-yellow-400 bg-yellow-500/10 shrink-0">{c.status}</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2012,12 +2435,14 @@ export default function CRMAgent() {
     { id: "power_dialer", label: "Power Dialer",  icon: Zap, badge: "New" },
     { id: "inbox",        label: "Inbox",         icon: Inbox },
     { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
+    { id: "calendar",     label: "Google Calendar",icon: Calendar },
+    { id: "reports",      label: "Reports",       icon: BarChart3 },
+    { id: "campaigns",    label: "Campaigns",     icon: Send },
     { id: "calls",        label: "Calls",         icon: PhoneCall },
     { id: "sms",          label: "Messages",      icon: MessageSquare },
     { id: "emails",       label: "Emails",        icon: Mail },
-    { id: "calendar",     label: "Calendar",      icon: Calendar },
     { id: "tasks",        label: "Tasks",         icon: ClipboardList },
-    { id: "reports",      label: "Reports",       icon: BarChart3 },
+    { id: "phone_setup",  label: "Phone Setup",   icon: Phone },
   ];
 
   // SMS global view
@@ -2418,6 +2843,12 @@ export default function CRMAgent() {
 
         {/* Reports */}
         {view === "reports" && <ReportsView contacts={contacts} />}
+
+        {/* Campaigns */}
+        {view === "campaigns" && <CampaignsView contacts={contacts} />}
+
+        {/* Phone Setup */}
+        {view === "phone_setup" && <PhoneSetupView />}
 
         {/* Inbox */}
         {view === "inbox" && (
