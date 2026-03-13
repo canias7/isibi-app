@@ -849,6 +849,9 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
           <span className="font-medium text-sm w-28 text-center">{MONTHS[month]} {year}</span>
           <button onClick={() => setCurrent(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronRight className="h-4 w-4" /></button>
         </div>
+        <select className="h-8 rounded-md border border-input bg-background/50 px-2 text-xs text-muted-foreground">
+          <option>No calendars found</option>
+        </select>
         <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
           <RefreshCw className="h-3.5 w-3.5" /> Sync Google
         </Button>
@@ -857,30 +860,30 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
         </Button>
       </div>
 
-      {/* Google Calendar connect banner */}
-      {appointments.length === 0 && !loading && (
-        <div className="mx-4 mt-4 rounded-xl border border-border/30 bg-card/40 p-6 space-y-4 shrink-0">
-          <p className="text-base font-semibold">Your Google Calendar is not yet connected!</p>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* Google Calendar connect banner — always visible */}
+      <div className="mx-4 mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex flex-col md:flex-row items-start md:items-center gap-4 shrink-0">
+        <div className="flex-1 space-y-1">
+          <p className="text-sm font-semibold text-amber-400">Your Google Calendar is not yet connected!</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 mt-2">
             {[
-              "Import all of your Google calendars and events into your account.",
-              "Keep the same color scheme and settings from your Google account.",
+              "Import all of your Google calendars and events.",
+              "Keep your Google color scheme and settings.",
               "View, create, edit, and reschedule events.",
               "Automatically assign leads to events.",
               "Receive popup reminders for upcoming events.",
-              "When viewing individual leads, view all events for that lead on the same page.",
+              "View all events for a lead on the same page.",
             ].map((feat, i) => (
-              <div key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <CheckCircle2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <div key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <CheckCircle2 className="h-3 w-3 text-amber-400 shrink-0" />
                 <span>{feat}</span>
               </div>
             ))}
           </div>
-          <Button className="gap-2" onClick={() => window.open("/api/google/auth", "_blank")}>
-            <Calendar className="h-4 w-4" /> Connect Google Calendar
-          </Button>
         </div>
-      )}
+        <Button size="sm" className="gap-2 bg-amber-500 hover:bg-amber-600 text-white shrink-0" onClick={() => window.open("/api/google/auth", "_blank")}>
+          <Calendar className="h-3.5 w-3.5" /> Connect Google Calendar
+        </Button>
+      </div>
 
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 overflow-auto p-4">
@@ -2452,6 +2455,10 @@ export default function CRMAgent() {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterPowerDialer, setFilterPowerDialer] = useState(false);
+  const [filterShowBlocked, setFilterShowBlocked] = useState(false);
+  const [filterVendor, setFilterVendor] = useState("");
+  const [filterState, setFilterState] = useState("");
+  const [filterTimezone, setFilterTimezone] = useState("");
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
 
@@ -2564,34 +2571,62 @@ export default function CRMAgent() {
 
             {/* Advanced Filters Panel */}
             <div className="border-b border-border/20 bg-background/20 shrink-0">
-              <div className="px-6 py-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-                {/* Date range */}
-                <div className="flex gap-2 col-span-1 md:col-span-2">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-xs text-muted-foreground">Leads from</label>
-                    <div className="relative">
-                      <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-                        className="h-8 text-xs bg-background/50 pr-7" />
-                      {filterDateFrom && <button onClick={() => setFilterDateFrom("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
-                    </div>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-xs text-muted-foreground">Leads to</label>
-                    <div className="relative">
-                      <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-                        className="h-8 text-xs bg-background/50 pr-7" />
-                      {filterDateTo && <button onClick={() => setFilterDateTo("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
-                    </div>
+              {/* Row 1: Date + Vendor + State + Timezone */}
+              <div className="px-6 py-3 grid grid-cols-2 md:grid-cols-6 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Leads from</label>
+                  <div className="relative">
+                    <Input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                      className="h-8 text-xs bg-background/50 pr-7" />
+                    {filterDateFrom && <button onClick={() => setFilterDateFrom("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
                   </div>
                 </div>
-                {/* Power Dialer toggle */}
-                <div className="flex items-end justify-end gap-3 pb-1">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Leads to</label>
+                  <div className="relative">
+                    <Input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                      className="h-8 text-xs bg-background/50 pr-7" />
+                    {filterDateTo && <button onClick={() => setFilterDateTo("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Lead Vendor</label>
+                  <select value={filterVendor} onChange={e => setFilterVendor(e.target.value)}
+                    className="w-full h-8 rounded-md border border-input bg-background/50 px-2 text-xs">
+                    <option value="">All Vendors</option>
+                    {["Facebook","Google","LinkedIn","Referral","Website","Cold Call","Other"].map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">State</label>
+                  <select value={filterState} onChange={e => setFilterState(e.target.value)}
+                    className="w-full h-8 rounded-md border border-input bg-background/50 px-2 text-xs">
+                    <option value="">All States</option>
+                    {["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Timezone</label>
+                  <select value={filterTimezone} onChange={e => setFilterTimezone(e.target.value)}
+                    className="w-full h-8 rounded-md border border-input bg-background/50 px-2 text-xs">
+                    <option value="">All Timezones</option>
+                    {["Eastern","Central","Mountain","Pacific","Alaska","Hawaii"].map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col justify-end gap-2 pb-0.5">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <div onClick={() => setFilterPowerDialer(v => !v)}
-                      className={cn("w-9 h-5 rounded-full transition-colors relative", filterPowerDialer ? "bg-primary" : "bg-secondary/60")}>
+                      className={cn("w-9 h-5 rounded-full transition-colors relative shrink-0", filterPowerDialer ? "bg-primary" : "bg-secondary/60")}>
                       <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", filterPowerDialer ? "left-4" : "left-0.5")} />
                     </div>
-                    <span className="text-xs text-muted-foreground">Only Power Dialer leads</span>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Power Dialer only</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <div onClick={() => setFilterShowBlocked(v => !v)}
+                      className={cn("w-9 h-5 rounded-full transition-colors relative shrink-0", filterShowBlocked ? "bg-destructive" : "bg-secondary/60")}>
+                      <div className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all", filterShowBlocked ? "left-4" : "left-0.5")} />
+                    </div>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">Show blocked</span>
                   </label>
                 </div>
               </div>
@@ -2617,8 +2652,8 @@ export default function CRMAgent() {
                     <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, phone or email…"
                       className="pl-8 h-8 text-xs bg-background/50 w-52" />
                   </div>
-                  {(search || filterDateFrom || filterDateTo || filterPowerDialer) && (
-                    <Button size="sm" variant="outline" onClick={() => { setSearch(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterPowerDialer(false); }}
+                  {(search || filterDateFrom || filterDateTo || filterPowerDialer || filterShowBlocked || filterVendor || filterState || filterTimezone) && (
+                    <Button size="sm" variant="outline" onClick={() => { setSearch(""); setFilterDateFrom(""); setFilterDateTo(""); setFilterPowerDialer(false); setFilterShowBlocked(false); setFilterVendor(""); setFilterState(""); setFilterTimezone(""); }}
                       className="h-8 text-xs gap-1">
                       <X className="h-3 w-3" /> Reset
                     </Button>
