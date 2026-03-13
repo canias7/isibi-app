@@ -928,3 +928,195 @@ export async function importContacts(contacts: ContactCreateRequest[]): Promise<
   }
   return res.json();
 }
+
+// ── Contact Calls ─────────────────────────────────────────────────────────────
+
+export interface ContactCall {
+  id: number;
+  call_sid?: string | null;
+  call_from?: string | null;
+  call_to?: string | null;
+  duration_seconds?: number | null;
+  cost_usd?: number | null;
+  status?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  agent_name?: string | null;
+}
+
+export async function listContactCalls(contactId: number): Promise<ContactCall[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/calls`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load calls");
+  return res.json();
+}
+
+// ── Contact SMS ───────────────────────────────────────────────────────────────
+
+export interface ContactSMS {
+  id: string | number;
+  direction: "inbound" | "outbound";
+  message: string;
+  status?: string | null;
+  twilio_sid?: string | null;
+  created_at: string;
+  source?: string;
+}
+
+export async function listContactSMS(contactId: number): Promise<ContactSMS[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/sms`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load SMS");
+  return res.json();
+}
+
+export async function sendContactSMS(contactId: number, message: string): Promise<ContactSMS> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/sms`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error("Failed to send SMS");
+  return res.json();
+}
+
+// ── Contact Emails ────────────────────────────────────────────────────────────
+
+export interface ContactEmail {
+  id: number;
+  direction: "inbound" | "outbound";
+  subject: string;
+  body: string;
+  from_address?: string | null;
+  to_address?: string | null;
+  status?: string | null;
+  created_at: string;
+}
+
+export async function listContactEmails(contactId: number): Promise<ContactEmail[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/emails`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load emails");
+  return res.json();
+}
+
+export async function addContactEmail(contactId: number, data: {
+  subject: string; body: string; direction?: string; from_address?: string; to_address?: string;
+}): Promise<ContactEmail> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/emails`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to add email");
+  return res.json();
+}
+
+// ── Contact Appointments ──────────────────────────────────────────────────────
+
+export interface Appointment {
+  id: number;
+  contact_id?: number;
+  title: string;
+  description?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  location?: string | null;
+  status?: string | null;
+  created_at?: string;
+  // Contact info (from global list)
+  first_name?: string | null;
+  last_name?: string | null;
+  phone_number?: string | null;
+}
+
+export async function listContactAppointments(contactId: number): Promise<Appointment[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/appointments`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load appointments");
+  return res.json();
+}
+
+export async function createContactAppointment(contactId: number, data: Omit<Appointment, "id">): Promise<Appointment> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/appointments`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create appointment");
+  return res.json();
+}
+
+export async function updateContactAppointment(contactId: number, aptId: number, data: Omit<Appointment, "id">): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/appointments/${aptId}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update appointment");
+}
+
+export async function deleteContactAppointment(contactId: number, aptId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/appointments/${aptId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete appointment");
+}
+
+export async function listAllAppointments(): Promise<Appointment[]> {
+  const res = await fetch(`${API_BASE}/api/appointments`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load appointments");
+  return res.json();
+}
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+export interface Task {
+  id: number;
+  contact_id?: number | null;
+  title: string;
+  description?: string | null;
+  due_date?: string | null;
+  priority?: "low" | "medium" | "high" | string;
+  completed: boolean;
+  created_at?: string;
+  // Contact info (from global list)
+  first_name?: string | null;
+  last_name?: string | null;
+}
+
+export async function listContactTasks(contactId: number): Promise<Task[]> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/tasks`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load tasks");
+  return res.json();
+}
+
+export async function createContactTask(contactId: number, data: Omit<Task, "id" | "completed">): Promise<Task> {
+  const res = await fetch(`${API_BASE}/api/contacts/${contactId}/tasks`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create task");
+  return res.json();
+}
+
+export async function listAllTasks(): Promise<Task[]> {
+  const res = await fetch(`${API_BASE}/api/tasks`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load tasks");
+  return res.json();
+}
+
+export async function updateTask(taskId: number, data: Partial<Task> & { title: string }): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update task");
+}
+
+export async function deleteTask(taskId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete task");
+}

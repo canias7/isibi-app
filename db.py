@@ -340,6 +340,63 @@ def init_db():
     """))
 
     conn.execute(sql("""
+    CREATE TABLE IF NOT EXISTS contact_sms (
+        id {ID},
+        contact_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        direction TEXT NOT NULL DEFAULT 'outbound',
+        message TEXT NOT NULL,
+        twilio_sid TEXT,
+        status TEXT DEFAULT 'sent',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """))
+
+    conn.execute(sql("""
+    CREATE TABLE IF NOT EXISTS contact_emails (
+        id {ID},
+        contact_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        direction TEXT NOT NULL DEFAULT 'outbound',
+        subject TEXT NOT NULL,
+        body TEXT NOT NULL,
+        from_address TEXT,
+        to_address TEXT,
+        status TEXT DEFAULT 'sent',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """))
+
+    conn.execute(sql("""
+    CREATE TABLE IF NOT EXISTS contact_appointments (
+        id {ID},
+        contact_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        start_time {TIMESTAMP} NOT NULL,
+        end_time {TIMESTAMP},
+        location TEXT,
+        status TEXT DEFAULT 'scheduled',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """))
+
+    conn.execute(sql("""
+    CREATE TABLE IF NOT EXISTS contact_tasks (
+        id {ID},
+        contact_id INTEGER,
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT,
+        due_date TEXT,
+        priority TEXT DEFAULT 'medium',
+        completed INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """))
+
+    conn.execute(sql("""
     CREATE TABLE IF NOT EXISTS website_agent_orders (
         id {ID},
         -- Contact
@@ -384,7 +441,7 @@ def init_db():
         stripe_session_id TEXT,
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """)
+    """))
 
     # --- MIGRATIONS (keep Render DB in sync) ---
     add_column_if_missing(conn, "agents", "phone_number", "TEXT")

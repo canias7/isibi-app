@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, Plus, Search, Phone, Mail, Building2, Pencil, Trash2,
-  ChevronDown, X, Upload, Download, StickyNote, Clock, PhoneCall,
-  CheckCircle2, XCircle, RefreshCw, AlertCircle, Star, Filter,
-  LogOut, PanelLeftClose, PanelLeftOpen, Bot,
+  ChevronDown, X, Upload, Download, StickyNote, PhoneCall,
+  CheckCircle2, Star, Filter, LogOut, PanelLeftClose, PanelLeftOpen,
+  Bot, MessageSquare, Calendar, ClipboardList, LayoutDashboard,
+  Send, ArrowLeft, Inbox, Clock, ChevronLeft, ChevronRight,
+  AlertCircle, CheckSquare, Square, Paperclip, BarChart2, TrendingUp,
+  Activity, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,48 +19,62 @@ import { toast } from "@/hooks/use-toast";
 import {
   listContacts, createContact, updateContact, deleteContact,
   importContacts, updateContactStatus, addContactNote, listContactNotes,
+  listContactCalls, listContactSMS, sendContactSMS,
+  listContactEmails, addContactEmail,
+  listContactAppointments, createContactAppointment, updateContactAppointment, deleteContactAppointment,
+  listAllAppointments, listContactTasks, createContactTask,
+  listAllTasks, updateTask, deleteTask, getUsageCalls,
   type Contact, type ContactCreateRequest,
+  type ContactCall, type ContactSMS, type ContactEmail,
+  type Appointment, type Task,
 } from "@/lib/api";
 
-// ── Pipeline statuses (Ringy-style dispositions) ────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const STATUSES = [
-  { id: "new_lead",        label: "New Lead",       color: "bg-blue-500/15 text-blue-400 border-blue-500/30",    dot: "bg-blue-400" },
-  { id: "contacted",       label: "Contacted",      color: "bg-purple-500/15 text-purple-400 border-purple-500/30", dot: "bg-purple-400" },
-  { id: "callback",        label: "Callback",       color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", dot: "bg-yellow-400" },
-  { id: "interested",      label: "Interested",     color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", dot: "bg-emerald-400" },
-  { id: "not_interested",  label: "Not Interested", color: "bg-slate-500/15 text-slate-400 border-slate-500/30",  dot: "bg-slate-400" },
-  { id: "closed_won",      label: "Closed Won",     color: "bg-green-500/15 text-green-400 border-green-500/30",  dot: "bg-green-400" },
-  { id: "closed_lost",     label: "Closed Lost",    color: "bg-red-500/15 text-red-400 border-red-500/30",        dot: "bg-red-400" },
+  { id: "new_lead",       label: "New Lead",       color: "bg-blue-500/15 text-blue-400 border-blue-500/30",      dot: "bg-blue-400" },
+  { id: "contacted",      label: "Contacted",      color: "bg-purple-500/15 text-purple-400 border-purple-500/30", dot: "bg-purple-400" },
+  { id: "callback",       label: "Callback",       color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", dot: "bg-yellow-400" },
+  { id: "interested",     label: "Interested",     color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", dot: "bg-emerald-400" },
+  { id: "not_interested", label: "Not Interested", color: "bg-slate-500/15 text-slate-400 border-slate-500/30",    dot: "bg-slate-400" },
+  { id: "closed_won",     label: "Closed Won",     color: "bg-green-500/15 text-green-400 border-green-500/30",    dot: "bg-green-400" },
+  { id: "closed_lost",    label: "Closed Lost",    color: "bg-red-500/15 text-red-400 border-red-500/30",          dot: "bg-red-400" },
 ] as const;
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
+const PRIORITIES = ["low", "medium", "high"] as const;
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
 }
-
 function initials(c: Contact) {
   return `${c.first_name[0] ?? ""}${c.last_name?.[0] ?? ""}`.toUpperCase();
 }
-
 function fullName(c: Contact) {
   return [c.first_name, c.last_name].filter(Boolean).join(" ");
 }
-
 function formatDate(s?: string | null) {
   if (!s) return null;
-  try {
-    return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch { return s; }
+  try { return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); }
+  catch { return s; }
+}
+function formatDateTime(s?: string | null) {
+  if (!s) return null;
+  try { return new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); }
+  catch { return s; }
+}
+function formatDuration(sec?: number | null) {
+  if (!sec) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 // ── CSV parser ───────────────────────────────────────────────────────────────
 
 function parseCSVLine(line: string): string[] {
-  const result: string[] = [];
-  let cur = "";
-  let inQ = false;
+  const result: string[] = []; let cur = ""; let inQ = false;
   for (const ch of line) {
     if (ch === '"') { inQ = !inQ; continue; }
     if (ch === "," && !inQ) { result.push(cur.trim()); cur = ""; continue; }
@@ -82,10 +99,8 @@ function parseCSV(text: string): ContactCreateRequest[] {
     out.push({
       first_name: first,
       last_name: row["last_name"] || row["last"] || row["name"]?.split(" ").slice(1).join(" ") || undefined,
-      phone_number: phone,
-      email: row["email"] || undefined,
-      company: row["company"] || row["company_name"] || undefined,
-      notes: row["notes"] || undefined,
+      phone_number: phone, email: row["email"] || undefined,
+      company: row["company"] || row["company_name"] || undefined, notes: row["notes"] || undefined,
     });
   }
   return out;
@@ -93,23 +108,14 @@ function parseCSV(text: string): ContactCreateRequest[] {
 
 // ── Contact Form Modal ───────────────────────────────────────────────────────
 
-interface ContactFormProps {
-  initial?: Contact;
-  onSave: (data: ContactCreateRequest) => Promise<void>;
-  onCancel: () => void;
-  saving: boolean;
-}
-
-function ContactForm({ initial, onSave, onCancel, saving }: ContactFormProps) {
+function ContactForm({ initial, onSave, onCancel, saving }: {
+  initial?: Contact; onSave: (d: ContactCreateRequest) => Promise<void>; onCancel: () => void; saving: boolean;
+}) {
   const [form, setForm] = useState<ContactCreateRequest>({
-    first_name: initial?.first_name ?? "",
-    last_name: initial?.last_name ?? "",
-    phone_number: initial?.phone_number ?? "",
-    email: initial?.email ?? "",
-    company: initial?.company ?? "",
-    address: (initial as any)?.address ?? "",
-    notes: initial?.notes ?? "",
-    status: (initial as any)?.status ?? "new_lead",
+    first_name: initial?.first_name ?? "", last_name: initial?.last_name ?? "",
+    phone_number: initial?.phone_number ?? "", email: initial?.email ?? "",
+    company: initial?.company ?? "", address: (initial as any)?.address ?? "",
+    notes: initial?.notes ?? "", status: (initial as any)?.status ?? "new_lead",
     source: (initial as any)?.source ?? "",
   });
   const set = (k: keyof ContactCreateRequest) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -121,72 +127,203 @@ function ContactForm({ initial, onSave, onCancel, saving }: ContactFormProps) {
       <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-card border-b border-border/30 px-6 py-4 flex items-center justify-between rounded-t-2xl">
           <h2 className="text-lg font-semibold">{initial ? "Edit Contact" : "Add Contact"}</h2>
-          <button onClick={onCancel} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50">
-            <X className="h-4 w-4" />
-          </button>
+          <button onClick={onCancel} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-4 w-4" /></button>
         </div>
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>First Name *</Label>
-              <Input value={form.first_name} onChange={set("first_name")} placeholder="John" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Last Name</Label>
-              <Input value={form.last_name ?? ""} onChange={set("last_name")} placeholder="Doe" />
-            </div>
+            <div className="space-y-1.5"><Label>First Name *</Label><Input value={form.first_name} onChange={set("first_name")} placeholder="John" /></div>
+            <div className="space-y-1.5"><Label>Last Name</Label><Input value={form.last_name ?? ""} onChange={set("last_name")} placeholder="Doe" /></div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Phone Number *</Label>
-            <Input value={form.phone_number} onChange={set("phone_number")} placeholder="+1 (555) 000-0000" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Email</Label>
-            <Input type="email" value={form.email ?? ""} onChange={set("email")} placeholder="john@example.com" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Company</Label>
-            <Input value={form.company ?? ""} onChange={set("company")} placeholder="Acme Corp" />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Address</Label>
-            <Input value={(form as any).address ?? ""} onChange={set("address" as any)} placeholder="123 Main St, Miami FL" />
-          </div>
+          <div className="space-y-1.5"><Label>Phone Number *</Label><Input value={form.phone_number} onChange={set("phone_number")} placeholder="+1 (555) 000-0000" /></div>
+          <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={form.email ?? ""} onChange={set("email")} placeholder="john@example.com" /></div>
+          <div className="space-y-1.5"><Label>Company</Label><Input value={form.company ?? ""} onChange={set("company")} placeholder="Acme Corp" /></div>
+          <div className="space-y-1.5"><Label>Address</Label><Input value={(form as any).address ?? ""} onChange={set("address" as any)} placeholder="123 Main St" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Status</Label>
-              <select
-                value={(form as any).status ?? "new_lead"}
-                onChange={set("status" as any)}
-                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm"
-              >
+              <select value={(form as any).status ?? "new_lead"} onChange={set("status" as any)}
+                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm">
                 {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
               <Label>Source</Label>
-              <select
-                value={(form as any).source ?? ""}
-                onChange={set("source" as any)}
-                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm"
-              >
+              <select value={(form as any).source ?? ""} onChange={set("source" as any)}
+                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm">
                 <option value="">Select source</option>
                 {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label>Notes</Label>
-            <Textarea value={form.notes ?? ""} onChange={set("notes")} placeholder="Initial notes about this contact…" rows={3} className="bg-background/50" />
+          <div className="space-y-1.5"><Label>Notes</Label>
+            <Textarea value={form.notes ?? ""} onChange={set("notes")} placeholder="Initial notes…" rows={3} className="bg-background/50" />
           </div>
           <div className="flex gap-3 pt-2">
             <Button variant="outline" onClick={onCancel} className="flex-1" disabled={saving}>Cancel</Button>
-            <Button
-              onClick={() => onSave(form)}
-              disabled={saving || !form.first_name || !form.phone_number}
-              className="flex-1"
-            >
+            <Button onClick={() => onSave(form)} disabled={saving || !form.first_name || !form.phone_number} className="flex-1">
               {saving ? "Saving…" : initial ? "Save Changes" : "Add Contact"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Appointment Modal ─────────────────────────────────────────────────────────
+
+function AppointmentModal({ initial, contactId, contacts, onSave, onCancel, saving }: {
+  initial?: Appointment; contactId?: number; contacts: Contact[];
+  onSave: (cid: number, data: Omit<Appointment, "id">) => Promise<void>;
+  onCancel: () => void; saving: boolean;
+}) {
+  const [cid, setCid] = useState<number>(contactId ?? initial?.contact_id ?? (contacts[0]?.id ?? 0));
+  const [form, setForm] = useState({
+    title: initial?.title ?? "", description: initial?.description ?? "",
+    start_time: initial?.start_time ? initial.start_time.slice(0, 16) : "",
+    end_time: initial?.end_time ? initial.end_time.slice(0, 16) : "",
+    location: initial?.location ?? "", status: initial?.status ?? "scheduled",
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-border/30 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{initial ? "Edit Appointment" : "New Appointment"}</h2>
+          <button onClick={onCancel} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {!contactId && (
+            <div className="space-y-1.5">
+              <Label>Contact</Label>
+              <select value={cid} onChange={(e) => setCid(Number(e.target.value))}
+                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm">
+                {contacts.map((c) => <option key={c.id} value={c.id}>{fullName(c)}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="space-y-1.5"><Label>Title *</Label>
+            <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Follow-up call" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Start *</Label>
+              <Input type="datetime-local" value={form.start_time} onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))} className="text-xs" />
+            </div>
+            <div className="space-y-1.5"><Label>End</Label>
+              <Input type="datetime-local" value={form.end_time} onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))} className="text-xs" />
+            </div>
+          </div>
+          <div className="space-y-1.5"><Label>Location</Label>
+            <Input value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="Office / Zoom" />
+          </div>
+          <div className="space-y-1.5"><Label>Description</Label>
+            <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="bg-background/50" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" onClick={onCancel} className="flex-1" disabled={saving}>Cancel</Button>
+            <Button onClick={() => onSave(cid, { ...form, contact_id: cid })} disabled={saving || !form.title || !form.start_time} className="flex-1">
+              {saving ? "Saving…" : initial ? "Update" : "Create"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Task Modal ────────────────────────────────────────────────────────────────
+
+function TaskModal({ initial, contactId, contacts, onSave, onCancel, saving }: {
+  initial?: Task; contactId?: number; contacts: Contact[];
+  onSave: (cid: number, data: Omit<Task, "id" | "completed">) => Promise<void>;
+  onCancel: () => void; saving: boolean;
+}) {
+  const [cid, setCid] = useState<number>(contactId ?? initial?.contact_id ?? (contacts[0]?.id ?? 0));
+  const [form, setForm] = useState({
+    title: initial?.title ?? "", description: initial?.description ?? "",
+    due_date: initial?.due_date ?? "", priority: initial?.priority ?? "medium",
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-border/30 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{initial ? "Edit Task" : "New Task"}</h2>
+          <button onClick={onCancel} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {!contactId && (
+            <div className="space-y-1.5">
+              <Label>Contact (optional)</Label>
+              <select value={cid} onChange={(e) => setCid(Number(e.target.value))}
+                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm">
+                <option value={0}>No contact</option>
+                {contacts.map((c) => <option key={c.id} value={c.id}>{fullName(c)}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="space-y-1.5"><Label>Title *</Label>
+            <Input value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="Send follow-up email" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Due Date</Label>
+              <Input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5"><Label>Priority</Label>
+              <select value={form.priority} onChange={(e) => setForm((f) => ({ ...f, priority: e.target.value }))}
+                className="w-full h-9 rounded-md border border-input bg-background/50 px-3 py-1 text-sm">
+                {PRIORITIES.map((p) => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1.5"><Label>Description</Label>
+            <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className="bg-background/50" />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Button variant="outline" onClick={onCancel} className="flex-1" disabled={saving}>Cancel</Button>
+            <Button onClick={() => onSave(cid, { ...form, contact_id: cid || undefined })} disabled={saving || !form.title} className="flex-1">
+              {saving ? "Saving…" : initial ? "Update" : "Create"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Email Compose Modal ───────────────────────────────────────────────────────
+
+function EmailModal({ contact, onSend, onCancel, sending }: {
+  contact: Contact; onSend: (data: { subject: string; body: string }) => Promise<void>;
+  onCancel: () => void; sending: boolean;
+}) {
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-lg">
+        <div className="px-6 py-4 border-b border-border/30 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Compose Email</h2>
+            <p className="text-xs text-muted-foreground">To: {contact.email || contact.phone_number}</p>
+          </div>
+          <button onClick={onCancel} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="space-y-1.5"><Label>Subject</Label>
+            <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Re: Follow up" />
+          </div>
+          <div className="space-y-1.5"><Label>Message</Label>
+            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={6} placeholder="Write your email…" className="bg-background/50" />
+          </div>
+          <div className="flex gap-3">
+            <Button variant="outline" onClick={onCancel} className="flex-1" disabled={sending}>Cancel</Button>
+            <Button onClick={() => onSend({ subject, body })} disabled={sending || !subject || !body} className="flex-1 gap-1.5">
+              <Send className="h-3.5 w-3.5" />{sending ? "Sending…" : "Send / Log Email"}
             </Button>
           </div>
         </div>
@@ -197,28 +334,77 @@ function ContactForm({ initial, onSave, onCancel, saving }: ContactFormProps) {
 
 // ── Contact Detail Panel ─────────────────────────────────────────────────────
 
-interface DetailPanelProps {
-  contact: Contact;
-  onClose: () => void;
-  onStatusChange: (id: number, status: string, disposition?: string) => Promise<void>;
-  onEdit: (c: Contact) => void;
-  onDelete: (id: number) => void;
-}
+type DetailTab = "overview" | "calls" | "sms" | "emails" | "calendar" | "notes" | "tasks";
 
-function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete }: DetailPanelProps) {
+function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete, contacts, initialTab }: {
+  contact: Contact; onClose: () => void;
+  onStatusChange: (id: number, status: string) => Promise<void>;
+  onEdit: (c: Contact) => void; onDelete: (id: number) => void;
+  contacts: Contact[]; initialTab?: DetailTab;
+}) {
+  const [tab, setTab] = useState<DetailTab>(initialTab ?? "overview");
   const [notes, setNotes] = useState<{ id: number; note: string; created_at: string }[]>([]);
   const [noteText, setNoteText] = useState("");
   const [addingNote, setAddingNote] = useState(false);
-  const [loadingNotes, setLoadingNotes] = useState(true);
-  const sm = statusMeta(contact.status);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+
+  const [calls, setCalls] = useState<ContactCall[]>([]);
+  const [loadingCalls, setLoadingCalls] = useState(false);
+
+  const [smsMessages, setSmsMessages] = useState<ContactSMS[]>([]);
+  const [loadingSMS, setLoadingSMS] = useState(false);
+  const [smsText, setSmsText] = useState("");
+  const [sendingSMS, setSendingSMS] = useState(false);
+  const smsEndRef = useRef<HTMLDivElement>(null);
+
+  const [emails, setEmails] = useState<ContactEmail[]>([]);
+  const [loadingEmails, setLoadingEmails] = useState(false);
+  const [showEmailCompose, setShowEmailCompose] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loadingApts, setLoadingApts] = useState(false);
+  const [showAptModal, setShowAptModal] = useState(false);
+  const [editApt, setEditApt] = useState<Appointment | undefined>();
+  const [savingApt, setSavingApt] = useState(false);
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+
+  const sm = statusMeta((contact as any).status);
 
   useEffect(() => {
-    setLoadingNotes(true);
-    listContactNotes(contact.id)
-      .then(setNotes)
-      .catch(() => setNotes([]))
-      .finally(() => setLoadingNotes(false));
-  }, [contact.id]);
+    if (tab === "notes" && notes.length === 0) {
+      setLoadingNotes(true);
+      listContactNotes(contact.id).then(setNotes).catch(() => {}).finally(() => setLoadingNotes(false));
+    }
+    if (tab === "calls" && calls.length === 0) {
+      setLoadingCalls(true);
+      listContactCalls(contact.id).then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false));
+    }
+    if (tab === "sms" && smsMessages.length === 0) {
+      setLoadingSMS(true);
+      listContactSMS(contact.id).then(setSmsMessages).catch(() => {}).finally(() => setLoadingSMS(false));
+    }
+    if (tab === "emails" && emails.length === 0) {
+      setLoadingEmails(true);
+      listContactEmails(contact.id).then(setEmails).catch(() => {}).finally(() => setLoadingEmails(false));
+    }
+    if (tab === "calendar" && appointments.length === 0) {
+      setLoadingApts(true);
+      listContactAppointments(contact.id).then(setAppointments).catch(() => {}).finally(() => setLoadingApts(false));
+    }
+    if (tab === "tasks" && tasks.length === 0) {
+      setLoadingTasks(true);
+      listContactTasks(contact.id).then(setTasks).catch(() => {}).finally(() => setLoadingTasks(false));
+    }
+  }, [tab, contact.id]);
+
+  useEffect(() => {
+    if (tab === "sms") smsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [smsMessages, tab]);
 
   const handleAddNote = async () => {
     if (!noteText.trim()) return;
@@ -227,135 +413,788 @@ function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete }: Det
       const n = await addContactNote(contact.id, noteText.trim());
       setNotes((prev) => [n, ...prev]);
       setNoteText("");
-    } catch {
-      toast({ title: "Failed to add note", variant: "destructive" });
-    } finally {
-      setAddingNote(false);
-    }
+    } catch { toast({ title: "Failed to add note", variant: "destructive" }); }
+    finally { setAddingNote(false); }
   };
 
+  const handleSendSMS = async () => {
+    if (!smsText.trim()) return;
+    setSendingSMS(true);
+    try {
+      const m = await sendContactSMS(contact.id, smsText.trim());
+      setSmsMessages((prev) => [...prev, m as any]);
+      setSmsText("");
+    } catch { toast({ title: "Failed to send SMS", variant: "destructive" }); }
+    finally { setSendingSMS(false); }
+  };
+
+  const handleSendEmail = async (data: { subject: string; body: string }) => {
+    setSendingEmail(true);
+    try {
+      const e = await addContactEmail(contact.id, { ...data, to_address: contact.email ?? undefined });
+      setEmails((prev) => [...prev, e]);
+      setShowEmailCompose(false);
+      toast({ title: "Email logged" });
+    } catch { toast({ title: "Failed to log email", variant: "destructive" }); }
+    finally { setSendingEmail(false); }
+  };
+
+  const handleSaveApt = async (cid: number, data: Omit<Appointment, "id">) => {
+    setSavingApt(true);
+    try {
+      if (editApt) {
+        await updateContactAppointment(contact.id, editApt.id, data);
+        setAppointments((prev) => prev.map((a) => a.id === editApt.id ? { ...a, ...data } : a));
+        toast({ title: "Appointment updated" });
+      } else {
+        const apt = await createContactAppointment(contact.id, data);
+        setAppointments((prev) => [...prev, apt]);
+        toast({ title: "Appointment created" });
+      }
+      setShowAptModal(false); setEditApt(undefined);
+    } catch { toast({ title: "Failed to save appointment", variant: "destructive" }); }
+    finally { setSavingApt(false); }
+  };
+
+  const handleDeleteApt = async (aptId: number) => {
+    if (!confirm("Delete this appointment?")) return;
+    try {
+      await deleteContactAppointment(contact.id, aptId);
+      setAppointments((prev) => prev.filter((a) => a.id !== aptId));
+      toast({ title: "Appointment deleted" });
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+  };
+
+  const handleSaveTask = async (cid: number, data: Omit<Task, "id" | "completed">) => {
+    setSavingTask(true);
+    try {
+      const t = await createContactTask(contact.id, data);
+      setTasks((prev) => [...prev, t]);
+      setShowTaskModal(false);
+      toast({ title: "Task created" });
+    } catch { toast({ title: "Failed to create task", variant: "destructive" }); }
+    finally { setSavingTask(false); }
+  };
+
+  const handleToggleTask = async (t: Task) => {
+    try {
+      await updateTask(t.id, { ...t, completed: !t.completed });
+      setTasks((prev) => prev.map((x) => x.id === t.id ? { ...x, completed: !x.completed } : x));
+    } catch { toast({ title: "Failed to update task", variant: "destructive" }); }
+  };
+
+  const TABS: { id: DetailTab; label: string; icon: React.ElementType }[] = [
+    { id: "overview", label: "Overview", icon: Star },
+    { id: "calls", label: "Calls", icon: PhoneCall },
+    { id: "sms", label: "SMS", icon: MessageSquare },
+    { id: "emails", label: "Emails", icon: Mail },
+    { id: "calendar", label: "Calendar", icon: Calendar },
+    { id: "tasks", label: "Tasks", icon: ClipboardList },
+    { id: "notes", label: "Notes", icon: StickyNote },
+  ];
+
   return (
-    <div className="flex flex-col h-full border-l border-border/30 bg-card/60 backdrop-blur-xl w-full max-w-sm shrink-0">
+    <div className="flex flex-col h-full border-l border-border/30 bg-card/60 backdrop-blur-xl w-80 shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-        <span className="font-semibold text-sm">Contact Details</span>
-        <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-5">
-        {/* Avatar + name */}
-        <div className="text-center space-y-2">
-          <div className="w-16 h-16 rounded-full bg-primary/20 border-2 border-primary/30 flex items-center justify-center text-xl font-bold text-primary mx-auto">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-bold text-primary">
             {initials(contact)}
           </div>
           <div>
-            <p className="font-semibold text-lg">{fullName(contact)}</p>
-            {contact.company && <p className="text-sm text-muted-foreground">{contact.company}</p>}
-          </div>
-          <Badge className={cn("text-xs border", sm.color)}>{sm.label}</Badge>
-        </div>
-
-        {/* Contact info */}
-        <div className="space-y-2 text-sm">
-          <a href={`tel:${contact.phone_number}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors">
-            <Phone className="h-3.5 w-3.5 shrink-0" />{contact.phone_number}
-          </a>
-          {contact.email && (
-            <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors">
-              <Mail className="h-3.5 w-3.5 shrink-0" />{contact.email}
-            </a>
-          )}
-          {(contact as any).address && (
-            <p className="flex items-center gap-2 text-muted-foreground">
-              <Building2 className="h-3.5 w-3.5 shrink-0" />{(contact as any).address}
-            </p>
-          )}
-        </div>
-
-        {/* Status change */}
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Update Status</Label>
-          <div className="grid grid-cols-1 gap-1.5">
-            {STATUSES.map((s) => (
-              <button
-                key={s.id}
-                onClick={() => onStatusChange(contact.id, s.id)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-all text-left",
-                  contact.status === s.id
-                    ? cn(s.color, "border-current")
-                    : "border-border/30 text-muted-foreground hover:bg-secondary/50"
-                )}
-              >
-                <span className={cn("w-2 h-2 rounded-full shrink-0", s.dot)} />
-                {s.label}
-                {contact.status === s.id && <CheckCircle2 className="h-3 w-3 ml-auto" />}
-              </button>
-            ))}
+            <p className="font-semibold text-sm leading-none">{fullName(contact)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{contact.phone_number}</p>
           </div>
         </div>
-
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          {(contact as any).call_count != null && (
-            <div className="bg-secondary/30 rounded-lg p-2 text-center">
-              <p className="font-bold text-base text-primary">{(contact as any).call_count}</p>
-              <p className="text-muted-foreground">Calls</p>
-            </div>
-          )}
-          {(contact as any).last_contacted && (
-            <div className="bg-secondary/30 rounded-lg p-2 text-center">
-              <p className="font-bold text-xs text-foreground">{formatDate((contact as any).last_contacted)}</p>
-              <p className="text-muted-foreground">Last Contact</p>
-            </div>
-          )}
-        </div>
-
-        {/* Notes */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground flex items-center gap-1.5"><StickyNote className="h-3 w-3" /> Activity & Notes</Label>
-          <div className="flex gap-2">
-            <Input
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              placeholder="Add a note…"
-              className="text-xs h-8"
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAddNote()}
-            />
-            <Button size="sm" onClick={handleAddNote} disabled={addingNote || !noteText.trim()} className="h-8 px-3 text-xs">
-              Add
-            </Button>
-          </div>
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {loadingNotes ? (
-              <p className="text-xs text-muted-foreground text-center py-2">Loading…</p>
-            ) : notes.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-2">No notes yet</p>
-            ) : notes.map((n) => (
-              <div key={n.id} className="bg-secondary/20 rounded-lg px-3 py-2 text-xs space-y-1">
-                <p>{n.note}</p>
-                <p className="text-muted-foreground">{formatDate(n.created_at)}</p>
-              </div>
-            ))}
-          </div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => onEdit(contact)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><Pencil className="h-3.5 w-3.5" /></button>
+          <button onClick={() => onDelete(contact.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5" /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50"><X className="h-4 w-4" /></button>
         </div>
       </div>
 
-      {/* Actions */}
-      <div className="border-t border-border/30 p-3 flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => onEdit(contact)} className="flex-1 text-xs h-8">
-          <Pencil className="h-3 w-3 mr-1.5" /> Edit
+      {/* Tabs */}
+      <div className="flex gap-0.5 px-2 pt-2 pb-1 overflow-x-auto shrink-0 border-b border-border/20">
+        {TABS.map((t) => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={cn("flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all",
+              tab === t.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/40")}>
+            <t.icon className="h-3 w-3" />{t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* OVERVIEW */}
+        {tab === "overview" && (
+          <div className="p-4 space-y-4">
+            <Badge className={cn("text-xs border", sm.color)}>{sm.label}</Badge>
+            <div className="space-y-2 text-sm">
+              <a href={`tel:${contact.phone_number}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors">
+                <Phone className="h-3.5 w-3.5 shrink-0" />{contact.phone_number}
+              </a>
+              {contact.email && (
+                <a href={`mailto:${contact.email}`} className="flex items-center gap-2 text-muted-foreground hover:text-primary transition-colors">
+                  <Mail className="h-3.5 w-3.5 shrink-0" />{contact.email}
+                </a>
+              )}
+              {(contact as any).company && <p className="flex items-center gap-2 text-muted-foreground"><Building2 className="h-3.5 w-3.5" />{(contact as any).company}</p>}
+              {(contact as any).address && <p className="flex items-center gap-2 text-muted-foreground"><Clock className="h-3.5 w-3.5" />{(contact as any).address}</p>}
+            </div>
+            {/* Quick stats */}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-secondary/30 rounded-lg p-2 text-center">
+                <p className="font-bold text-base text-primary">{(contact as any).call_count ?? 0}</p>
+                <p className="text-muted-foreground">Calls</p>
+              </div>
+              <div className="bg-secondary/30 rounded-lg p-2 text-center">
+                <p className="font-bold text-xs">{formatDate((contact as any).last_contacted) ?? "—"}</p>
+                <p className="text-muted-foreground">Last Contact</p>
+              </div>
+            </div>
+            {/* Status update */}
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Pipeline Status</Label>
+              <div className="space-y-1">
+                {STATUSES.map((s) => (
+                  <button key={s.id} onClick={() => onStatusChange(contact.id, s.id)}
+                    className={cn("w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all text-left",
+                      (contact as any).status === s.id ? cn(s.color, "border-current") : "border-border/30 text-muted-foreground hover:bg-secondary/50")}>
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", s.dot)} />{s.label}
+                    {(contact as any).status === s.id && <CheckCircle2 className="h-3 w-3 ml-auto" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CALLS */}
+        {tab === "calls" && (
+          <div className="p-3 space-y-2">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs font-medium text-muted-foreground">{calls.length} call{calls.length !== 1 ? "s" : ""} found</p>
+              <button onClick={() => { setLoadingCalls(true); listContactCalls(contact.id).then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false)); }}
+                className="p-1 rounded text-muted-foreground hover:text-foreground"><RefreshCw className="h-3 w-3" /></button>
+            </div>
+            {loadingCalls ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
+              : calls.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <PhoneCall className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">No calls found for this contact</p>
+                </div>
+              ) : calls.map((c) => (
+                <div key={c.id} className="bg-secondary/20 rounded-xl p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn("w-2 h-2 rounded-full", c.status === "completed" ? "bg-green-400" : c.status === "failed" ? "bg-red-400" : "bg-yellow-400")} />
+                      <span className="text-xs font-medium capitalize">{c.status ?? "unknown"}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{formatDateTime(c.started_at)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDuration(c.duration_seconds)}</span>
+                    {c.agent_name && <span className="flex items-center gap-1"><Bot className="h-3 w-3" />{c.agent_name}</span>}
+                    {c.cost_usd != null && c.cost_usd > 0 && <span>${c.cost_usd.toFixed(3)}</span>}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/60">
+                    {c.call_from} → {c.call_to}
+                  </div>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* SMS */}
+        {tab === "sms" && (
+          <div className="flex flex-col h-full">
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {loadingSMS ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
+                : smsMessages.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="text-xs">No messages yet</p>
+                  </div>
+                ) : smsMessages.map((m, i) => (
+                  <div key={i} className={cn("max-w-[85%] rounded-2xl px-3 py-2 text-xs",
+                    m.direction === "outbound" ? "ml-auto bg-primary text-primary-foreground rounded-br-sm" : "bg-secondary/50 text-foreground rounded-bl-sm")}>
+                    <p>{m.message}</p>
+                    <p className={cn("text-[10px] mt-0.5", m.direction === "outbound" ? "text-primary-foreground/60" : "text-muted-foreground")}>
+                      {formatDateTime(m.created_at)}
+                    </p>
+                  </div>
+                ))}
+              <div ref={smsEndRef} />
+            </div>
+            <div className="p-3 border-t border-border/30 flex gap-2">
+              <Input value={smsText} onChange={(e) => setSmsText(e.target.value)}
+                placeholder="Type a message…" className="text-xs h-8"
+                onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSendSMS()} />
+              <Button size="sm" onClick={handleSendSMS} disabled={sendingSMS || !smsText.trim()} className="h-8 px-3">
+                <Send className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* EMAILS */}
+        {tab === "emails" && (
+          <div className="p-3 space-y-2">
+            <Button size="sm" onClick={() => setShowEmailCompose(true)} className="w-full h-8 text-xs gap-1.5 mb-2">
+              <Paperclip className="h-3.5 w-3.5" /> Compose Email
+            </Button>
+            {loadingEmails ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
+              : emails.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Inbox className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">No emails logged yet</p>
+                </div>
+              ) : emails.map((e) => (
+                <div key={e.id} className="bg-secondary/20 rounded-xl p-3 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0",
+                      e.direction === "outbound" ? "text-blue-400 border-blue-400/30" : "text-emerald-400 border-emerald-400/30")}>
+                      {e.direction === "outbound" ? "Sent" : "Received"}
+                    </Badge>
+                    <span className="text-[10px] text-muted-foreground">{formatDate(e.created_at)}</span>
+                  </div>
+                  <p className="text-xs font-medium">{e.subject}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{e.body}</p>
+                </div>
+              ))}
+            {showEmailCompose && (
+              <EmailModal contact={contact} onSend={handleSendEmail} onCancel={() => setShowEmailCompose(false)} sending={sendingEmail} />
+            )}
+          </div>
+        )}
+
+        {/* CALENDAR */}
+        {tab === "calendar" && (
+          <div className="p-3 space-y-2">
+            <Button size="sm" onClick={() => { setEditApt(undefined); setShowAptModal(true); }} className="w-full h-8 text-xs gap-1.5 mb-2">
+              <Plus className="h-3.5 w-3.5" /> Schedule Appointment
+            </Button>
+            {loadingApts ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
+              : appointments.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Calendar className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">No appointments scheduled</p>
+                </div>
+              ) : appointments.map((a) => (
+                <div key={a.id} className="bg-secondary/20 rounded-xl p-3 space-y-1 group">
+                  <div className="flex items-start justify-between">
+                    <p className="text-xs font-medium flex-1">{a.title}</p>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { setEditApt(a); setShowAptModal(true); }} className="p-1 text-muted-foreground hover:text-foreground"><Pencil className="h-3 w-3" /></button>
+                      <button onClick={() => handleDeleteApt(a.id)} className="p-1 text-muted-foreground hover:text-destructive"><Trash2 className="h-3 w-3" /></button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-primary">{formatDateTime(a.start_time)}</p>
+                  {a.location && <p className="text-[10px] text-muted-foreground">{a.location}</p>}
+                  {a.description && <p className="text-[10px] text-muted-foreground line-clamp-1">{a.description}</p>}
+                  <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0",
+                    a.status === "completed" ? "text-green-400 border-green-400/30" : "text-yellow-400 border-yellow-400/30")}>
+                    {a.status}
+                  </Badge>
+                </div>
+              ))}
+            {showAptModal && (
+              <AppointmentModal initial={editApt} contactId={contact.id} contacts={[contact]}
+                onSave={handleSaveApt} onCancel={() => { setShowAptModal(false); setEditApt(undefined); }} saving={savingApt} />
+            )}
+          </div>
+        )}
+
+        {/* TASKS */}
+        {tab === "tasks" && (
+          <div className="p-3 space-y-2">
+            <Button size="sm" onClick={() => setShowTaskModal(true)} className="w-full h-8 text-xs gap-1.5 mb-2">
+              <Plus className="h-3.5 w-3.5" /> Add Task
+            </Button>
+            {loadingTasks ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
+              : tasks.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <ClipboardList className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-xs">No tasks yet</p>
+                </div>
+              ) : tasks.map((t) => (
+                <div key={t.id} className={cn("flex items-start gap-2 bg-secondary/20 rounded-xl p-3", t.completed && "opacity-50")}>
+                  <button onClick={() => handleToggleTask(t)} className="mt-0.5 shrink-0">
+                    {t.completed ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-xs font-medium", t.completed && "line-through")}>{t.title}</p>
+                    {t.due_date && <p className="text-[10px] text-muted-foreground">{formatDate(t.due_date)}</p>}
+                  </div>
+                  <Badge variant="outline" className={cn("text-[10px] px-1.5 py-0 shrink-0",
+                    t.priority === "high" ? "text-red-400 border-red-400/30"
+                      : t.priority === "medium" ? "text-yellow-400 border-yellow-400/30"
+                        : "text-slate-400 border-slate-400/30")}>
+                    {t.priority}
+                  </Badge>
+                </div>
+              ))}
+            {showTaskModal && (
+              <TaskModal contactId={contact.id} contacts={[contact]}
+                onSave={handleSaveTask} onCancel={() => setShowTaskModal(false)} saving={savingTask} />
+            )}
+          </div>
+        )}
+
+        {/* NOTES */}
+        {tab === "notes" && (
+          <div className="p-3 space-y-3">
+            <div className="flex gap-2">
+              <Input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="Add a note…"
+                className="text-xs h-8" onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleAddNote()} />
+              <Button size="sm" onClick={handleAddNote} disabled={addingNote || !noteText.trim()} className="h-8 px-3 text-xs">Add</Button>
+            </div>
+            <div className="space-y-2">
+              {loadingNotes ? <p className="text-xs text-muted-foreground text-center py-4">Loading…</p>
+                : notes.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No notes yet</p>
+                  : notes.map((n) => (
+                    <div key={n.id} className="bg-secondary/20 rounded-xl px-3 py-2 text-xs space-y-1">
+                      <p>{n.note}</p>
+                      <p className="text-muted-foreground">{formatDate(n.created_at)}</p>
+                    </div>
+                  ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Calendar View ─────────────────────────────────────────────────────────────
+
+function CalendarView({ contacts }: { contacts: Contact[] }) {
+  const [today] = useState(new Date());
+  const [current, setCurrent] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [editApt, setEditApt] = useState<Appointment | undefined>();
+  const [saving, setSaving] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    listAllAppointments().then(setAppointments).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const year = current.getFullYear();
+  const month = current.getMonth();
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const aptsByDay = appointments.reduce((acc, a) => {
+    const d = new Date(a.start_time).getDate();
+    const m = new Date(a.start_time).getMonth();
+    const y = new Date(a.start_time).getFullYear();
+    if (m === month && y === year) {
+      acc[d] = acc[d] ? [...acc[d], a] : [a];
+    }
+    return acc;
+  }, {} as Record<number, Appointment[]>);
+
+  const selectedApts = selectedDay ? (aptsByDay[selectedDay.getDate()] ?? []) : [];
+
+  const handleSaveApt = async (cid: number, data: Omit<Appointment, "id">) => {
+    setSaving(true);
+    try {
+      if (editApt && editApt.contact_id) {
+        await updateContactAppointment(editApt.contact_id, editApt.id, data);
+        setAppointments((prev) => prev.map((a) => a.id === editApt.id ? { ...a, ...data } : a));
+        toast({ title: "Updated" });
+      } else {
+        const apt = await createContactAppointment(cid, data);
+        setAppointments((prev) => [...prev, { ...apt, contact_id: cid }]);
+        toast({ title: "Appointment scheduled" });
+      }
+      setShowModal(false); setEditApt(undefined);
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (a: Appointment) => {
+    if (!a.contact_id || !confirm("Delete?")) return;
+    try {
+      await deleteContactAppointment(a.contact_id, a.id);
+      setAppointments((prev) => prev.filter((x) => x.id !== a.id));
+      setSelectedDay(null);
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+  };
+
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <h1 className="text-xl font-bold">Calendar</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <button onClick={() => setCurrent(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronLeft className="h-4 w-4" /></button>
+            <span className="font-medium text-sm w-36 text-center">{MONTHS[month]} {year}</span>
+            <button onClick={() => setCurrent(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-secondary/50"><ChevronRight className="h-4 w-4" /></button>
+          </div>
+          <Button size="sm" onClick={() => { setEditApt(undefined); setShowModal(true); }} className="h-8 text-xs gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Schedule
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-auto p-4">
+          {loading ? <p className="text-center text-muted-foreground text-sm py-12">Loading…</p> : (
+            <>
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {DAYS.map((d) => <div key={d} className="text-center text-xs font-medium text-muted-foreground py-1">{d}</div>)}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {Array.from({ length: firstDay }).map((_, i) => <div key={`empty-${i}`} />)}
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const day = i + 1;
+                  const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+                  const dayApts = aptsByDay[day] ?? [];
+                  const isSelected = selectedDay?.getDate() === day && selectedDay?.getMonth() === month && selectedDay?.getFullYear() === year;
+                  return (
+                    <button key={day} onClick={() => setSelectedDay(isSelected ? null : new Date(year, month, day))}
+                      className={cn("min-h-[80px] rounded-xl p-2 text-left border transition-all",
+                        isSelected ? "bg-primary/10 border-primary/30" : isToday ? "bg-primary/5 border-primary/20" : "bg-secondary/20 border-border/20 hover:bg-secondary/40")}>
+                      <span className={cn("text-xs font-medium", isToday ? "text-primary font-bold" : "text-foreground")}>{day}</span>
+                      <div className="mt-1 space-y-0.5">
+                        {dayApts.slice(0, 2).map((a) => (
+                          <div key={a.id} className="bg-primary/20 text-primary text-[10px] rounded px-1 py-0.5 truncate">{a.title}</div>
+                        ))}
+                        {dayApts.length > 2 && <div className="text-[10px] text-muted-foreground">+{dayApts.length - 2} more</div>}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Day detail sidebar */}
+        {selectedDay && (
+          <div className="w-64 border-l border-border/30 p-4 overflow-y-auto shrink-0">
+            <p className="text-sm font-semibold mb-3">{selectedDay.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
+            {selectedApts.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No appointments</p>
+            ) : (
+              <div className="space-y-2">
+                {selectedApts.map((a) => (
+                  <div key={a.id} className="bg-secondary/30 rounded-xl p-3 space-y-1 group">
+                    <div className="flex items-start justify-between">
+                      <p className="text-xs font-medium flex-1">{a.title}</p>
+                      <button onClick={() => handleDelete(a)} className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"><Trash2 className="h-3 w-3" /></button>
+                    </div>
+                    <p className="text-[10px] text-primary">{formatDateTime(a.start_time)}</p>
+                    {a.first_name && <p className="text-[10px] text-muted-foreground">{a.first_name} {a.last_name}</p>}
+                    {a.location && <p className="text-[10px] text-muted-foreground">{a.location}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {showModal && (
+        <AppointmentModal contactId={undefined} contacts={contacts}
+          initial={editApt} onSave={handleSaveApt} onCancel={() => { setShowModal(false); setEditApt(undefined); }} saving={saving} />
+      )}
+    </div>
+  );
+}
+
+// ── Calls View ─────────────────────────────────────────────────────────────────
+
+function CallsView() {
+  const [calls, setCalls] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadCalls = useCallback(() => {
+    setLoading(true);
+    getUsageCalls().then(setCalls).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadCalls(); }, [loadCalls]);
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold">Call Logs</h1>
+          <p className="text-xs text-muted-foreground">{calls.length} total calls</p>
+        </div>
+        <button onClick={loadCalls} className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground">
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-auto p-4">
+        {loading ? <p className="text-center text-muted-foreground text-sm py-12">Loading calls…</p>
+          : calls.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+              <PhoneCall className="h-12 w-12 opacity-30 mb-3" />
+              <p>No calls recorded yet</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {/* Header */}
+              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr_0.8fr] gap-4 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+                <span>From / To</span><span>Agent</span><span>Duration</span><span>Status</span><span>Cost</span><span>Date</span>
+              </div>
+              {calls.map((c: any) => (
+                <div key={c.id} className="grid grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr_0.8fr] gap-4 px-4 py-3 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
+                  <div>
+                    <p className="text-xs font-medium">{c.call_from ?? "—"}</p>
+                    <p className="text-[10px] text-muted-foreground">→ {c.call_to ?? "—"}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground truncate">{c.agent_name ?? c.name ?? "—"}</span>
+                  <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn("w-2 h-2 rounded-full shrink-0",
+                      c.status === "completed" ? "bg-green-400" : c.status === "failed" ? "bg-red-400" : "bg-yellow-400")} />
+                    <span className="text-xs capitalize">{c.status ?? "unknown"}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{c.cost_usd != null ? `$${Number(c.cost_usd).toFixed(3)}` : "—"}</span>
+                  <span className="text-xs text-muted-foreground">{formatDate(c.started_at)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+    </div>
+  );
+}
+
+// ── Tasks View ────────────────────────────────────────────────────────────────
+
+function TasksView({ contacts }: { contacts: Contact[] }) {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [filter, setFilter] = useState<"all" | "pending" | "completed">("pending");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    listAllTasks().then(setTasks).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = tasks.filter((t) =>
+    filter === "all" ? true : filter === "pending" ? !t.completed : t.completed
+  );
+
+  const handleToggle = async (t: Task) => {
+    try {
+      await updateTask(t.id, { ...t, completed: !t.completed });
+      setTasks((prev) => prev.map((x) => x.id === t.id ? { ...x, completed: !x.completed } : x));
+    } catch { toast({ title: "Failed to update", variant: "destructive" }); }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await deleteTask(id);
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+  };
+
+  const handleSave = async (cid: number, data: Omit<Task, "id" | "completed">) => {
+    if (!cid) { toast({ title: "Select a contact", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      const t = await createContactTask(cid, data);
+      setTasks((prev) => [{ ...t, contact_id: cid, first_name: contacts.find(c => c.id === cid)?.first_name }, ...prev]);
+      setShowModal(false);
+      toast({ title: "Task created" });
+    } catch { toast({ title: "Failed to create task", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const pending = tasks.filter((t) => !t.completed).length;
+  const high = tasks.filter((t) => !t.completed && t.priority === "high").length;
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold">Tasks</h1>
+          <p className="text-xs text-muted-foreground">{pending} pending · {high} high priority</p>
+        </div>
+        <Button size="sm" onClick={() => setShowModal(true)} className="h-8 text-xs gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Add Task
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => onDelete(contact.id)}
-          className="flex-1 text-xs h-8 text-destructive hover:bg-destructive/10 border-destructive/30"
-        >
-          <Trash2 className="h-3 w-3 mr-1.5" /> Delete
-        </Button>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex gap-1 px-4 py-2 border-b border-border/20 bg-background/20 shrink-0">
+        {(["pending", "all", "completed"] as const).map((f) => (
+          <button key={f} onClick={() => setFilter(f)}
+            className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all capitalize",
+              filter === f ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/40")}>
+            {f}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-auto p-4">
+        {loading ? <p className="text-center text-muted-foreground text-sm py-12">Loading…</p>
+          : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <ClipboardList className="h-10 w-10 opacity-30 mb-2" />
+              <p className="text-sm">No {filter !== "all" ? filter : ""} tasks</p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {filtered.map((t) => (
+                <div key={t.id} className={cn("flex items-center gap-3 p-3 rounded-xl border bg-card/40 border-border/20 hover:bg-secondary/20 transition-colors group", t.completed && "opacity-50")}>
+                  <button onClick={() => handleToggle(t)} className="shrink-0">
+                    {t.completed ? <CheckSquare className="h-5 w-5 text-primary" /> : <Square className="h-5 w-5 text-muted-foreground" />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn("text-sm font-medium", t.completed && "line-through text-muted-foreground")}>{t.title}</p>
+                    <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                      {(t.first_name || t.last_name) && <span>{t.first_name} {t.last_name}</span>}
+                      {t.due_date && <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatDate(t.due_date)}</span>}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className={cn("text-xs px-2 shrink-0",
+                    t.priority === "high" ? "text-red-400 border-red-400/30"
+                      : t.priority === "medium" ? "text-yellow-400 border-yellow-400/30"
+                        : "text-slate-400 border-slate-400/30")}>
+                    {t.priority}
+                  </Badge>
+                  <button onClick={() => handleDelete(t.id)} className="opacity-0 group-hover:opacity-100 p-1.5 text-muted-foreground hover:text-destructive transition-opacity shrink-0">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+      </div>
+
+      {showModal && (
+        <TaskModal contacts={contacts} onSave={handleSave} onCancel={() => setShowModal(false)} saving={saving} />
+      )}
+    </div>
+  );
+}
+
+// ── Dashboard View ────────────────────────────────────────────────────────────
+
+function DashboardView({ contacts }: { contacts: Contact[] }) {
+  const total = contacts.length;
+  const closed = contacts.filter((c) => (c as any).status === "closed_won").length;
+  const interested = contacts.filter((c) => (c as any).status === "interested").length;
+  const newLeads = contacts.filter((c) => (c as any).status === "new_lead").length;
+  const convRate = total > 0 ? ((closed / total) * 100).toFixed(1) : "0.0";
+
+  const recentContacts = [...contacts].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  ).slice(0, 5);
+
+  const callbackContacts = contacts.filter((c) => (c as any).status === "callback").slice(0, 5);
+
+  const stats = [
+    { label: "Total Contacts", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
+    { label: "New Leads", value: newLeads, icon: TrendingUp, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
+    { label: "Interested", value: interested, icon: Star, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
+    { label: "Closed Won", value: closed, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
+    { label: "Conv. Rate", value: `${convRate}%`, icon: BarChart2, color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
+    { label: "Need Callback", value: contacts.filter((c) => (c as any).status === "callback").length, icon: Phone, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+  ];
+
+  return (
+    <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">CRM overview</p>
+      </div>
+
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {stats.map((s) => (
+          <div key={s.label} className={cn("rounded-xl border p-4 space-y-2", s.bg)}>
+            <s.icon className={cn("h-5 w-5", s.color)} />
+            <p className="text-2xl font-bold">{s.value}</p>
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Pipeline breakdown */}
+      <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity className="h-4 w-4" /> Pipeline</h2>
+        <div className="space-y-2">
+          {STATUSES.map((s) => {
+            const count = contacts.filter((c) => (c as any).status === s.id).length;
+            const pct = total > 0 ? (count / total) * 100 : 0;
+            return (
+              <div key={s.id} className="flex items-center gap-3">
+                <span className={cn("w-2 h-2 rounded-full shrink-0", s.dot)} />
+                <span className="text-xs w-28 shrink-0">{s.label}</span>
+                <div className="flex-1 bg-secondary/40 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+                <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Recent contacts */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock className="h-4 w-4" /> Recent Contacts</h2>
+          <div className="space-y-2">
+            {recentContacts.map((c) => {
+              const sm = statusMeta((c as any).status);
+              return (
+                <div key={c.id} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                    <p className="text-xs text-muted-foreground">{c.phone_number}</p>
+                  </div>
+                  <Badge className={cn("text-[10px] px-1.5 border shrink-0", sm.color)}>{sm.label}</Badge>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Need callback */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Phone className="h-4 w-4 text-yellow-400" /> Need Callback</h2>
+          {callbackContacts.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No callbacks scheduled</p>
+          ) : (
+            <div className="space-y-2">
+              {callbackContacts.map((c) => (
+                <div key={c.id} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-yellow-500/15 flex items-center justify-center text-xs font-bold text-yellow-400 shrink-0">{initials(c)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                    <p className="text-xs text-muted-foreground">{c.phone_number}</p>
+                  </div>
+                  <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors">
+                    <Phone className="h-3.5 w-3.5" />
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -374,6 +1213,7 @@ export default function CRMAgent() {
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [saving, setSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [view, setView] = useState<View>("dashboard");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
@@ -388,11 +1228,7 @@ export default function CRMAgent() {
 
   const filtered = contacts.filter((c) => {
     const q = search.toLowerCase();
-    const matchSearch = !q ||
-      fullName(c).toLowerCase().includes(q) ||
-      c.phone_number.includes(q) ||
-      c.email?.toLowerCase().includes(q) ||
-      c.company?.toLowerCase().includes(q);
+    const matchSearch = !q || fullName(c).toLowerCase().includes(q) || c.phone_number.includes(q) || c.email?.toLowerCase().includes(q) || c.company?.toLowerCase().includes(q);
     const matchStatus = filterStatus === "all" || (c as any).status === filterStatus;
     return matchSearch && matchStatus;
   });
@@ -415,24 +1251,19 @@ export default function CRMAgent() {
         load();
         toast({ title: "Contact added" });
       }
-      setShowForm(false);
-      setEditContact(null);
+      setShowForm(false); setEditContact(null);
     } catch (err: any) {
       toast({ title: "Failed to save", description: err.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+    } finally { setSaving(false); }
   };
 
-  const handleStatusChange = async (id: number, status: string, disposition?: string) => {
+  const handleStatusChange = async (id: number, status: string) => {
     try {
-      await updateContactStatus(id, status, disposition);
+      await updateContactStatus(id, status);
       setContacts((prev) => prev.map((c) => c.id === id ? { ...c, status } as any : c));
       if (selected?.id === id) setSelected((s) => s ? { ...s, status } as any : s);
       toast({ title: `Status → ${statusMeta(status).label}` });
-    } catch {
-      toast({ title: "Failed to update status", variant: "destructive" });
-    }
+    } catch { toast({ title: "Failed to update status", variant: "destructive" }); }
   };
 
   const handleDelete = async (id: number) => {
@@ -442,9 +1273,7 @@ export default function CRMAgent() {
       setContacts((prev) => prev.filter((c) => c.id !== id));
       if (selected?.id === id) setSelected(null);
       toast({ title: "Contact deleted" });
-    } catch {
-      toast({ title: "Failed to delete", variant: "destructive" });
-    }
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   };
 
   const handleCSVImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -458,9 +1287,7 @@ export default function CRMAgent() {
         const { created, errors } = await importContacts(parsed);
         toast({ title: `Imported ${created} contacts${errors ? ` (${errors} skipped)` : ""}` });
         load();
-      } catch {
-        toast({ title: "Import failed", variant: "destructive" });
-      }
+      } catch { toast({ title: "Import failed", variant: "destructive" }); }
     };
     reader.readAsText(file);
     e.target.value = "";
@@ -468,11 +1295,21 @@ export default function CRMAgent() {
 
   const downloadSample = () => {
     const csv = "first_name,last_name,phone_number,email,company,notes\nJohn,Doe,+13055551234,john@example.com,Acme Corp,\nJane,Smith,+13055555678,jane@example.com,,Call back Friday";
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = "contacts_sample.csv";
-    a.click();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "contacts_sample.csv"; a.click();
   };
+
+  const NAV_ITEMS: { id: View; label: string; icon: React.ElementType }[] = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "contacts", label: "Contacts", icon: Users },
+    { id: "calls", label: "Calls", icon: PhoneCall },
+    { id: "sms", label: "Messages", icon: MessageSquare },
+    { id: "emails", label: "Emails", icon: Mail },
+    { id: "calendar", label: "Calendar", icon: Calendar },
+    { id: "tasks", label: "Tasks", icon: ClipboardList },
+  ];
+
+  // SMS global view
+  const [allSmsContacts, setAllSmsContacts] = useState<Contact | null>(null);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -482,235 +1319,270 @@ export default function CRMAgent() {
         sidebarCollapsed ? "w-16" : "w-52"
       )}>
         <div className="flex items-center gap-2 px-3 h-16 border-b border-border/30 shrink-0">
-          {!sidebarCollapsed && (
-            <span className="text-lg font-bold gradient-text">CRM Agent</span>
-          )}
-          <button
-            onClick={() => setSidebarCollapsed((v) => !v)}
-            className={cn("p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors", sidebarCollapsed && "mx-auto")}
-          >
+          {!sidebarCollapsed && <span className="text-lg font-bold gradient-text">CRM Agent</span>}
+          <button onClick={() => setSidebarCollapsed((v) => !v)}
+            className={cn("p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors", sidebarCollapsed && "mx-auto")}>
             {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
         </div>
 
-        <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          {[
-            { id: "all",           label: "All Contacts",    icon: Users,        count: contacts.length },
-            ...STATUSES.map((s) => ({ id: s.id, label: s.label, icon: ChevronDown, count: counts[s.id] ?? 0, color: s.dot })),
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setFilterStatus(item.id)}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
+        <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
+          {NAV_ITEMS.map((item) => (
+            <button key={item.id} onClick={() => { setView(item.id); if (item.id !== "contacts") setSelected(null); }}
+              className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
                 sidebarCollapsed && "justify-center px-2",
-                filterStatus === item.id
-                  ? "bg-primary/10 text-primary border border-primary/15"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-              )}
-            >
-              {"color" in item
-                ? <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", (item as any).color)} />
-                : <item.icon className="h-4 w-4 shrink-0" />
-              }
-              {!sidebarCollapsed && (
-                <>
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {item.count > 0 && (
-                    <span className="text-xs bg-secondary/60 rounded-full px-1.5 py-0.5">{item.count}</span>
-                  )}
-                </>
+                view === item.id ? "bg-primary/10 text-primary border border-primary/15" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50")}>
+              <item.icon className="h-4 w-4 shrink-0" />
+              {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+              {!sidebarCollapsed && item.id === "contacts" && contacts.length > 0 && (
+                <span className="text-xs bg-secondary/60 rounded-full px-1.5 py-0.5">{contacts.length}</span>
               )}
             </button>
           ))}
+
+          {/* Pipeline sub-filters (only in contacts view) */}
+          {view === "contacts" && !sidebarCollapsed && (
+            <div className="mt-2 pt-2 border-t border-border/20 space-y-0.5">
+              <button onClick={() => setFilterStatus("all")}
+                className={cn("w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs transition-all",
+                  filterStatus === "all" ? "bg-primary/5 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/30")}>
+                <Filter className="h-3 w-3 shrink-0" />
+                <span className="flex-1 text-left">All</span>
+                <span className="text-[10px] bg-secondary/60 rounded-full px-1.5">{contacts.length}</span>
+              </button>
+              {STATUSES.map((s) => (
+                <button key={s.id} onClick={() => setFilterStatus(s.id)}
+                  className={cn("w-full flex items-center gap-3 px-3 py-1.5 rounded-xl text-xs transition-all",
+                    filterStatus === s.id ? "bg-primary/5 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/30")}>
+                  <span className={cn("w-2 h-2 rounded-full shrink-0", s.dot)} />
+                  <span className="flex-1 text-left">{s.label}</span>
+                  {(counts[s.id] ?? 0) > 0 && <span className="text-[10px] bg-secondary/60 rounded-full px-1.5">{counts[s.id]}</span>}
+                </button>
+              ))}
+            </div>
+          )}
         </nav>
 
         <div className="border-t border-border/30 p-3 space-y-1">
-          <button
-            onClick={() => navigate("/developer-dashboard")}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors",
-              sidebarCollapsed && "justify-center px-2"
-            )}
-          >
-            <Bot className="h-4 w-4" />
-            {!sidebarCollapsed && "Voice Agent"}
+          <button onClick={() => navigate("/developer-dashboard")}
+            className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors", sidebarCollapsed && "justify-center px-2")}>
+            <Bot className="h-4 w-4" />{!sidebarCollapsed && "Voice Agent"}
           </button>
-          <button
-            onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("account_type"); navigate("/"); }}
-            className={cn(
-              "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors",
-              sidebarCollapsed && "justify-center px-2"
-            )}
-          >
-            <LogOut className="h-4 w-4" />
-            {!sidebarCollapsed && "Log Out"}
+          <button onClick={() => { localStorage.removeItem("token"); localStorage.removeItem("account_type"); navigate("/"); }}
+            className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors", sidebarCollapsed && "justify-center px-2")}>
+            <LogOut className="h-4 w-4" />{!sidebarCollapsed && "Log Out"}
           </button>
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Topbar */}
-        <div className="flex items-center gap-3 px-6 h-16 border-b border-border/30 bg-card/20 shrink-0">
-          <div className="flex-1">
-            <h1 className="text-xl font-bold">
-              {filterStatus === "all" ? "All Contacts" : statusMeta(filterStatus).label}
-            </h1>
-            <p className="text-xs text-muted-foreground">{filtered.length} contact{filtered.length !== 1 ? "s" : ""}</p>
-          </div>
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search contacts…"
-              className="pl-9 h-8 text-sm bg-background/50"
-            />
-          </div>
-          <Button size="sm" variant="outline" onClick={downloadSample} className="h-8 text-xs gap-1.5">
-            <Download className="h-3.5 w-3.5" /> Sample CSV
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 text-xs gap-1.5">
-            <Upload className="h-3.5 w-3.5" /> Import CSV
-          </Button>
-          <Button size="sm" onClick={() => { setEditContact(null); setShowForm(true); }} className="h-8 text-xs gap-1.5">
-            <Plus className="h-3.5 w-3.5" /> Add Contact
-          </Button>
-          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
-        </div>
 
-        {/* Pipeline summary bar */}
-        <div className="flex gap-2 px-6 py-3 border-b border-border/20 overflow-x-auto shrink-0 bg-background/30">
-          {STATUSES.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setFilterStatus(s.id)}
-              className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all",
-                filterStatus === s.id ? cn(s.color, "border-current") : "border-border/30 text-muted-foreground hover:bg-secondary/40"
-              )}
-            >
-              <span className={cn("w-2 h-2 rounded-full", s.dot)} />
-              {s.label}
-              <span className="font-bold">{counts[s.id] ?? 0}</span>
-            </button>
-          ))}
-        </div>
+        {/* Dashboard */}
+        {view === "dashboard" && <DashboardView contacts={contacts} />}
 
-        {/* Content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Contact list */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {loading ? (
-              <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Loading contacts…</div>
-            ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-64 text-center space-y-3">
-                <Users className="h-12 w-12 text-muted-foreground/40" />
-                <p className="text-muted-foreground">
-                  {search || filterStatus !== "all" ? "No contacts match your filter" : "No contacts yet"}
-                </p>
-                {!search && filterStatus === "all" && (
-                  <Button size="sm" onClick={() => setShowForm(true)} className="gap-1.5">
-                    <Plus className="h-3.5 w-3.5" /> Add your first contact
-                  </Button>
+        {/* Contacts */}
+        {view === "contacts" && (
+          <>
+            {/* Topbar */}
+            <div className="flex items-center gap-3 px-6 h-16 border-b border-border/30 bg-card/20 shrink-0">
+              <div className="flex-1">
+                <h1 className="text-xl font-bold">{filterStatus === "all" ? "All Contacts" : statusMeta(filterStatus).label}</h1>
+                <p className="text-xs text-muted-foreground">{filtered.length} contact{filtered.length !== 1 ? "s" : ""}</p>
+              </div>
+              <div className="relative w-56">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…" className="pl-9 h-8 text-sm bg-background/50" />
+              </div>
+              <Button size="sm" variant="outline" onClick={downloadSample} className="h-8 text-xs gap-1.5"><Download className="h-3.5 w-3.5" /> CSV</Button>
+              <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 text-xs gap-1.5"><Upload className="h-3.5 w-3.5" /> Import</Button>
+              <Button size="sm" onClick={() => { setEditContact(null); setShowForm(true); }} className="h-8 text-xs gap-1.5"><Plus className="h-3.5 w-3.5" /> Add</Button>
+              <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleCSVImport} />
+            </div>
+
+            {/* Pipeline bar */}
+            <div className="flex gap-2 px-6 py-3 border-b border-border/20 overflow-x-auto shrink-0 bg-background/30">
+              {STATUSES.map((s) => (
+                <button key={s.id} onClick={() => setFilterStatus(s.id)}
+                  className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all",
+                    filterStatus === s.id ? cn(s.color, "border-current") : "border-border/30 text-muted-foreground hover:bg-secondary/40")}>
+                  <span className={cn("w-2 h-2 rounded-full", s.dot)} />{s.label}
+                  <span className="font-bold">{counts[s.id] ?? 0}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Contact list + detail panel */}
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-4">
+                {loading ? (
+                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Loading contacts…</div>
+                ) : filtered.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-64 text-center space-y-3">
+                    <Users className="h-12 w-12 text-muted-foreground/40" />
+                    <p className="text-muted-foreground">{search || filterStatus !== "all" ? "No contacts match your filter" : "No contacts yet"}</p>
+                    {!search && filterStatus === "all" && (
+                      <Button size="sm" onClick={() => setShowForm(true)} className="gap-1.5"><Plus className="h-3.5 w-3.5" /> Add your first contact</Button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filtered.map((c) => {
+                      const sm = statusMeta((c as any).status);
+                      const isActive = selected?.id === c.id;
+                      return (
+                        <div key={c.id} onClick={() => setSelected(isActive ? null : c)}
+                          className={cn("flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all",
+                            isActive ? "bg-primary/5 border-primary/20" : "bg-card/40 border-border/30 hover:bg-secondary/30 hover:border-border/50")}>
+                          <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-sm font-bold text-primary shrink-0">
+                            {initials(c)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm truncate">{fullName(c)}</span>
+                              <Badge className={cn("text-[10px] px-1.5 py-0 border shrink-0", sm.color)}>{sm.label}</Badge>
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone_number}</span>
+                              {c.company && <span className="flex items-center gap-1 truncate"><Building2 className="h-3 w-3" />{c.company}</span>}
+                              {c.email && <span className="truncate hidden sm:flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 hidden md:block">
+                            {(c as any).last_contacted && <p className="text-xs text-muted-foreground">{formatDate((c as any).last_contacted)}</p>}
+                            {(c as any).source && <p className="text-xs text-muted-foreground/60">{(c as any).source}</p>}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Phone className="h-3.5 w-3.5" /></a>
+                            {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Mail className="h-3.5 w-3.5" /></a>}
+                            <button onClick={() => { setEditContact(c); setShowForm(true); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                            <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
-            ) : (
-              <div className="space-y-1.5">
-                {filtered.map((c) => {
-                  const sm = statusMeta((c as any).status);
-                  const isActive = selected?.id === c.id;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setSelected(isActive ? null : c)}
-                      className={cn(
-                        "flex items-center gap-4 p-3 rounded-xl border cursor-pointer transition-all",
-                        isActive
-                          ? "bg-primary/5 border-primary/20"
-                          : "bg-card/40 border-border/30 hover:bg-secondary/30 hover:border-border/50"
-                      )}
-                    >
-                      {/* Avatar */}
-                      <div className="w-10 h-10 rounded-full bg-primary/15 border border-primary/25 flex items-center justify-center text-sm font-bold text-primary shrink-0">
-                        {initials(c)}
-                      </div>
 
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm truncate">{fullName(c)}</span>
-                          <Badge className={cn("text-[10px] px-1.5 py-0 border shrink-0", sm.color)}>{sm.label}</Badge>
-                        </div>
-                        <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1"><Phone className="h-3 w-3" />{c.phone_number}</span>
-                          {c.company && <span className="flex items-center gap-1 truncate"><Building2 className="h-3 w-3" />{c.company}</span>}
-                          {c.email && <span className="truncate hidden sm:flex items-center gap-1"><Mail className="h-3 w-3" />{c.email}</span>}
-                        </div>
-                      </div>
+              {selected && (
+                <DetailPanel
+                  contact={selected}
+                  contacts={contacts}
+                  onClose={() => setSelected(null)}
+                  onStatusChange={handleStatusChange}
+                  onEdit={(c) => { setEditContact(c); setShowForm(true); }}
+                  onDelete={handleDelete}
+                />
+              )}
+            </div>
+          </>
+        )}
 
-                      {/* Meta */}
-                      <div className="text-right shrink-0 hidden md:block">
-                        {(c as any).last_contacted && (
-                          <p className="text-xs text-muted-foreground">{formatDate((c as any).last_contacted)}</p>
-                        )}
-                        {(c as any).source && (
-                          <p className="text-xs text-muted-foreground/60">{(c as any).source}</p>
-                        )}
-                      </div>
+        {/* Calls */}
+        {view === "calls" && <CallsView />}
 
-                      {/* Quick actions */}
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
-                          <Phone className="h-3.5 w-3.5" />
-                        </a>
-                        {c.email && (
-                          <a href={`mailto:${c.email}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
-                            <Mail className="h-3.5 w-3.5" />
-                          </a>
-                        )}
-                        <button
-                          onClick={() => { setEditContact(c); setShowForm(true); }}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(c.id)}
-                          className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+        {/* SMS — select a contact first */}
+        {view === "sms" && (
+          <div className="flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+              <div>
+                <h1 className="text-xl font-bold">Messages (SMS)</h1>
+                <p className="text-xs text-muted-foreground">Select a contact to view conversation</p>
               </div>
-            )}
+            </div>
+            <div className="flex flex-1 overflow-hidden">
+              {/* Contact list */}
+              <div className="w-64 border-r border-border/30 overflow-y-auto p-3 space-y-1 shrink-0">
+                {contacts.map((c) => (
+                  <button key={c.id} onClick={() => setAllSmsContacts(c)}
+                    className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all",
+                      allSmsContacts?.id === c.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/40")}>
+                    <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-sm font-bold text-primary shrink-0">{initials(c)}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                      <p className="text-xs text-muted-foreground truncate">{c.phone_number}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {/* SMS thread */}
+              {allSmsContacts ? (
+                <div className="flex-1 overflow-hidden">
+                  <DetailPanel contact={allSmsContacts} contacts={contacts} initialTab="sms"
+                    onClose={() => setAllSmsContacts(null)}
+                    onStatusChange={handleStatusChange}
+                    onEdit={(c) => { setEditContact(c); setShowForm(true); }}
+                    onDelete={handleDelete}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                  <div className="text-center">
+                    <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p>Select a contact to start messaging</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+        )}
 
-          {/* Detail panel */}
-          {selected && (
-            <DetailPanel
-              contact={selected}
-              onClose={() => setSelected(null)}
-              onStatusChange={handleStatusChange}
-              onEdit={(c) => { setEditContact(c); setShowForm(true); }}
-              onDelete={handleDelete}
-            />
-          )}
-        </div>
+        {/* Emails — select a contact first */}
+        {view === "emails" && (
+          <div className="flex flex-col h-full overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+              <div>
+                <h1 className="text-xl font-bold">Emails</h1>
+                <p className="text-xs text-muted-foreground">Select a contact to view email history</p>
+              </div>
+            </div>
+            <div className="flex flex-1 overflow-hidden">
+              <div className="w-64 border-r border-border/30 overflow-y-auto p-3 space-y-1 shrink-0">
+                {contacts.map((c) => (
+                  <button key={c.id} onClick={() => setAllSmsContacts(c)}
+                    className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all",
+                      allSmsContacts?.id === c.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/40")}>
+                    <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-sm font-bold text-primary shrink-0">{initials(c)}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{fullName(c)}</p>
+                      <p className="text-xs text-muted-foreground truncate">{c.email ?? c.phone_number}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              {allSmsContacts ? (
+                <div className="flex-1 overflow-hidden">
+                  <DetailPanel contact={allSmsContacts} contacts={contacts} initialTab="emails"
+                    onClose={() => setAllSmsContacts(null)}
+                    onStatusChange={handleStatusChange}
+                    onEdit={(c) => { setEditContact(c); setShowForm(true); }}
+                    onDelete={handleDelete}
+                  />
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                  <div className="text-center">
+                    <Mail className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p>Select a contact to view emails</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Calendar */}
+        {view === "calendar" && <CalendarView contacts={contacts} />}
+
+        {/* Tasks */}
+        {view === "tasks" && <TasksView contacts={contacts} />}
       </div>
 
       {/* Add/Edit Modal */}
       {showForm && (
-        <ContactForm
-          initial={editContact ?? undefined}
-          onSave={handleSave}
-          onCancel={() => { setShowForm(false); setEditContact(null); }}
-          saving={saving}
-        />
+        <ContactForm initial={editContact ?? undefined} onSave={handleSave}
+          onCancel={() => { setShowForm(false); setEditContact(null); }} saving={saving} />
       )}
     </div>
   );

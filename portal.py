@@ -3953,3 +3953,420 @@ def add_contact_note(contact_id: int, body: ContactNoteIn, user=Depends(verify_t
     conn.commit()
     conn.close()
     return {"id": note_id, "note": body.note, "created_at": str(created_at)}
+
+
+# ── Contact Calls ─────────────────────────────────────────────────────────────
+
+@router.get("/contacts/{contact_id}/calls")
+def list_contact_calls(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    # Get contact phone number
+    cur.execute(sql("SELECT phone_number FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    phone = row["phone_number"] if isinstance(row, dict) else row[0]
+    # Normalize phone for matching (strip spaces/dashes)
+    cur.execute(sql("""
+        SELECT c.id, c.call_sid, c.call_from, c.call_to, c.duration_seconds,
+               c.cost_usd, c.revenue_usd, c.status, c.started_at, c.ended_at,
+               a.name as agent_name
+        FROM call_usage c
+        LEFT JOIN agents a ON c.agent_id = a.id
+        WHERE c.user_id={PH} AND (
+            REPLACE(REPLACE(c.call_from,' ',''),'-','') LIKE {PH}
+            OR REPLACE(REPLACE(c.call_to,' ',''),'-','') LIKE {PH}
+        )
+        ORDER BY c.started_at DESC
+        LIMIT 100
+    """), (user["id"], f"%{phone.replace(' ','').replace('-','')}%", f"%{phone.replace(' ','').replace('-','')}%"))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "call_sid": r[1], "call_from": r[2], "call_to": r[3],
+            "duration_seconds": r[4], "cost_usd": r[5], "revenue_usd": r[6],
+            "status": r[7], "started_at": r[8], "ended_at": r[9], "agent_name": r[10]
+        }
+        if d.get("started_at") and not isinstance(d["started_at"], str):
+            d["started_at"] = str(d["started_at"])
+        if d.get("ended_at") and not isinstance(d["ended_at"], str):
+            d["ended_at"] = str(d["ended_at"])
+        result.append(d)
+    return result
+
+
+# ── Contact SMS ───────────────────────────────────────────────────────────────
+
+class SMSIn(BaseModel):
+    message: str
+
+@router.get("/contacts/{contact_id}/sms")
+def list_contact_sms(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT phone_number FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    phone = row["phone_number"] if isinstance(row, dict) else row[0]
+
+    messages = []
+
+    # Fetch from Twilio if available
+    if twilio_client:
+        try:
+            twilio_msgs = twilio_client.messages.list(to=phone, limit=50)
+            for m in twilio_msgs:
+                messages.append({
+                    "id": m.sid,
+                    "direction": "inbound" if m.direction == "inbound" else "outbound",
+                    "message": m.body,
+                    "status": m.status,
+                    "twilio_sid": m.sid,
+                    "created_at": str(m.date_created),
+                    "source": "twilio"
+                })
+            twilio_msgs2 = twilio_client.messages.list(from_=phone, limit=50)
+            for m in twilio_msgs2:
+                if not any(x["twilio_sid"] == m.sid for x in messages):
+                    messages.append({
+                        "id": m.sid,
+                        "direction": "outbound" if m.direction == "outbound" else "inbound",
+                        "message": m.body,
+                        "status": m.status,
+                        "twilio_sid": m.sid,
+                        "created_at": str(m.date_created),
+                        "source": "twilio"
+                    })
+        except Exception as e:
+            print(f"Twilio SMS fetch error: {e}")
+
+    # Also fetch from our DB
+    cur.execute(sql("""
+        SELECT id, direction, message, twilio_sid, status, created_at
+        FROM contact_sms WHERE contact_id={PH} AND user_id={PH}
+        ORDER BY created_at DESC LIMIT 100
+    """), (contact_id, user["id"]))
+    for r in cur.fetchall():
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "direction": r[1], "message": r[2],
+            "twilio_sid": r[3], "status": r[4], "created_at": r[5]
+        }
+        if not any(x.get("twilio_sid") == d.get("twilio_sid") and d.get("twilio_sid") for x in messages):
+            d["source"] = "db"
+            messages.append(d)
+
+    conn.close()
+    messages.sort(key=lambda x: str(x.get("created_at", "")))
+    return messages
+
+@router.post("/contacts/{contact_id}/sms")
+def send_contact_sms(contact_id: int, body: SMSIn, user=Depends(verify_token)):
+    from db import get_conn, sql, PH
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT phone_number FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    phone = row["phone_number"] if isinstance(row, dict) else row[0]
+
+    twilio_sid = None
+    status = "sent"
+
+    if twilio_client:
+        try:
+            # Get first available Twilio number for this user
+            numbers = twilio_client.incoming_phone_numbers.list(limit=1)
+            from_number = numbers[0].phone_number if numbers else None
+            if from_number:
+                msg = twilio_client.messages.create(body=body.message, from_=from_number, to=phone)
+                twilio_sid = msg.sid
+                status = msg.status
+        except Exception as e:
+            print(f"Twilio SMS send error: {e}")
+            status = "failed"
+
+    cur.execute(sql("""
+        INSERT INTO contact_sms (contact_id, user_id, direction, message, twilio_sid, status)
+        VALUES ({PH},{PH},'outbound',{PH},{PH},{PH})
+    """), (contact_id, user["id"], body.message, twilio_sid, status))
+    sms_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": sms_id, "direction": "outbound", "message": body.message, "twilio_sid": twilio_sid, "status": status}
+
+
+# ── Contact Emails ────────────────────────────────────────────────────────────
+
+class EmailIn(BaseModel):
+    subject: str
+    body: str
+    direction: Optional[str] = "outbound"
+    from_address: Optional[str] = None
+    to_address: Optional[str] = None
+
+@router.get("/contacts/{contact_id}/emails")
+def list_contact_emails(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    cur.execute(sql("""
+        SELECT id, direction, subject, body, from_address, to_address, status, created_at
+        FROM contact_emails WHERE contact_id={PH} AND user_id={PH}
+        ORDER BY created_at ASC
+    """), (contact_id, user["id"]))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "direction": r[1], "subject": r[2], "body": r[3],
+            "from_address": r[4], "to_address": r[5], "status": r[6], "created_at": r[7]
+        }
+        if d.get("created_at") and not isinstance(d["created_at"], str):
+            d["created_at"] = str(d["created_at"])
+        result.append(d)
+    return result
+
+@router.post("/contacts/{contact_id}/emails")
+def add_contact_email(contact_id: int, body: EmailIn, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    # Verify contact ownership
+    cur.execute(sql("SELECT email FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    contact_email = row["email"] if isinstance(row, dict) else row[0]
+
+    to_addr = body.to_address or contact_email
+    cur.execute(sql("""
+        INSERT INTO contact_emails (contact_id, user_id, direction, subject, body, from_address, to_address, status)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},'sent')
+    """), (contact_id, user["id"], body.direction, body.subject, body.body, body.from_address, to_addr))
+    email_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": email_id, "direction": body.direction, "subject": body.subject,
+            "body": body.body, "to_address": to_addr, "status": "sent"}
+
+
+# ── Contact Appointments ──────────────────────────────────────────────────────
+
+class AppointmentIn(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_time: str
+    end_time: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = "scheduled"
+
+@router.get("/contacts/{contact_id}/appointments")
+def list_contact_appointments(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, title, description, start_time, end_time, location, status, created_at
+        FROM contact_appointments WHERE contact_id={PH} AND user_id={PH}
+        ORDER BY start_time ASC
+    """), (contact_id, user["id"]))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "title": r[1], "description": r[2], "start_time": r[3],
+            "end_time": r[4], "location": r[5], "status": r[6], "created_at": r[7]
+        }
+        for k in ("start_time", "end_time", "created_at"):
+            if d.get(k) and not isinstance(d[k], str):
+                d[k] = str(d[k])
+        result.append(d)
+    return result
+
+@router.post("/contacts/{contact_id}/appointments")
+def create_contact_appointment(contact_id: int, body: AppointmentIn, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM contacts WHERE id={PH} AND user_id={PH}"), (contact_id, user["id"]))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contact not found")
+    cur.execute(sql("""
+        INSERT INTO contact_appointments (contact_id, user_id, title, description, start_time, end_time, location, status)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+    """), (contact_id, user["id"], body.title, body.description, body.start_time, body.end_time, body.location, body.status or "scheduled"))
+    apt_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": apt_id, "title": body.title, "start_time": body.start_time, "status": body.status or "scheduled"}
+
+@router.patch("/contacts/{contact_id}/appointments/{apt_id}")
+def update_contact_appointment(contact_id: int, apt_id: int, body: AppointmentIn, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        UPDATE contact_appointments SET title={PH}, description={PH}, start_time={PH},
+        end_time={PH}, location={PH}, status={PH}
+        WHERE id={PH} AND contact_id={PH} AND user_id={PH}
+    """), (body.title, body.description, body.start_time, body.end_time, body.location,
+           body.status or "scheduled", apt_id, contact_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@router.delete("/contacts/{contact_id}/appointments/{apt_id}")
+def delete_contact_appointment(contact_id: int, apt_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("DELETE FROM contact_appointments WHERE id={PH} AND contact_id={PH} AND user_id={PH}"),
+                (apt_id, contact_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+# All appointments for this user (calendar view)
+@router.get("/appointments")
+def list_all_appointments(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT a.id, a.contact_id, a.title, a.description, a.start_time, a.end_time,
+               a.location, a.status, a.created_at,
+               c.first_name, c.last_name, c.phone_number
+        FROM contact_appointments a
+        LEFT JOIN contacts c ON a.contact_id = c.id
+        WHERE a.user_id={PH}
+        ORDER BY a.start_time ASC
+    """), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "contact_id": r[1], "title": r[2], "description": r[3],
+            "start_time": r[4], "end_time": r[5], "location": r[6], "status": r[7],
+            "created_at": r[8], "first_name": r[9], "last_name": r[10], "phone_number": r[11]
+        }
+        for k in ("start_time", "end_time", "created_at"):
+            if d.get(k) and not isinstance(d[k], str):
+                d[k] = str(d[k])
+        result.append(d)
+    return result
+
+
+# ── Contact Tasks ─────────────────────────────────────────────────────────────
+
+class TaskIn(BaseModel):
+    title: str
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    priority: Optional[str] = "medium"
+    completed: Optional[bool] = False
+
+@router.get("/contacts/{contact_id}/tasks")
+def list_contact_tasks(contact_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, title, description, due_date, priority, completed, created_at
+        FROM contact_tasks WHERE contact_id={PH} AND user_id={PH}
+        ORDER BY due_date ASC, created_at ASC
+    """), (contact_id, user["id"]))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "title": r[1], "description": r[2], "due_date": r[3],
+            "priority": r[4], "completed": bool(r[5]), "created_at": r[6]
+        }
+        d["completed"] = bool(d.get("completed"))
+        result.append(d)
+    return result
+
+@router.post("/contacts/{contact_id}/tasks")
+def create_contact_task(contact_id: int, body: TaskIn, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO contact_tasks (contact_id, user_id, title, description, due_date, priority, completed)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})
+    """), (contact_id, user["id"], body.title, body.description, body.due_date, body.priority or "medium", 0))
+    task_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": task_id, "title": body.title, "due_date": body.due_date, "priority": body.priority or "medium", "completed": False}
+
+@router.get("/tasks")
+def list_all_tasks(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT t.id, t.contact_id, t.title, t.description, t.due_date, t.priority, t.completed, t.created_at,
+               c.first_name, c.last_name
+        FROM contact_tasks t
+        LEFT JOIN contacts c ON t.contact_id = c.id
+        WHERE t.user_id={PH}
+        ORDER BY t.completed ASC, t.due_date ASC, t.created_at ASC
+    """), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "contact_id": r[1], "title": r[2], "description": r[3],
+            "due_date": r[4], "priority": r[5], "completed": bool(r[6]), "created_at": r[7],
+            "first_name": r[8], "last_name": r[9]
+        }
+        d["completed"] = bool(d.get("completed"))
+        result.append(d)
+    return result
+
+@router.patch("/tasks/{task_id}")
+def update_task(task_id: int, body: TaskIn, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        UPDATE contact_tasks SET title={PH}, description={PH}, due_date={PH},
+        priority={PH}, completed={PH}
+        WHERE id={PH} AND user_id={PH}
+    """), (body.title, body.description, body.due_date, body.priority or "medium",
+           1 if body.completed else 0, task_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@router.delete("/tasks/{task_id}")
+def delete_task(task_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("DELETE FROM contact_tasks WHERE id={PH} AND user_id={PH}"), (task_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
