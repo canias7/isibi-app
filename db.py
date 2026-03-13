@@ -329,7 +329,7 @@ def init_db():
     )
     """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS contact_notes (
         id {ID},
         contact_id INTEGER NOT NULL,
@@ -337,9 +337,9 @@ def init_db():
         note TEXT NOT NULL,
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS contact_sms (
         id {ID},
         contact_id INTEGER NOT NULL,
@@ -350,9 +350,9 @@ def init_db():
         status TEXT DEFAULT 'sent',
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS contact_emails (
         id {ID},
         contact_id INTEGER NOT NULL,
@@ -365,9 +365,9 @@ def init_db():
         status TEXT DEFAULT 'sent',
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS contact_appointments (
         id {ID},
         contact_id INTEGER NOT NULL,
@@ -380,9 +380,9 @@ def init_db():
         status TEXT DEFAULT 'scheduled',
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS contact_tasks (
         id {ID},
         contact_id INTEGER,
@@ -394,9 +394,9 @@ def init_db():
         completed INTEGER DEFAULT 0,
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
-    conn.execute(sql("""
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS website_agent_orders (
         id {ID},
         -- Contact
@@ -441,7 +441,7 @@ def init_db():
         stripe_session_id TEXT,
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
-    """))
+    """)
 
     # --- MIGRATIONS (keep Render DB in sync) ---
     add_column_if_missing(conn, "agents", "phone_number", "TEXT")
