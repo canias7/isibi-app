@@ -3962,6 +3962,81 @@ def add_contact_note(contact_id: int, body: ContactNoteIn, user=Depends(verify_t
     return {"id": note_id, "note": body.note, "created_at": str(created_at)}
 
 
+# ── CRM Calls (separate from AI voice-agent call_usage) ──────────────────────
+
+@router.get("/crm/calls")
+def list_crm_calls(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT c.id, c.contact_id, c.contact_name, c.phone_number, c.direction,
+               c.duration_seconds, c.status, c.notes, c.called_at,
+               co.first_name, co.last_name
+        FROM crm_calls c
+        LEFT JOIN contacts co ON c.contact_id = co.id
+        WHERE c.user_id={PH}
+        ORDER BY c.called_at DESC
+        LIMIT 500
+    """), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "contact_id": r[1], "contact_name": r[2],
+            "phone_number": r[3], "direction": r[4], "duration_seconds": r[5],
+            "status": r[6], "notes": r[7], "called_at": r[8],
+            "first_name": r[9], "last_name": r[10],
+        }
+        if d.get("called_at") and not isinstance(d["called_at"], str):
+            d["called_at"] = str(d["called_at"])
+        # Build display name
+        fn = d.pop("first_name", None) or ""
+        ln = d.pop("last_name", None) or ""
+        if not d.get("contact_name") and (fn or ln):
+            d["contact_name"] = f"{fn} {ln}".strip()
+        result.append(d)
+    return result
+
+@router.post("/crm/calls")
+def log_crm_call(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO crm_calls (user_id, contact_id, contact_name, phone_number, direction,
+            duration_seconds, status, notes)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+        RETURNING id, called_at
+    """), (
+        user["id"],
+        body.get("contact_id"),
+        body.get("contact_name"),
+        body.get("phone_number"),
+        body.get("direction", "outbound"),
+        body.get("duration_seconds", 0),
+        body.get("status", "completed"),
+        body.get("notes"),
+    ))
+    row = cur.fetchone()
+    new_id = row["id"] if isinstance(row, dict) else row[0]
+    called_at = row["called_at"] if isinstance(row, dict) else row[1]
+    conn.commit()
+    conn.close()
+    return {**body, "id": new_id, "called_at": str(called_at), "user_id": user["id"]}
+
+@router.delete("/crm/calls/{call_id}")
+def delete_crm_call(call_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("DELETE FROM crm_calls WHERE id={PH} AND user_id={PH}"), (call_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"deleted": True}
+
+
 # ── Contact Calls ─────────────────────────────────────────────────────────────
 
 @router.get("/contacts/{contact_id}/calls")

@@ -397,6 +397,21 @@ def init_db():
     """)
 
     cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS crm_calls (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        contact_id INTEGER,
+        contact_name TEXT,
+        phone_number TEXT,
+        direction TEXT DEFAULT 'outbound',
+        duration_seconds INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'completed',
+        notes TEXT,
+        called_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
     CREATE TABLE IF NOT EXISTS website_agent_orders (
         id {ID},
         -- Contact

@@ -24,10 +24,11 @@ import {
   listContactEmails, addContactEmail,
   listContactAppointments, createContactAppointment, updateContactAppointment, deleteContactAppointment,
   listAllAppointments, listContactTasks, createContactTask,
-  listAllTasks, updateTask, deleteTask, getUsageCalls,
+  listAllTasks, updateTask, deleteTask,
+  listCRMCalls, logCRMCall, deleteCRMCall,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
-  type Appointment, type Task,
+  type Appointment, type Task, type CRMCall,
 } from "@/lib/api";
 import {
   searchAvailableNumbers, purchasePhoneNumber, getMyPhoneNumbers, releasePhoneNumber,
@@ -958,22 +959,37 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
 // ── Calls View ─────────────────────────────────────────────────────────────────
 
 function CallsView() {
-  const [calls, setCalls] = useState<any[]>([]);
+  const [calls, setCalls] = useState<CRMCall[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<number | null>(null);
 
   const loadCalls = useCallback(() => {
     setLoading(true);
-    getUsageCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
+    listCRMCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadCalls(); }, [loadCalls]);
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this call log?")) return;
+    setDeleting(id);
+    try {
+      await deleteCRMCall(id);
+      setCalls(prev => prev.filter(c => c.id !== id));
+      toast({ title: "Call log deleted" });
+    } catch (err: any) {
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    } finally {
+      setDeleting(null);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
         <div>
-          <h1 className="text-xl font-bold">Call Logs</h1>
-          <p className="text-xs text-muted-foreground">{calls.length} total calls</p>
+          <h1 className="text-xl font-bold">CRM Call Logs</h1>
+          <p className="text-xs text-muted-foreground">{calls.length} total calls logged</p>
         </div>
         <button onClick={loadCalls} className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground">
           <RefreshCw className="h-4 w-4" />
@@ -984,29 +1000,39 @@ function CallsView() {
           : calls.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
               <PhoneCall className="h-12 w-12 opacity-30 mb-3" />
-              <p>No calls recorded yet</p>
+              <p className="text-sm font-medium">No CRM calls logged yet</p>
+              <p className="text-xs text-muted-foreground/70 mt-1">Calls you log against contacts will appear here</p>
             </div>
           ) : (
             <div className="space-y-1.5">
-              {/* Header */}
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr_0.8fr] gap-4 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
-                <span>From / To</span><span>Agent</span><span>Duration</span><span>Status</span><span>Cost</span><span>Date</span>
+              <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.2fr_0.5fr] gap-4 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+                <span>Contact</span><span>Phone</span><span>Direction</span><span>Duration</span><span>Date</span><span></span>
               </div>
-              {calls.map((c: any) => (
-                <div key={c.id} className="grid grid-cols-[1.5fr_1fr_1fr_1fr_0.8fr_0.8fr] gap-4 px-4 py-3 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
+              {calls.map((c) => (
+                <div key={c.id} className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.2fr_0.5fr] gap-4 px-4 py-3 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
                   <div>
-                    <p className="text-xs font-medium">{c.call_from ?? "—"}</p>
-                    <p className="text-[10px] text-muted-foreground">→ {c.call_to ?? "—"}</p>
+                    <p className="text-xs font-medium">{c.contact_name ?? "Unknown"}</p>
+                    {c.notes && <p className="text-[10px] text-muted-foreground truncate">{c.notes}</p>}
                   </div>
-                  <span className="text-xs text-muted-foreground truncate">{c.agent_name ?? c.name ?? "—"}</span>
-                  <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                  <span className="text-xs text-muted-foreground">{c.phone_number ?? "—"}</span>
                   <div className="flex items-center gap-1.5">
                     <span className={cn("w-2 h-2 rounded-full shrink-0",
-                      c.status === "completed" ? "bg-green-400" : c.status === "failed" ? "bg-red-400" : "bg-yellow-400")} />
-                    <span className="text-xs capitalize">{c.status ?? "unknown"}</span>
+                      c.direction === "inbound" ? "bg-blue-400" : "bg-green-400")} />
+                    <span className="text-xs capitalize">{c.direction}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{c.cost_usd != null ? `$${Number(c.cost_usd).toFixed(3)}` : "—"}</span>
-                  <span className="text-xs text-muted-foreground">{formatDate(c.started_at)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className={cn("w-2 h-2 rounded-full shrink-0",
+                      c.status === "completed" ? "bg-green-400" : c.status === "no_answer" ? "bg-red-400" : "bg-yellow-400")} />
+                    <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatDate(c.called_at)}</span>
+                  <button
+                    onClick={() => handleDelete(c.id)}
+                    disabled={deleting === c.id}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    {deleting === c.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
               ))}
             </div>
@@ -1547,12 +1573,12 @@ function PowerDialerView({ contacts, onStatusChange }: {
 // ── Reports View ──────────────────────────────────────────────────────────────
 
 function ReportsView({ contacts }: { contacts: Contact[] }) {
-  const [calls, setCalls] = useState<any[]>([]);
+  const [calls, setCalls] = useState<CRMCall[]>([]);
   const [loadingCalls, setLoadingCalls] = useState(true);
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "custom">("week");
 
   useEffect(() => {
-    getUsageCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingCalls(false));
+    listCRMCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingCalls(false));
   }, []);
 
   const total = contacts.length;
@@ -1561,7 +1587,8 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
   const convRate = total > 0 ? ((closedWon / total) * 100).toFixed(1) : "0.0";
   const totalCallMin = calls.reduce((s, c) => s + (c.duration_seconds ?? 0), 0);
   const completedCalls = calls.filter(c => c.status === "completed").length;
-  const totalCost = calls.reduce((s, c) => s + Number(c.cost_usd ?? 0), 0);
+  const inboundCalls = calls.filter(c => c.direction === "inbound").length;
+  const outboundCalls = calls.filter(c => c.direction === "outbound").length;
 
   const sourceBreakdown = SOURCES.map(src => ({
     label: src,
@@ -1647,12 +1674,12 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
             <ReportCard title="Outbound & Inbound Texts" icon={<MessageSquare className="h-5 w-5 text-blue-400" />} iconBg="bg-blue-500/15"
               timeRange={timeRange} setTimeRange={setTimeRange} showTable>
               <CSSLineChart legend={[{label:"Outbound texts",color:"bg-teal-400"},{label:"Inbound texts",color:"bg-emerald-400"}]}
-                data={calls} dateKey="started_at" />
+                data={calls} dateKey="called_at" />
             </ReportCard>
             <ReportCard title="Call Statistics" icon={<PhoneCall className="h-5 w-5 text-purple-400" />} iconBg="bg-purple-500/15"
               timeRange={timeRange} setTimeRange={setTimeRange} showTable>
               <CSSLineChart legend={[{label:"Outbound calls",color:"bg-teal-400"},{label:"Inbound calls",color:"bg-emerald-400"}]}
-                data={calls} dateKey="started_at" />
+                data={calls} dateKey="called_at" />
             </ReportCard>
           </div>
 

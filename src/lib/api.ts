@@ -878,6 +878,45 @@ export async function listContactNotes(id: number): Promise<{ id: number; note: 
   return Array.isArray(data) ? data : data?.notes ?? data?.items ?? [];
 }
 
+// ── CRM Calls (separate from AI voice-agent calls) ───────────────────────────
+
+export interface CRMCall {
+  id: number;
+  contact_id?: number | null;
+  contact_name?: string | null;
+  phone_number?: string | null;
+  direction: "inbound" | "outbound";
+  duration_seconds: number;
+  status: string;
+  notes?: string | null;
+  called_at: string;
+}
+
+export async function listCRMCalls(): Promise<CRMCall[]> {
+  const res = await fetch(`${API_BASE}/api/crm/calls`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load CRM calls");
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.calls ?? data?.items ?? [];
+}
+
+export async function logCRMCall(data: Omit<CRMCall, "id" | "called_at">): Promise<CRMCall> {
+  const res = await fetch(`${API_BASE}/api/crm/calls`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to log CRM call");
+  return res.json();
+}
+
+export async function deleteCRMCall(callId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/crm/calls/${callId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete CRM call");
+}
+
 export async function listContacts(): Promise<Contact[]> {
   const res = await fetch(`${API_BASE}/api/contacts`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Failed to list contacts: ${res.status}`);
