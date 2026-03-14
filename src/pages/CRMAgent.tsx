@@ -387,7 +387,7 @@ function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete, conta
     }
     if (tab === "calls" && calls.length === 0) {
       setLoadingCalls(true);
-      listContactCalls(contact.id).then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false));
+      listContactCalls(contact.id).then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingCalls(false));
     }
     if (tab === "sms" && smsMessages.length === 0) {
       setLoadingSMS(true);
@@ -399,11 +399,11 @@ function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete, conta
     }
     if (tab === "calendar" && appointments.length === 0) {
       setLoadingApts(true);
-      listContactAppointments(contact.id).then(setAppointments).catch(() => {}).finally(() => setLoadingApts(false));
+      listContactAppointments(contact.id).then(d => setAppointments(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingApts(false));
     }
     if (tab === "tasks" && tasks.length === 0) {
       setLoadingTasks(true);
-      listContactTasks(contact.id).then(setTasks).catch(() => {}).finally(() => setLoadingTasks(false));
+      listContactTasks(contact.id).then(d => setTasks(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingTasks(false));
     }
   }, [tab, contact.id]);
 
@@ -581,7 +581,7 @@ function DetailPanel({ contact, onClose, onStatusChange, onEdit, onDelete, conta
           <div className="p-3 space-y-2">
             <div className="flex items-center justify-between mb-1">
               <p className="text-xs font-medium text-muted-foreground">{calls.length} call{calls.length !== 1 ? "s" : ""} found</p>
-              <button onClick={() => { setLoadingCalls(true); listContactCalls(contact.id).then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false)); }}
+              <button onClick={() => { setLoadingCalls(true); listContactCalls(contact.id).then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingCalls(false)); }}
                 className="p-1 rounded text-muted-foreground hover:text-foreground"><RefreshCw className="h-3 w-3" /></button>
             </div>
             {loadingCalls ? <p className="text-xs text-muted-foreground text-center py-6">Loading…</p>
@@ -787,7 +787,7 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
 
   useEffect(() => {
     setLoading(true);
-    listAllAppointments().then(setAppointments).catch(() => {}).finally(() => setLoading(false));
+    listAllAppointments().then(d => setAppointments(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const year = current.getFullYear();
@@ -963,7 +963,7 @@ function CallsView() {
 
   const loadCalls = useCallback(() => {
     setLoading(true);
-    getUsageCalls().then(setCalls).catch(() => {}).finally(() => setLoading(false));
+    getUsageCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadCalls(); }, [loadCalls]);
@@ -1027,7 +1027,7 @@ function TasksView({ contacts }: { contacts: Contact[] }) {
 
   const load = useCallback(() => {
     setLoading(true);
-    listAllTasks().then(setTasks).catch(() => {}).finally(() => setLoading(false));
+    listAllTasks().then(d => setTasks(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1552,7 +1552,7 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
   const [timeRange, setTimeRange] = useState<"day" | "week" | "month" | "custom">("week");
 
   useEffect(() => {
-    getUsageCalls().then(setCalls).catch(() => {}).finally(() => setLoadingCalls(false));
+    getUsageCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoadingCalls(false));
   }, []);
 
   const total = contacts.length;

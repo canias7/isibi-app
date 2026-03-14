@@ -267,7 +267,8 @@ export async function getUsageCalls(): Promise<any[]> {
     headers: authHeaders(),
   });
   if (!res.ok) throw new Error(`Failed to get calls: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.calls ?? data?.items ?? [];
 }
 
 export async function getCallDetails(callId: number): Promise<any> {
@@ -873,13 +874,15 @@ export async function addContactNote(id: number, note: string): Promise<{ id: nu
 export async function listContactNotes(id: number): Promise<{ id: number; note: string; created_at: string }[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${id}/notes`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load notes");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.notes ?? data?.items ?? [];
 }
 
 export async function listContacts(): Promise<Contact[]> {
   const res = await fetch(`${API_BASE}/api/contacts`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`Failed to list contacts: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.contacts ?? data?.items ?? [];
 }
 
 export async function createContact(data: ContactCreateRequest): Promise<Contact> {
@@ -947,7 +950,8 @@ export interface ContactCall {
 export async function listContactCalls(contactId: number): Promise<ContactCall[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${contactId}/calls`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load calls");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.calls ?? data?.items ?? [];
 }
 
 // ── Contact SMS ───────────────────────────────────────────────────────────────
@@ -965,7 +969,8 @@ export interface ContactSMS {
 export async function listContactSMS(contactId: number): Promise<ContactSMS[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${contactId}/sms`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load SMS");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.sms ?? data?.messages ?? data?.items ?? [];
 }
 
 export async function sendContactSMS(contactId: number, message: string): Promise<ContactSMS> {
@@ -994,7 +999,8 @@ export interface ContactEmail {
 export async function listContactEmails(contactId: number): Promise<ContactEmail[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${contactId}/emails`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load emails");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.emails ?? data?.items ?? [];
 }
 
 export async function addContactEmail(contactId: number, data: {
@@ -1030,7 +1036,8 @@ export interface Appointment {
 export async function listContactAppointments(contactId: number): Promise<Appointment[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${contactId}/appointments`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load appointments");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.appointments ?? data?.items ?? [];
 }
 
 export async function createContactAppointment(contactId: number, data: Omit<Appointment, "id">): Promise<Appointment> {
@@ -1063,7 +1070,8 @@ export async function deleteContactAppointment(contactId: number, aptId: number)
 export async function listAllAppointments(): Promise<Appointment[]> {
   const res = await fetch(`${API_BASE}/api/appointments`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load appointments");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.appointments ?? data?.items ?? [];
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
@@ -1085,7 +1093,8 @@ export interface Task {
 export async function listContactTasks(contactId: number): Promise<Task[]> {
   const res = await fetch(`${API_BASE}/api/contacts/${contactId}/tasks`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load tasks");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.tasks ?? data?.items ?? [];
 }
 
 export async function createContactTask(contactId: number, data: Omit<Task, "id" | "completed">): Promise<Task> {
@@ -1101,7 +1110,8 @@ export async function createContactTask(contactId: number, data: Omit<Task, "id"
 export async function listAllTasks(): Promise<Task[]> {
   const res = await fetch(`${API_BASE}/api/tasks`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to load tasks");
-  return res.json();
+  const data = await res.json();
+  return Array.isArray(data) ? data : data?.tasks ?? data?.items ?? [];
 }
 
 export async function updateTask(taskId: number, data: Partial<Task> & { title: string }): Promise<void> {
