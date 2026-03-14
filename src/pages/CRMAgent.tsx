@@ -9,6 +9,7 @@ import {
   AlertCircle, CheckSquare, Square, Paperclip, BarChart2, TrendingUp,
   Activity, RefreshCw, Zap, Layers, BarChart3, PhoneOff, PhoneIncoming,
   SkipForward, Play, Target, ArrowRight, Columns3,
+  Sparkles, Globe, Wand2, CreditCard, Loader2, Pencil, BotMessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,9 +27,12 @@ import {
   listAllAppointments, listContactTasks, createContactTask,
   listAllTasks, updateTask, deleteTask,
   listCRMCalls, logCRMCall, deleteCRMCall,
+  getCreditsBalance, listAgents, initiateOutboundCall,
+  generateAIPromptAdvanced,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
+  type AgentOut,
 } from "@/lib/api";
 import {
   searchAvailableNumbers, purchasePhoneNumber, getMyPhoneNumbers, releasePhoneNumber,
@@ -49,7 +53,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -1382,6 +1386,11 @@ function PowerDialerView({ contacts, onStatusChange }: {
   const [callNote, setCallNote] = useState("");
   const [skipped, setSkipped] = useState<number[]>([]);
   const [called, setCalled] = useState<number[]>([]);
+  const [calling, setCalling] = useState(false);
+  const [callStatus, setCallStatus] = useState<string | null>(null);
+
+  const savedAgentId = localStorage.getItem("crm_agent_id");
+  const agentId = savedAgentId ? Number(savedAgentId) : null;
 
   const remaining = dialList.filter((c) => !called.includes(c.id) && !skipped.includes(c.id));
   const current = remaining[0] ?? null;
@@ -1477,11 +1486,47 @@ function PowerDialerView({ contacts, onStatusChange }: {
                   )}
                 </div>
 
-                {/* Call button */}
-                <a href={`tel:${current.phone_number}`}
-                  className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-green-600 hover:bg-green-700 text-white font-semibold text-lg transition-colors">
-                  <Phone className="h-5 w-5" /> Call {current.phone_number}
-                </a>
+                {/* Call button — triggers real AI outbound call */}
+                {!agentId ? (
+                  <button onClick={() => toast({ title: "No agent selected", description: "Go to My Prompt and select a Voice Agent first.", variant: "destructive" })}
+                    className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors">
+                    <AlertCircle className="h-5 w-5" /> Select an agent in My Prompt first
+                  </button>
+                ) : (
+                  <button
+                    disabled={calling}
+                    onClick={async () => {
+                      if (!current || !agentId) return;
+                      setCalling(true);
+                      setCallStatus("Initiating call…");
+                      try {
+                        const result = await initiateOutboundCall({
+                          agent_id: agentId,
+                          to_number: current.phone_number,
+                          contact_name: fullName(current),
+                          notes: callNote || undefined,
+                        });
+                        setCallStatus(`Call ${result.status ?? "initiated"} ✓`);
+                        toast({ title: "AI Call Initiated!", description: `Calling ${fullName(current)} at ${current.phone_number}` });
+                      } catch (err: any) {
+                        setCallStatus("Call failed");
+                        toast({ title: "Call failed", description: err.message, variant: "destructive" });
+                      } finally {
+                        setCalling(false);
+                      }
+                    }}
+                    className={cn(
+                      "flex items-center justify-center gap-3 w-full py-4 rounded-xl font-semibold text-lg transition-colors text-white",
+                      calling ? "bg-green-700 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+                    )}>
+                    {calling
+                      ? <><Loader2 className="h-5 w-5 animate-spin" /> Calling…</>
+                      : <><Phone className="h-5 w-5" /> Call {current.phone_number}</>}
+                  </button>
+                )}
+                {callStatus && (
+                  <p className="text-center text-xs text-muted-foreground">{callStatus}</p>
+                )}
 
                 {/* Note */}
                 <div>
@@ -2443,6 +2488,335 @@ function InboxView({ contacts, onStatusChange, onEdit, onDelete }: {
   );
 }
 
+// ── My Prompt View ────────────────────────────────────────────────────────────
+
+const BUSINESS_TYPES = [
+  { value: "general", label: "General Business" },
+  { value: "real_estate", label: "Real Estate" },
+  { value: "insurance", label: "Insurance" },
+  { value: "solar", label: "Solar / Home Services" },
+  { value: "medical", label: "Medical / Healthcare" },
+  { value: "automotive", label: "Automotive" },
+  { value: "legal", label: "Legal Services" },
+  { value: "finance", label: "Finance / Loans" },
+  { value: "retail", label: "Retail / E-commerce" },
+  { value: "other", label: "Other" },
+];
+
+function MyPromptView() {
+  const [mode, setMode] = useState<"manual" | "ai" | "website">(
+    () => (localStorage.getItem("crm_prompt_mode") as any) || "manual"
+  );
+  const [prompt, setPrompt] = useState(() => localStorage.getItem("crm_system_prompt") || "");
+  const [agentName, setAgentName] = useState(() => localStorage.getItem("crm_agent_name") || "");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Agent selector for Power Dialer
+  const [agents, setAgents] = useState<AgentOut[]>([]);
+  const [selectedAgentId, setSelectedAgentId] = useState<number | null>(
+    () => { const v = localStorage.getItem("crm_agent_id"); return v ? Number(v) : null; }
+  );
+  useEffect(() => {
+    listAgents().then(d => setAgents(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  // AI fields
+  const [bizName, setBizName] = useState("");
+  const [bizType, setBizType] = useState("general");
+  const [bizDesc, setBizDesc] = useState("");
+  const [services, setServices] = useState("");
+  const [tone, setTone] = useState("professional");
+
+  const generateFromWebsite = async () => {
+    if (!websiteUrl.trim()) return;
+    setGenerating(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch("https://isibi-backend.onrender.com/api/agents/generate-prompt-from-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ url: websiteUrl }),
+      });
+      const data = await res.json();
+      if (res.ok && data.prompt) {
+        setPrompt(data.prompt);
+        setMode("manual");
+        toast({ title: "Prompt generated!", description: "From: " + (data.page_title || websiteUrl) });
+      } else {
+        toast({ title: "Failed to generate", description: data?.detail || "Try again", variant: "destructive" });
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const generateWithAI = async () => {
+    if (!bizName.trim()) { toast({ title: "Enter a business name", variant: "destructive" }); return; }
+    setGenerating(true);
+    try {
+      const result = await generateAIPromptAdvanced({
+        business_name: bizName, business_type: bizType,
+        business_description: bizDesc, services, tone,
+        assistant_name: agentName || "AI Assistant",
+        special_instructions: "", hours: "", phone_number: "", address: "",
+      });
+      setPrompt(result.prompt || result);
+      setMode("manual");
+      toast({ title: "Prompt generated with AI!" });
+    } catch (err: any) {
+      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleSave = () => {
+    setSaving(true);
+    localStorage.setItem("crm_system_prompt", prompt);
+    localStorage.setItem("crm_agent_name", agentName);
+    localStorage.setItem("crm_prompt_mode", mode);
+    if (selectedAgentId !== null) localStorage.setItem("crm_agent_id", String(selectedAgentId));
+    setTimeout(() => {
+      setSaving(false);
+      toast({ title: "Prompt saved!", description: "Power Dialer will use this prompt for AI calls." });
+    }, 400);
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <BotMessageSquare className="h-5 w-5 text-primary" />
+        </div>
+        <div className="flex-1">
+          <h1 className="text-lg font-bold">My Prompt</h1>
+          <p className="text-xs text-muted-foreground">Configure the AI prompt used for inbound & outbound CRM calls</p>
+        </div>
+        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-2">
+          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+          Save Prompt
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-6 max-w-3xl">
+
+        {/* Agent name */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <h2 className="text-sm font-semibold">Agent Identity</h2>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Agent / Assistant Name</Label>
+            <Input placeholder="e.g. Alex, Sarah, Max…" value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9" />
+          </div>
+
+          {/* Agent selector for Power Dialer */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Voice Agent for Power Dialer calls</Label>
+            <select
+              value={selectedAgentId ?? ""}
+              onChange={e => setSelectedAgentId(e.target.value ? Number(e.target.value) : null)}
+              className="w-full h-9 rounded-md border border-input bg-background/50 px-3 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="">— Select an agent —</option>
+              {agents.map(a => (
+                <option key={a.id} value={a.id}>{a.name}{a.phone_number ? ` (${a.phone_number})` : ""}</option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">This agent will make the AI call when you click "Call" in Power Dialer</p>
+          </div>
+        </div>
+
+        {/* Prompt mode selector */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <h2 className="text-sm font-semibold">System Prompt</h2>
+
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              { id: "manual" as const,  icon: Pencil,   label: "Write Manually",   desc: "Craft your own prompt" },
+              { id: "ai" as const,      icon: Sparkles, label: "Generate with AI", desc: "Answer questions to auto-create" },
+              { id: "website" as const, icon: Globe,    label: "From Website",     desc: "Scrape your site" },
+            ]).map(opt => (
+              <button key={opt.id} onClick={() => setMode(opt.id)}
+                className={cn(
+                  "flex flex-col items-center gap-2 rounded-xl border-2 p-4 text-center transition-all",
+                  mode === opt.id ? "border-primary bg-primary/5 shadow-sm" : "border-border/40 bg-card/30 hover:border-border hover:bg-card/50"
+                )}>
+                <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", mode === opt.id ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground")}>
+                  <opt.icon className="h-4 w-4" />
+                </div>
+                <span className={cn("text-xs font-semibold", mode === opt.id ? "text-foreground" : "text-muted-foreground")}>{opt.label}</span>
+                <span className="text-[10px] text-muted-foreground leading-tight">{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Website mode */}
+          {mode === "website" && (
+            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 space-y-3">
+              <p className="text-sm text-muted-foreground">Paste your business URL and we'll scrape it to build a tailored prompt.</p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input type="url" placeholder="https://yourbusiness.com" value={websiteUrl}
+                    onChange={e => setWebsiteUrl(e.target.value)} className="pl-9 h-9"
+                    onKeyDown={e => { if (e.key === "Enter") generateFromWebsite(); }} />
+                </div>
+                <Button onClick={generateFromWebsite} disabled={generating || !websiteUrl.trim()} size="sm" className="gap-1.5 h-9">
+                  {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {generating ? "Generating…" : "Generate"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* AI mode */}
+          {mode === "ai" && (
+            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Business Name *</Label>
+                  <Input placeholder="e.g. Premier Realty" value={bizName} onChange={e => setBizName(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Business Type</Label>
+                  <select value={bizType} onChange={e => setBizType(e.target.value)}
+                    className="w-full h-8 rounded-md border border-input bg-background/50 px-2 text-sm appearance-none">
+                    {BUSINESS_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs text-muted-foreground">What you do / sell</Label>
+                  <Input placeholder="e.g. We help homeowners sell their property fast" value={bizDesc} onChange={e => setBizDesc(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs text-muted-foreground">Key services or products</Label>
+                  <Input placeholder="e.g. Free home valuation, buyer matching, closing support" value={services} onChange={e => setServices(e.target.value)} className="h-8 text-sm" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Tone</Label>
+                  <select value={tone} onChange={e => setTone(e.target.value)}
+                    className="w-full h-8 rounded-md border border-input bg-background/50 px-2 text-sm appearance-none">
+                    {["professional","friendly","formal","warm"].map(t => <option key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                  </select>
+                </div>
+                <div className="flex items-end">
+                  <Button onClick={generateWithAI} disabled={generating || !bizName.trim()} size="sm" className="w-full gap-1.5 h-8">
+                    {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                    {generating ? "Generating…" : "Generate Prompt"}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Prompt editor — always shown */}
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground uppercase tracking-wide">Prompt Editor</Label>
+            <textarea
+              value={prompt}
+              onChange={e => setPrompt(e.target.value)}
+              placeholder="Your AI agent will follow these instructions on every call…&#10;&#10;Example: You are Alex, a friendly sales agent for Premier Realty. Your goal is to qualify leads and schedule appointments. Be concise and professional."
+              className="w-full h-56 rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+            />
+            <p className="text-xs text-muted-foreground">{prompt.length} characters</p>
+          </div>
+        </div>
+
+        {/* Tips */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5">
+          <h2 className="text-sm font-semibold mb-3">Prompt Tips</h2>
+          <ul className="space-y-2 text-xs text-muted-foreground">
+            {[
+              "Start with who the agent is: name, company, and role",
+              "State the primary goal clearly (qualify leads, book appointments, follow up)",
+              "Add rules: keep it under 2 minutes, never be pushy, always ask for permission to continue",
+              "Include objection handling: if they say 'not interested', ask why briefly",
+              "End with a clear CTA: 'Can I schedule a quick 10-minute call with our team?'",
+            ].map((tip, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <CheckCircle2 className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                {tip}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Billing / Credits View ────────────────────────────────────────────────────
+
+function BillingView({ balance, onRefresh }: { balance: number | null; onRefresh: () => void }) {
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <CreditCard className="h-5 w-5 text-primary" />
+        </div>
+        <div className="flex-1">
+          <h1 className="text-lg font-bold">Credits & Billing</h1>
+          <p className="text-xs text-muted-foreground">Shared balance across Voice Agent, CRM, and Workflow</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6 space-y-6 max-w-2xl">
+        {/* Balance card */}
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 flex items-center gap-6">
+          <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center shrink-0">
+            <CreditCard className="h-8 w-8 text-primary" />
+          </div>
+          <div className="flex-1">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Available Credits</p>
+            <p className="text-4xl font-bold text-primary">
+              {balance !== null ? `$${balance.toFixed(2)}` : "—"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">Used across Voice Agent · CRM calls · Workflow automations</p>
+          </div>
+          {balance !== null && balance < 5 && (
+            <Badge className="border border-yellow-500/30 text-yellow-400 bg-yellow-500/10">Low balance</Badge>
+          )}
+        </div>
+
+        {/* Rate info */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-3">
+          <h2 className="text-sm font-semibold">Pricing</h2>
+          {[
+            { label: "Voice Agent calls", rate: "$0.20 / min", icon: Phone, color: "text-blue-400" },
+            { label: "CRM Power Dialer calls", rate: "$0.20 / min", icon: Zap, color: "text-yellow-400" },
+            { label: "Outbound SMS", rate: "$0.01 / msg", icon: MessageSquare, color: "text-green-400" },
+            { label: "Inbound SMS", rate: "$0.01 / msg", icon: MessageSquare, color: "text-emerald-400" },
+            { label: "Workflow automations", rate: "Varies", icon: Activity, color: "text-purple-400" },
+          ].map(item => (
+            <div key={item.label} className="flex items-center gap-3 py-2 border-b border-border/20 last:border-0">
+              <item.icon className={cn("h-4 w-4 shrink-0", item.color)} />
+              <span className="text-sm flex-1">{item.label}</span>
+              <span className="text-sm font-semibold text-primary">{item.rate}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Top up CTA */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold">Add Credits</p>
+            <p className="text-xs text-muted-foreground">Top up your balance to keep calls and messages running</p>
+          </div>
+          <Button onClick={() => window.open("/customer-dashboard", "_self")} className="gap-2 shrink-0">
+            <CreditCard className="h-4 w-4" /> Add Credits
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main CRM Page ─────────────────────────────────────────────────────────────
 
 export default function CRMAgent() {
@@ -2456,8 +2830,15 @@ export default function CRMAgent() {
   const [editContact, setEditContact] = useState<Contact | null>(null);
   const [saving, setSaving] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>("my_prompt");
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Credits — shared across all agent pages
+  const [balance, setBalance] = useState<number | null>(null);
+  const refreshBalance = () => {
+    getCreditsBalance().then(r => setBalance(r.balance ?? 0)).catch(() => {});
+  };
+  useEffect(() => { refreshBalance(); const t = setInterval(refreshBalance, 30000); return () => clearInterval(t); }, []);
 
   const load = () => {
     setLoading(true);
@@ -2542,9 +2923,10 @@ export default function CRMAgent() {
   };
 
   const NAV_ITEMS: { id: View; label: string; icon: React.ElementType; badge?: string }[] = [
+    { id: "my_prompt",    label: "My Prompt",     icon: BotMessageSquare, badge: "AI" },
     { id: "dashboard",    label: "Dashboard",     icon: LayoutDashboard },
     { id: "contacts",     label: "Leads",         icon: Users },
-    { id: "power_dialer", label: "Power Dialer",  icon: Zap, badge: "New" },
+    { id: "power_dialer", label: "Power Dialer",  icon: Zap },
     { id: "inbox",        label: "Inbox",         icon: Inbox },
     { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
     { id: "calendar",     label: "Google Calendar",icon: Calendar },
@@ -2555,6 +2937,7 @@ export default function CRMAgent() {
     { id: "emails",       label: "Emails",        icon: Mail },
     { id: "tasks",        label: "Tasks",         icon: ClipboardList },
     { id: "phone_setup",  label: "Phone Setup",   icon: Phone },
+    { id: "billing",      label: "Credits & Billing", icon: CreditCard },
   ];
 
   // SMS global view
@@ -2579,12 +2962,35 @@ export default function CRMAgent() {
         sidebarCollapsed ? "w-16" : "w-52"
       )}>
         <div className="flex items-center gap-2 px-3 h-16 border-b border-border/30 shrink-0">
-          {!sidebarCollapsed && <span className="text-lg font-bold gradient-text">CRM Agent</span>}
+          {!sidebarCollapsed && <span className="text-lg font-bold gradient-text flex-1">CRM Agent</span>}
           <button onClick={() => setSidebarCollapsed((v) => !v)}
             className={cn("p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors", sidebarCollapsed && "mx-auto")}>
             {sidebarCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
         </div>
+
+        {/* Credits badge — always visible, shared across all agent pages */}
+        <button onClick={() => setView("billing")}
+          className={cn(
+            "mx-2 mt-2 mb-0 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm transition-all border",
+            sidebarCollapsed && "justify-center px-2 mx-1",
+            view === "billing"
+              ? "bg-primary/10 border-primary/20 text-primary"
+              : balance !== null && balance < 5
+              ? "bg-yellow-500/10 border-yellow-500/20 text-yellow-400"
+              : "bg-primary/5 border-primary/10 text-primary hover:bg-primary/10"
+          )}>
+          <CreditCard className="h-4 w-4 shrink-0" />
+          {!sidebarCollapsed && balance !== null && (
+            <>
+              <span className="font-semibold">${balance.toFixed(2)}</span>
+              <span className="text-xs text-muted-foreground ml-auto">credits</span>
+            </>
+          )}
+          {!sidebarCollapsed && balance === null && (
+            <span className="text-xs text-muted-foreground">Loading…</span>
+          )}
+        </button>
 
         <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => (
@@ -2627,7 +3033,7 @@ export default function CRMAgent() {
         </nav>
 
         <div className="border-t border-border/30 p-3 space-y-1">
-          <button onClick={() => navigate("/developer-dashboard")}
+          <button onClick={() => navigate("/customer-dashboard")}
             className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors", sidebarCollapsed && "justify-center px-2")}>
             <Bot className="h-4 w-4" />{!sidebarCollapsed && "Voice Agent"}
           </button>
@@ -3000,6 +3406,12 @@ export default function CRMAgent() {
             onEdit={(c) => { setEditContact(c); setShowForm(true); }}
             onDelete={handleDelete} />
         )}
+
+        {/* My Prompt */}
+        {view === "my_prompt" && <MyPromptView />}
+
+        {/* Billing */}
+        {view === "billing" && <BillingView balance={balance} onRefresh={refreshBalance} />}
       </div>
 
       {/* Add/Edit Modal */}
