@@ -37,20 +37,9 @@ export default function Login() {
 
       const data = await response.json();
 
-      // Handle pending approval — backend may return is_approved: false or status: "pending"
-      if (data.is_approved === false || data.status === "pending") {
-        localStorage.setItem("pending_email", email);
-        toast({
-          title: "Access pending review",
-          description: "Your developer application is still under review. We'll email you when it's approved.",
-        });
-        navigate("/developer-pending");
-        return;
-      }
-
       // Store the token for authenticated requests
       localStorage.setItem("token", data.access_token);
-      localStorage.setItem("account_type", "developer");
+      localStorage.setItem("account_type", data.account_type ?? "customer");
 
       // Check if user is admin by email
       const isAdmin = email.toLowerCase().trim() === "cristiananias7@gmail.com";
@@ -60,7 +49,7 @@ export default function Login() {
         description: "You have successfully signed in.",
       });
 
-      navigate(isAdmin ? "/admin" : "/developer-dashboard");
+      navigate(isAdmin ? "/admin" : "/customer-dashboard");
     } catch (error) {
       toast({
         title: "Login failed",
@@ -170,14 +159,7 @@ export default function Login() {
             </form>
 
             <div className="mt-6 text-center text-sm text-muted-foreground">
-              Don't have an account?{" "}
-              <Link to="/signup" className="text-primary hover:underline font-medium">
-                Sign up
-              </Link>
-            </div>
-
-            <div className="mt-3 text-center text-xs text-muted-foreground">
-              Looking for the customer portal?{" "}
+              Not an admin?{" "}
               <Link to="/customer-login" className="text-primary hover:underline font-medium">
                 Customer login
               </Link>

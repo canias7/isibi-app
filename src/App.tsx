@@ -3,16 +3,14 @@ import { AnimatedBackground } from "@/components/AnimatedBackground";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Landing from "./pages/Landing";
 import AskAIWidget from "./components/AskAIWidget";
 
 import Login from "./pages/Login";
-import Signup from "./pages/Signup";
 import CustomerLogin from "./pages/CustomerLogin";
 import CustomerSignup from "./pages/CustomerSignup";
 import CustomerDashboard from "./pages/CustomerDashboard";
-import DeveloperDashboard from "./pages/DeveloperDashboard";
 import Workflow from "./pages/Workflow";
 import CalendarConnected from "./pages/CalendarConnected";
 import IntegrationsShowcase from "./pages/IntegrationsShowcase";
@@ -23,18 +21,12 @@ import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Security from "./pages/Security";
 import AdminDashboard from "./pages/AdminDashboard";
-import DeveloperPending from "./pages/DeveloperPending";
 import WebsiteAgent from "./pages/WebsiteAgent";
 import CRMAgent from "./pages/CRMAgent";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 const queryClient = new QueryClient();
-
-// Developer protected route (backward-compat: missing account_type treated as developer)
-const DevP = ({ children }: { children: React.ReactNode }) => (
-  <ProtectedRoute accountType="developer" loginPath="/login">{children}</ProtectedRoute>
-);
 
 // Customer protected route
 const CustP = ({ children }: { children: React.ReactNode }) => (
@@ -57,23 +49,19 @@ const App = () => (
           {/* Public */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
+          <Route path="/signup" element={<Navigate to="/customer-signup" replace />} />
           <Route path="/customer-login" element={<CustomerLogin />} />
           <Route path="/customer-signup" element={<CustomerSignup />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
-          <Route path="/developer-pending" element={<DeveloperPending />} />
           <Route path="/integrations" element={<IntegrationsShowcase />} />
           <Route path="/faq" element={<FAQ />} />
           <Route path="/terms" element={<TermsOfService />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/security" element={<Security />} />
           <Route path="/website-agent" element={<WebsiteAgent />} />
-          <Route path="/crm-agent" element={<DevP><CRMAgent /></DevP>} />
-
-          {/* Developer dashboard */}
-          <Route path="/developer-dashboard" element={<DevP><DeveloperDashboard /></DevP>} />
+          <Route path="/crm-agent" element={<P><CRMAgent /></P>} />
 
           {/* Customer dashboard */}
           <Route path="/customer-dashboard" element={<CustP><CustomerDashboard /></CustP>} />
