@@ -1458,6 +1458,7 @@ function PowerDialerView({ contacts, onStatusChange }: {
           // Pass system_prompt directly — backend pushes it to the agent before calling
           await initiateOutboundCall({
             agent_id: agentId ?? undefined,
+            from_number: selectedPrompt?.phoneNumber ?? undefined,
             to_number: c.phone_number,
             contact_name: fullName(c),
             system_prompt: selectedPrompt?.content ?? undefined,

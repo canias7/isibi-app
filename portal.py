@@ -4088,6 +4088,7 @@ def delete_crm_call(call_id: int, user=Depends(verify_token)):
 class OutboundCallRequest(BaseModel):
     agent_id: Optional[int] = None
     to_number: str
+    from_number: Optional[str] = None     # explicit caller ID (attached phone number from CRM prompt)
     contact_name: Optional[str] = None
     notes: Optional[str] = None
     system_prompt: Optional[str] = None   # CRM prompt content — pushed to agent before calling
@@ -4104,7 +4105,8 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
 
     # Resolve agent: prefer explicit agent_id, otherwise find by phone number
     resolved_agent_id = body.agent_id
-    from_number = None
+    # If the CRM prompt has an attached phone number, use it directly as caller ID
+    from_number = body.from_number or None
 
     conn = get_conn()
     cur = conn.cursor()
