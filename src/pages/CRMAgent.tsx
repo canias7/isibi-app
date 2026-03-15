@@ -1507,26 +1507,26 @@ function PowerDialerView({ contacts, onStatusChange }: {
                 </div>
 
                 {/* Call button — triggers real AI outbound call */}
-                {!agentId ? (
-                  <button onClick={() => toast({ title: "No agent selected", description: "Go to My Prompt and select a Voice Agent first.", variant: "destructive" })}
+                {!selectedPrompt ? (
+                  <button onClick={() => toast({ title: "No prompt selected", description: "Create a prompt in the My Prompt tab first.", variant: "destructive" })}
                     className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors">
-                    <AlertCircle className="h-5 w-5" /> Select an agent in My Prompt first
+                    <AlertCircle className="h-5 w-5" /> Select a prompt in My Prompt first
                   </button>
                 ) : (
                   <button
                     disabled={calling}
                     onClick={async () => {
-                      if (!current || !agentId) return;
+                      if (!current) return;
                       setCalling(true);
                       setCallStatus("Applying prompt…");
                       try {
-                        // Push selected prompt content to the agent before calling
-                        if (selectedPrompt?.content) {
+                        // Push selected prompt content to the agent before calling (if agent id available)
+                        if (agentId && selectedPrompt?.content) {
                           await updateAgent(agentId, { system_prompt: selectedPrompt.content });
                         }
                         setCallStatus("Initiating call…");
                         const result = await initiateOutboundCall({
-                          agent_id: agentId,
+                          agent_id: agentId ?? undefined,
                           to_number: current.phone_number,
                           contact_name: fullName(current),
                           notes: callNote || undefined,
