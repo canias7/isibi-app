@@ -2536,6 +2536,7 @@ interface CRMPrompt {
   name: string;
   content: string;
   direction: "inbound" | "outbound";
+  phoneNumber?: string;   // attached purchased phone number
   createdAt: string;
 }
 
@@ -2585,10 +2586,21 @@ function MyPromptView() {
   const [services, setServices]   = useState("");
   const [tone, setTone]           = useState("professional");
 
+  // Purchased phone numbers for attaching to prompt
+  const [myNumbers, setMyNumbers]         = useState<PurchasedNumber[]>([]);
+  const [loadingNumbers, setLoadingNumbers] = useState(false);
+  const [attachedNumber, setAttachedNumber] = useState<string>(selected?.phoneNumber ?? "");
+
+  useEffect(() => {
+    setLoadingNumbers(true);
+    getMyPhoneNumbers().then(nums => setMyNumbers(Array.isArray(nums) ? nums : [])).catch(() => {}).finally(() => setLoadingNumbers(false));
+  }, []);
+
   const selectPrompt = (p: CRMPrompt) => {
     setSelectedId(p.id);
     setName(p.name);
     setContent(p.content);
+    setAttachedNumber(p.phoneNumber ?? "");
     setMode("manual");
     setPickingDirection(false);
   };
@@ -2635,13 +2647,15 @@ function MyPromptView() {
   const handleSave = () => {
     if (!selectedId) return;
     setSaving(true);
-    const updated = prompts.map(p => p.id === selectedId ? { ...p, name, content } : p);
+    const updated = prompts.map(p =>
+      p.id === selectedId ? { ...p, name, content, phoneNumber: attachedNumber || undefined } : p
+    );
     setPrompts(updated);
     savePrompts(updated);
     setActivePromptId(selectedId);
     setTimeout(() => {
       setSaving(false);
-      toast({ title: "Prompt saved!", description: `"${name}" (${direction}) ready for Power Dialer.` });
+      toast({ title: "Prompt saved!", description: `"${name}" (${direction})${attachedNumber ? ` · ${attachedNumber}` : ""} ready for Power Dialer.` });
     }, 300);
   };
 
@@ -2727,6 +2741,12 @@ function MyPromptView() {
                 </span>
                 <p className="text-[10px] text-muted-foreground truncate">{p.content ? p.content.slice(0, 30) + "…" : "Empty"}</p>
               </div>
+              {p.phoneNumber && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <Phone className="h-2.5 w-2.5 text-primary/60 shrink-0" />
+                  <p className="text-[9px] text-primary/60 font-mono truncate">{p.phoneNumber}</p>
+                </div>
+              )}
               <button onClick={e => { e.stopPropagation(); deletePrompt(p.id); }}
                 className="absolute right-1 top-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:text-destructive transition-all">
                 <X className="h-3 w-3" />
@@ -2823,6 +2843,12 @@ function MyPromptView() {
                   : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20")}>
                 {direction === "outbound" ? "Outbound" : "Inbound"}
               </span>
+              {/* Attached number badge */}
+              {attachedNumber && (
+                <span className="text-[10px] font-mono font-medium rounded-full px-2.5 py-0.5 border bg-primary/10 text-primary border-primary/20 shrink-0 flex items-center gap-1">
+                  <Phone className="h-2.5 w-2.5" />{attachedNumber}
+                </span>
+              )}
               <div className="flex items-center gap-2 shrink-0">
                 {selected.id !== activeId
                   ? <Button variant="outline" size="sm" onClick={() => setAsActive(selected.id)} className="h-7 text-xs gap-1"><CheckCircle2 className="h-3 w-3" /> Set Active</Button>
@@ -2914,6 +2940,70 @@ function MyPromptView() {
                           {generating ? "Generating…" : `Generate ${direction === "outbound" ? "Outbound" : "Inbound"} Prompt`}
                         </Button>
                       </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Phone number attachment ── */}
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Phone Number</h3>
+                  {attachedNumber && (
+                    <button onClick={() => setAttachedNumber("")}
+                      className="text-[10px] text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors">
+                      <X className="h-3 w-3" /> Detach
+                    </button>
+                  )}
+                </div>
+                {loadingNumbers ? (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading your numbers…
+                  </div>
+                ) : myNumbers.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-border/30 bg-secondary/20 px-3 py-2.5 text-xs text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0" />
+                    No numbers purchased yet — go to <strong className="mx-1">Phone Setup</strong> to buy one.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-muted-foreground">Attach a phone number to this prompt. Calls using this prompt will show this number to recipients.</p>
+                    <div className="grid gap-2">
+                      {/* "None" option */}
+                      <button onClick={() => setAttachedNumber("")}
+                        className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left transition-all",
+                          !attachedNumber ? "border-primary/40 bg-primary/5" : "border-border/30 hover:border-border/60 hover:bg-secondary/30")}>
+                        <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                          !attachedNumber ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground")}>
+                          <X className="h-3.5 w-3.5" />
+                        </div>
+                        <div>
+                          <p className={cn("text-xs font-semibold", !attachedNumber ? "text-foreground" : "text-muted-foreground")}>No number</p>
+                          <p className="text-[10px] text-muted-foreground">Use default / system number</p>
+                        </div>
+                        {!attachedNumber && <CheckCircle2 className="h-4 w-4 text-primary ml-auto shrink-0" />}
+                      </button>
+
+                      {myNumbers.map(n => {
+                        const num = n.phone_number ?? (n as any).phoneNumber ?? (n as any).number ?? "";
+                        const friendly = n.friendly_name ?? (n as any).friendlyName ?? num;
+                        const isAttached = attachedNumber === num;
+                        return (
+                          <button key={num} onClick={() => setAttachedNumber(num)}
+                            className={cn("flex items-center gap-3 px-3 py-2.5 rounded-xl border-2 text-left transition-all",
+                              isAttached ? "border-primary/40 bg-primary/5" : "border-border/30 hover:border-border/60 hover:bg-secondary/30")}>
+                            <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                              isAttached ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground")}>
+                              <Phone className="h-3.5 w-3.5" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn("text-xs font-semibold font-mono", isAttached ? "text-foreground" : "text-muted-foreground")}>{num}</p>
+                              {friendly !== num && <p className="text-[10px] text-muted-foreground truncate">{friendly}</p>}
+                            </div>
+                            {isAttached && <CheckCircle2 className="h-4 w-4 text-primary ml-auto shrink-0" />}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
