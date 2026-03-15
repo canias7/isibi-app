@@ -306,13 +306,27 @@ class ElevenLabsVoiceHandler:
 
 
 @app.get("/outbound-twiml")
-async def outbound_twiml(agent_id: int = None):
-    """Return TwiML for an outbound AI call. Connects to the same media-stream WebSocket."""
+async def outbound_twiml(
+    agent_id: int = None,
+    llm_provider: str = None,
+    model: str = None,
+    voice_provider: str = None,
+    elevenlabs_voice_id: str = None,
+):
+    """Return TwiML for an outbound AI call. Passes all config as Stream Parameters."""
     vr = VoiceResponse()
     connect = Connect()
     stream = connect.stream(url=f"wss://{DOMAIN}/media-stream")
     if agent_id:
         stream.parameter(name="agent_id", value=str(agent_id))
+    if llm_provider:
+        stream.parameter(name="llm_provider", value=llm_provider)
+    if model:
+        stream.parameter(name="model", value=model)
+    if voice_provider:
+        stream.parameter(name="voice_provider", value=voice_provider)
+    if elevenlabs_voice_id:
+        stream.parameter(name="elevenlabs_voice_id", value=elevenlabs_voice_id)
     vr.append(connect)
     return HTMLResponse(str(vr), media_type="application/xml")
 
@@ -892,20 +906,26 @@ async def handle_media_stream(websocket: WebSocket):
                                         logger.info(f"🌍 Language set to: {_lang_name} ({_lang_code})")
 
                                     # Check if using Anthropic as LLM
-                                    llm_provider = agent.get("llm_provider", "openai")
+                                    # customParameters from TwiML override DB values (CRM outbound calls)
+                                    _cp_llm  = custom.get("llm_provider")
+                                    _cp_vp   = custom.get("voice_provider")
+                                    _cp_evid = custom.get("elevenlabs_voice_id")
+                                    _cp_model = custom.get("model")
+                                    llm_provider = _cp_llm or agent.get("llm_provider", "openai")
                                     use_anthropic = llm_provider == "anthropic"
-                                    agent_model = agent.get("model") or DEFAULT_REALTIME_MODEL
+                                    agent_model = _cp_model or agent.get("model") or DEFAULT_REALTIME_MODEL
                                     # Determine voice provider
-                                    voice_provider = agent.get("voice_provider", "openai")
-                                    elevenlabs_voice_id = agent.get("elevenlabs_voice_id")
+                                    voice_provider = _cp_vp or agent.get("voice_provider", "openai")
+                                    elevenlabs_voice_id = _cp_evid or agent.get("elevenlabs_voice_id")
 
                                     # use_elevenlabs = True means: intercept OpenAI audio and use our own TTS
                                     # This applies when: ElevenLabs is selected, OR Anthropic LLM is used
                                     # (in Anthropic mode we always handle TTS ourselves)
                                     use_elevenlabs = voice_provider == "elevenlabs" or use_anthropic
+                                    logger.info(f"🎛️ CRM params: llm={llm_provider} voice={voice_provider} evid={elevenlabs_voice_id}")
 
                                     if use_anthropic:
-                                        anthropic_model = agent.get("model") or "claude-opus-4-5"
+                                        anthropic_model = _cp_model or agent.get("model") or "claude-haiku-4-5"
                                         tts_label = "ElevenLabs" if voice_provider == "elevenlabs" else f"OpenAI TTS ({agent_voice})"
                                         logger.info(f"🧠 LLM: {anthropic_model} | STT: {selected_model} (transcription only) | TTS: {tts_label}")
                                     else:

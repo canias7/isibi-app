@@ -4219,9 +4219,15 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     if not to_number.startswith("+"):
         to_number = f"+1{to_number}" if len(to_number) == 10 else f"+{to_number}"
 
-    # TwiML URL — passes agent_id so WebSocket loads the right agent + system_prompt
-    agent_param = f"?agent_id={resolved_agent_id}" if resolved_agent_id else ""
-    twiml_url = f"{BACKEND_URL}/outbound-twiml{agent_param}"
+    # TwiML URL — passes agent_id + CRM voice config so WebSocket uses correct stack
+    # regardless of whether the DB update succeeded
+    import urllib.parse
+    crm_voice_id = el_voice_id if "el_voice_id" in dir() else "21m00Tcm4TlvDq8ikWAM"
+    params = {"llm_provider": "anthropic", "model": "claude-haiku-4-5",
+              "voice_provider": "elevenlabs", "elevenlabs_voice_id": crm_voice_id}
+    if resolved_agent_id:
+        params["agent_id"] = str(resolved_agent_id)
+    twiml_url = f"{BACKEND_URL}/outbound-twiml?{urllib.parse.urlencode(params)}"
 
     try:
         call = twilio_client.calls.create(
