@@ -4083,6 +4083,85 @@ def delete_crm_call(call_id: int, user=Depends(verify_token)):
     return {"deleted": True}
 
 
+# ── Outbound Calls (AI Pulse) ─────────────────────────────────────────────────
+
+class OutboundCallRequest(BaseModel):
+    agent_id: Optional[int] = None
+    to_number: str
+    contact_name: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.post("/calls/outbound")
+def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)):
+    """Initiate an AI outbound call via Twilio to a given number."""
+    from db import get_conn, sql
+
+    if not twilio_client:
+        raise HTTPException(status_code=503, detail="Twilio not configured")
+
+    user_id = user["id"]
+
+    # Resolve from_number: use agent's phone number or the user's first Twilio number
+    from_number = None
+    if body.agent_id:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT phone_number FROM agents WHERE id={PH} AND user_id={PH}"), (body.agent_id, user_id))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            from_number = row["phone_number"] if isinstance(row, dict) else row[0]
+
+    if not from_number:
+        # Fall back to first Twilio number owned by the account
+        numbers = twilio_client.incoming_phone_numbers.list(limit=1)
+        from_number = numbers[0].phone_number if numbers else None
+
+    if not from_number:
+        raise HTTPException(status_code=400, detail="No Twilio phone number available. Purchase a number in Phone Setup first.")
+
+    # Normalize to_number
+    to_number = body.to_number.strip()
+    if not to_number.startswith("+"):
+        to_number = f"+1{to_number}" if len(to_number) == 10 else f"+{to_number}"
+
+    # TwiML URL — points to our /outbound-twiml endpoint which connects the WebSocket
+    agent_param = f"?agent_id={body.agent_id}" if body.agent_id else ""
+    twiml_url = f"{BACKEND_URL}/outbound-twiml{agent_param}"
+
+    try:
+        call = twilio_client.calls.create(
+            to=to_number,
+            from_=from_number,
+            url=twiml_url,
+            method="GET",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Twilio error: {str(e)}")
+
+    # Log the call in crm_calls
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(sql("""
+            INSERT INTO crm_calls (user_id, phone_number, direction, status, notes)
+            VALUES ({PH}, {PH}, {PH}, {PH}, {PH})
+        """), (user_id, to_number, "outbound", "initiated", body.notes or ""))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # don't fail if logging fails
+
+    return {
+        "id": call.sid,
+        "to_number": to_number,
+        "from_number": from_number,
+        "contact_name": body.contact_name,
+        "status": call.status,
+        "created_at": str(call.date_created),
+    }
+
+
 # ── Contact Calls ─────────────────────────────────────────────────────────────
 
 @router.get("/contacts/{contact_id}/calls")

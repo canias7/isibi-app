@@ -751,7 +751,7 @@ export async function deleteDeveloperWebhook(webhookId: string): Promise<void> {
 // ── Outbound Calls API ───────────────────────────────────────────────────────
 
 export interface OutboundCallRequest {
-  agent_id: number;
+  agent_id?: number;
   to_number: string;
   contact_name?: string;
   notes?: string;

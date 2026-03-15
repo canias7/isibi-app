@@ -305,6 +305,18 @@ class ElevenLabsVoiceHandler:
         return cost
 
 
+@app.get("/outbound-twiml")
+async def outbound_twiml(agent_id: int = None):
+    """Return TwiML for an outbound AI call. Connects to the same media-stream WebSocket."""
+    vr = VoiceResponse()
+    connect = Connect()
+    stream = connect.stream(url=f"wss://{DOMAIN}/media-stream")
+    if agent_id:
+        stream.parameter(name="agent_id", value=str(agent_id))
+    vr.append(connect)
+    return HTMLResponse(str(vr), media_type="application/xml")
+
+
 @app.post("/incoming-call")
 async def incoming_call(request: Request):
     # Twilio sends form data, not JSON
