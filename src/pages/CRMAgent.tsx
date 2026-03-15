@@ -2561,12 +2561,15 @@ function MyPromptView() {
     return saved && list.find(p => p.id === saved) ? saved : list[0]?.id ?? null;
   });
 
+  // Direction picker shown before creating a new prompt
+  const [pickingDirection, setPickingDirection] = useState(false);
+
   const selected = prompts.find(p => p.id === selectedId) ?? null;
+  const direction = selected?.direction ?? "outbound";
 
   // Editor state
   const [name, setName]           = useState(selected?.name ?? "");
   const [content, setContent]     = useState(selected?.content ?? "");
-  const [direction, setDirection] = useState<"inbound" | "outbound">(selected?.direction ?? "outbound");
   const [mode, setMode]           = useState<"manual" | "ai" | "website">("manual");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [generating, setGenerating] = useState(false);
@@ -2583,15 +2586,23 @@ function MyPromptView() {
     setSelectedId(p.id);
     setName(p.name);
     setContent(p.content);
-    setDirection(p.direction ?? "outbound");
     setMode("manual");
+    setPickingDirection(false);
   };
 
+  // Step 1: open direction picker
   const createNew = () => {
-    const p: CRMPrompt = { id: Date.now().toString(), name: "New Prompt", content: "", direction: "outbound", createdAt: new Date().toISOString() };
+    setSelectedId(null);
+    setPickingDirection(true);
+  };
+
+  // Step 2: direction chosen — create the prompt
+  const createNewWithDirection = (dir: "inbound" | "outbound") => {
+    const p: CRMPrompt = { id: Date.now().toString(), name: "New Prompt", content: "", direction: dir, createdAt: new Date().toISOString() };
     const updated = [...prompts, p];
     setPrompts(updated);
     savePrompts(updated);
+    setPickingDirection(false);
     selectPrompt(p);
   };
 
@@ -2609,7 +2620,7 @@ function MyPromptView() {
   const handleSave = () => {
     if (!selectedId) return;
     setSaving(true);
-    const updated = prompts.map(p => p.id === selectedId ? { ...p, name, content, direction } : p);
+    const updated = prompts.map(p => p.id === selectedId ? { ...p, name, content } : p);
     setPrompts(updated);
     savePrompts(updated);
     setActivePromptId(selectedId);
@@ -2712,7 +2723,53 @@ function MyPromptView() {
 
       {/* Right — editor */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {!selected ? (
+
+        {/* ── Direction picker (shown before creating a prompt) ── */}
+        {pickingDirection ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
+            <div className="text-center space-y-1">
+              <p className="text-base font-semibold text-foreground">What type of prompt do you need?</p>
+              <p className="text-sm text-muted-foreground">Choose a direction — this is set once per prompt.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+              {([
+                {
+                  id: "outbound" as const,
+                  icon: PhoneCall,
+                  label: "Outbound",
+                  desc: "AI calls your leads to sell, qualify, or follow up",
+                  color: "border-blue-500 bg-blue-500/5 hover:bg-blue-500/10",
+                  iconColor: "bg-blue-500/15 text-blue-400",
+                  textColor: "text-blue-400",
+                },
+                {
+                  id: "inbound" as const,
+                  icon: PhoneIncoming,
+                  label: "Inbound",
+                  desc: "AI answers calls from customers — support, inquiries, booking",
+                  color: "border-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10",
+                  iconColor: "bg-emerald-500/15 text-emerald-400",
+                  textColor: "text-emerald-400",
+                },
+              ]).map(opt => (
+                <button key={opt.id} onClick={() => createNewWithDirection(opt.id)}
+                  className={cn("flex flex-col items-center gap-3 rounded-2xl border-2 p-6 text-center transition-all shadow-sm", opt.color)}>
+                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", opt.iconColor)}>
+                    <opt.icon className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className={cn("text-sm font-bold", opt.textColor)}>{opt.label}</p>
+                    <p className="text-[11px] text-muted-foreground leading-tight mt-1">{opt.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setPickingDirection(false)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
+              Cancel
+            </button>
+          </div>
+
+        ) : !selected ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
             <BotMessageSquare className="h-16 w-16 opacity-20" />
             <p className="text-sm">Select a prompt or create a new one</p>
@@ -2725,6 +2782,13 @@ function MyPromptView() {
               <BotMessageSquare className="h-5 w-5 text-primary shrink-0" />
               <Input value={name} onChange={e => setName(e.target.value)} placeholder="Prompt name…"
                 className="h-8 text-sm font-semibold bg-transparent border-0 border-b border-border/40 rounded-none px-0 focus-visible:ring-0 flex-1" />
+              {/* Direction badge — read-only, set at creation */}
+              <span className={cn("text-[10px] font-semibold rounded-full px-2.5 py-0.5 border shrink-0",
+                direction === "outbound"
+                  ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20")}>
+                {direction === "outbound" ? "Outbound" : "Inbound"}
+              </span>
               <div className="flex items-center gap-2 shrink-0">
                 {selected.id !== activeId
                   ? <Button variant="outline" size="sm" onClick={() => setAsActive(selected.id)} className="h-7 text-xs gap-1"><CheckCircle2 className="h-3 w-3" /> Set Active</Button>
@@ -2737,46 +2801,9 @@ function MyPromptView() {
 
             <div className="flex-1 overflow-auto p-5 space-y-5">
 
-              {/* ── STEP 1: Inbound / Outbound ── */}
-              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 1 — Call Direction</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  {([
-                    {
-                      id: "outbound" as const,
-                      icon: PhoneCall,
-                      label: "Outbound",
-                      desc: "AI calls your leads to sell, qualify, or follow up",
-                      color: "border-blue-500 bg-blue-500/5",
-                      iconColor: "bg-blue-500/15 text-blue-400",
-                    },
-                    {
-                      id: "inbound" as const,
-                      icon: PhoneIncoming,
-                      label: "Inbound",
-                      desc: "AI answers calls from customers — support, inquiries, booking",
-                      color: "border-emerald-500 bg-emerald-500/5",
-                      iconColor: "bg-emerald-500/15 text-emerald-400",
-                    },
-                  ]).map(opt => (
-                    <button key={opt.id} onClick={() => setDirection(opt.id)}
-                      className={cn("flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all",
-                        direction === opt.id ? opt.color + " shadow-sm" : "border-border/40 hover:border-border hover:bg-card/50")}>
-                      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", direction === opt.id ? opt.iconColor : "bg-secondary text-muted-foreground")}>
-                        <opt.icon className="h-4 w-4" />
-                      </div>
-                      <div>
-                        <p className={cn("text-sm font-semibold", direction === opt.id ? "text-foreground" : "text-muted-foreground")}>{opt.label}</p>
-                        <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── STEP 2: Generation mode ── */}
+              {/* ── STEP 1: Generation mode ── */}
               <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 2 — Generate Prompt</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 1 — Generate Prompt</h3>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     { id: "manual" as const,  icon: Pencil,   label: "Write Manually" },
@@ -2858,10 +2885,10 @@ function MyPromptView() {
                 )}
               </div>
 
-              {/* ── STEP 3: Prompt editor ── */}
+              {/* ── STEP 2: Prompt editor ── */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Step 3 — Prompt Content</Label>
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Step 2 — Prompt Content</Label>
                   <span className="text-[10px] text-muted-foreground">{content.length} chars</span>
                 </div>
                 <textarea value={content} onChange={e => setContent(e.target.value)}
