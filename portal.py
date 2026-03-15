@@ -4168,11 +4168,28 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     # Push system_prompt + force CRM voice stack (Haiku 4.5 + ElevenLabs + Whisper STT)
     if resolved_agent_id:
         try:
-            # Preserve existing ElevenLabs voice ID if already configured
+            # 1. Try the specific agent first
             cur.execute(sql("SELECT elevenlabs_voice_id FROM agents WHERE id={PH}"), (resolved_agent_id,))
             voice_row = cur.fetchone()
             existing_voice_id = (voice_row["elevenlabs_voice_id"] if isinstance(voice_row, dict) else voice_row[0]) if voice_row else None
-            el_voice_id = existing_voice_id or "21m00Tcm4TlvDq8ikWAM"  # Rachel fallback
+
+            # 2. If not set on this agent, grab it from any of the user's active agents
+            if not existing_voice_id:
+                cur.execute(sql(
+                    "SELECT elevenlabs_voice_id FROM agents "
+                    "WHERE owner_user_id={PH} AND elevenlabs_voice_id IS NOT NULL "
+                    "AND elevenlabs_voice_id != '' AND deleted_at IS NULL "
+                    "ORDER BY id LIMIT 1"
+                ), (user_id,))
+                fallback_voice_row = cur.fetchone()
+                if fallback_voice_row:
+                    existing_voice_id = (
+                        fallback_voice_row["elevenlabs_voice_id"]
+                        if isinstance(fallback_voice_row, dict)
+                        else fallback_voice_row[0]
+                    )
+
+            el_voice_id = existing_voice_id or "21m00Tcm4TlvDq8ikWAM"  # Rachel as last resort
         except Exception as e:
             import logging as _log
             _log.warning(f"CRM: could not read existing voice_id: {e}")
