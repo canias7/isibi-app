@@ -4090,6 +4090,7 @@ class OutboundCallRequest(BaseModel):
     to_number: str
     contact_name: Optional[str] = None
     notes: Optional[str] = None
+    system_prompt: Optional[str] = None   # CRM prompt content — pushed to agent before calling
 
 @router.post("/calls/outbound")
 def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)):
@@ -4101,16 +4102,33 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
 
     user_id = user["id"]
 
-    # Resolve from_number: use agent's phone number or the user's first Twilio number
+    # Resolve agent: prefer explicit agent_id, otherwise find by phone number
+    resolved_agent_id = body.agent_id
     from_number = None
-    if body.agent_id:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute(sql("SELECT phone_number FROM agents WHERE id={PH} AND user_id={PH}"), (body.agent_id, user_id))
-        row = cur.fetchone()
-        conn.close()
-        if row:
-            from_number = row["phone_number"] if isinstance(row, dict) else row[0]
+
+    conn = get_conn()
+    cur = conn.cursor()
+    if resolved_agent_id:
+        cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND user_id={PH}"), (resolved_agent_id, user_id))
+    else:
+        # Pick the user's first agent that has a phone number
+        cur.execute(sql("SELECT id, phone_number FROM agents WHERE user_id={PH} AND phone_number IS NOT NULL AND phone_number != '' LIMIT 1"), (user_id,))
+    row = cur.fetchone()
+    if row:
+        resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
+        from_number = row["phone_number"] if isinstance(row, dict) else row[1]
+
+    # If the CRM prompt has content, push it to the agent's system_prompt NOW
+    # so the WebSocket handler loads it when the call connects
+    if body.system_prompt and resolved_agent_id:
+        try:
+            cur.execute(sql("UPDATE agents SET system_prompt={PH} WHERE id={PH} AND user_id={PH}"),
+                        (body.system_prompt, resolved_agent_id, user_id))
+            conn.commit()
+        except Exception:
+            pass  # don't block the call if the update fails
+
+    conn.close()
 
     if not from_number:
         # Fall back to first Twilio number owned by the account
@@ -4125,8 +4143,8 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     if not to_number.startswith("+"):
         to_number = f"+1{to_number}" if len(to_number) == 10 else f"+{to_number}"
 
-    # TwiML URL — points to our /outbound-twiml endpoint which connects the WebSocket
-    agent_param = f"?agent_id={body.agent_id}" if body.agent_id else ""
+    # TwiML URL — passes agent_id so WebSocket loads the right agent + system_prompt
+    agent_param = f"?agent_id={resolved_agent_id}" if resolved_agent_id else ""
     twiml_url = f"{BACKEND_URL}/outbound-twiml{agent_param}"
 
     try:

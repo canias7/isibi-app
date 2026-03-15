@@ -1398,7 +1398,8 @@ function PowerDialerView({ contacts, onStatusChange }: {
   const allPrompts = loadPrompts();
   const [selectedPromptId, setSelectedPromptId] = useState<string>(() => getActivePromptId() ?? "");
   const selectedPrompt = allPrompts.find(p => p.id === selectedPromptId) ?? null;
-  const agentId = localStorage.getItem("crm_agent_id") ? Number(localStorage.getItem("crm_agent_id")) : null;
+  // Agent comes from the phone number attached to the selected CRM prompt
+  const agentId: number | null = selectedPrompt?.agentId ?? null;
 
   // Text / Email — message
   const [smsMessage, setSmsMessage]       = useState("");
@@ -1454,8 +1455,13 @@ function PowerDialerView({ contacts, onStatusChange }: {
     await Promise.allSettled(targets.map(async c => {
       try {
         if (action === "call") {
-          if (agentId && selectedPrompt?.content) await updateAgent(agentId, { system_prompt: selectedPrompt.content });
-          await initiateOutboundCall({ agent_id: agentId ?? undefined, to_number: c.phone_number, contact_name: fullName(c) });
+          // Pass system_prompt directly — backend pushes it to the agent before calling
+          await initiateOutboundCall({
+            agent_id: agentId ?? undefined,
+            to_number: c.phone_number,
+            contact_name: fullName(c),
+            system_prompt: selectedPrompt?.content ?? undefined,
+          });
         } else if (action === "text") {
           await sendContactSMS(c.id, smsMessage);
         } else {
@@ -2576,6 +2582,7 @@ interface CRMPrompt {
   content: string;
   direction: "inbound" | "outbound";
   phoneNumber?: string;   // attached purchased phone number
+  agentId?: number;       // voice agent linked to that phone number
   createdAt: string;
 }
 
@@ -2629,6 +2636,13 @@ function MyPromptView() {
   const [myNumbers, setMyNumbers]         = useState<PurchasedNumber[]>([]);
   const [loadingNumbers, setLoadingNumbers] = useState(false);
   const [attachedNumber, setAttachedNumber] = useState<string>(selected?.phoneNumber ?? "");
+  const [attachedAgentId, setAttachedAgentId] = useState<number | undefined>(selected?.agentId);
+  const [attachingPhone, setAttachingPhone] = useState(false);
+  const [myAgents, setMyAgents]           = useState<AgentOut[]>([]);
+
+  useEffect(() => {
+    listAgents().then(a => setMyAgents(Array.isArray(a) ? a : [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoadingNumbers(true);
@@ -2640,6 +2654,7 @@ function MyPromptView() {
     setName(p.name);
     setContent(p.content);
     setAttachedNumber(p.phoneNumber ?? "");
+    setAttachedAgentId(p.agentId);
     setMode("manual");
     setPickingDirection(false);
   };
@@ -2687,15 +2702,48 @@ function MyPromptView() {
     if (!selectedId) return;
     setSaving(true);
     const updated = prompts.map(p =>
-      p.id === selectedId ? { ...p, name, content, phoneNumber: attachedNumber || undefined } : p
+      p.id === selectedId
+        ? { ...p, name, content, phoneNumber: attachedNumber || undefined, agentId: attachedAgentId }
+        : p
     );
     setPrompts(updated);
     savePrompts(updated);
     setActivePromptId(selectedId);
     setTimeout(() => {
       setSaving(false);
-      toast({ title: "Prompt saved!", description: `"${name}" (${direction})${attachedNumber ? ` · ${attachedNumber}` : ""} ready for Power Dialer.` });
+      toast({ title: "Prompt saved!", description: `"${name}" (${direction})${attachedNumber ? ` · ${attachedNumber}` : ""} ready for AI Pulse.` });
     }, 300);
+  };
+
+  // Attach a purchased phone number to this prompt — finds the agent for that number,
+  // pushes the current prompt content to it, and saves the agentId.
+  const handleAttachPhone = async (phoneNumber: string) => {
+    setAttachedNumber(phoneNumber);
+    if (!phoneNumber) { setAttachedAgentId(undefined); return; }
+    setAttachingPhone(true);
+    try {
+      // Find matching agent by phone number
+      const agent = myAgents.find(a =>
+        a.phone_number === phoneNumber ||
+        a.phone_number === phoneNumber.replace(/^\+1/, "") ||
+        `+1${a.phone_number}` === phoneNumber
+      );
+      if (agent) {
+        // Push current prompt content to that agent's system_prompt
+        if (content.trim()) {
+          await updateAgent(agent.id, { system_prompt: content });
+        }
+        setAttachedAgentId(agent.id);
+        toast({ title: "Phone number attached!", description: `AI Pulse will call from ${phoneNumber} using this prompt.` });
+      } else {
+        setAttachedAgentId(undefined);
+        toast({ title: "Phone attached", description: `${phoneNumber} saved. No voice agent found for this number — calls will use default settings.`, variant: "default" });
+      }
+    } catch (err: any) {
+      toast({ title: "Attach failed", description: err.message, variant: "destructive" });
+    } finally {
+      setAttachingPhone(false);
+    }
   };
 
   const setAsActive = (id: string) => {
@@ -3072,6 +3120,51 @@ function MyPromptView() {
                   ))}
                 </ul>
               </div>
+
+              {/* ── Step 3: Attach Phone Number ── */}
+              <div className={cn("rounded-xl border-2 p-4 space-y-3 transition-colors",
+                attachedNumber ? "border-green-500/30 bg-green-500/5" : "border-border/30 bg-card/40")}>
+                <div className="flex items-center gap-2">
+                  <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                    attachedNumber ? "bg-green-500/15" : "bg-secondary")}>
+                    <Phone className={cn("h-3.5 w-3.5", attachedNumber ? "text-green-400" : "text-muted-foreground")} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold">Step 3 — Attach Phone Number</p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {attachedNumber
+                        ? `AI Pulse calls from ${attachedNumber}${attachedAgentId ? " · agent linked ✓" : ""}`
+                        : "Select which number AI Pulse calls from"}
+                    </p>
+                  </div>
+                  {attachingPhone && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground shrink-0" />}
+                </div>
+
+                {loadingNumbers ? (
+                  <p className="text-[11px] text-muted-foreground">Loading your numbers…</p>
+                ) : myNumbers.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    No purchased numbers yet — go to <strong>Phone Setup</strong> to buy one.
+                  </p>
+                ) : (
+                  <select
+                    value={attachedNumber}
+                    onChange={e => handleAttachPhone(e.target.value)}
+                    disabled={attachingPhone}
+                    className={cn(
+                      "w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none focus:ring-2 focus:ring-primary/30",
+                      attachedNumber ? "border-green-500/30 text-foreground" : "border-border/40 text-muted-foreground"
+                    )}>
+                    <option value="">— choose a number —</option>
+                    {myNumbers.map(n => (
+                      <option key={n.twilio_sid ?? n.phone_number} value={n.phone_number}>
+                        {n.phone_number}{n.friendly_name ? ` · ${n.friendly_name}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
             </div>
           </>
         )}

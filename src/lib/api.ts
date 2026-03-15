@@ -755,6 +755,7 @@ export interface OutboundCallRequest {
   to_number: string;
   contact_name?: string;
   notes?: string;
+  system_prompt?: string;
 }
 
 export interface OutboundCall {
