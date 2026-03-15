@@ -4165,15 +4165,33 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         except Exception as e:
             print(f"⚠️  Could not create fallback agent: {e}")
 
-    # If the CRM prompt has content, push it to the agent's system_prompt NOW
-    # so the WebSocket handler loads it when the call connects
-    if body.system_prompt and resolved_agent_id:
+    # Push system_prompt + force CRM voice stack (Haiku 4.5 + ElevenLabs + Whisper STT)
+    if resolved_agent_id:
         try:
-            cur.execute(sql("UPDATE agents SET system_prompt={PH} WHERE id={PH} AND owner_user_id={PH}"),
-                        (body.system_prompt, resolved_agent_id, user_id))
+            # Read the agent's current elevenlabs_voice_id so we don't lose it
+            cur.execute(sql("SELECT elevenlabs_voice_id FROM agents WHERE id={PH} AND owner_user_id={PH}"),
+                        (resolved_agent_id, user_id))
+            voice_row = cur.fetchone()
+            existing_voice_id = (voice_row["elevenlabs_voice_id"] if isinstance(voice_row, dict) else voice_row[0]) if voice_row else None
+            # Fall back to a reliable ElevenLabs default voice (Rachel)
+            el_voice_id = existing_voice_id or "21m00Tcm4TlvDq8ikWAM"
+
+            update_fields = {
+                "llm_provider": "anthropic",
+                "model": "claude-haiku-4-5",
+                "voice_provider": "elevenlabs",
+                "elevenlabs_voice_id": el_voice_id,
+            }
+            if body.system_prompt:
+                update_fields["system_prompt"] = body.system_prompt
+
+            set_clause = ", ".join(f"{k}={{PH}}" for k in update_fields)
+            values = list(update_fields.values()) + [resolved_agent_id, user_id]
+            cur.execute(sql(f"UPDATE agents SET {set_clause} WHERE id={{PH}} AND owner_user_id={{PH}}"), values)
             conn.commit()
-        except Exception:
-            pass  # don't block the call if the update fails
+            print(f"✅ Agent {resolved_agent_id} configured: anthropic/claude-haiku-4-5 + elevenlabs/{el_voice_id}")
+        except Exception as e:
+            print(f"⚠️  Could not configure agent for CRM call: {e}")
 
     conn.close()
 
