@@ -1047,11 +1047,42 @@ async def handle_media_stream(websocket: WebSocket):
                             except Exception as e:
                                 logger.error(f"❌ Error loading agent: {e}")
 
+                        # ── CRM outbound override ────────────────────────────────────────
+                        # customParameters carry llm/voice config from the TwiML URL.
+                        # Apply them even when agent was None / not found in DB,
+                        # so outbound CRM calls always get the right AI stack.
+                        _cp_llm_ov = custom.get("llm_provider") if custom else None
+                        if _cp_llm_ov == "anthropic" and not use_anthropic:
+                            _cp_vp_ov   = custom.get("voice_provider", "elevenlabs")
+                            _cp_evid_ov = custom.get("elevenlabs_voice_id") or "21m00Tcm4TlvDq8ikWAM"
+                            _cp_mod_ov  = custom.get("model") or "claude-haiku-4-5"
+                            use_anthropic   = True
+                            anthropic_model = _cp_mod_ov
+                            use_elevenlabs  = True
+                            current_system_prompt = (
+                                agent.get("system_prompt") if agent else SYSTEM_MESSAGE
+                            )
+                            if not elevenlabs_handler:
+                                elevenlabs_handler = ElevenLabsVoiceHandler(
+                                    voice_id=_cp_evid_ov,
+                                    websocket=websocket,
+                                    stream_sid=stream_sid or "unknown",
+                                )
+                            logger.info(f"🎛️ CRM override: anthropic/{_cp_mod_ov} + elevenlabs/{_cp_evid_ov}")
+                            # Switch OpenAI to STT-only so it won't generate audio
+                            await initialize_session(
+                                openai_ws,
+                                instructions="You are a transcription service only. Do not generate any responses.",
+                                stt_only=True,
+                            )
+                            await asyncio.sleep(0.2)
+                        # ─────────────────────────────────────────────────────────────────
+
                         # Reset per-call state
                         response_start_timestamp_twilio = None
                         latest_media_timestamp = 0
                         last_assistant_item = None
-                        
+
                         # Send first message if configured
                         if not first_message_sent:
                             logger.info(f"📢 Triggering greeting: use_anthropic={use_anthropic} elevenlabs_handler={elevenlabs_handler is not None} use_elevenlabs={use_elevenlabs}")
