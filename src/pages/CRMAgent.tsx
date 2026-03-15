@@ -2534,7 +2534,7 @@ interface CRMPrompt {
   id: string;
   name: string;
   content: string;
-  agentId: number | null;
+  direction: "inbound" | "outbound";
   createdAt: string;
 }
 
@@ -2564,36 +2564,31 @@ function MyPromptView() {
   const selected = prompts.find(p => p.id === selectedId) ?? null;
 
   // Editor state
-  const [name, setName]         = useState(selected?.name ?? "");
-  const [content, setContent]   = useState(selected?.content ?? "");
-  const [agentId, setAgentId]   = useState<number | null>(selected?.agentId ?? null);
-  const [mode, setMode]         = useState<"manual" | "ai" | "website">("manual");
+  const [name, setName]           = useState(selected?.name ?? "");
+  const [content, setContent]     = useState(selected?.content ?? "");
+  const [direction, setDirection] = useState<"inbound" | "outbound">(selected?.direction ?? "outbound");
+  const [mode, setMode]           = useState<"manual" | "ai" | "website">("manual");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [saving, setSaving]     = useState(false);
+  const [saving, setSaving]       = useState(false);
 
-  // AI form
-  const [bizName, setBizName]   = useState("");
-  const [bizType, setBizType]   = useState("general");
-  const [bizDesc, setBizDesc]   = useState("");
-  const [services, setServices] = useState("");
-  const [tone, setTone]         = useState("professional");
+  // AI form fields
+  const [bizName, setBizName]     = useState("");
+  const [bizType, setBizType]     = useState("general");
+  const [bizDesc, setBizDesc]     = useState("");
+  const [services, setServices]   = useState("");
+  const [tone, setTone]           = useState("professional");
 
-  // Agents for selector
-  const [agents, setAgents] = useState<AgentOut[]>([]);
-  useEffect(() => { listAgents().then(d => setAgents(Array.isArray(d) ? d : [])).catch(() => {}); }, []);
-
-  // Sync editor when selecting a prompt
   const selectPrompt = (p: CRMPrompt) => {
     setSelectedId(p.id);
     setName(p.name);
     setContent(p.content);
-    setAgentId(p.agentId);
+    setDirection(p.direction ?? "outbound");
     setMode("manual");
   };
 
   const createNew = () => {
-    const p: CRMPrompt = { id: Date.now().toString(), name: "New Prompt", content: "", agentId: null, createdAt: new Date().toISOString() };
+    const p: CRMPrompt = { id: Date.now().toString(), name: "New Prompt", content: "", direction: "outbound", createdAt: new Date().toISOString() };
     const updated = [...prompts, p];
     setPrompts(updated);
     savePrompts(updated);
@@ -2607,29 +2602,27 @@ function MyPromptView() {
     savePrompts(updated);
     if (selectedId === id) {
       const next = updated[0] ?? null;
-      if (next) selectPrompt(next); else { setSelectedId(null); setName(""); setContent(""); setAgentId(null); }
+      if (next) selectPrompt(next); else { setSelectedId(null); setName(""); setContent(""); setDirection("outbound"); }
     }
   };
 
   const handleSave = () => {
     if (!selectedId) return;
     setSaving(true);
-    const updated = prompts.map(p => p.id === selectedId ? { ...p, name, content, agentId } : p);
+    const updated = prompts.map(p => p.id === selectedId ? { ...p, name, content, direction } : p);
     setPrompts(updated);
     savePrompts(updated);
     setActivePromptId(selectedId);
-    if (agentId) localStorage.setItem("crm_agent_id", String(agentId));
     setTimeout(() => {
       setSaving(false);
-      toast({ title: "Prompt saved!", description: `"${name}" is ready for Power Dialer.` });
+      toast({ title: "Prompt saved!", description: `"${name}" (${direction}) ready for Power Dialer.` });
     }, 300);
   };
 
   const setAsActive = (id: string) => {
     setActivePromptId(id);
     const p = prompts.find(x => x.id === id);
-    if (p?.agentId) localStorage.setItem("crm_agent_id", String(p.agentId));
-    toast({ title: "Active prompt set", description: `Power Dialer will use "${p?.name}"` });
+    toast({ title: "Active prompt set", description: `Power Dialer will use "${p?.name}" (${p?.direction})` });
   };
 
   const generateFromWebsite = async () => {
@@ -2639,7 +2632,7 @@ function MyPromptView() {
       const token = localStorage.getItem("token");
       const res = await fetch("https://isibi-backend.onrender.com/api/agents/generate-prompt-from-url", {
         method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ url: websiteUrl }),
+        body: JSON.stringify({ url: websiteUrl, call_direction: direction }),
       });
       const data = await res.json();
       if (res.ok && data.prompt) { setContent(data.prompt); setMode("manual"); toast({ title: "Prompt generated!", description: data.page_title || websiteUrl }); }
@@ -2652,15 +2645,26 @@ function MyPromptView() {
     if (!bizName.trim()) { toast({ title: "Enter a business name", variant: "destructive" }); return; }
     setGenerating(true);
     try {
-      const result = await generateAIPromptAdvanced({ business_name: bizName, business_type: bizType, business_description: bizDesc, services, tone, assistant_name: name || "AI Assistant", special_instructions: "", hours: "", phone_number: "", address: "" });
-      setContent((result as any).prompt || result as any);
+      const result = await generateAIPromptAdvanced({
+        business_name: bizName, business_type: bizType,
+        business_description: bizDesc, services, tone,
+        assistant_name: name || "AI Assistant",
+        call_direction: direction,
+        special_instructions: "", hours: "", phone_number: "", address: "",
+      });
+      setContent((result as any).prompt || (result as any));
       setMode("manual");
-      toast({ title: "Prompt generated with AI!" });
+      toast({ title: `${direction === "outbound" ? "Outbound sales" : "Inbound"} prompt generated!` });
     } catch (err: any) { toast({ title: "Generation failed", description: err.message, variant: "destructive" }); }
     finally { setGenerating(false); }
   };
 
   const activeId = getActivePromptId();
+
+  const directionTips = {
+    outbound: ["Introduce name + company + reason for calling in the first 5 seconds","Ask a qualifying question right away to start a dialogue","Goal: qualify the lead and book a follow-up — not close on the first call","Handle objections briefly: 'Not interested' → ask why, then thank and end","Always end with a clear next step: confirm a time or get permission to follow up"],
+    inbound:  ["Greet warmly, state your name and company, then immediately ask how you can help","Let the caller lead — listen before offering anything","Never push — respond to what they actually need","Collect their name and purpose naturally, not like a form","Offer a next step only if the caller seems ready for it"],
+  };
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -2677,22 +2681,26 @@ function MyPromptView() {
             <div className="text-center py-8 text-muted-foreground/60 text-xs space-y-2">
               <BotMessageSquare className="h-8 w-8 mx-auto opacity-30" />
               <p>No prompts yet</p>
-              <button onClick={createNew} className="text-primary hover:underline text-xs">Create your first</button>
+              <button onClick={createNew} className="text-primary hover:underline">Create your first</button>
             </div>
           )}
           {prompts.map(p => (
-            <div key={p.id}
-              onClick={() => selectPrompt(p)}
-              className={cn(
-                "group relative flex flex-col gap-0.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all",
-                selectedId === p.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/50 border border-transparent"
-              )}>
+            <div key={p.id} onClick={() => selectPrompt(p)}
+              className={cn("group relative flex flex-col gap-0.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all",
+                selectedId === p.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/50 border border-transparent")}>
               <div className="flex items-center gap-1.5">
                 <span className="text-xs font-medium truncate flex-1">{p.name || "Untitled"}</span>
                 {p.id === activeId && <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 rounded-full px-1.5 shrink-0">Active</span>}
               </div>
-              <p className="text-[10px] text-muted-foreground truncate">{p.content ? p.content.slice(0, 45) + "…" : "Empty"}</p>
-              {/* Delete on hover */}
+              <div className="flex items-center gap-1.5">
+                <span className={cn("text-[9px] rounded-full px-1.5 border font-medium shrink-0",
+                  (p.direction ?? "outbound") === "outbound"
+                    ? "bg-blue-500/10 text-blue-400 border-blue-500/20"
+                    : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20")}>
+                  {(p.direction ?? "outbound") === "outbound" ? "Outbound" : "Inbound"}
+                </span>
+                <p className="text-[10px] text-muted-foreground truncate">{p.content ? p.content.slice(0, 30) + "…" : "Empty"}</p>
+              </div>
               <button onClick={e => { e.stopPropagation(); deletePrompt(p.id); }}
                 className="absolute right-1 top-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:text-destructive transition-all">
                 <X className="h-3 w-3" />
@@ -2712,42 +2720,63 @@ function MyPromptView() {
           </div>
         ) : (
           <>
-            {/* Editor header */}
+            {/* Header */}
             <div className="flex items-center gap-3 px-5 py-3 border-b border-border/30 bg-card/20 shrink-0">
               <BotMessageSquare className="h-5 w-5 text-primary shrink-0" />
               <Input value={name} onChange={e => setName(e.target.value)} placeholder="Prompt name…"
                 className="h-8 text-sm font-semibold bg-transparent border-0 border-b border-border/40 rounded-none px-0 focus-visible:ring-0 flex-1" />
               <div className="flex items-center gap-2 shrink-0">
-                {selected.id !== activeId && (
-                  <Button variant="outline" size="sm" onClick={() => setAsActive(selected.id)} className="h-7 text-xs gap-1.5">
-                    <CheckCircle2 className="h-3 w-3" /> Set Active
-                  </Button>
-                )}
-                {selected.id === activeId && (
-                  <Badge className="border border-green-500/30 text-green-400 bg-green-500/10 text-xs">Active</Badge>
-                )}
-                <Button onClick={handleSave} disabled={saving} size="sm" className="h-7 text-xs gap-1.5">
-                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-                  Save
+                {selected.id !== activeId
+                  ? <Button variant="outline" size="sm" onClick={() => setAsActive(selected.id)} className="h-7 text-xs gap-1"><CheckCircle2 className="h-3 w-3" /> Set Active</Button>
+                  : <Badge className="border border-green-500/30 text-green-400 bg-green-500/10 text-xs">Active</Badge>}
+                <Button onClick={handleSave} disabled={saving} size="sm" className="h-7 text-xs gap-1">
+                  {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Save
                 </Button>
               </div>
             </div>
 
             <div className="flex-1 overflow-auto p-5 space-y-5">
-              {/* Voice Agent selector */}
+
+              {/* ── STEP 1: Inbound / Outbound ── */}
               <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Voice Agent</h3>
-                <select value={agentId ?? ""} onChange={e => setAgentId(e.target.value ? Number(e.target.value) : null)}
-                  className="w-full h-9 rounded-lg border border-input bg-background/50 px-3 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20">
-                  <option value="">— Select agent for Power Dialer calls —</option>
-                  {agents.map(a => <option key={a.id} value={a.id}>{a.name}{a.phone_number ? ` · ${a.phone_number}` : ""}</option>)}
-                </select>
-                <p className="text-xs text-muted-foreground">This agent's voice & settings will be used. The prompt below overrides its system prompt for each call.</p>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 1 — Call Direction</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {([
+                    {
+                      id: "outbound" as const,
+                      icon: PhoneCall,
+                      label: "Outbound",
+                      desc: "AI calls your leads to sell, qualify, or follow up",
+                      color: "border-blue-500 bg-blue-500/5",
+                      iconColor: "bg-blue-500/15 text-blue-400",
+                    },
+                    {
+                      id: "inbound" as const,
+                      icon: PhoneIncoming,
+                      label: "Inbound",
+                      desc: "AI answers calls from customers — support, inquiries, booking",
+                      color: "border-emerald-500 bg-emerald-500/5",
+                      iconColor: "bg-emerald-500/15 text-emerald-400",
+                    },
+                  ]).map(opt => (
+                    <button key={opt.id} onClick={() => setDirection(opt.id)}
+                      className={cn("flex flex-col items-start gap-2 rounded-xl border-2 p-4 text-left transition-all",
+                        direction === opt.id ? opt.color + " shadow-sm" : "border-border/40 hover:border-border hover:bg-card/50")}>
+                      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", direction === opt.id ? opt.iconColor : "bg-secondary text-muted-foreground")}>
+                        <opt.icon className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <p className={cn("text-sm font-semibold", direction === opt.id ? "text-foreground" : "text-muted-foreground")}>{opt.label}</p>
+                        <p className="text-[11px] text-muted-foreground leading-tight mt-0.5">{opt.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Generation mode */}
+              {/* ── STEP 2: Generation mode ── */}
               <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-4">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Generate Prompt</h3>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 2 — Generate Prompt</h3>
                 <div className="grid grid-cols-3 gap-2">
                   {([
                     { id: "manual" as const,  icon: Pencil,   label: "Write Manually" },
@@ -2765,9 +2794,17 @@ function MyPromptView() {
                   ))}
                 </div>
 
+                {/* Direction context banner */}
+                <div className={cn("rounded-lg px-3 py-2 text-xs flex items-center gap-2",
+                  direction === "outbound" ? "bg-blue-500/10 text-blue-300 border border-blue-500/20" : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20")}>
+                  {direction === "outbound"
+                    ? <><PhoneCall className="h-3.5 w-3.5 shrink-0" /> Prompt will be generated for <strong className="mx-1">outbound sales calls</strong> — AI calls prospects to sell / qualify.</>
+                    : <><PhoneIncoming className="h-3.5 w-3.5 shrink-0" /> Prompt will be generated for <strong className="mx-1">inbound calls</strong> — AI answers and assists callers.</>}
+                </div>
+
                 {mode === "website" && (
                   <div className="rounded-xl border border-border/30 bg-secondary/20 p-3 space-y-2">
-                    <p className="text-xs text-muted-foreground">Paste your business URL — we'll scrape it to build a tailored prompt.</p>
+                    <p className="text-xs text-muted-foreground">Paste your business URL — we'll scrape it and generate a <strong>{direction}</strong> call prompt.</p>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -2777,7 +2814,7 @@ function MyPromptView() {
                       </div>
                       <Button onClick={generateFromWebsite} disabled={generating || !websiteUrl.trim()} size="sm" className="gap-1 h-8 text-xs">
                         {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                        {generating ? "…" : "Generate"}
+                        {generating ? "Generating…" : "Generate"}
                       </Button>
                     </div>
                   </div>
@@ -2797,12 +2834,12 @@ function MyPromptView() {
                         </select>
                       </div>
                       <div className="col-span-2 space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">What you do / sell</Label>
-                        <Input placeholder="We help homeowners sell fast…" value={bizDesc} onChange={e => setBizDesc(e.target.value)} className="h-8 text-xs" />
+                        <Label className="text-[10px] text-muted-foreground">{direction === "outbound" ? "What you sell / offer" : "What you do"}</Label>
+                        <Input placeholder={direction === "outbound" ? "We help homeowners sell fast…" : "We provide roofing services…"} value={bizDesc} onChange={e => setBizDesc(e.target.value)} className="h-8 text-xs" />
                       </div>
                       <div className="col-span-2 space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">Key services</Label>
-                        <Input placeholder="Free valuation, buyer matching…" value={services} onChange={e => setServices(e.target.value)} className="h-8 text-xs" />
+                        <Label className="text-[10px] text-muted-foreground">Key services / products</Label>
+                        <Input placeholder={direction === "outbound" ? "Free consult, ROI analysis, fast close…" : "Free estimate, emergency repair, warranty…"} value={services} onChange={e => setServices(e.target.value)} className="h-8 text-xs" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-[10px] text-muted-foreground">Tone</Label>
@@ -2813,7 +2850,7 @@ function MyPromptView() {
                       <div className="flex items-end">
                         <Button onClick={generateWithAI} disabled={generating || !bizName.trim()} size="sm" className="w-full gap-1 h-8 text-xs">
                           {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
-                          {generating ? "Generating…" : "Generate"}
+                          {generating ? "Generating…" : `Generate ${direction === "outbound" ? "Outbound" : "Inbound"} Prompt`}
                         </Button>
                       </div>
                     </div>
@@ -2821,23 +2858,28 @@ function MyPromptView() {
                 )}
               </div>
 
-              {/* Prompt editor */}
+              {/* ── STEP 3: Prompt editor ── */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Prompt Content</Label>
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Step 3 — Prompt Content</Label>
                   <span className="text-[10px] text-muted-foreground">{content.length} chars</span>
                 </div>
                 <textarea value={content} onChange={e => setContent(e.target.value)}
-                  placeholder={"You are Alex, a friendly sales agent for Premier Realty.\nYour goal is to qualify leads and schedule a 10-minute intro call.\nBe concise, never pushy, and always ask permission before continuing.\n\nIf they're not interested, ask why briefly and thank them."}
+                  placeholder={direction === "outbound"
+                    ? "You are Alex, an outbound sales agent for Premier Realty.\nYou are calling prospects who may be interested in selling their home.\nYour goal is to qualify them and book a 10-minute intro call with our team.\nBe direct, friendly, and never pushy.\n\nOpening: 'Hi, is this [name]? This is Alex from Premier Realty — quick question: have you ever thought about what your home might be worth today?'"
+                    : "You are Alex, an inbound support agent for Premier Realty.\nYou answer calls from people interested in buying or selling a home.\nGreet warmly, listen first, then respond to what they actually need.\nNever push — let the caller lead the conversation."}
                   className="w-full h-48 rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono" />
               </div>
 
               {/* Tips */}
               <div className="rounded-xl border border-border/20 bg-secondary/10 p-4">
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Quick Tips</p>
+                <p className="text-xs font-semibold text-muted-foreground mb-2">
+                  {direction === "outbound" ? "📞 Outbound Tips" : "📥 Inbound Tips"}
+                </p>
                 <ul className="space-y-1.5 text-xs text-muted-foreground">
-                  {["State who the agent is: name, company, role","Define the goal clearly (qualify, book, follow up)","Keep it under 2 min — add a time reminder","Add objection handling: 'if not interested, ask why'","End with a clear CTA: 'Can I schedule a 10-min call?'"]
-                    .map((tip, i) => <li key={i} className="flex gap-2"><CheckCircle2 className="h-3 w-3 text-primary shrink-0 mt-0.5" />{tip}</li>)}
+                  {directionTips[direction].map((tip, i) => (
+                    <li key={i} className="flex gap-2"><CheckCircle2 className="h-3 w-3 text-primary shrink-0 mt-0.5" />{tip}</li>
+                  ))}
                 </ul>
               </div>
             </div>

@@ -970,6 +970,8 @@ class GeneratePromptAIRequest(BaseModel):
     hours: Optional[str] = None
     phone_number: Optional[str] = None
     address: Optional[str] = None
+    call_direction: Optional[str] = "inbound"   # "inbound" | "outbound"
+    assistant_name: Optional[str] = None
 
 @router.post("/agents/generate-prompt")
 def generate_ai_prompt(payload: GeneratePromptRequest, user=Depends(verify_token)):
@@ -1486,12 +1488,67 @@ def generate_ai_prompt_with_claude(payload: GeneratePromptAIRequest, user=Depend
         # Initialize Anthropic client
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         
-        # Build the generation prompt
-        generation_prompt = f"""You are an expert at creating system prompts for voice AI phone assistants.
+        # Build direction-aware generation prompt
+        direction = (payload.call_direction or "inbound").lower()
+        agent_name = payload.assistant_name or "AI Assistant"
 
-Create a professional, natural system prompt for a voice AI with these details:
+        if direction == "outbound":
+            generation_prompt = f"""You are an expert at writing system prompts for outbound sales AI phone agents used in CRM platforms.
 
-**Business Information:**
+Create a focused outbound sales prompt for an AI agent with these details:
+
+**Agent & Business:**
+- Agent Name: {agent_name}
+- Business Name: {payload.business_name}
+- Business Type: {payload.business_type}
+- What they sell / offer: {payload.business_description or payload.services or 'Products and services'}
+- Key selling points / services: {payload.services or 'Not specified'}
+- Sales tone: {payload.tone}
+
+**Special Instructions:**
+{payload.special_instructions or 'None'}
+
+**CRITICAL REQUIREMENTS for OUTBOUND calls:**
+
+1. **SHORT** — Maximum 350 words. No fluff.
+
+2. **OPENING** — The AI is CALLING the prospect. Write an exact opening:
+   - Introduce name + company immediately
+   - State the reason for calling in one sentence
+   - Ask a qualifying question right away
+   - Example: "Hi, is this [name]? This is {agent_name} calling from {payload.business_name}. The reason I'm reaching out is [reason]. Quick question — [qualifier]?"
+
+3. **GOAL** — The AI is calling to:
+   - Qualify the prospect (are they a fit?)
+   - Generate interest in the product/service
+   - Book a follow-up appointment or demo
+   - NOT to close a sale on the first call
+
+4. **OBJECTION HANDLING** — Include brief rules for common objections:
+   - "Not interested" → Ask one follow-up why question, then thank and end politely
+   - "Call me later" → Confirm a specific time before hanging up
+   - "Already have a solution" → Ask what they use and if there's anything they wish was better
+
+5. **TONE** — {payload.tone}. Sound human, not robotic. Never be pushy.
+
+6. **CLOSING** — Always end with a clear next step:
+   - Either book a time or get permission to follow up
+
+**Format — use these sections only:**
+- ## ROLE (1-2 sentences: who the agent is and what they do)
+- ## OPENING LINE (exact script to open the call)
+- ## QUALIFYING QUESTIONS (3-4 questions to determine if prospect is a fit)
+- ## OBJECTION HANDLING (3-4 rules)
+- ## CLOSING / NEXT STEP (how to end the call and set a follow-up)
+
+Generate a SHORT, NATURAL, OUTBOUND-FOCUSED prompt now:"""
+        else:
+            generation_prompt = f"""You are an expert at creating system prompts for inbound voice AI phone assistants used in CRM platforms.
+
+Create a professional, natural inbound prompt for an AI agent with these details:
+
+**Agent & Business:**
+- Agent Name: {agent_name}
 - Business Name: {payload.business_name}
 - Business Type: {payload.business_type}
 - Description: {payload.business_description or 'Not provided'}
@@ -1504,41 +1561,30 @@ Create a professional, natural system prompt for a voice AI with these details:
 **Special Instructions:**
 {payload.special_instructions or 'None'}
 
-**CRITICAL REQUIREMENTS:**
+**CRITICAL REQUIREMENTS for INBOUND calls:**
 
-1. **Keep it SHORT** - Maximum 300 words total. Be concise.
+1. **SHORT** — Maximum 300 words total. Be concise.
 
-2. **GREETING Section** - Must say EXACTLY what to say when call connects:
-   - Simple and warm: "Hello, thanks for calling [Business Name]! How can I help you?"
-   - IMPORTANT: After greeting, the AI must WAIT for the caller to speak first
+2. **GREETING** — Exact words to say when call connects:
+   - Warm and simple: "Hello, thanks for calling {payload.business_name}! This is {agent_name}. How can I help you today?"
+   - After greeting, WAIT for the caller to speak first
 
-3. **CONVERSATION FLOW** - The AI should:
+3. **CONVERSATION FLOW** — The AI should:
    - Listen to what the caller wants BEFORE offering anything
    - Respond naturally to their specific request
-   - NOT assume what they need or push specific services
    - Let the CALLER lead the conversation
 
-4. **TONE** - Match the "{payload.tone}" tone naturally without being robotic
+4. **TONE** — Match "{payload.tone}" naturally, not robotic
 
-5. **KEEP IT FLEXIBLE** - Don't create rigid scripts or mandatory objectives
-   - The AI should adapt to what each caller needs
-   - Don't force appointment scheduling or information collection unless the caller requests it
+5. **KEEP IT FLEXIBLE** — Adapt to what each caller needs. Don't force scripts.
 
-**Format:**
-Use simple markdown sections (## headers). Include only:
-- ## YOUR ROLE (1-2 sentences)
-- ## GREETING (exact words to say)
-- ## HOW TO RESPOND (3-5 bullet points about being natural, helpful, and caller-focused)
+**Format — use these sections only:**
+- ## ROLE (1-2 sentences)
+- ## GREETING (exact words)
+- ## HOW TO RESPOND (3-5 bullets: be helpful, natural, caller-focused)
 - ## BUSINESS INFO (brief: hours, services, key details)
 
-**What NOT to include:**
-- Long example conversations
-- Rigid "PRIMARY OBJECTIVES" that force specific actions
-- Detailed "INFORMATION COLLECTION" requirements
-- Complex escalation protocols
-- Anything that makes the AI pushy or scripted
-
-Generate a SHORT, NATURAL, FLEXIBLE system prompt now:"""
+Generate a SHORT, NATURAL, INBOUND-FOCUSED prompt now:"""
         
         # Call Claude API
         message = client.messages.create(
