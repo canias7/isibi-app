@@ -1389,11 +1389,11 @@ function PowerDialerView({ contacts, onStatusChange }: {
   const [calling, setCalling] = useState(false);
   const [callStatus, setCallStatus] = useState<string | null>(null);
 
-  // Prompt selector
+  // Prompt selector — starts empty so customer must consciously pick one
   const allPrompts = loadPrompts();
-  const [selectedPromptId, setSelectedPromptId] = useState<string>(() => getActivePromptId() ?? allPrompts[0]?.id ?? "");
+  const [selectedPromptId, setSelectedPromptId] = useState<string>(() => getActivePromptId() ?? "");
   const selectedPrompt = allPrompts.find(p => p.id === selectedPromptId) ?? null;
-  const agentId = selectedPrompt?.agentId ?? (localStorage.getItem("crm_agent_id") ? Number(localStorage.getItem("crm_agent_id")) : null);
+  const agentId = localStorage.getItem("crm_agent_id") ? Number(localStorage.getItem("crm_agent_id")) : null;
 
   const remaining = dialList.filter((c) => !called.includes(c.id) && !skipped.includes(c.id));
   const current = remaining[0] ?? null;
@@ -1425,23 +1425,6 @@ function PowerDialerView({ contacts, onStatusChange }: {
           <p className="text-xs text-muted-foreground">{remaining.length} remaining · {called.length} called · {skipped.length} skipped</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Prompt selector */}
-          {allPrompts.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-secondary/30 border border-border/30 rounded-lg px-2 h-8">
-              <BotMessageSquare className="h-3.5 w-3.5 text-primary shrink-0" />
-              <select
-                value={selectedPromptId}
-                onChange={e => setSelectedPromptId(e.target.value)}
-                className="bg-transparent text-xs font-medium focus:outline-none max-w-[140px]">
-                {allPrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-          )}
-          {allPrompts.length === 0 && (
-            <span className="text-xs text-yellow-400 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-2 py-1">
-              No prompts — create one in My Prompt
-            </span>
-          )}
           {!active && !done && (
             <Button size="sm" onClick={() => setActive(true)} className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700">
               <Play className="h-3.5 w-3.5" /> Start Dialer
@@ -1506,11 +1489,48 @@ function PowerDialerView({ contacts, onStatusChange }: {
                   )}
                 </div>
 
+                {/* ── Prompt selector — required before calling ── */}
+                <div className={cn("rounded-xl border-2 p-3 space-y-2 transition-colors",
+                  selectedPrompt
+                    ? "border-primary/30 bg-primary/5"
+                    : "border-yellow-500/40 bg-yellow-500/5")}>
+                  <div className="flex items-center gap-2">
+                    <BotMessageSquare className={cn("h-4 w-4 shrink-0", selectedPrompt ? "text-primary" : "text-yellow-400")} />
+                    <span className={cn("text-xs font-semibold", selectedPrompt ? "text-foreground" : "text-yellow-400")}>
+                      {selectedPrompt ? "AI Prompt" : "Select a prompt to use"}
+                    </span>
+                    {!selectedPrompt && <AlertCircle className="h-3.5 w-3.5 text-yellow-400 ml-auto" />}
+                  </div>
+                  {allPrompts.length === 0 ? (
+                    <p className="text-[11px] text-yellow-400/80">
+                      No prompts yet — go to <strong>My Prompt</strong> and create one first.
+                    </p>
+                  ) : (
+                    <select
+                      value={selectedPromptId}
+                      onChange={e => setSelectedPromptId(e.target.value)}
+                      className={cn("w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none focus:ring-2 focus:ring-primary/30",
+                        selectedPrompt ? "border-primary/30 text-foreground" : "border-yellow-500/30 text-yellow-400")}>
+                      <option value="">— choose a prompt —</option>
+                      {allPrompts.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.direction ?? "outbound"})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {selectedPrompt && (
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {selectedPrompt.direction === "outbound" ? "📞 Outbound" : "📥 Inbound"} · {selectedPrompt.content ? selectedPrompt.content.slice(0, 60) + "…" : "No content yet"}
+                    </p>
+                  )}
+                </div>
+
                 {/* Call button — triggers real AI outbound call */}
                 {!selectedPrompt ? (
-                  <button onClick={() => toast({ title: "No prompt selected", description: "Create a prompt in the My Prompt tab first.", variant: "destructive" })}
-                    className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-yellow-600/20 border border-yellow-500/30 text-yellow-400 font-semibold text-sm transition-colors">
-                    <AlertCircle className="h-5 w-5" /> Select a prompt in My Prompt first
+                  <button disabled
+                    className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-secondary/30 border border-border/30 text-muted-foreground font-semibold text-sm cursor-not-allowed opacity-60">
+                    <Phone className="h-5 w-5" /> Select a prompt above to call
                   </button>
                 ) : (
                   <button
