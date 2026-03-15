@@ -4168,30 +4168,39 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     # Push system_prompt + force CRM voice stack (Haiku 4.5 + ElevenLabs + Whisper STT)
     if resolved_agent_id:
         try:
-            # Read the agent's current elevenlabs_voice_id so we don't lose it
-            cur.execute(sql("SELECT elevenlabs_voice_id FROM agents WHERE id={PH} AND owner_user_id={PH}"),
-                        (resolved_agent_id, user_id))
+            # Preserve existing ElevenLabs voice ID if already configured
+            cur.execute(sql("SELECT elevenlabs_voice_id FROM agents WHERE id={PH}"), (resolved_agent_id,))
             voice_row = cur.fetchone()
             existing_voice_id = (voice_row["elevenlabs_voice_id"] if isinstance(voice_row, dict) else voice_row[0]) if voice_row else None
-            # Fall back to a reliable ElevenLabs default voice (Rachel)
-            el_voice_id = existing_voice_id or "21m00Tcm4TlvDq8ikWAM"
-
-            update_fields = {
-                "llm_provider": "anthropic",
-                "model": "claude-haiku-4-5",
-                "voice_provider": "elevenlabs",
-                "elevenlabs_voice_id": el_voice_id,
-            }
-            if body.system_prompt:
-                update_fields["system_prompt"] = body.system_prompt
-
-            set_clause = ", ".join(f"{k}={{PH}}" for k in update_fields)
-            values = list(update_fields.values()) + [resolved_agent_id, user_id]
-            cur.execute(sql(f"UPDATE agents SET {set_clause} WHERE id={{PH}} AND owner_user_id={{PH}}"), values)
-            conn.commit()
-            print(f"✅ Agent {resolved_agent_id} configured: anthropic/claude-haiku-4-5 + elevenlabs/{el_voice_id}")
+            el_voice_id = existing_voice_id or "21m00Tcm4TlvDq8ikWAM"  # Rachel fallback
         except Exception as e:
-            print(f"⚠️  Could not configure agent for CRM call: {e}")
+            import logging as _log
+            _log.warning(f"CRM: could not read existing voice_id: {e}")
+            try: conn.rollback()
+            except: pass
+            el_voice_id = "21m00Tcm4TlvDq8ikWAM"
+
+        # Separate try so voice read failure doesn't block the update
+        try:
+            sys_prompt = body.system_prompt or ""
+            cur.execute(sql("""
+                UPDATE agents
+                SET llm_provider      = {PH},
+                    model             = {PH},
+                    voice_provider    = {PH},
+                    elevenlabs_voice_id = {PH},
+                    system_prompt     = CASE WHEN {PH} <> '' THEN {PH} ELSE system_prompt END
+                WHERE id = {PH}
+            """), ("anthropic", "claude-haiku-4-5", "elevenlabs", el_voice_id,
+                   sys_prompt, sys_prompt, resolved_agent_id))
+            conn.commit()
+            import logging as _log
+            _log.warning(f"✅ CRM agent {resolved_agent_id} → anthropic/claude-haiku-4-5 + elevenlabs/{el_voice_id}")
+        except Exception as e:
+            import logging as _log
+            _log.error(f"❌ CRM agent update FAILED for agent {resolved_agent_id}: {e}", exc_info=True)
+            try: conn.rollback()
+            except: pass
 
     conn.close()
 
