@@ -4111,7 +4111,7 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
 
     if resolved_agent_id:
         # Caller specified an agent explicitly — trust it
-        cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND user_id={PH}"),
+        cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND owner_user_id={PH}"),
                     (resolved_agent_id, user_id))
         row = cur.fetchone()
         if row:
@@ -4123,7 +4123,7 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         # Fallback 1 — first agent that has a phone number
         cur.execute(sql(
             "SELECT id, phone_number FROM agents "
-            "WHERE user_id={PH} AND phone_number IS NOT NULL AND phone_number != '' "
+            "WHERE owner_user_id={PH} AND phone_number IS NOT NULL AND phone_number != '' "
             "ORDER BY id LIMIT 1"
         ), (user_id,))
         row = cur.fetchone()
@@ -4134,7 +4134,7 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     if not resolved_agent_id:
         # Fallback 2 — any agent for this user (even without a phone number)
         cur.execute(sql(
-            "SELECT id, phone_number FROM agents WHERE user_id={PH} ORDER BY id LIMIT 1"
+            "SELECT id, phone_number FROM agents WHERE owner_user_id={PH} ORDER BY id LIMIT 1"
         ), (user_id,))
         row = cur.fetchone()
         if row:
@@ -4147,12 +4147,12 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         # Fallback 3 — create a minimal CRM agent so the call has an agent_id
         try:
             cur.execute(sql(
-                "INSERT INTO agents (user_id, assistant_name, system_prompt) "
-                "VALUES ({PH}, {PH}, {PH})"
-            ), (user_id, "CRM Assistant", body.system_prompt or "You are a helpful AI assistant for CRM outreach."))
+                "INSERT INTO agents (owner_user_id, name, assistant_name, system_prompt) "
+                "VALUES ({PH}, {PH}, {PH}, {PH})"
+            ), (user_id, "CRM Assistant", "CRM Assistant", body.system_prompt or "You are a helpful AI assistant for CRM outreach."))
             conn.commit()
             cur.execute(sql(
-                "SELECT id FROM agents WHERE user_id={PH} ORDER BY id DESC LIMIT 1"
+                "SELECT id FROM agents WHERE owner_user_id={PH} ORDER BY id DESC LIMIT 1"
             ), (user_id,))
             new_row = cur.fetchone()
             if new_row:
@@ -4164,7 +4164,7 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     # so the WebSocket handler loads it when the call connects
     if body.system_prompt and resolved_agent_id:
         try:
-            cur.execute(sql("UPDATE agents SET system_prompt={PH} WHERE id={PH} AND user_id={PH}"),
+            cur.execute(sql("UPDATE agents SET system_prompt={PH} WHERE id={PH} AND owner_user_id={PH}"),
                         (body.system_prompt, resolved_agent_id, user_id))
             conn.commit()
         except Exception:
