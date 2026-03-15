@@ -2581,8 +2581,10 @@ function MyPromptView() {
     return saved && list.find(p => p.id === saved) ? saved : list[0]?.id ?? null;
   });
 
-  // Direction picker shown before creating a new prompt
+  // Creation wizard: step 1 = direction, step 2 = name
   const [pickingDirection, setPickingDirection] = useState(false);
+  const [chosenDirection, setChosenDirection] = useState<"inbound" | "outbound" | null>(null);
+  const [newPromptName, setNewPromptName] = useState("");
 
   const selected = prompts.find(p => p.id === selectedId) ?? null;
   const direction = selected?.direction ?? "outbound";
@@ -2613,16 +2615,28 @@ function MyPromptView() {
   // Step 1: open direction picker
   const createNew = () => {
     setSelectedId(null);
+    setChosenDirection(null);
+    setNewPromptName("");
     setPickingDirection(true);
   };
 
-  // Step 2: direction chosen — create the prompt
-  const createNewWithDirection = (dir: "inbound" | "outbound") => {
-    const p: CRMPrompt = { id: Date.now().toString(), name: "New Prompt", content: "", direction: dir, createdAt: new Date().toISOString() };
+  // Step 2: direction chosen — go to name step
+  const handleDirectionChosen = (dir: "inbound" | "outbound") => {
+    setChosenDirection(dir);
+    setNewPromptName("");
+  };
+
+  // Step 3: name confirmed — create the prompt
+  const createNewWithDirection = () => {
+    if (!chosenDirection) return;
+    const finalName = newPromptName.trim() || "My Prompt";
+    const p: CRMPrompt = { id: Date.now().toString(), name: finalName, content: "", direction: chosenDirection, createdAt: new Date().toISOString() };
     const updated = [...prompts, p];
     setPrompts(updated);
     savePrompts(updated);
     setPickingDirection(false);
+    setChosenDirection(null);
+    setNewPromptName("");
     selectPrompt(p);
   };
 
@@ -2633,7 +2647,7 @@ function MyPromptView() {
     savePrompts(updated);
     if (selectedId === id) {
       const next = updated[0] ?? null;
-      if (next) selectPrompt(next); else { setSelectedId(null); setName(""); setContent(""); setDirection("outbound"); }
+      if (next) selectPrompt(next); else { setSelectedId(null); setName(""); setContent(""); }
     }
   };
 
@@ -2744,49 +2758,68 @@ function MyPromptView() {
       {/* Right — editor */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* ── Direction picker (shown before creating a prompt) ── */}
+        {/* ── Creation wizard ── */}
         {pickingDirection ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-6 p-8">
-            <div className="text-center space-y-1">
-              <p className="text-base font-semibold text-foreground">What type of prompt do you need?</p>
-              <p className="text-sm text-muted-foreground">Choose a direction — this is set once per prompt.</p>
-            </div>
-            <div className="grid grid-cols-2 gap-4 w-full max-w-md">
-              {([
-                {
-                  id: "outbound" as const,
-                  icon: PhoneCall,
-                  label: "Outbound",
-                  desc: "AI calls your leads to sell, qualify, or follow up",
-                  color: "border-blue-500 bg-blue-500/5 hover:bg-blue-500/10",
-                  iconColor: "bg-blue-500/15 text-blue-400",
-                  textColor: "text-blue-400",
-                },
-                {
-                  id: "inbound" as const,
-                  icon: PhoneIncoming,
-                  label: "Inbound",
-                  desc: "AI answers calls from customers — support, inquiries, booking",
-                  color: "border-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10",
-                  iconColor: "bg-emerald-500/15 text-emerald-400",
-                  textColor: "text-emerald-400",
-                },
-              ]).map(opt => (
-                <button key={opt.id} onClick={() => createNewWithDirection(opt.id)}
-                  className={cn("flex flex-col items-center gap-3 rounded-2xl border-2 p-6 text-center transition-all shadow-sm", opt.color)}>
-                  <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", opt.iconColor)}>
-                    <opt.icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <p className={cn("text-sm font-bold", opt.textColor)}>{opt.label}</p>
-                    <p className="text-[11px] text-muted-foreground leading-tight mt-1">{opt.desc}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-            <button onClick={() => setPickingDirection(false)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">
-              Cancel
-            </button>
+
+            {/* Step 1: direction */}
+            {!chosenDirection && (<>
+              <div className="text-center space-y-1">
+                <p className="text-base font-semibold text-foreground">What type of prompt do you need?</p>
+                <p className="text-sm text-muted-foreground">Choose a direction — this is set once per prompt.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                {([
+                  { id: "outbound" as const, icon: PhoneCall,     label: "Outbound", desc: "AI calls your leads to sell, qualify, or follow up",           color: "border-blue-500 bg-blue-500/5 hover:bg-blue-500/10",     iconColor: "bg-blue-500/15 text-blue-400",     textColor: "text-blue-400" },
+                  { id: "inbound"  as const, icon: PhoneIncoming, label: "Inbound",  desc: "AI answers calls from customers — support, inquiries, booking", color: "border-emerald-500 bg-emerald-500/5 hover:bg-emerald-500/10", iconColor: "bg-emerald-500/15 text-emerald-400", textColor: "text-emerald-400" },
+                ]).map(opt => (
+                  <button key={opt.id} onClick={() => handleDirectionChosen(opt.id)}
+                    className={cn("flex flex-col items-center gap-3 rounded-2xl border-2 p-6 text-center transition-all shadow-sm", opt.color)}>
+                    <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center", opt.iconColor)}>
+                      <opt.icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className={cn("text-sm font-bold", opt.textColor)}>{opt.label}</p>
+                      <p className="text-[11px] text-muted-foreground leading-tight mt-1">{opt.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setPickingDirection(false)} className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors">Cancel</button>
+            </>)}
+
+            {/* Step 2: name */}
+            {chosenDirection && (
+              <div className="w-full max-w-sm space-y-5">
+                {/* Direction badge */}
+                <div className="flex items-center justify-center gap-2">
+                  <span className={cn("text-xs font-semibold rounded-full px-3 py-1 border",
+                    chosenDirection === "outbound" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20")}>
+                    {chosenDirection === "outbound" ? "📞 Outbound" : "📥 Inbound"}
+                  </span>
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-base font-semibold text-foreground">Name your prompt</p>
+                  <p className="text-sm text-muted-foreground">Give it a clear name so you can find it in Power Dialer.</p>
+                </div>
+                <Input
+                  autoFocus
+                  placeholder={chosenDirection === "outbound" ? "e.g. Solar Leads Outbound" : "e.g. Customer Support Inbound"}
+                  value={newPromptName}
+                  onChange={e => setNewPromptName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && newPromptName.trim()) createNewWithDirection(); }}
+                  className="h-11 text-sm text-center"
+                />
+                <div className="flex gap-3">
+                  <Button variant="outline" size="sm" className="flex-1" onClick={() => setChosenDirection(null)}>
+                    ← Back
+                  </Button>
+                  <Button size="sm" className="flex-1 gap-1.5" onClick={createNewWithDirection} disabled={!newPromptName.trim()}>
+                    <Plus className="h-3.5 w-3.5" /> Create Prompt
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
 
         ) : !selected ? (
