@@ -1493,55 +1493,63 @@ def generate_ai_prompt_with_claude(payload: GeneratePromptAIRequest, user=Depend
         agent_name = payload.assistant_name or "AI Assistant"
 
         if direction == "outbound":
-            generation_prompt = f"""You are an expert at writing system prompts for outbound sales AI phone agents used in CRM platforms.
+            generation_prompt = f"""You are an expert cold-call sales trainer writing system prompts for outbound AI phone agents.
 
-Create a focused outbound sales prompt for an AI agent with these details:
+Write a high-converting cold call script / system prompt for an AI agent making OUTBOUND sales calls.
 
-**Agent & Business:**
+**Business Details:**
 - Agent Name: {agent_name}
-- Business Name: {payload.business_name}
-- Business Type: {payload.business_type}
-- What they sell / offer: {payload.business_description or payload.services or 'Products and services'}
-- Key selling points / services: {payload.services or 'Not specified'}
+- Business: {payload.business_name}
+- Industry: {payload.business_type}
+- What they sell: {payload.business_description or payload.services or 'Products and services'}
+- Key value propositions: {payload.services or 'Not specified'}
 - Sales tone: {payload.tone}
 
 **Special Instructions:**
 {payload.special_instructions or 'None'}
 
-**CRITICAL REQUIREMENTS for OUTBOUND calls:**
+**THIS IS A COLD CALL — REQUIREMENTS:**
 
-1. **SHORT** — Maximum 350 words. No fluff.
+1. **MINDSET** — The AI is calling a prospect who did NOT ask to be called. The goal is to SELL. Get their interest, overcome resistance, and close (or book a demo/appointment that leads to a close). Be confident, not apologetic.
 
-2. **OPENING** — The AI is CALLING the prospect. Write an exact opening:
-   - Introduce name + company immediately
-   - State the reason for calling in one sentence
-   - Ask a qualifying question right away
-   - Example: "Hi, is this [name]? This is {agent_name} calling from {payload.business_name}. The reason I'm reaching out is [reason]. Quick question — [qualifier]?"
+2. **OPENING (5 seconds rule)** — Hook them immediately or they hang up:
+   - Say name + company + ONE compelling reason why they should care
+   - Do NOT ask "how are you?" — go straight to value
+   - Example: "Hi [name], this is {agent_name} from {payload.business_name}. The reason I'm calling — we help [type of business] [specific result, e.g., cut costs by 30% / double their leads]. I wanted to see if that's something you're open to hearing more about?"
 
-3. **GOAL** — The AI is calling to:
-   - Qualify the prospect (are they a fit?)
-   - Generate interest in the product/service
-   - Book a follow-up appointment or demo
-   - NOT to close a sale on the first call
+3. **PITCH** — After the hook, deliver a 2-3 sentence value pitch:
+   - What problem you solve
+   - How you solve it better than anyone else
+   - A proof point or result (e.g., "Our clients see X within Y days")
 
-4. **OBJECTION HANDLING** — Include brief rules for common objections:
-   - "Not interested" → Ask one follow-up why question, then thank and end politely
-   - "Call me later" → Confirm a specific time before hanging up
-   - "Already have a solution" → Ask what they use and if there's anything they wish was better
+4. **DISCOVERY QUESTIONS** — 2-3 sharp questions to qualify AND build rapport:
+   - Uncover their current pain
+   - Make them feel heard before going deeper into the pitch
 
-5. **TONE** — {payload.tone}. Sound human, not robotic. Never be pushy.
+5. **OBJECTION HANDLING — be persistent but not annoying:**
+   - "Not interested" → "I totally get it — most people say that before they see the numbers. Can I ask — are you happy with [current situation]?" Then give one more value statement.
+   - "Send me an email" → "I'll do that — but emails get buried. Can I get 60 seconds to show you why this is different? Then if it's not a fit, I won't call again."
+   - "Too busy" → "I hear you. I'll be quick — 30 seconds, then you decide. Deal?"
+   - "Already have a solution" → "That's great — most of our best clients said the same thing before switching. What's the one thing you wish your current solution did better?"
+   - "Too expensive" → "Totally fair. What if I could show you how it pays for itself in [timeframe]? Would that change things?"
 
-6. **CLOSING** — Always end with a clear next step:
-   - Either book a time or get permission to follow up
+6. **CLOSE** — Always push for a commitment:
+   - Primary close: book a demo / appointment / next call
+   - Micro-close: get permission to send a follow-up with a scheduled callback time
+   - If hard no after 2 objection attempts → thank them professionally and end
 
-**Format — use these sections only:**
-- ## ROLE (1-2 sentences: who the agent is and what they do)
-- ## OPENING LINE (exact script to open the call)
-- ## QUALIFYING QUESTIONS (3-4 questions to determine if prospect is a fit)
-- ## OBJECTION HANDLING (3-4 rules)
-- ## CLOSING / NEXT STEP (how to end the call and set a follow-up)
+7. **TONE** — {payload.tone}. Sound like a real, confident human salesperson — energetic, direct, and genuinely helpful. Never robotic or scripted-sounding.
 
-Generate a SHORT, NATURAL, OUTBOUND-FOCUSED prompt now:"""
+**Output format — these sections only:**
+- ## ROLE (who the agent is, what they sell, their sales goal)
+- ## OPENING LINE (exact word-for-word cold call opener)
+- ## VALUE PITCH (2-3 sentence pitch after they engage)
+- ## DISCOVERY QUESTIONS (2-3 qualifying questions)
+- ## OBJECTION HANDLING (5 rebuttals as listed above)
+- ## CLOSE (how to push for the appointment/sale)
+- ## IF THEY SAY NO (graceful exit script)
+
+Keep it under 400 words. Make every word earn its place. Generate the prompt now:"""
         else:
             generation_prompt = f"""You are an expert at creating system prompts for inbound voice AI phone assistants used in CRM platforms.
 
@@ -3498,6 +3506,7 @@ class WebhookRequest(BaseModel):
 
 class GeneratePromptFromURLRequest(BaseModel):
     url: str
+    call_direction: Optional[str] = "inbound"  # "inbound" | "outbound"
 
 @router.post("/developer/keys")
 def create_api_key(payload: CreateAPIKeyRequest, user=Depends(verify_token)):
@@ -3764,7 +3773,35 @@ def generate_prompt_from_url(payload: GeneratePromptFromURLRequest, user=Depends
         
         client = Anthropic(api_key=anthropic_api_key)
         
-        prompt = f"""Based on this website, create a concise AI phone agent system prompt (max 300 words).
+        call_direction = (payload.call_direction or "inbound").lower()
+
+        if call_direction == "outbound":
+            prompt = f"""You are an expert cold-call sales trainer. Based on this business's website, write a high-converting OUTBOUND cold call system prompt for an AI sales agent.
+
+Website URL: {url}
+Page Title: {page_title}
+Meta Description: {meta_desc}
+
+Website Content:
+{website_content}
+
+The AI will be making COLD OUTBOUND calls to prospects who did NOT ask to be called. Write a system prompt that:
+
+1. **ROLE** — Defines who the AI is and what they sell (from the website)
+2. **OPENING LINE** — An exact word-for-word cold call opener that hooks attention in 5 seconds (name + company + one compelling reason + hook question)
+3. **VALUE PITCH** — 2-3 sentence pitch using info from the website (problem solved + how + proof point)
+4. **DISCOVERY QUESTIONS** — 2-3 questions to qualify the prospect
+5. **OBJECTION HANDLING** — Specific rebuttals for:
+   - "Not interested" (push back once, then gracefully exit)
+   - "Send me an email" (redirect to conversation)
+   - "Already have a solution" (uncover dissatisfaction)
+   - "Too expensive" (ROI angle)
+6. **CLOSE** — Push for a demo, appointment, or callback commitment
+7. **IF THEY SAY NO** — Polite exit that leaves the door open
+
+Use the actual business name, services, and value props from the website. Sound like a confident, real human salesperson — not robotic. Keep it under 400 words. Use "You are..." format."""
+        else:
+            prompt = f"""Based on this website, create a concise AI phone agent system prompt (max 300 words).
 
 Website URL: {url}
 Page Title: {page_title}
