@@ -757,6 +757,7 @@ export interface OutboundCallRequest {
   contact_name?: string;
   notes?: string;
   system_prompt?: string;
+  elevenlabs_voice_id?: string;
 }
 
 export interface OutboundCall {

@@ -1401,6 +1401,23 @@ function PowerDialerView({ contacts, onStatusChange }: {
   // Agent comes from the phone number attached to the selected CRM prompt
   const agentId: number | null = selectedPrompt?.agentId ?? null;
 
+  // Call — ElevenLabs voice picker
+  const ELEVEN_VOICES = [
+    { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel — calm, professional (F)" },
+    { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi — confident, energetic (F)" },
+    { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella — warm, friendly (F)" },
+    { id: "ErXwobaYiN019PkySvjV", name: "Antoni — smooth, professional (M)" },
+    { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli — bright, upbeat (F)" },
+    { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh — deep, engaging (M)" },
+    { id: "VR6AewLTigWG4xSOukaG", name: "Arnold — authoritative (M)" },
+    { id: "pNInz6obpgDQGcFmaJgB", name: "Adam — narration, clear (M)" },
+    { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam — energetic, conversational (M)" },
+    { id: "N2lVS1w4EtoT3dr4eOWO", name: "Callum — confident, british (M)" },
+    { id: "ODq5zmih8GrVes37Dy9p", name: "Patrick — assertive, american (M)" },
+    { id: "piTKgcLEGmPE4e6mEKli", name: "Nicole — soft, friendly (F)" },
+  ] as const;
+  const [selectedVoiceId, setSelectedVoiceId] = useState("21m00Tcm4TlvDq8ikWAM");
+
   // Text / Email — message
   const [smsMessage, setSmsMessage]       = useState("");
   const [emailSubject, setEmailSubject]   = useState("");
@@ -1462,6 +1479,7 @@ function PowerDialerView({ contacts, onStatusChange }: {
             to_number: c.phone_number,
             contact_name: fullName(c),
             system_prompt: selectedPrompt?.content ?? undefined,
+            elevenlabs_voice_id: selectedVoiceId,
           });
         } else if (action === "text") {
           await sendContactSMS(c.id, smsMessage);
@@ -1553,6 +1571,24 @@ function PowerDialerView({ contacts, onStatusChange }: {
                       {selectedPrompt.direction === "outbound" ? "📞 Outbound" : "📥 Inbound"} · {selectedPrompt.content?.slice(0, 80) ?? "No content"}…
                     </p>
                   )}
+                </div>
+
+                {/* ElevenLabs Voice Picker */}
+                <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🎙️</span>
+                    <span className="text-xs font-semibold">AI Voice</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">Powered by ElevenLabs</span>
+                  </div>
+                  <select
+                    value={selectedVoiceId}
+                    onChange={e => setSelectedVoiceId(e.target.value)}
+                    className="w-full rounded-lg border border-border/40 px-3 h-9 text-sm bg-background/60 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    {ELEVEN_VOICES.map(v => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}
