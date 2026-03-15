@@ -490,6 +490,7 @@ def init_db():
     add_column_if_missing(conn, "users", "elevenlabs_api_key", "TEXT")
     add_column_if_missing(conn, "users", "elevenlabs_enabled", "BOOLEAN DEFAULT FALSE")
     add_column_if_missing(conn, "agents", "elevenlabs_voice_id", "TEXT")  # Per-agent voice selection
+    add_column_if_missing(conn, "agents", "voice_provider", "TEXT DEFAULT 'openai'")  # openai or elevenlabs
     add_column_if_missing(conn, "agents", "language", "TEXT DEFAULT 'en'")  # Agent response language
     
     # Voice Activity Detection (VAD) settings for noise suppression
