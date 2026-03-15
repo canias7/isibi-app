@@ -9,7 +9,7 @@ import {
   AlertCircle, CheckSquare, Square, Paperclip, BarChart2, TrendingUp,
   Activity, RefreshCw, Zap, Layers, BarChart3, PhoneOff, PhoneIncoming,
   SkipForward, Play, Target, ArrowRight, Columns3,
-  Sparkles, Globe, Wand2, CreditCard, Loader2, Pencil, BotMessageSquare,
+  Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1372,268 +1372,307 @@ function PipelineView({ contacts, onStatusChange, onEdit, onDelete }: {
   );
 }
 
-// ── Power Dialer View ──────────────────────────────────────────────────────────
+// ── AI Pulse View ──────────────────────────────────────────────────────────────
+
+type PulseAction = "call" | "text" | "email";
+type LeadResult = { status: "idle" | "running" | "success" | "failed"; message?: string };
 
 function PowerDialerView({ contacts, onStatusChange }: {
   contacts: Contact[];
   onStatusChange: (id: number, status: string) => Promise<void>;
 }) {
-  const dialList = contacts.filter((c) =>
+  const queue = contacts.filter(c =>
     ["new_lead", "callback", "interested"].includes((c as any).status ?? "")
   );
 
-  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
-  const [callNote, setCallNote]   = useState("");
-  const [called, setCalled]       = useState<number[]>([]);
-  const [calling, setCalling]     = useState(false);
-  const [callStatus, setCallStatus] = useState<string | null>(null);
+  // Multi-select
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const allSelected = queue.length > 0 && queue.every(c => selectedIds.has(c.id));
+  const toggleLead  = (id: number) => setSelectedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+  const toggleAll   = () => setSelectedIds(allSelected ? new Set() : new Set(queue.map(c => c.id)));
 
-  // Prompt selector — starts empty so customer must consciously pick one
+  // Channel
+  const [action, setAction] = useState<PulseAction>("call");
+
+  // Call — prompt
   const allPrompts = loadPrompts();
   const [selectedPromptId, setSelectedPromptId] = useState<string>(() => getActivePromptId() ?? "");
   const selectedPrompt = allPrompts.find(p => p.id === selectedPromptId) ?? null;
   const agentId = localStorage.getItem("crm_agent_id") ? Number(localStorage.getItem("crm_agent_id")) : null;
 
-  const remaining   = dialList.filter(c => !called.includes(c.id));
-  const current     = remaining.find(c => c.id === selectedContactId) ?? null;
-  const sm          = current ? statusMeta((current as any).status) : null;
-  const canCall     = !!current && !!selectedPrompt;
+  // Text / Email — message
+  const [smsMessage, setSmsMessage]       = useState("");
+  const [emailSubject, setEmailSubject]   = useState("");
+  const [emailBody, setEmailBody]         = useState("");
+  const [generatingMsg, setGeneratingMsg] = useState(false);
 
-  const handleDisposition = async (status: string) => {
-    if (!current) return;
-    await onStatusChange(current.id, status);
-    setCalled(prev => [...prev, current.id]);
-    setSelectedContactId(null);
-    setCallNote("");
-    setCallStatus(null);
-  };
+  // Launch state — per-lead result tracking
+  const [launching, setLaunching] = useState(false);
+  const [results, setResults]     = useState<Record<number, LeadResult>>({});
+  const setResult = (id: number, r: LeadResult) => setResults(prev => ({ ...prev, [id]: r }));
 
   const handleReset = () => {
-    setCalled([]); setCallNote(""); setSelectedContactId(null); setCallStatus(null);
+    setSelectedIds(new Set()); setResults({}); setLaunching(false);
+  };
+
+  const canLaunch = selectedIds.size > 0 && (
+    action === "call"  ? !!selectedPrompt :
+    action === "text"  ? !!smsMessage.trim() :
+    !!emailSubject.trim() && !!emailBody.trim()
+  );
+
+  const generateAIMessage = async () => {
+    setGeneratingMsg(true);
+    try {
+      const result = await generateAIPromptAdvanced({
+        business_name: "My Business", business_type: "general",
+        call_direction: "outbound",
+        special_instructions: action === "text"
+          ? "Write a short, friendly outbound SMS (max 160 chars) to introduce our service and invite a reply."
+          : "Write a concise outbound sales email with a subject line and a brief body (3-4 sentences).",
+        assistant_name: "", hours: "", phone_number: "", address: "",
+      });
+      const text = (result as any).prompt ?? "";
+      if (action === "text") {
+        setSmsMessage(text.slice(0, 160));
+      } else {
+        const lines = text.split("\n").filter(Boolean);
+        setEmailSubject(lines[0] ?? "Follow up");
+        setEmailBody(lines.slice(1).join("\n").trim() || text);
+      }
+    } catch (err: any) { toast({ title: "AI generation failed", description: err.message, variant: "destructive" }); }
+    finally { setGeneratingMsg(false); }
+  };
+
+  const handleLaunch = async () => {
+    if (!canLaunch) return;
+    setLaunching(true);
+    const targets = queue.filter(c => selectedIds.has(c.id));
+    // init all to running
+    targets.forEach(c => setResult(c.id, { status: "running" }));
+
+    await Promise.allSettled(targets.map(async c => {
+      try {
+        if (action === "call") {
+          if (agentId && selectedPrompt?.content) await updateAgent(agentId, { system_prompt: selectedPrompt.content });
+          await initiateOutboundCall({ agent_id: agentId ?? undefined, to_number: c.phone_number, contact_name: fullName(c) });
+        } else if (action === "text") {
+          await sendContactSMS(c.id, smsMessage);
+        } else {
+          await addContactEmail(c.id, { subject: emailSubject, body: emailBody, direction: "outbound", to_address: c.email ?? undefined });
+        }
+        setResult(c.id, { status: "success" });
+      } catch (err: any) {
+        setResult(c.id, { status: "failed", message: err.message });
+      }
+    }));
+
+    const succeeded = targets.filter(c => results[c.id]?.status === "success").length;
+    toast({ title: `AI Pulse complete`, description: `${targets.length} leads reached via ${action}` });
+    setLaunching(false);
+  };
+
+  const actionMeta: Record<PulseAction, { label: string; icon: React.ElementType; color: string; activeColor: string }> = {
+    call:  { label: "Call",  icon: Phone,        color: "text-green-400",  activeColor: "border-green-500 bg-green-500/5"  },
+    text:  { label: "Text",  icon: MessageSquare, color: "text-blue-400",   activeColor: "border-blue-500 bg-blue-500/5"   },
+    email: { label: "Email", icon: Mail,          color: "text-purple-400", activeColor: "border-purple-500 bg-purple-500/5"},
   };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2"><Zap className="h-5 w-5 text-yellow-400" /> Power Dialer</h1>
-          <p className="text-xs text-muted-foreground">{remaining.length} remaining · {called.length} called</p>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center">
+            <Rocket className="h-4.5 w-4.5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold">AI Pulse</h1>
+            <p className="text-xs text-muted-foreground">
+              {selectedIds.size > 0 ? `${selectedIds.size} lead${selectedIds.size > 1 ? "s" : ""} selected` : `${queue.length} in queue`}
+            </p>
+          </div>
         </div>
         <Button size="sm" variant="outline" onClick={handleReset} className="h-8 text-xs">Reset</Button>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
 
-        {/* Left — contact card / empty state */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6 overflow-y-auto">
+        {/* ─── Left panel ─── */}
+        <div className="flex-1 flex flex-col overflow-hidden border-r border-border/30">
 
-          {/* No lead selected */}
-          {!current && (
-            <div className="text-center space-y-3 text-muted-foreground">
-              <div className="w-20 h-20 rounded-2xl bg-secondary/40 border border-border/30 flex items-center justify-center mx-auto">
-                <Users className="h-8 w-8 opacity-30" />
-              </div>
-              <p className="text-base font-semibold text-foreground">Select a lead to call</p>
-              <p className="text-sm text-muted-foreground max-w-xs">
-                Click any contact in the queue on the right to load their details here.
-              </p>
-              {remaining.length === 0 && called.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  <CheckCircle2 className="h-10 w-10 mx-auto text-green-400" />
-                  <p className="text-sm text-green-400 font-semibold">All contacts called!</p>
-                  <Button variant="outline" size="sm" onClick={handleReset}>Reset Queue</Button>
-                </div>
-              )}
-            </div>
-          )}
+          {/* Channel tabs */}
+          <div className="flex gap-2 px-5 pt-4 pb-0 shrink-0">
+            {(["call", "text", "email"] as PulseAction[]).map(a => {
+              const m = actionMeta[a];
+              return (
+                <button key={a} onClick={() => setAction(a)}
+                  className={cn("flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all",
+                    action === a ? m.activeColor : "border-transparent hover:bg-secondary/40 text-muted-foreground")}>
+                  <m.icon className={cn("h-4 w-4", action === a ? m.color : "")} />
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
 
-          {/* Lead selected */}
-          {current && (
-            <>
-              {/* Contact card */}
-              <div className="w-full max-w-md bg-card/60 border border-border/30 rounded-2xl p-6 space-y-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/25 flex items-center justify-center text-2xl font-bold text-primary">
-                    {initials(current)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xl font-bold truncate">{fullName(current)}</p>
-                    {current.company && <p className="text-sm text-muted-foreground truncate">{current.company}</p>}
-                    {sm && <Badge className={cn("text-xs border mt-1", sm.color)}>{sm.label}</Badge>}
-                  </div>
-                  {/* Deselect */}
-                  <button onClick={() => { setSelectedContactId(null); setCallNote(""); setCallStatus(null); }}
-                    className="p-1.5 rounded-lg hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-colors shrink-0" title="Deselect">
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+          {/* Channel config */}
+          <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-secondary/30 rounded-xl p-3 space-y-1">
-                    <p className="text-xs text-muted-foreground">Phone</p>
-                    <p className="font-medium">{current.phone_number}</p>
-                  </div>
-                  {current.email && (
-                    <div className="bg-secondary/30 rounded-xl p-3 space-y-1">
-                      <p className="text-xs text-muted-foreground">Email</p>
-                      <p className="font-medium truncate">{current.email}</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── Prompt selector — required before calling ── */}
-                <div className={cn("rounded-xl border-2 p-3 space-y-2 transition-colors",
+            {action === "call" && (
+              <div className="space-y-4">
+                <p className="text-xs text-muted-foreground">AI will call each selected lead using the prompt below. All calls fire simultaneously.</p>
+                <div className={cn("rounded-xl border-2 p-4 space-y-3 transition-colors",
                   selectedPrompt ? "border-primary/30 bg-primary/5" : "border-yellow-500/40 bg-yellow-500/5")}>
                   <div className="flex items-center gap-2">
                     <BotMessageSquare className={cn("h-4 w-4 shrink-0", selectedPrompt ? "text-primary" : "text-yellow-400")} />
                     <span className={cn("text-xs font-semibold", selectedPrompt ? "text-foreground" : "text-yellow-400")}>
-                      {selectedPrompt ? "AI Prompt" : "Select a prompt to use"}
+                      {selectedPrompt ? "AI Prompt selected" : "Select a prompt"}
                     </span>
                     {!selectedPrompt && <AlertCircle className="h-3.5 w-3.5 text-yellow-400 ml-auto" />}
                   </div>
-                  {allPrompts.length === 0 ? (
-                    <p className="text-[11px] text-yellow-400/80">No prompts yet — go to <strong>My Prompt</strong> and create one first.</p>
-                  ) : (
-                    <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}
-                      className={cn("w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none focus:ring-2 focus:ring-primary/30",
-                        selectedPrompt ? "border-primary/30 text-foreground" : "border-yellow-500/30 text-yellow-400")}>
-                      <option value="">— choose a prompt —</option>
-                      {allPrompts.map(p => (
-                        <option key={p.id} value={p.id}>{p.name} ({p.direction ?? "outbound"})</option>
-                      ))}
-                    </select>
-                  )}
+                  {allPrompts.length === 0
+                    ? <p className="text-[11px] text-yellow-400/80">No prompts yet — go to <strong>My Prompt</strong> and create one first.</p>
+                    : <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}
+                        className={cn("w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none",
+                          selectedPrompt ? "border-primary/30" : "border-yellow-500/30 text-yellow-400")}>
+                        <option value="">— choose a prompt —</option>
+                        {allPrompts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.direction})</option>)}
+                      </select>
+                  }
                   {selectedPrompt && (
                     <p className="text-[10px] text-muted-foreground truncate">
-                      {selectedPrompt.direction === "outbound" ? "📞 Outbound" : "📥 Inbound"} · {selectedPrompt.content ? selectedPrompt.content.slice(0, 60) + "…" : "No content yet"}
+                      {selectedPrompt.direction === "outbound" ? "📞 Outbound" : "📥 Inbound"} · {selectedPrompt.content?.slice(0, 80) ?? "No content"}…
                     </p>
                   )}
                 </div>
-
-                {/* Call button */}
-                <button
-                  disabled={!canCall || calling}
-                  onClick={async () => {
-                    if (!current || !selectedPrompt) return;
-                    setCalling(true);
-                    setCallStatus("Applying prompt…");
-                    try {
-                      if (agentId && selectedPrompt.content) {
-                        await updateAgent(agentId, { system_prompt: selectedPrompt.content });
-                      }
-                      setCallStatus("Initiating call…");
-                      const result = await initiateOutboundCall({
-                        agent_id: agentId ?? undefined,
-                        to_number: current.phone_number,
-                        contact_name: fullName(current),
-                        notes: callNote || undefined,
-                      });
-                      setCallStatus(`Call ${result.status ?? "initiated"} ✓`);
-                      toast({ title: "AI Call Initiated!", description: `Calling ${fullName(current)} · prompt: "${selectedPrompt.name}"` });
-                    } catch (err: any) {
-                      setCallStatus("Call failed");
-                      toast({ title: "Call failed", description: err.message, variant: "destructive" });
-                    } finally {
-                      setCalling(false);
-                    }
-                  }}
-                  className={cn(
-                    "flex items-center justify-center gap-3 w-full py-4 rounded-xl font-semibold text-base transition-colors",
-                    canCall && !calling ? "bg-green-600 hover:bg-green-700 text-white" : "bg-secondary/30 border border-border/30 text-muted-foreground cursor-not-allowed opacity-60"
-                  )}>
-                  {calling
-                    ? <><Loader2 className="h-5 w-5 animate-spin text-white" /> Calling…</>
-                    : canCall
-                      ? <><Phone className="h-5 w-5" /> Call {current.phone_number}</>
-                      : <><Phone className="h-5 w-5" /> Select a prompt above to call</>}
-                </button>
-                {callStatus && <p className="text-center text-xs text-muted-foreground">{callStatus}</p>}
-
-                {/* Notes */}
-                <textarea value={callNote} onChange={e => setCallNote(e.target.value)}
-                  placeholder="Call notes…"
-                  className="w-full h-20 rounded-xl border border-border/40 bg-background/50 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
+            )}
 
-              {/* Disposition buttons */}
-              <div className="w-full max-w-md space-y-2">
-                <p className="text-xs text-muted-foreground text-center">Set outcome:</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: "✅ Interested",     status: "interested",    cls: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" },
-                    { label: "📞 Callback",        status: "callback",      cls: "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20" },
-                    { label: "🚫 Not Interested",  status: "not_interested",cls: "bg-slate-500/10 border-slate-500/30 text-slate-400 hover:bg-slate-500/20" },
-                    { label: "🏆 Closed Won",      status: "closed_won",   cls: "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20" },
-                  ].map(d => (
-                    <button key={d.status} onClick={() => handleDisposition(d.status)}
-                      className={cn("py-3 rounded-xl border text-sm font-medium transition-colors", d.cls)}>
-                      {d.label}
-                    </button>
-                  ))}
+            {action === "text" && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">AI will send this SMS to each selected lead at the same time.</p>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Message</Label>
+                  <button onClick={generateAIMessage} disabled={generatingMsg}
+                    className="flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50">
+                    {generatingMsg ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    Generate with AI
+                  </button>
                 </div>
+                <textarea value={smsMessage} onChange={e => setSmsMessage(e.target.value.slice(0, 160))}
+                  placeholder="Hi [name], this is [company] — just reaching out to..."
+                  className="w-full h-32 rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
+                <p className="text-[10px] text-muted-foreground text-right">{smsMessage.length}/160 chars</p>
               </div>
+            )}
 
-              {/* Progress */}
-              <div className="w-full max-w-md">
-                <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>{called.length} / {dialList.length} called</span>
-                  <span>{remaining.length} left</span>
+            {action === "email" && (
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">AI will send this email to each selected lead simultaneously.</p>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Email</Label>
+                  <button onClick={generateAIMessage} disabled={generatingMsg}
+                    className="flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50">
+                    {generatingMsg ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    Generate with AI
+                  </button>
                 </div>
-                <div className="h-1.5 bg-secondary/40 rounded-full overflow-hidden">
-                  <div className="h-full bg-primary rounded-full transition-all"
-                    style={{ width: `${(called.length / Math.max(dialList.length, 1)) * 100}%` }} />
-                </div>
+                <Input value={emailSubject} onChange={e => setEmailSubject(e.target.value)}
+                  placeholder="Subject line…" className="h-9 text-sm" />
+                <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)}
+                  placeholder="Email body…"
+                  className="w-full h-36 rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
-            </>
-          )}
+            )}
+
+            {/* Launch button */}
+            <button
+              disabled={!canLaunch || launching}
+              onClick={handleLaunch}
+              className={cn(
+                "w-full py-4 rounded-xl font-bold text-base flex items-center justify-center gap-3 transition-all",
+                canLaunch && !launching
+                  ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
+                  : "bg-secondary/30 border border-border/30 text-muted-foreground cursor-not-allowed opacity-50"
+              )}>
+              {launching
+                ? <><Loader2 className="h-5 w-5 animate-spin" /> Launching…</>
+                : <><Rocket className="h-5 w-5" />
+                    {selectedIds.size > 0
+                      ? `Launch AI ${action === "call" ? "Call" : action === "text" ? "Text" : "Email"} → ${selectedIds.size} lead${selectedIds.size > 1 ? "s" : ""}`
+                      : `Select leads to launch`}
+                  </>}
+            </button>
+
+            {/* Progress bar */}
+            {Object.keys(results).length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Launch Progress</p>
+                {queue.filter(c => results[c.id]).map(c => {
+                  const r = results[c.id];
+                  return (
+                    <div key={c.id} className="flex items-center gap-3">
+                      <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">{initials(c)}</div>
+                      <span className="text-xs flex-1 truncate">{fullName(c)}</span>
+                      {r.status === "running"  && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />}
+                      {r.status === "success"  && <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />}
+                      {r.status === "failed"   && <X className="h-3.5 w-3.5 text-destructive shrink-0" title={r.message} />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Right — clickable queue */}
-        <div className="w-72 border-l border-border/30 flex flex-col shrink-0">
-          <div className="px-4 py-3 border-b border-border/20 bg-card/20">
-            <p className="text-sm font-semibold">Queue</p>
-            <p className="text-xs text-muted-foreground">{remaining.length} remaining — click a lead to select</p>
+        {/* ─── Right panel — multi-select lead list ─── */}
+        <div className="w-72 flex flex-col shrink-0">
+          {/* Select all header */}
+          <div className="px-4 py-3 border-b border-border/20 bg-card/20 flex items-center gap-3">
+            <button onClick={toggleAll}
+              className={cn("w-5 h-5 rounded border-2 flex items-center justify-center transition-all shrink-0",
+                allSelected ? "bg-primary border-primary" : "border-border/60 hover:border-primary/60")}>
+              {allSelected && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">{allSelected ? "Deselect All" : "Select All"}</p>
+              <p className="text-xs text-muted-foreground">{queue.length} leads · {selectedIds.size} selected</p>
+            </div>
           </div>
+
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {remaining.length === 0 && called.length === 0 && (
-              <p className="text-xs text-muted-foreground text-center py-8 px-2">No contacts in queue.<br />Add leads with status New Lead, Callback, or Interested.</p>
+            {queue.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-8 px-3">No leads in queue.<br />Add contacts with New Lead, Callback, or Interested status.</p>
             )}
-            {remaining.map(c => {
+            {queue.map(c => {
               const csm = statusMeta((c as any).status);
-              const isSelected = c.id === selectedContactId;
+              const isSelected = selectedIds.has(c.id);
+              const res = results[c.id];
               return (
-                <button key={c.id} onClick={() => { setSelectedContactId(c.id); setCallNote(""); setCallStatus(null); }}
+                <button key={c.id} onClick={() => toggleLead(c.id)}
                   className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all",
-                    isSelected
-                      ? "bg-primary/10 border border-primary/30"
-                      : "bg-secondary/20 hover:bg-secondary/40 border border-transparent")}>
-                  <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                    isSelected ? "bg-primary/20 text-primary" : "bg-primary/15 text-primary")}>
+                    isSelected ? "bg-primary/10 border border-primary/25" : "bg-secondary/20 hover:bg-secondary/40 border border-transparent")}>
+                  {/* Checkbox */}
+                  <div className={cn("w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-all",
+                    isSelected ? "bg-primary border-primary" : "border-border/50")}>
+                    {isSelected && <CheckCircle2 className="h-3 w-3 text-primary-foreground" />}
+                  </div>
+                  <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-[10px] font-bold text-primary shrink-0">
                     {initials(c)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium truncate">{fullName(c)}</p>
                     <Badge className={cn("text-[9px] px-1 border mt-0.5", csm.color)}>{csm.label}</Badge>
                   </div>
-                  {isSelected
-                    ? <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
-                    : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />}
+                  {/* Result indicator */}
+                  {res?.status === "running"  && <Loader2 className="h-3.5 w-3.5 text-primary animate-spin shrink-0" />}
+                  {res?.status === "success"  && <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />}
+                  {res?.status === "failed"   && <X className="h-3.5 w-3.5 text-destructive shrink-0" />}
                 </button>
               );
             })}
-            {called.length > 0 && (
-              <div className="pt-2 border-t border-border/20">
-                <p className="text-xs text-muted-foreground px-2 mb-1">Called ({called.length})</p>
-                {dialList.filter(c => called.includes(c.id)).map(c => (
-                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl opacity-40">
-                    <div className="w-8 h-8 rounded-full bg-green-500/15 flex items-center justify-center text-xs font-bold text-green-400 shrink-0">{initials(c)}</div>
-                    <p className="text-xs truncate flex-1">{fullName(c)}</p>
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -1706,8 +1745,8 @@ function ReportsView({ contacts }: { contacts: Contact[] }) {
             ))}
           </div>
 
-          {/* Power Dialer Report */}
-          <ReportCard title="Power Dialer Report" icon={<Zap className="h-5 w-5 text-yellow-400" />} iconBg="bg-yellow-500/15"
+          {/* AI Pulse Report */}
+          <ReportCard title="AI Pulse Report" icon={<Rocket className="h-5 w-5 text-primary" />} iconBg="bg-primary/15"
             timeRange={timeRange} setTimeRange={setTimeRange}
             extra={<select className="h-7 rounded-lg border border-border/40 bg-background/50 px-2 text-xs text-muted-foreground"><option>Select campaigns</option></select>}>
             <div className="overflow-x-auto">
@@ -3082,7 +3121,7 @@ function BillingView({ balance, onRefresh }: { balance: number | null; onRefresh
           <h2 className="text-sm font-semibold">Pricing</h2>
           {[
             { label: "Voice Agent calls", rate: "$0.20 / min", icon: Phone, color: "text-blue-400" },
-            { label: "CRM Power Dialer calls", rate: "$0.20 / min", icon: Zap, color: "text-yellow-400" },
+            { label: "CRM AI Pulse calls", rate: "$0.20 / min", icon: Rocket, color: "text-primary" },
             { label: "Outbound SMS", rate: "$0.01 / msg", icon: MessageSquare, color: "text-green-400" },
             { label: "Inbound SMS", rate: "$0.01 / msg", icon: MessageSquare, color: "text-emerald-400" },
             { label: "Workflow automations", rate: "Varies", icon: Activity, color: "text-purple-400" },
@@ -3219,7 +3258,7 @@ export default function CRMAgent() {
     { id: "my_prompt",    label: "My Prompt",     icon: BotMessageSquare, badge: "AI" },
     { id: "dashboard",    label: "Dashboard",     icon: LayoutDashboard },
     { id: "contacts",     label: "Leads",         icon: Users },
-    { id: "power_dialer", label: "Power Dialer",  icon: Zap },
+    { id: "power_dialer", label: "AI Pulse",       icon: Rocket },
     { id: "inbox",        label: "Inbox",         icon: Inbox },
     { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
     { id: "calendar",     label: "Google Calendar",icon: Calendar },
@@ -3466,8 +3505,8 @@ export default function CRMAgent() {
                       <X className="h-3 w-3" /> Reset
                     </Button>
                   )}
-                  <Button size="sm" onClick={() => setView("power_dialer")} className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700">
-                    <Zap className="h-3.5 w-3.5" /> Start Dialing
+                  <Button size="sm" onClick={() => setView("power_dialer")} className="h-8 text-xs gap-1.5">
+                    <Rocket className="h-3.5 w-3.5" /> AI Pulse
                   </Button>
                 </div>
               </div>
