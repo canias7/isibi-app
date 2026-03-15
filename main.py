@@ -764,7 +764,7 @@ async def handle_media_stream(websocket: WebSocket):
                         if agent_id:
                             try:
                                 agent = get_agent_by_id(int(agent_id))
-                                logger.info(f"✅ Agent loaded: {agent.get('name') if agent else None}")
+                                logger.info(f"✅ Agent loaded: type={type(agent).__name__} name={agent.get('name') if agent else None} llm={agent.get('llm_provider') if agent else None} voice_prov={agent.get('voice_provider') if agent else None} bool={bool(agent)}")
                                 
                                 # Track call usage
                                 if agent:
@@ -1054,7 +1054,7 @@ async def handle_media_stream(websocket: WebSocket):
                         
                         # Send first message if configured
                         if not first_message_sent:
-                            logger.info(f"📢 Triggering greeting by simulating user connection")
+                            logger.info(f"📢 Triggering greeting: use_anthropic={use_anthropic} elevenlabs_handler={elevenlabs_handler is not None} use_elevenlabs={use_elevenlabs}")
 
                             if use_anthropic and elevenlabs_handler:
                                 # Anthropic mode: generate greeting via Claude → ElevenLabs
