@@ -4108,15 +4108,57 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
 
     conn = get_conn()
     cur = conn.cursor()
+
     if resolved_agent_id:
-        cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND user_id={PH}"), (resolved_agent_id, user_id))
+        # Caller specified an agent explicitly — trust it
+        cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND user_id={PH}"),
+                    (resolved_agent_id, user_id))
+        row = cur.fetchone()
+        if row:
+            from_number = row["phone_number"] if isinstance(row, dict) else row[1]
     else:
-        # Pick the user's first agent that has a phone number
-        cur.execute(sql("SELECT id, phone_number FROM agents WHERE user_id={PH} AND phone_number IS NOT NULL AND phone_number != '' LIMIT 1"), (user_id,))
-    row = cur.fetchone()
-    if row:
-        resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
-        from_number = row["phone_number"] if isinstance(row, dict) else row[1]
+        row = None
+
+    if not resolved_agent_id or row is None:
+        # Fallback 1 — first agent that has a phone number
+        cur.execute(sql(
+            "SELECT id, phone_number FROM agents "
+            "WHERE user_id={PH} AND phone_number IS NOT NULL AND phone_number != '' "
+            "ORDER BY id LIMIT 1"
+        ), (user_id,))
+        row = cur.fetchone()
+        if row:
+            resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
+            from_number = row["phone_number"] if isinstance(row, dict) else row[1]
+
+    if not resolved_agent_id:
+        # Fallback 2 — any agent for this user (even without a phone number)
+        cur.execute(sql(
+            "SELECT id, phone_number FROM agents WHERE user_id={PH} ORDER BY id LIMIT 1"
+        ), (user_id,))
+        row = cur.fetchone()
+        if row:
+            resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
+            fn = row["phone_number"] if isinstance(row, dict) else row[1]
+            if fn:
+                from_number = fn
+
+    if not resolved_agent_id:
+        # Fallback 3 — create a minimal CRM agent so the call has an agent_id
+        try:
+            cur.execute(sql(
+                "INSERT INTO agents (user_id, assistant_name, system_prompt) "
+                "VALUES ({PH}, {PH}, {PH})"
+            ), (user_id, "CRM Assistant", body.system_prompt or "You are a helpful AI assistant for CRM outreach."))
+            conn.commit()
+            cur.execute(sql(
+                "SELECT id FROM agents WHERE user_id={PH} ORDER BY id DESC LIMIT 1"
+            ), (user_id,))
+            new_row = cur.fetchone()
+            if new_row:
+                resolved_agent_id = new_row["id"] if isinstance(new_row, dict) else new_row[0]
+        except Exception as e:
+            print(f"⚠️  Could not create fallback agent: {e}")
 
     # If the CRM prompt has content, push it to the agent's system_prompt NOW
     # so the WebSocket handler loads it when the call connects
@@ -4129,6 +4171,8 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
             pass  # don't block the call if the update fails
 
     conn.close()
+
+    print(f"📞 Outbound call → agent_id={resolved_agent_id}  from={from_number}  to={body.to_number}")
 
     if not from_number:
         # Fall back to first Twilio number owned by the account
