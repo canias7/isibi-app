@@ -4222,7 +4222,7 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
     # TwiML URL — passes agent_id + CRM voice config so WebSocket uses correct stack
     # regardless of whether the DB update succeeded
     import urllib.parse
-    crm_voice_id = el_voice_id if "el_voice_id" in dir() else "21m00Tcm4TlvDq8ikWAM"
+    crm_voice_id = locals().get("el_voice_id") or "21m00Tcm4TlvDq8ikWAM"
     params = {"llm_provider": "anthropic", "model": "claude-haiku-4-5",
               "voice_provider": "elevenlabs", "elevenlabs_voice_id": crm_voice_id}
     if resolved_agent_id:
