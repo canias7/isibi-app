@@ -4116,7 +4116,8 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         cur.execute(sql("SELECT id, phone_number FROM agents WHERE id={PH} AND owner_user_id={PH}"),
                     (resolved_agent_id, user_id))
         row = cur.fetchone()
-        if row:
+        if row and not from_number:
+            # Only use agent's phone if the request didn't supply an explicit from_number
             from_number = row["phone_number"] if isinstance(row, dict) else row[1]
     else:
         row = None
@@ -4131,7 +4132,8 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         row = cur.fetchone()
         if row:
             resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
-            from_number = row["phone_number"] if isinstance(row, dict) else row[1]
+            if not from_number:
+                from_number = row["phone_number"] if isinstance(row, dict) else row[1]
 
     if not resolved_agent_id:
         # Fallback 2 — any agent for this user (even without a phone number)
@@ -4141,9 +4143,10 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         row = cur.fetchone()
         if row:
             resolved_agent_id = row["id"] if isinstance(row, dict) else row[0]
-            fn = row["phone_number"] if isinstance(row, dict) else row[1]
-            if fn:
-                from_number = fn
+            if not from_number:
+                fn = row["phone_number"] if isinstance(row, dict) else row[1]
+                if fn:
+                    from_number = fn
 
     if not resolved_agent_id:
         # Fallback 3 — create a minimal CRM agent so the call has an agent_id
