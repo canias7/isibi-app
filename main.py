@@ -288,9 +288,14 @@ class ElevenLabsVoiceHandler:
             logger.info(f"✅ Sent {chunks_sent} chunks to Twilio")
         
         except Exception as e:
-            logger.error(f"❌ ElevenLabs TTS error: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            # Silently ignore disconnection errors — call already ended on Twilio's side
+            err_str = str(e)
+            if any(x in err_str for x in ("WebSocketDisconnect", "ClientDisconnected", "ConnectionClosed", "1005", "1006", "no close frame")):
+                logger.debug(f"🔇 ElevenLabs send skipped (connection already closed): {type(e).__name__}")
+            else:
+                logger.error(f"❌ ElevenLabs TTS error: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
     
     async def flush(self):
         """Flush any remaining text in buffer"""
