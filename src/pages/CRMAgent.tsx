@@ -1381,12 +1381,11 @@ function PowerDialerView({ contacts, onStatusChange }: {
   const dialList = contacts.filter((c) =>
     ["new_lead", "callback", "interested"].includes((c as any).status ?? "")
   );
-  const [index, setIndex] = useState(0);
-  const [active, setActive] = useState(false);
-  const [callNote, setCallNote] = useState("");
-  const [skipped, setSkipped] = useState<number[]>([]);
-  const [called, setCalled] = useState<number[]>([]);
-  const [calling, setCalling] = useState(false);
+
+  const [selectedContactId, setSelectedContactId] = useState<number | null>(null);
+  const [callNote, setCallNote]   = useState("");
+  const [called, setCalled]       = useState<number[]>([]);
+  const [calling, setCalling]     = useState(false);
   const [callStatus, setCallStatus] = useState<string | null>(null);
 
   // Prompt selector — starts empty so customer must consciously pick one
@@ -1395,73 +1394,62 @@ function PowerDialerView({ contacts, onStatusChange }: {
   const selectedPrompt = allPrompts.find(p => p.id === selectedPromptId) ?? null;
   const agentId = localStorage.getItem("crm_agent_id") ? Number(localStorage.getItem("crm_agent_id")) : null;
 
-  const remaining = dialList.filter((c) => !called.includes(c.id) && !skipped.includes(c.id));
-  const current = remaining[0] ?? null;
-  const done = dialList.length > 0 && remaining.length === 0;
+  const remaining   = dialList.filter(c => !called.includes(c.id));
+  const current     = remaining.find(c => c.id === selectedContactId) ?? null;
+  const sm          = current ? statusMeta((current as any).status) : null;
+  const canCall     = !!current && !!selectedPrompt;
 
   const handleDisposition = async (status: string) => {
     if (!current) return;
     await onStatusChange(current.id, status);
-    setCalled((prev) => [...prev, current.id]);
+    setCalled(prev => [...prev, current.id]);
+    setSelectedContactId(null);
     setCallNote("");
-  };
-
-  const handleSkip = () => {
-    if (!current) return;
-    setSkipped((prev) => [...prev, current.id]);
+    setCallStatus(null);
   };
 
   const handleReset = () => {
-    setSkipped([]); setCalled([]); setCallNote(""); setActive(false);
+    setCalled([]); setCallNote(""); setSelectedContactId(null); setCallStatus(null);
   };
-
-  const sm = current ? statusMeta((current as any).status) : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
       <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-2"><Zap className="h-5 w-5 text-yellow-400" /> Power Dialer</h1>
-          <p className="text-xs text-muted-foreground">{remaining.length} remaining · {called.length} called · {skipped.length} skipped</p>
+          <p className="text-xs text-muted-foreground">{remaining.length} remaining · {called.length} called</p>
         </div>
-        <div className="flex items-center gap-2">
-          {!active && !done && (
-            <Button size="sm" onClick={() => setActive(true)} className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700">
-              <Play className="h-3.5 w-3.5" /> Start Dialer
-            </Button>
-          )}
-          {(active || done) && (
-            <Button size="sm" variant="outline" onClick={handleReset} className="h-8 text-xs">Reset</Button>
-          )}
-        </div>
+        <Button size="sm" variant="outline" onClick={handleReset} className="h-8 text-xs">Reset</Button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden gap-0">
-        {/* Left — current contact */}
-        <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6">
-          {!active && !done && (
-            <div className="text-center space-y-4">
-              <Zap className="h-16 w-16 mx-auto text-yellow-400/40" />
-              <p className="text-lg font-semibold">Ready to dial</p>
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Left — contact card / empty state */}
+        <div className="flex-1 flex flex-col items-center justify-center p-8 gap-6 overflow-y-auto">
+
+          {/* No lead selected */}
+          {!current && (
+            <div className="text-center space-y-3 text-muted-foreground">
+              <div className="w-20 h-20 rounded-2xl bg-secondary/40 border border-border/30 flex items-center justify-center mx-auto">
+                <Users className="h-8 w-8 opacity-30" />
+              </div>
+              <p className="text-base font-semibold text-foreground">Select a lead to call</p>
               <p className="text-sm text-muted-foreground max-w-xs">
-                {dialList.length} contacts in queue (new leads, callbacks, interested)
+                Click any contact in the queue on the right to load their details here.
               </p>
-              <Button onClick={() => setActive(true)} size="lg" className="gap-2 bg-green-600 hover:bg-green-700">
-                <Play className="h-4 w-4" /> Start Power Dialer
-              </Button>
+              {remaining.length === 0 && called.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <CheckCircle2 className="h-10 w-10 mx-auto text-green-400" />
+                  <p className="text-sm text-green-400 font-semibold">All contacts called!</p>
+                  <Button variant="outline" size="sm" onClick={handleReset}>Reset Queue</Button>
+                </div>
+              )}
             </div>
           )}
 
-          {active && done && (
-            <div className="text-center space-y-4">
-              <CheckCircle2 className="h-16 w-16 mx-auto text-green-400" />
-              <p className="text-lg font-semibold text-green-400">All contacts dialed!</p>
-              <p className="text-sm text-muted-foreground">{called.length} contacted · {skipped.length} skipped</p>
-              <Button variant="outline" onClick={handleReset}>Reset Queue</Button>
-            </div>
-          )}
-
-          {active && current && (
+          {/* Lead selected */}
+          {current && (
             <>
               {/* Contact card */}
               <div className="w-full max-w-md bg-card/60 border border-border/30 rounded-2xl p-6 space-y-4">
@@ -1469,11 +1457,16 @@ function PowerDialerView({ contacts, onStatusChange }: {
                   <div className="w-16 h-16 rounded-2xl bg-primary/15 border border-primary/25 flex items-center justify-center text-2xl font-bold text-primary">
                     {initials(current)}
                   </div>
-                  <div>
-                    <p className="text-xl font-bold">{fullName(current)}</p>
-                    {current.company && <p className="text-sm text-muted-foreground">{current.company}</p>}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xl font-bold truncate">{fullName(current)}</p>
+                    {current.company && <p className="text-sm text-muted-foreground truncate">{current.company}</p>}
                     {sm && <Badge className={cn("text-xs border mt-1", sm.color)}>{sm.label}</Badge>}
                   </div>
+                  {/* Deselect */}
+                  <button onClick={() => { setSelectedContactId(null); setCallNote(""); setCallStatus(null); }}
+                    className="p-1.5 rounded-lg hover:bg-secondary/60 text-muted-foreground hover:text-foreground transition-colors shrink-0" title="Deselect">
+                    <X className="h-4 w-4" />
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1491,9 +1484,7 @@ function PowerDialerView({ contacts, onStatusChange }: {
 
                 {/* ── Prompt selector — required before calling ── */}
                 <div className={cn("rounded-xl border-2 p-3 space-y-2 transition-colors",
-                  selectedPrompt
-                    ? "border-primary/30 bg-primary/5"
-                    : "border-yellow-500/40 bg-yellow-500/5")}>
+                  selectedPrompt ? "border-primary/30 bg-primary/5" : "border-yellow-500/40 bg-yellow-500/5")}>
                   <div className="flex items-center gap-2">
                     <BotMessageSquare className={cn("h-4 w-4 shrink-0", selectedPrompt ? "text-primary" : "text-yellow-400")} />
                     <span className={cn("text-xs font-semibold", selectedPrompt ? "text-foreground" : "text-yellow-400")}>
@@ -1502,20 +1493,14 @@ function PowerDialerView({ contacts, onStatusChange }: {
                     {!selectedPrompt && <AlertCircle className="h-3.5 w-3.5 text-yellow-400 ml-auto" />}
                   </div>
                   {allPrompts.length === 0 ? (
-                    <p className="text-[11px] text-yellow-400/80">
-                      No prompts yet — go to <strong>My Prompt</strong> and create one first.
-                    </p>
+                    <p className="text-[11px] text-yellow-400/80">No prompts yet — go to <strong>My Prompt</strong> and create one first.</p>
                   ) : (
-                    <select
-                      value={selectedPromptId}
-                      onChange={e => setSelectedPromptId(e.target.value)}
+                    <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}
                       className={cn("w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none focus:ring-2 focus:ring-primary/30",
                         selectedPrompt ? "border-primary/30 text-foreground" : "border-yellow-500/30 text-yellow-400")}>
                       <option value="">— choose a prompt —</option>
                       {allPrompts.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.direction ?? "outbound"})
-                        </option>
+                        <option key={p.id} value={p.id}>{p.name} ({p.direction ?? "outbound"})</option>
                       ))}
                     </select>
                   )}
@@ -1526,128 +1511,124 @@ function PowerDialerView({ contacts, onStatusChange }: {
                   )}
                 </div>
 
-                {/* Call button — triggers real AI outbound call */}
-                {!selectedPrompt ? (
-                  <button disabled
-                    className="flex items-center justify-center gap-3 w-full py-4 rounded-xl bg-secondary/30 border border-border/30 text-muted-foreground font-semibold text-sm cursor-not-allowed opacity-60">
-                    <Phone className="h-5 w-5" /> Select a prompt above to call
-                  </button>
-                ) : (
-                  <button
-                    disabled={calling}
-                    onClick={async () => {
-                      if (!current) return;
-                      setCalling(true);
-                      setCallStatus("Applying prompt…");
-                      try {
-                        // Push selected prompt content to the agent before calling (if agent id available)
-                        if (agentId && selectedPrompt?.content) {
-                          await updateAgent(agentId, { system_prompt: selectedPrompt.content });
-                        }
-                        setCallStatus("Initiating call…");
-                        const result = await initiateOutboundCall({
-                          agent_id: agentId ?? undefined,
-                          to_number: current.phone_number,
-                          contact_name: fullName(current),
-                          notes: callNote || undefined,
-                        });
-                        setCallStatus(`Call ${result.status ?? "initiated"} ✓`);
-                        toast({ title: "AI Call Initiated!", description: `Calling ${fullName(current)} · prompt: "${selectedPrompt?.name ?? "default"}"` });
-                      } catch (err: any) {
-                        setCallStatus("Call failed");
-                        toast({ title: "Call failed", description: err.message, variant: "destructive" });
-                      } finally {
-                        setCalling(false);
+                {/* Call button */}
+                <button
+                  disabled={!canCall || calling}
+                  onClick={async () => {
+                    if (!current || !selectedPrompt) return;
+                    setCalling(true);
+                    setCallStatus("Applying prompt…");
+                    try {
+                      if (agentId && selectedPrompt.content) {
+                        await updateAgent(agentId, { system_prompt: selectedPrompt.content });
                       }
-                    }}
-                    className={cn(
-                      "flex items-center justify-center gap-3 w-full py-4 rounded-xl font-semibold text-lg transition-colors text-white",
-                      calling ? "bg-green-700 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
-                    )}>
-                    {calling
-                      ? <><Loader2 className="h-5 w-5 animate-spin" /> Calling…</>
-                      : <><Phone className="h-5 w-5" /> Call {current.phone_number}</>}
-                  </button>
-                )}
-                {callStatus && (
-                  <p className="text-center text-xs text-muted-foreground">{callStatus}</p>
-                )}
+                      setCallStatus("Initiating call…");
+                      const result = await initiateOutboundCall({
+                        agent_id: agentId ?? undefined,
+                        to_number: current.phone_number,
+                        contact_name: fullName(current),
+                        notes: callNote || undefined,
+                      });
+                      setCallStatus(`Call ${result.status ?? "initiated"} ✓`);
+                      toast({ title: "AI Call Initiated!", description: `Calling ${fullName(current)} · prompt: "${selectedPrompt.name}"` });
+                    } catch (err: any) {
+                      setCallStatus("Call failed");
+                      toast({ title: "Call failed", description: err.message, variant: "destructive" });
+                    } finally {
+                      setCalling(false);
+                    }
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-3 w-full py-4 rounded-xl font-semibold text-base transition-colors",
+                    canCall && !calling ? "bg-green-600 hover:bg-green-700 text-white" : "bg-secondary/30 border border-border/30 text-muted-foreground cursor-not-allowed opacity-60"
+                  )}>
+                  {calling
+                    ? <><Loader2 className="h-5 w-5 animate-spin text-white" /> Calling…</>
+                    : canCall
+                      ? <><Phone className="h-5 w-5" /> Call {current.phone_number}</>
+                      : <><Phone className="h-5 w-5" /> Select a prompt above to call</>}
+                </button>
+                {callStatus && <p className="text-center text-xs text-muted-foreground">{callStatus}</p>}
 
-                {/* Note */}
-                <div>
-                  <textarea value={callNote} onChange={(e) => setCallNote(e.target.value)}
-                    placeholder="Call notes…"
-                    className="w-full h-20 rounded-xl border border-border/40 bg-background/50 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                </div>
+                {/* Notes */}
+                <textarea value={callNote} onChange={e => setCallNote(e.target.value)}
+                  placeholder="Call notes…"
+                  className="w-full h-20 rounded-xl border border-border/40 bg-background/50 px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
               </div>
 
               {/* Disposition buttons */}
-              <div className="w-full max-w-md">
-                <p className="text-xs text-muted-foreground mb-2 text-center">Set outcome:</p>
+              <div className="w-full max-w-md space-y-2">
+                <p className="text-xs text-muted-foreground text-center">Set outcome:</p>
                 <div className="grid grid-cols-2 gap-2">
                   {[
-                    { label: "✅ Interested", status: "interested", cls: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" },
-                    { label: "📞 Callback", status: "callback", cls: "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20" },
-                    { label: "🚫 Not Interested", status: "not_interested", cls: "bg-slate-500/10 border-slate-500/30 text-slate-400 hover:bg-slate-500/20" },
-                    { label: "🏆 Closed Won", status: "closed_won", cls: "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20" },
-                  ].map((d) => (
+                    { label: "✅ Interested",     status: "interested",    cls: "bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20" },
+                    { label: "📞 Callback",        status: "callback",      cls: "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20" },
+                    { label: "🚫 Not Interested",  status: "not_interested",cls: "bg-slate-500/10 border-slate-500/30 text-slate-400 hover:bg-slate-500/20" },
+                    { label: "🏆 Closed Won",      status: "closed_won",   cls: "bg-green-500/10 border-green-500/30 text-green-400 hover:bg-green-500/20" },
+                  ].map(d => (
                     <button key={d.status} onClick={() => handleDisposition(d.status)}
                       className={cn("py-3 rounded-xl border text-sm font-medium transition-colors", d.cls)}>
                       {d.label}
                     </button>
                   ))}
                 </div>
-                <button onClick={handleSkip}
-                  className="w-full mt-2 py-2.5 rounded-xl border border-border/30 text-muted-foreground hover:text-foreground hover:bg-secondary/40 text-sm transition-colors flex items-center justify-center gap-2">
-                  <SkipForward className="h-4 w-4" /> Skip for now
-                </button>
               </div>
 
               {/* Progress */}
               <div className="w-full max-w-md">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
-                  <span>{called.length + skipped.length} / {dialList.length}</span>
+                  <span>{called.length} / {dialList.length} called</span>
                   <span>{remaining.length} left</span>
                 </div>
                 <div className="h-1.5 bg-secondary/40 rounded-full overflow-hidden">
                   <div className="h-full bg-primary rounded-full transition-all"
-                    style={{ width: `${((called.length + skipped.length) / Math.max(dialList.length, 1)) * 100}%` }} />
+                    style={{ width: `${(called.length / Math.max(dialList.length, 1)) * 100}%` }} />
                 </div>
               </div>
             </>
           )}
         </div>
 
-        {/* Right — queue */}
+        {/* Right — clickable queue */}
         <div className="w-72 border-l border-border/30 flex flex-col shrink-0">
           <div className="px-4 py-3 border-b border-border/20 bg-card/20">
             <p className="text-sm font-semibold">Queue</p>
-            <p className="text-xs text-muted-foreground">{remaining.length} remaining</p>
+            <p className="text-xs text-muted-foreground">{remaining.length} remaining — click a lead to select</p>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {remaining.map((c, i) => {
-              const sm = statusMeta((c as any).status);
+            {remaining.length === 0 && called.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-8 px-2">No contacts in queue.<br />Add leads with status New Lead, Callback, or Interested.</p>
+            )}
+            {remaining.map(c => {
+              const csm = statusMeta((c as any).status);
+              const isSelected = c.id === selectedContactId;
               return (
-                <div key={c.id} className={cn("flex items-center gap-3 p-2.5 rounded-xl",
-                  i === 0 && active ? "bg-primary/10 border border-primary/20" : "bg-secondary/20")}>
-                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                <button key={c.id} onClick={() => { setSelectedContactId(c.id); setCallNote(""); setCallStatus(null); }}
+                  className={cn("w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all",
+                    isSelected
+                      ? "bg-primary/10 border border-primary/30"
+                      : "bg-secondary/20 hover:bg-secondary/40 border border-transparent")}>
+                  <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
+                    isSelected ? "bg-primary/20 text-primary" : "bg-primary/15 text-primary")}>
                     {initials(c)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-medium truncate">{fullName(c)}</p>
-                    <Badge className={cn("text-[9px] px-1 border mt-0.5", sm.color)}>{sm.label}</Badge>
+                    <Badge className={cn("text-[9px] px-1 border mt-0.5", csm.color)}>{csm.label}</Badge>
                   </div>
-                  {i === 0 && active && <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />}
-                </div>
+                  {isSelected
+                    ? <ArrowRight className="h-3.5 w-3.5 text-primary shrink-0" />
+                    : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />}
+                </button>
               );
             })}
             {called.length > 0 && (
               <div className="pt-2 border-t border-border/20">
                 <p className="text-xs text-muted-foreground px-2 mb-1">Called ({called.length})</p>
                 {dialList.filter(c => called.includes(c.id)).map(c => (
-                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl opacity-50">
+                  <div key={c.id} className="flex items-center gap-3 p-2.5 rounded-xl opacity-40">
                     <div className="w-8 h-8 rounded-full bg-green-500/15 flex items-center justify-center text-xs font-bold text-green-400 shrink-0">{initials(c)}</div>
-                    <p className="text-xs truncate">{fullName(c)}</p>
+                    <p className="text-xs truncate flex-1">{fullName(c)}</p>
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-400 shrink-0" />
                   </div>
                 ))}
