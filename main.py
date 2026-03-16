@@ -1064,9 +1064,25 @@ async def handle_media_stream(websocket: WebSocket):
                             use_anthropic   = True
                             anthropic_model = _cp_mod_ov
                             use_elevenlabs  = True
-                            current_system_prompt = (
-                                agent.get("system_prompt") if agent else SYSTEM_MESSAGE
-                            )
+
+                            # Load system_prompt from agent DB record (ignore deleted_at so
+                            # soft-deleted agents still supply their prompt)
+                            _crm_sys = None
+                            if agent:
+                                _crm_sys = agent.get("system_prompt")
+                            if not _crm_sys and agent_id:
+                                try:
+                                    from db import get_conn, sql as _sql
+                                    _c = get_conn(); _cur = _c.cursor()
+                                    _cur.execute(_sql("SELECT system_prompt FROM agents WHERE id={PH}"), (int(agent_id),))
+                                    _r = _cur.fetchone()
+                                    _c.close()
+                                    if _r:
+                                        _crm_sys = _r["system_prompt"] if isinstance(_r, dict) else _r[0]
+                                except Exception as _e:
+                                    logger.warning(f"⚠️ CRM: could not load system_prompt for agent {agent_id}: {_e}")
+                            current_system_prompt = _crm_sys or SYSTEM_MESSAGE
+                            logger.info(f"📋 CRM system_prompt loaded: {len(current_system_prompt)} chars")
                             if not elevenlabs_handler:
                                 elevenlabs_handler = ElevenLabsVoiceHandler(
                                     voice_id=_cp_evid_ov,
