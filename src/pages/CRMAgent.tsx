@@ -1393,11 +1393,12 @@ function DashboardView({ contacts, onNav }: { contacts: Contact[]; onNav: (v: st
 
 // ── Pipeline (Kanban) View ────────────────────────────────────────────────────
 
-function PipelineView({ contacts, onStatusChange, onEdit, onDelete }: {
+function PipelineView({ contacts, onStatusChange, onEdit, onDelete, onStartDialing }: {
   contacts: Contact[];
   onStatusChange: (id: number, status: string) => Promise<void>;
   onEdit: (c: Contact) => void;
   onDelete: (id: number) => void;
+  onStartDialing?: (statusId: string) => void;
 }) {
   const [selected, setSelected] = useState<Contact | null>(null);
 
@@ -1427,12 +1428,26 @@ function PipelineView({ contacts, onStatusChange, onEdit, onDelete }: {
           {STATUSES.map((status) => {
             const cols = contacts.filter((c) => (c as any).status === status.id);
             return (
-              <div key={status.id} className="w-60 shrink-0 flex flex-col gap-2">
-                {/* Column header */}
-                <div className={cn("flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold", status.color)}>
-                  <span className={cn("w-2 h-2 rounded-full shrink-0", status.dot)} />
-                  <span className="flex-1">{status.label}</span>
-                  <span className="bg-white/10 rounded-full px-2 py-0.5">{cols.length}</span>
+              <div key={status.id} className="w-64 shrink-0 flex flex-col gap-2">
+                {/* Column header — Ringy style */}
+                <div className="rounded-xl border border-border/30 bg-card/50 overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-card/40 border-b border-border/15">
+                    <Clock className="h-3 w-3 text-muted-foreground/50" />
+                    <span className="text-[10px] text-muted-foreground flex-1">Filter timezone</span>
+                    <span className="text-[10px] text-muted-foreground">Calls today: 0</span>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 py-2">
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", status.dot)} />
+                    <span className="text-xs font-semibold flex-1">{status.label}</span>
+                    <Badge className={cn("text-[9px] border px-1.5", status.color)}>{cols.length}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 px-3 pb-2.5">
+                    <button onClick={() => onStartDialing?.(status.id)}
+                      className="flex items-center justify-center gap-1.5 flex-1 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] font-bold hover:bg-primary/90 transition-colors">
+                      <Play className="h-3 w-3" /> START DIALING
+                    </button>
+                    <span className="text-[10px] text-muted-foreground shrink-0">Total leads: {cols.length}</span>
+                  </div>
                 </div>
                 {/* Cards */}
                 <div className="flex flex-col gap-2 flex-1 overflow-y-auto min-h-[200px] max-h-[calc(100vh-200px)]">
@@ -2827,10 +2842,11 @@ function InboxView({ contacts, onStatusChange, onEdit, onDelete }: {
         {/* Table */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Table header */}
-          <div className="grid grid-cols-[32px_2fr_3fr_1fr] gap-4 px-6 py-2 border-b border-border/20 text-xs font-medium text-muted-foreground bg-card/10 shrink-0">
+          <div className="grid grid-cols-[32px_48px_2fr_3fr_1fr] gap-4 px-6 py-2 border-b border-border/20 text-xs font-medium text-muted-foreground bg-card/10 shrink-0">
             <button onClick={() => { if (allChecked) setCheckedIds(new Set()); else setCheckedIds(new Set(pagedContacts.map(c => c.id))); }}>
               {allChecked ? <CheckSquare className="h-3.5 w-3.5 text-primary" /> : <Square className="h-3.5 w-3.5" />}
             </button>
+            <span />
             <span>From</span>
             <span>Message / Preview</span>
             <span>Received On</span>
@@ -2849,24 +2865,30 @@ function InboxView({ contacts, onStatusChange, onEdit, onDelete }: {
                 const isChecked = checkedIds.has(c.id);
                 return (
                   <div key={c.id}
-                    className={cn("grid grid-cols-[32px_2fr_3fr_1fr] gap-4 px-6 py-3 border-b border-border/10 items-center cursor-pointer transition-colors",
+                    className={cn("grid grid-cols-[32px_48px_2fr_3fr_1fr] gap-4 px-6 py-3 border-b border-border/10 items-center cursor-pointer transition-colors",
                       isChecked ? "bg-primary/5" : "hover:bg-secondary/20",
                       selected?.id === c.id && "bg-primary/8")}>
                     <button onClick={(e) => { e.stopPropagation(); toggleCheck(c.id); }}>
                       {isChecked ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4 text-muted-foreground" />}
                     </button>
+                    {/* Disposition tag */}
+                    <div className="flex items-center justify-center" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
+                      <Badge className={cn("text-[9px] px-1.5 py-0.5 border font-semibold whitespace-nowrap", sm.color)}>{sm.label.split(" ")[0]}</Badge>
+                    </div>
                     {/* From */}
                     <div className="flex items-center gap-2 min-w-0" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
                       <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">{fullName(c)}</p>
-                        <p className="text-xs text-muted-foreground truncate">{msgType === "sms" ? c.phone_number : (c.email ?? c.phone_number)}</p>
+                        <p className="text-sm font-semibold truncate">{fullName(c)}</p>
+                        <p className="text-xs text-primary/80 truncate">{msgType === "sms" ? c.phone_number : (c.email ?? c.phone_number)}</p>
                       </div>
                     </div>
                     {/* Message preview */}
-                    <div className="min-w-0" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
-                      <p className="text-xs text-muted-foreground truncate italic">Click to view {msgType === "sms" ? "SMS conversation" : "email thread"}…</p>
-                      <Badge className={cn("text-[9px] px-1 border mt-0.5", sm.color)}>{sm.label}</Badge>
+                    <div className="flex items-center gap-2 min-w-0" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
+                      <ArrowLeft className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                      <p className="text-xs text-muted-foreground truncate">
+                        {c.notes ? c.notes.slice(0, 80) : `Tap to view ${msgType === "sms" ? "SMS" : "email"} thread…`}
+                      </p>
                     </div>
                     {/* Date */}
                     <p className="text-xs text-muted-foreground" onClick={() => setSelected(selected?.id === c.id ? null : c)}>
@@ -3978,7 +4000,7 @@ export default function CRMAgent() {
                 ) : (
                   <div className="space-y-1.5">
                     {/* Header row */}
-                    <div className="grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_120px] gap-3 px-3 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+                    <div className="grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_200px] gap-3 px-3 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
                       <button onClick={() => {
                         if (selectedLeads.size === filtered.length) setSelectedLeads(new Set());
                         else setSelectedLeads(new Set(filtered.map(c => c.id)));
@@ -3996,7 +4018,7 @@ export default function CRMAgent() {
                       const isChecked = selectedLeads.has(c.id);
                       return (
                         <div key={c.id}
-                          className={cn("grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_120px] gap-3 items-center p-3 rounded-xl border cursor-pointer transition-all",
+                          className={cn("grid grid-cols-[24px_40px_2fr_1fr_1fr_1fr_200px] gap-3 items-center p-3 rounded-xl border cursor-pointer transition-all",
                             isActive ? "bg-primary/5 border-primary/20" : isChecked ? "bg-secondary/30 border-border/50" : "bg-card/40 border-border/30 hover:bg-secondary/20 hover:border-border/50")}>
                           {/* Checkbox */}
                           <button onClick={(e) => { e.stopPropagation(); setSelectedLeads(s => { const n = new Set(s); isChecked ? n.delete(c.id) : n.add(c.id); return n; }); }}>
@@ -4024,11 +4046,25 @@ export default function CRMAgent() {
                             {(c as any).source ?? "—"}
                           </div>
                           {/* Actions */}
-                          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-green-400 hover:bg-green-500/10 transition-colors" title="Call"><Phone className="h-3.5 w-3.5" /></a>
-                            {c.email && <a href={`mailto:${c.email}`} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="Email"><Mail className="h-3.5 w-3.5" /></a>}
-                            <button onClick={() => { setEditContact(c); setShowForm(true); }} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors" title="Edit"><Pencil className="h-3.5 w-3.5" /></button>
-                            <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button onClick={async () => {
+                              const prompts = (() => { try { return JSON.parse(localStorage.getItem("crm_prompts") || "[]"); } catch { return []; } })();
+                              const activeId = localStorage.getItem("active_crm_prompt_id");
+                              const prompt = prompts.find((p: any) => p.id === activeId) ?? prompts[0] ?? null;
+                              try {
+                                await initiateOutboundCall({ to_number: c.phone_number, contact_name: fullName(c), system_prompt: prompt?.content ?? undefined, from_number: prompt?.phoneNumber ?? undefined });
+                                toast({ title: `Calling ${fullName(c)}…` });
+                              } catch { toast({ title: "Call failed", variant: "destructive" }); }
+                            }} className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] font-bold hover:bg-primary/90 transition-colors whitespace-nowrap">
+                              <Phone className="h-3 w-3" /> CLICK TO CALL
+                            </button>
+                            <div className="flex gap-1">
+                              <button onClick={() => { setEditContact(c); setShowForm(true); }}
+                                className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-lg border border-border/40 text-[10px] text-muted-foreground hover:bg-secondary/50 transition-colors">
+                                <ChevronDown className="h-3 w-3" /> DISPOSITION
+                              </button>
+                              <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 className="h-3 w-3" /></button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -4154,7 +4190,8 @@ export default function CRMAgent() {
         {view === "pipeline" && (
           <PipelineView contacts={contacts} onStatusChange={handleStatusChange}
             onEdit={(c) => { setEditContact(c); setShowForm(true); }}
-            onDelete={handleDelete} />
+            onDelete={handleDelete}
+            onStartDialing={(statusId) => { setFilterStatus(statusId); setView("power_dialer"); }} />
         )}
 
         {/* Power Dialer */}
