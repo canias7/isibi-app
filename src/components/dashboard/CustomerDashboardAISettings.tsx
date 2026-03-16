@@ -111,7 +111,7 @@ export default function CustomerDashboardAISettings({
           setSystemPrompt(agent.system_prompt ?? "");
           setSavedAgentId(agent.id);
         })
-        .catch(() => toast({ title: "Failed to load agent", variant: "destructive" }));
+        .catch(() => toast({ title: "Failed to load employee", variant: "destructive" }));
     }
   }, [editId, loadKey]);
 
@@ -155,7 +155,7 @@ export default function CustomerDashboardAISettings({
       }
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || "Failed to save agent");
+        throw new Error(error.detail || "Failed to save employee");
       }
       const data = await response.json();
       if (data.id) setSavedAgentId(data.id);
@@ -164,7 +164,7 @@ export default function CustomerDashboardAISettings({
       setEditing(false);
       setSearchParams({});
     } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to save agent", variant: "destructive" });
+      toast({ title: "Error", description: err.message || "Failed to save employee", variant: "destructive" });
     } finally {
       setSaving(false);
     }

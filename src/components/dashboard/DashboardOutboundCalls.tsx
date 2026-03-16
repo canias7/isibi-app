@@ -186,7 +186,7 @@ export default function DashboardOutboundCalls({ agents, prefilledContact }: Das
   // ── initiate call ─────────────────────────────────────────────────────────────
   const handleInitiateCall = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agentId) { toast({ title: "Please select an agent", variant: "destructive" }); return; }
+    if (!agentId) { toast({ title: "Please select an employee", variant: "destructive" }); return; }
     if (!toNumber.trim()) { toast({ title: "Please enter a phone number", variant: "destructive" }); return; }
     setInitiating(true);
     try {
@@ -226,7 +226,7 @@ export default function DashboardOutboundCalls({ agents, prefilledContact }: Das
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-xl font-bold text-foreground">Outbound Calls</h2>
-          <p className="text-sm text-muted-foreground mt-1">Initiate AI-powered outbound calls using your configured agents.</p>
+          <p className="text-sm text-muted-foreground mt-1">Initiate AI-powered outbound calls using your configured employees.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchCalls}><RefreshCw className="h-3.5 w-3.5 mr-1.5" />Refresh</Button>
@@ -257,12 +257,12 @@ export default function DashboardOutboundCalls({ agents, prefilledContact }: Das
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Agent */}
                 <div className="space-y-2">
-                  <Label className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-muted-foreground" />Agent</Label>
+                  <Label className="flex items-center gap-1.5"><Bot className="h-3.5 w-3.5 text-muted-foreground" />Employee</Label>
                   {agents.length === 0 ? (
-                    <p className="text-sm text-muted-foreground rounded-xl border border-border/50 bg-secondary/30 px-4 py-3">No agents found — create one first.</p>
+                    <p className="text-sm text-muted-foreground rounded-xl border border-border/50 bg-secondary/30 px-4 py-3">No employees found — create one first.</p>
                   ) : (
                     <select value={agentId} onChange={(e) => setAgentId(e.target.value)} required className="w-full rounded-xl border border-border bg-background px-4 py-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20">
-                      <option value="" disabled>Select an agent…</option>
+                      <option value="" disabled>Select an employee…</option>
                       {agents.map((a) => <option key={a.id} value={String(a.id)}>{a.assistant_name}{a.business_name ? ` · ${a.business_name}` : ""}</option>)}
                     </select>
                   )}
@@ -352,7 +352,7 @@ export default function DashboardOutboundCalls({ agents, prefilledContact }: Das
       {/* Info banner */}
       <div className="flex items-start gap-3 rounded-xl bg-secondary/30 border border-border/30 px-4 py-3 text-sm text-muted-foreground">
         <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary/60" />
-        <p>Outbound calls connect your AI agent to the recipient using the agent's configured system prompt and voice. Calls are billed at your standard per-minute rate.</p>
+        <p>Outbound calls connect your AI employee to the recipient using the employee's configured system prompt and voice. Calls are billed at your standard per-minute rate.</p>
       </div>
 
       {/* Call history */}

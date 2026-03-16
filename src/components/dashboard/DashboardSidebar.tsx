@@ -14,8 +14,8 @@ export type DashboardTab = "assistant" | "overview" | "phone-numbers" | "billing
 export type SidebarMode = "developer" | "customer";
 
 const developerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
-  { id: "assistant", label: "Agent", icon: Bot },
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "overview", label: "Home", icon: LayoutDashboard },
+  { id: "assistant", label: "Employee", icon: Bot },
   { id: "outbound-calls", label: "Outbound Calls", icon: PhoneOutgoing },
   { id: "contacts", label: "Contacts", icon: BookUser },
   { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
@@ -25,8 +25,8 @@ const developerNavItems: { id: DashboardTab; label: string; icon: React.ElementT
 ];
 
 const customerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
+  { id: "overview", label: "Home", icon: LayoutDashboard },
   { id: "assistant", label: "Employee", icon: Bot },
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "outbound-calls", label: "Outbound Calls", icon: PhoneOutgoing },
   { id: "contacts", label: "Contacts", icon: BookUser },
   { id: "phone-numbers", label: "Phone Numbers", icon: Phone },
@@ -75,7 +75,7 @@ export default function DashboardSidebar({ activeTab, onTabChange, balance, lowB
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => navigate("/crm-agent")} className="cursor-pointer">
                   <Users2 className="h-4 w-4 mr-2" />
-                  <span className="gradient-text font-semibold">CRM Agent</span>
+                  <span className="gradient-text font-semibold">CRM Employee</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
