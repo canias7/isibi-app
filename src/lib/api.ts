@@ -1239,3 +1239,99 @@ export async function closeAISMSSession(sessionId: number): Promise<void> {
   });
   if (!res.ok) throw new Error("Failed to close session");
 }
+
+// ── SMS Marketing ─────────────────────────────────────────────────────────────
+export async function listPresetTexts() {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/preset-texts`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createPresetText(data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/preset-texts`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function updatePresetText(id: number, data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/preset-texts/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to update");
+  return res.json();
+}
+export async function deletePresetText(id: number) {
+  await fetch(`${API_BASE}/api/sms-marketing/preset-texts/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listDripSequences() {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/drip-sequences`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createDripSequence(data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/drip-sequences`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function updateDripSequence(id: number, data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/drip-sequences/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to update");
+  return res.json();
+}
+export async function deleteDripSequence(id: number) {
+  await fetch(`${API_BASE}/api/sms-marketing/drip-sequences/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listKeywords() {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/keywords`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createKeyword(data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/keywords`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function deleteKeyword(id: number) {
+  await fetch(`${API_BASE}/api/sms-marketing/keywords/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listPresetReplies() {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/preset-replies`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createPresetReply(data: object) {
+  const res = await fetch(`${API_BASE}/api/sms-marketing/preset-replies`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function deletePresetReply(id: number) {
+  await fetch(`${API_BASE}/api/sms-marketing/preset-replies/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+// ── Lead Vendors ─────────────────────────────────────────────────────────────
+export async function listLeadVendors() {
+  const res = await fetch(`${API_BASE}/api/lead-vendors`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createLeadVendor(data: object) {
+  const res = await fetch(`${API_BASE}/api/lead-vendors`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function updateLeadVendor(id: number, data: object) {
+  const res = await fetch(`${API_BASE}/api/lead-vendors/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to update");
+  return res.json();
+}
+export async function deleteLeadVendor(id: number) {
+  await fetch(`${API_BASE}/api/lead-vendors/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+// ── Campaigns ─────────────────────────────────────────────────────────────────
+export async function listCampaignsCRM() {
+  const res = await fetch(`${API_BASE}/api/campaigns-crm`, { headers: authHeaders() });
+  return res.ok ? res.json() : [];
+}
+export async function createCampaignCRM(data: object) {
+  const res = await fetch(`${API_BASE}/api/campaigns-crm`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  if (!res.ok) throw new Error("Failed to save");
+  return res.json();
+}
+export async function deleteCampaignCRM(id: number) {
+  await fetch(`${API_BASE}/api/campaigns-crm/${id}`, { method: "DELETE", headers: authHeaders() });
+}

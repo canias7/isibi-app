@@ -543,6 +543,89 @@ def init_db():
     )
     """)
 
+    # ── SMS Marketing ────────────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS sms_preset_texts (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        preset_type TEXT NOT NULL DEFAULT 'initial',
+        message TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        send_vcard INTEGER DEFAULT 0,
+        include_optout INTEGER DEFAULT 1,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS sms_drip_sequences (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        days_after INTEGER NOT NULL DEFAULT 1,
+        send_time TEXT DEFAULT '08:00',
+        message TEXT NOT NULL,
+        disposition_filter TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS sms_keywords (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        keyword TEXT NOT NULL,
+        auto_reply TEXT NOT NULL,
+        is_active INTEGER DEFAULT 1,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS sms_preset_replies (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        shortcut TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # ── Lead Vendors ─────────────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS lead_vendors (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        vendor_type TEXT DEFAULT 'personal_leads',
+        status TEXT DEFAULT 'unverified',
+        webhook_token TEXT,
+        email_address TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # ── Campaigns ────────────────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS campaigns (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        message TEXT NOT NULL,
+        campaign_type TEXT DEFAULT 'sms',
+        status TEXT DEFAULT 'draft',
+        leads_count INTEGER DEFAULT 0,
+        sent_count INTEGER DEFAULT 0,
+        response_count INTEGER DEFAULT 0,
+        filter_json TEXT,
+        scheduled_at {TIMESTAMP},
+        sent_at {TIMESTAMP},
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

@@ -5024,3 +5024,219 @@ def update_ai_sms_session(session_id: int, body: dict, user=Depends(verify_token
     conn.commit()
     conn.close()
     return {"ok": True}
+
+# ── SMS Marketing ─────────────────────────────────────────────────────────────
+
+@router.get("/sms-marketing/preset-texts")
+def list_preset_texts(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM sms_preset_texts WHERE user_id={PH} ORDER BY created_at"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"preset_type":r[2],"message":r[3],"is_active":r[4],"send_vcard":r[5],"include_optout":r[6],"created_at":r[7]} for r in rows]
+
+@router.post("/sms-marketing/preset-texts")
+def create_preset_text(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO sms_preset_texts (user_id,preset_type,message,is_active,send_vcard,include_optout) VALUES ({PH},{PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], body.get("preset_type","initial"), body["message"], body.get("is_active",1), body.get("send_vcard",0), body.get("include_optout",1)))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM sms_preset_texts WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "ok": True}
+
+@router.put("/sms-marketing/preset-texts/{item_id}")
+def update_preset_text(item_id: int, body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE sms_preset_texts SET message={PH},is_active={PH},send_vcard={PH},include_optout={PH} WHERE id={PH} AND user_id={PH}"),
+        (body.get("message",""), body.get("is_active",1), body.get("send_vcard",0), body.get("include_optout",1), item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/sms-marketing/preset-texts/{item_id}")
+def delete_preset_text(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM sms_preset_texts WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.get("/sms-marketing/drip-sequences")
+def list_drip_sequences(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM sms_drip_sequences WHERE user_id={PH} ORDER BY days_after"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"name":r[2],"days_after":r[3],"send_time":r[4],"message":r[5],"disposition_filter":r[6],"is_active":r[7],"created_at":r[8]} for r in rows]
+
+@router.post("/sms-marketing/drip-sequences")
+def create_drip_sequence(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO sms_drip_sequences (user_id,name,days_after,send_time,message,disposition_filter,is_active) VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], body["name"], body.get("days_after",1), body.get("send_time","08:00"), body["message"], body.get("disposition_filter"), body.get("is_active",1)))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM sms_drip_sequences WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "ok": True}
+
+@router.put("/sms-marketing/drip-sequences/{item_id}")
+def update_drip_sequence(item_id: int, body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE sms_drip_sequences SET name={PH},days_after={PH},send_time={PH},message={PH},disposition_filter={PH},is_active={PH} WHERE id={PH} AND user_id={PH}"),
+        (body.get("name",""), body.get("days_after",1), body.get("send_time","08:00"), body.get("message",""), body.get("disposition_filter"), body.get("is_active",1), item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/sms-marketing/drip-sequences/{item_id}")
+def delete_drip_sequence(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM sms_drip_sequences WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.get("/sms-marketing/keywords")
+def list_keywords(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM sms_keywords WHERE user_id={PH} ORDER BY keyword"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"keyword":r[2],"auto_reply":r[3],"is_active":r[4],"created_at":r[5]} for r in rows]
+
+@router.post("/sms-marketing/keywords")
+def create_keyword(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO sms_keywords (user_id,keyword,auto_reply,is_active) VALUES ({PH},{PH},{PH},{PH})"),
+        (user["id"], body["keyword"].upper(), body["auto_reply"], body.get("is_active",1)))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM sms_keywords WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "ok": True}
+
+@router.delete("/sms-marketing/keywords/{item_id}")
+def delete_keyword(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM sms_keywords WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.get("/sms-marketing/preset-replies")
+def list_preset_replies(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM sms_preset_replies WHERE user_id={PH} ORDER BY title"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"title":r[2],"message":r[3],"shortcut":r[4],"created_at":r[5]} for r in rows]
+
+@router.post("/sms-marketing/preset-replies")
+def create_preset_reply(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO sms_preset_replies (user_id,title,message,shortcut) VALUES ({PH},{PH},{PH},{PH})"),
+        (user["id"], body["title"], body["message"], body.get("shortcut")))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM sms_preset_replies WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "ok": True}
+
+@router.delete("/sms-marketing/preset-replies/{item_id}")
+def delete_preset_reply(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM sms_preset_replies WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Lead Vendors ──────────────────────────────────────────────────────────────
+
+import secrets as _secrets
+
+@router.get("/lead-vendors")
+def list_lead_vendors(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM lead_vendors WHERE user_id={PH} ORDER BY name"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"name":r[2],"vendor_type":r[3],"status":r[4],"webhook_token":r[5],"email_address":r[6],"created_at":r[7]} for r in rows]
+
+@router.post("/lead-vendors")
+def create_lead_vendor(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    token = _secrets.token_hex(16)
+    conn = get_conn(); cur = conn.cursor()
+    BACKEND_URL_LV = os.getenv("BACKEND_URL", "https://isibi-backend.onrender.com")
+    email = f"leads-{token[:8]}@{BACKEND_URL_LV.replace('https://','').replace('http://','')}"
+    cur.execute(sql("INSERT INTO lead_vendors (user_id,name,vendor_type,status,webhook_token,email_address) VALUES ({PH},{PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], body["name"], body.get("vendor_type","personal_leads"), "verified", token, email))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM lead_vendors WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "webhook_token": token, "email_address": email, "ok": True}
+
+@router.put("/lead-vendors/{vendor_id}")
+def update_lead_vendor(vendor_id: int, body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE lead_vendors SET name={PH},vendor_type={PH} WHERE id={PH} AND user_id={PH}"),
+        (body.get("name",""), body.get("vendor_type","personal_leads"), vendor_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/lead-vendors/{vendor_id}")
+def delete_lead_vendor(vendor_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM lead_vendors WHERE id={PH} AND user_id={PH}"), (vendor_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Campaigns ─────────────────────────────────────────────────────────────────
+
+@router.get("/campaigns-crm")
+def list_campaigns(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM campaigns WHERE user_id={PH} ORDER BY created_at DESC"), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    return [dict(r) if isinstance(r, dict) else {"id":r[0],"user_id":r[1],"name":r[2],"message":r[3],"campaign_type":r[4],"status":r[5],"leads_count":r[6],"sent_count":r[7],"response_count":r[8],"filter_json":r[9],"scheduled_at":r[10],"sent_at":r[11],"created_at":r[12]} for r in rows]
+
+@router.post("/campaigns-crm")
+def create_campaign(body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    import json as _json
+    conn = get_conn(); cur = conn.cursor()
+    filter_json = _json.dumps(body.get("filters", {}))
+    cur.execute(sql("INSERT INTO campaigns (user_id,name,message,campaign_type,status,leads_count,filter_json) VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], body.get("name","Campaign"), body.get("message",""), body.get("campaign_type","sms"), "draft", body.get("leads_count",0), filter_json))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM campaigns WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    return {"id": row["id"] if isinstance(row, dict) else row[0], "ok": True}
+
+@router.patch("/campaigns-crm/{campaign_id}")
+def update_campaign_status(campaign_id: int, body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE campaigns SET status={PH} WHERE id={PH} AND user_id={PH}"),
+        (body.get("status","draft"), campaign_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/campaigns-crm/{campaign_id}")
+def delete_campaign(campaign_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM campaigns WHERE id={PH} AND user_id={PH}"), (campaign_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}

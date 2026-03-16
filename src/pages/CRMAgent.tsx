@@ -31,6 +31,12 @@ import {
   getCreditsBalance, listAgents, initiateOutboundCall, updateAgent,
   generateAIPromptAdvanced,
   startAISMS, listAISMSSessions, getAISMSMessages, closeAISMSSession,
+  listPresetTexts, createPresetText, updatePresetText, deletePresetText,
+  listDripSequences, createDripSequence, updateDripSequence, deleteDripSequence,
+  listKeywords, createKeyword, deleteKeyword,
+  listPresetReplies, createPresetReply, deletePresetReply,
+  listLeadVendors, createLeadVendor, updateLeadVendor, deleteLeadVendor,
+  listCampaignsCRM, createCampaignCRM, deleteCampaignCRM,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
@@ -55,7 +61,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms" | "sms_marketing" | "lead_vendors";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -2320,6 +2326,20 @@ function CampaignsView({ contacts }: { contacts: Contact[] }) {
   const [cSearch, setCSearch] = useState("");
   const [cPowerDialer, setCPowerDialer] = useState(false);
   const [searchResults, setSearchResults] = useState<Contact[] | null>(null);
+  const [pastCampaigns, setPastCampaigns] = useState<any[]>([]);
+  const [loadingPast, setLoadingPast] = useState(false);
+  const [campaignName, setCampaignName] = useState("");
+  const [campaignMsg, setCampaignMsg] = useState("");
+  const [savingCampaign, setSavingCampaign] = useState(false);
+
+  const fetchPast = async () => {
+    setLoadingPast(true);
+    try { setPastCampaigns(await listCampaignsCRM()); }
+    catch { /* silent */ }
+    finally { setLoadingPast(false); }
+  };
+
+  useEffect(() => { if (campaignTab === "past") fetchPast(); }, [campaignTab]);
 
   const handleSearch = () => {
     let results = contacts;
@@ -2334,6 +2354,26 @@ function CampaignsView({ contacts }: { contacts: Contact[] }) {
   };
 
   const handleReset = () => { setCDateFrom(""); setCDateTo(""); setCSearch(""); setCPowerDialer(false); setSearchResults(null); };
+
+  const handleSendSMS = async () => {
+    if (!searchResults || searchResults.length === 0) return;
+    const name = campaignName || `SMS Campaign ${new Date().toLocaleDateString()}`;
+    setSavingCampaign(true);
+    try {
+      await createCampaignCRM({
+        name,
+        message: campaignMsg || "Hello #first_name!",
+        campaign_type: "sms",
+        status: "sent",
+        leads_count: searchResults.length,
+        filter_json: JSON.stringify({ dateFrom: cDateFrom, dateTo: cDateTo, search: cSearch }),
+      });
+      toast({ title: "Campaign saved", description: `${name} — ${searchResults.length} leads` });
+      setCampaignTab("past");
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally { setSavingCampaign(false); }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -2454,19 +2494,61 @@ function CampaignsView({ contacts }: { contacts: Contact[] }) {
                   </div>
                 )}
                 {searchResults.length > 0 && (
-                  <div className="flex justify-end mt-4 gap-2">
-                    <Button size="sm" className="gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> Send SMS Campaign</Button>
-                    <Button size="sm" variant="outline" className="gap-1.5"><Mail className="h-3.5 w-3.5" /> Send Email Campaign</Button>
+                  <div className="mt-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Campaign name</label>
+                        <Input value={campaignName} onChange={e => setCampaignName(e.target.value)} placeholder="e.g. March Blast" className="h-8 text-sm" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">Message (optional)</label>
+                        <Input value={campaignMsg} onChange={e => setCampaignMsg(e.target.value)} placeholder="Hey #first_name, ..." className="h-8 text-sm" />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" disabled={savingCampaign} onClick={handleSendSMS} className="gap-1.5">
+                        {savingCampaign ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />} Send SMS Campaign
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1.5"><Mail className="h-3.5 w-3.5" /> Send Email Campaign</Button>
+                    </div>
                   </div>
                 )}
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center py-16 text-muted-foreground">
-            <Send className="h-12 w-12 mx-auto mb-3 opacity-20" />
-            <p className="text-sm">No past campaigns yet</p>
-            <p className="text-xs mt-1">Create your first campaign to get started</p>
+          <div className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+            {/* Table header */}
+            <div className="grid grid-cols-[2fr_80px_100px_80px_80px_100px_120px] gap-3 px-4 py-2 border-b border-border/20 bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <span>Name</span><span>Type</span><span>Status</span><span>Leads</span><span>Sent</span><span>Response Rate</span><span>Date</span>
+            </div>
+            {loadingPast ? (
+              <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground text-sm">
+                <RefreshCw className="h-4 w-4 animate-spin" /> Loading…
+              </div>
+            ) : pastCampaigns.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground/60">
+                <Send className="h-8 w-8" />
+                <p className="text-sm">No past campaigns yet</p>
+                <p className="text-xs">Create your first campaign to get started</p>
+              </div>
+            ) : pastCampaigns.map((camp: any) => {
+              const rr = camp.sent_count > 0 ? Math.round((camp.response_count / camp.sent_count) * 100) : 0;
+              const statusColor = camp.status === "sent" ? "text-green-400 bg-green-500/10 border-green-500/30"
+                : camp.status === "draft" ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/30"
+                : "text-muted-foreground bg-secondary/30 border-border/30";
+              return (
+                <div key={camp.id} className="grid grid-cols-[2fr_80px_100px_80px_80px_100px_120px] gap-3 px-4 py-3 border-b border-border/10 hover:bg-secondary/10 text-sm items-center">
+                  <span className="font-medium truncate">{camp.name}</span>
+                  <span className="text-muted-foreground capitalize">{camp.campaign_type ?? "sms"}</span>
+                  <span><Badge className={cn("text-[10px] px-1.5 border", statusColor)}>{camp.status}</Badge></span>
+                  <span className="text-muted-foreground">{camp.leads_count ?? 0}</span>
+                  <span className="text-muted-foreground">{camp.sent_count ?? 0}</span>
+                  <span className="text-muted-foreground">{rr}%</span>
+                  <span className="text-muted-foreground text-xs">{camp.created_at ? new Date(camp.created_at).toLocaleDateString() : "—"}</span>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -2656,37 +2738,64 @@ function PhoneSetupView() {
                   <p className="text-xs">Search above to purchase your first number.</p>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {myNumbers.map((num, i) => (
-                    <div key={num.twilio_sid ?? num.phone_number ?? i} className="flex items-center justify-between p-3 rounded-xl bg-secondary/20 border border-border/20">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
-                          <Phone className="h-3.5 w-3.5 text-green-400" />
+                <div className="overflow-x-auto rounded-xl border border-border/20">
+                  {/* Table header */}
+                  <div className="grid grid-cols-[1.5fr_90px_80px_130px_120px_100px_60px] gap-2 px-4 py-2 bg-secondary/30 text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b border-border/20">
+                    <span>Phone Number</span>
+                    <span className="text-center">SMS Enabled</span>
+                    <span>State</span>
+                    <span>Next Renewal</span>
+                    <span>Carrier Violations</span>
+                    <span>Status</span>
+                    <span></span>
+                  </div>
+                  {myNumbers.map((num, i) => {
+                    const renewalDate = num.purchased_at
+                      ? (() => { const d = new Date(num.purchased_at); d.setFullYear(d.getFullYear() + 1); return d; })()
+                      : null;
+                    return (
+                      <div key={num.twilio_sid ?? num.phone_number ?? i}
+                        className="grid grid-cols-[1.5fr_90px_80px_130px_120px_100px_60px] gap-2 px-4 py-3 border-b border-border/10 hover:bg-secondary/10 items-center text-sm">
+                        {/* Phone number */}
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span className="font-semibold">{num.phone_number}</span>
                         </div>
-                        <div>
-                          <p className="text-sm font-semibold">{num.phone_number}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {num.agent_name ? `→ ${num.agent_name}` : "Unassigned"}
-                            {num.purchased_at ? ` · Purchased ${new Date(num.purchased_at).toLocaleDateString()}` : ""}
-                          </p>
+                        {/* SMS enabled */}
+                        <div className="flex justify-center">
+                          <CheckCircle2 className="h-4 w-4 text-green-400" />
+                        </div>
+                        {/* State */}
+                        <span className="text-muted-foreground text-xs">{(num as any).state ?? "—"}</span>
+                        {/* Next renewal */}
+                        <span className="text-muted-foreground text-xs">
+                          {renewalDate ? renewalDate.toLocaleDateString() : "—"}
+                        </span>
+                        {/* Carrier violations */}
+                        <div className="flex justify-center">
+                          <span className={cn("text-xs font-medium", ((num as any).violations ?? 0) > 0 ? "text-red-400" : "text-muted-foreground")}>
+                            {(num as any).violations ?? 0}
+                          </span>
+                        </div>
+                        {/* Status badge */}
+                        <Badge className="text-[10px] px-1.5 border border-green-500/30 text-green-400 bg-green-500/10 w-fit">Active</Badge>
+                        {/* MORE / delete */}
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost" size="sm"
+                            className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
+                            onClick={() => handleRelease(num.phone_number)}
+                            disabled={releasing === num.phone_number}
+                            title="Release number"
+                          >
+                            {releasing === num.phone_number
+                              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              : <Trash2 className="h-3.5 w-3.5" />}
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Active</Badge>
-                        <Button
-                          variant="ghost" size="sm"
-                          className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 w-7 p-0"
-                          onClick={() => handleRelease(num.phone_number)}
-                          disabled={releasing === num.phone_number}
-                          title="Release number"
-                        >
-                          {releasing === num.phone_number
-                            ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            : <Trash2 className="h-3.5 w-3.5" />}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3540,6 +3649,462 @@ function MyPromptView() {
   );
 }
 
+// ── SMS Marketing View ────────────────────────────────────────────────────────
+
+const SMS_KEYWORDS_LIST = ["#first_name","#last_name","#full_name","#email_address","#city","#state","#zip_code","#birthday","#my_first_name","#my_last_name","#my_email","#my_company_name","#new_line"];
+
+function SMSMarketingView() {
+  const [tab, setTab] = useState<"preset_texts"|"drip"|"keywords"|"preset_replies">("preset_texts");
+  const [presetType, setPresetType] = useState("initial");
+
+  // Preset Texts
+  const [presetTexts, setPresetTexts] = useState<any[]>([]);
+  const [ptMsg, setPtMsg] = useState("");
+  const [ptSaving, setPtSaving] = useState(false);
+  const [ptIncludeOptout, setPtIncludeOptout] = useState(true);
+
+  // Drip
+  const [drips, setDrips] = useState<any[]>([]);
+  const [dripName, setDripName] = useState("");
+  const [dripDays, setDripDays] = useState(1);
+  const [dripTime, setDripTime] = useState("08:00");
+  const [dripMsg, setDripMsg] = useState("");
+  const [dripSaving, setDripSaving] = useState(false);
+
+  // Keywords
+  const [kwds, setKwds] = useState<any[]>([]);
+  const [kwWord, setKwWord] = useState("");
+  const [kwReply, setKwReply] = useState("");
+  const [kwSaving, setKwSaving] = useState(false);
+
+  // Preset Replies
+  const [replies, setReplies] = useState<any[]>([]);
+  const [rpTitle, setRpTitle] = useState("");
+  const [rpMsg, setRpMsg] = useState("");
+  const [rpShortcut, setRpShortcut] = useState("");
+  const [rpSaving, setRpSaving] = useState(false);
+
+  useEffect(() => {
+    listPresetTexts().then(setPresetTexts).catch(() => {});
+    listDripSequences().then(setDrips).catch(() => {});
+    listKeywords().then(setKwds).catch(() => {});
+    listPresetReplies().then(setReplies).catch(() => {});
+  }, []);
+
+  const PRESET_TYPES = [
+    { id: "initial", label: "Initial Preset Texts" },
+    { id: "away", label: "Initial Preset Text While Away" },
+    { id: "follow_up", label: "Presentation Follow Up Preset Text" },
+    { id: "birthday", label: "Birthday Preset Text" },
+    { id: "verification", label: "Verification Reminder Preset Text" },
+  ];
+
+  const filteredPresets = presetTexts.filter(p => p.preset_type === presetType);
+
+  const savePresetText = async () => {
+    if (!ptMsg.trim()) return;
+    setPtSaving(true);
+    try {
+      const r = await createPresetText({ preset_type: presetType, message: ptMsg, include_optout: ptIncludeOptout ? 1 : 0 });
+      setPresetTexts(prev => [...prev, { id: r.id, preset_type: presetType, message: ptMsg, is_active: 1, include_optout: ptIncludeOptout ? 1 : 0 }]);
+      setPtMsg("");
+      toast({ title: "Preset text saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setPtSaving(false); }
+  };
+
+  const saveDrip = async () => {
+    if (!dripName.trim() || !dripMsg.trim()) return;
+    setDripSaving(true);
+    try {
+      const r = await createDripSequence({ name: dripName, days_after: dripDays, send_time: dripTime, message: dripMsg });
+      setDrips(prev => [...prev, { id: r.id, name: dripName, days_after: dripDays, send_time: dripTime, message: dripMsg, is_active: 1 }]);
+      setDripName(""); setDripMsg(""); setDripDays(1); setDripTime("08:00");
+      toast({ title: "Drip sequence saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setDripSaving(false); }
+  };
+
+  const saveKeyword = async () => {
+    if (!kwWord.trim() || !kwReply.trim()) return;
+    setKwSaving(true);
+    try {
+      const r = await createKeyword({ keyword: kwWord, auto_reply: kwReply });
+      setKwds(prev => [...prev, { id: r.id, keyword: kwWord.toUpperCase(), auto_reply: kwReply, is_active: 1 }]);
+      setKwWord(""); setKwReply("");
+      toast({ title: "Keyword saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setKwSaving(false); }
+  };
+
+  const saveReply = async () => {
+    if (!rpTitle.trim() || !rpMsg.trim()) return;
+    setRpSaving(true);
+    try {
+      const r = await createPresetReply({ title: rpTitle, message: rpMsg, shortcut: rpShortcut || undefined });
+      setReplies(prev => [...prev, { id: r.id, title: rpTitle, message: rpMsg, shortcut: rpShortcut }]);
+      setRpTitle(""); setRpMsg(""); setRpShortcut("");
+      toast({ title: "Reply saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setRpSaving(false); }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <MessageSquare className="h-5 w-5 text-primary" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">SMS Marketing</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-border/20 shrink-0 overflow-x-auto">
+        {([
+          { id: "preset_texts", label: "Preset Texts" },
+          { id: "drip", label: "Drip Marketing" },
+          { id: "keywords", label: "Keywords" },
+          { id: "preset_replies", label: "Preset Replies" },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={cn("px-6 py-3 text-sm font-medium border-b-2 transition-all uppercase tracking-wide whitespace-nowrap",
+              tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Preset Texts ─────────────────────────────────────────── */}
+        {tab === "preset_texts" && (
+          <>
+            {/* Left sidebar */}
+            <div className="w-64 border-r border-border/20 overflow-y-auto shrink-0">
+              {PRESET_TYPES.map(pt => (
+                <button key={pt.id} onClick={() => setPresetType(pt.id)}
+                  className={cn("w-full text-left px-4 py-3 text-xs font-medium border-b border-border/10 transition-colors uppercase tracking-wide",
+                    presetType === pt.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary/30 hover:text-foreground")}>
+                  {pt.label}
+                </button>
+              ))}
+            </div>
+            {/* Right content */}
+            <div className="flex-1 overflow-auto p-6 space-y-4">
+              <div className="flex items-center gap-3 mb-2">
+                <Zap className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-semibold">{PRESET_TYPES.find(p => p.id === presetType)?.label}</h2>
+              </div>
+              <p className="text-xs text-muted-foreground">Send new leads a text when they come into the system. If you set multiple templates, we'll choose a different one each time.</p>
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-3 text-xs text-blue-300">
+                Per CTIA guidelines, you must include the name of the company you represent and your name in this first text message.
+              </div>
+              {/* Existing presets */}
+              {filteredPresets.map(p => (
+                <div key={p.id} className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm flex-1">{p.message}</p>
+                    <button onClick={async () => { await deletePresetText(p.id); setPresetTexts(prev => prev.filter(x => x.id !== p.id)); }}
+                      className="text-muted-foreground hover:text-destructive transition-colors shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{p.message.length}/800 (1 text message)</p>
+                </div>
+              ))}
+              {/* New message form */}
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                <Textarea value={ptMsg} onChange={e => setPtMsg(e.target.value)} placeholder="Message" rows={4} className="text-sm resize-none" maxLength={800} />
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{ptMsg.length}/800 (1 text message)</span>
+                  <span>Estimated cost: $0.01</span>
+                </div>
+                <p className="text-xs text-muted-foreground">Opt-out notice: Reply 1 for quote OR end to opt-out.</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {SMS_KEYWORDS_LIST.slice(0,8).map(k => (
+                    <button key={k} onClick={() => setPtMsg(m => m + k)}
+                      className="px-2 py-0.5 rounded-md bg-secondary/40 text-[10px] text-muted-foreground hover:bg-secondary/70 hover:text-foreground transition-colors font-mono">
+                      {k}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <div onClick={() => setPtIncludeOptout(v => !v)}
+                    className={cn("w-8 h-4 rounded-full relative transition-colors", ptIncludeOptout ? "bg-primary" : "bg-secondary/60")}>
+                    <div className={cn("absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all", ptIncludeOptout ? "left-4" : "left-0.5")} />
+                  </div>
+                  <span className="text-xs text-muted-foreground">Include opt-out notice in estimated cost?</span>
+                </label>
+                <Button size="sm" onClick={savePresetText} disabled={ptSaving || !ptMsg.trim()} className="gap-1.5">
+                  {ptSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Save Preset
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── Drip Marketing ───────────────────────────────────────── */}
+        {tab === "drip" && (
+          <div className="flex-1 overflow-auto p-6 space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-base font-semibold flex items-center gap-2"><BarChart3 className="h-5 w-5 text-purple-400" /> Drip Marketing</h2>
+            </div>
+            <p className="text-xs text-muted-foreground">Automatically send follow-up texts X days after a lead is created.</p>
+            {/* Existing drips */}
+            {drips.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+                <div className="grid grid-cols-[2fr_80px_80px_3fr_80px] gap-4 px-4 py-2 border-b border-border/20 text-xs font-medium text-muted-foreground">
+                  <span>Name</span><span>Days</span><span>Time</span><span>Message</span><span></span>
+                </div>
+                {drips.map(d => (
+                  <div key={d.id} className="grid grid-cols-[2fr_80px_80px_3fr_80px] gap-4 px-4 py-3 border-b border-border/10 items-center text-xs">
+                    <span className="font-medium truncate">{d.name}</span>
+                    <span>Day {d.days_after}</span>
+                    <span>{d.send_time}</span>
+                    <span className="truncate text-muted-foreground">{d.message}</span>
+                    <button onClick={async () => { await deleteDripSequence(d.id); setDrips(prev => prev.filter(x => x.id !== d.id)); }}
+                      className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* New drip form */}
+            <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Add Drip Sequence</h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1 col-span-1">
+                  <label className="text-xs text-muted-foreground">Name</label>
+                  <Input value={dripName} onChange={e => setDripName(e.target.value)} placeholder="General follow up" className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Days after lead created</label>
+                  <Input type="number" min={1} max={365} value={dripDays} onChange={e => setDripDays(Number(e.target.value))} className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Send time</label>
+                  <Input type="time" value={dripTime} onChange={e => setDripTime(e.target.value)} className="h-8 text-xs" />
+                </div>
+              </div>
+              <Textarea value={dripMsg} onChange={e => setDripMsg(e.target.value)} placeholder="Hi #first_name, just following up…" rows={3} className="text-sm resize-none" />
+              <div className="flex flex-wrap gap-1">
+                {SMS_KEYWORDS_LIST.slice(0,6).map(k => (
+                  <button key={k} onClick={() => setDripMsg(m => m + k)} className="px-2 py-0.5 rounded-md bg-secondary/40 text-[10px] font-mono text-muted-foreground hover:bg-secondary/70">{k}</button>
+                ))}
+              </div>
+              <Button size="sm" onClick={saveDrip} disabled={dripSaving || !dripName.trim() || !dripMsg.trim()} className="gap-1.5">
+                {dripSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add Drip
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Keywords ─────────────────────────────────────────────── */}
+        {tab === "keywords" && (
+          <div className="flex-1 overflow-auto p-6 space-y-4">
+            <h2 className="text-base font-semibold flex items-center gap-2"><Zap className="h-5 w-5 text-yellow-400" /> Auto-Reply Keywords</h2>
+            <p className="text-xs text-muted-foreground">When a lead texts a specific keyword, automatically reply with a preset message.</p>
+            {kwds.length > 0 && (
+              <div className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+                <div className="grid grid-cols-[1fr_3fr_40px] gap-4 px-4 py-2 border-b border-border/20 text-xs font-medium text-muted-foreground">
+                  <span>Keyword</span><span>Auto-Reply</span><span></span>
+                </div>
+                {kwds.map(k => (
+                  <div key={k.id} className="grid grid-cols-[1fr_3fr_40px] gap-4 px-4 py-3 border-b border-border/10 items-center text-xs">
+                    <Badge className="text-xs bg-primary/10 text-primary border-primary/30 w-fit font-mono">{k.keyword}</Badge>
+                    <span className="text-muted-foreground">{k.auto_reply}</span>
+                    <button onClick={async () => { await deleteKeyword(k.id); setKwds(prev => prev.filter(x => x.id !== k.id)); }}
+                      className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Add Keyword</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Keyword (e.g. STOP, INFO, YES)</label>
+                  <Input value={kwWord} onChange={e => setKwWord(e.target.value.toUpperCase())} placeholder="STOP" className="h-8 text-xs font-mono uppercase" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Auto-Reply Message</label>
+                  <Input value={kwReply} onChange={e => setKwReply(e.target.value)} placeholder="You have been unsubscribed." className="h-8 text-xs" />
+                </div>
+              </div>
+              <Button size="sm" onClick={saveKeyword} disabled={kwSaving || !kwWord.trim() || !kwReply.trim()} className="gap-1.5">
+                {kwSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Add Keyword
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Preset Replies ───────────────────────────────────────── */}
+        {tab === "preset_replies" && (
+          <div className="flex-1 overflow-auto p-6 space-y-4">
+            <h2 className="text-base font-semibold flex items-center gap-2"><Send className="h-5 w-5 text-blue-400" /> Preset Replies</h2>
+            <p className="text-xs text-muted-foreground">Saved canned responses for quick sending during conversations.</p>
+            {replies.length > 0 && (
+              <div className="space-y-2">
+                {replies.map(r => (
+                  <div key={r.id} className="rounded-xl border border-border/30 bg-card/40 p-4 flex items-start gap-3">
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold">{r.title}</p>
+                        {r.shortcut && <Badge className="text-[9px] bg-secondary/40 text-muted-foreground border-border/30 font-mono">{r.shortcut}</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{r.message}</p>
+                    </div>
+                    <button onClick={async () => { await deletePresetReply(r.id); setReplies(prev => prev.filter(x => x.id !== r.id)); }}
+                      className="text-muted-foreground hover:text-destructive shrink-0"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+              <h3 className="text-sm font-semibold">Add Preset Reply</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Title</label>
+                  <Input value={rpTitle} onChange={e => setRpTitle(e.target.value)} placeholder="Appointment Confirmation" className="h-8 text-xs" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Shortcut (optional)</label>
+                  <Input value={rpShortcut} onChange={e => setRpShortcut(e.target.value)} placeholder="/appt" className="h-8 text-xs font-mono" />
+                </div>
+              </div>
+              <Textarea value={rpMsg} onChange={e => setRpMsg(e.target.value)} placeholder="Your appointment is confirmed for…" rows={3} className="text-sm resize-none" />
+              <Button size="sm" onClick={saveReply} disabled={rpSaving || !rpTitle.trim() || !rpMsg.trim()} className="gap-1.5">
+                {rpSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Save Reply
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Lead Vendors View ─────────────────────────────────────────────────────────
+
+function LeadVendorsView() {
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+
+  useEffect(() => {
+    listLeadVendors().then(v => setVendors(Array.isArray(v) ? v : [])).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      const r = await createLeadVendor({ name: newName });
+      setVendors(prev => [...prev, { id: r.id, name: newName, vendor_type: "personal_leads", status: "verified", webhook_token: r.webhook_token, email_address: r.email_address }]);
+      setNewName(""); setShowForm(false);
+      toast({ title: `Lead vendor "${newName}" created` });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const handleEdit = async (id: number) => {
+    if (!editName.trim()) return;
+    try {
+      await updateLeadVendor(id, { name: editName });
+      setVendors(prev => prev.map(v => v.id === id ? { ...v, name: editName } : v));
+      setEditId(null);
+      toast({ title: "Vendor updated" });
+    } catch { toast({ title: "Failed to update", variant: "destructive" }); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Delete this vendor?")) return;
+    try {
+      await deleteLeadVendor(id);
+      setVendors(prev => prev.filter(v => v.id !== id));
+      toast({ title: "Vendor deleted" });
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <Globe className="h-5 w-5 text-primary" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">Lead Vendors</h1>
+        <Button size="sm" onClick={() => setShowForm(v => !v)} className="gap-1.5">
+          <Plus className="h-3.5 w-3.5" /> Add Lead Vendor
+        </Button>
+      </div>
+
+      <div className="flex-1 overflow-auto p-6">
+        {showForm && (
+          <div className="rounded-xl border border-border/30 bg-card/40 p-4 mb-4 flex items-end gap-3">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs text-muted-foreground">Vendor Name</label>
+              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. Facebook Leads, USHA, NextGen" className="h-8 text-sm" autoFocus />
+            </div>
+            <Button size="sm" onClick={handleAdd} disabled={saving || !newName.trim()} className="gap-1.5">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Save
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { setShowForm(false); setNewName(""); }}>Cancel</Button>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-[2fr_1fr_1fr_2fr_100px] gap-4 px-6 py-3 border-b border-border/20 text-xs font-medium text-muted-foreground">
+            <span>Name</span><span>Type</span><span>Status</span><span>Manage Integration</span><span></span>
+          </div>
+          {loading ? (
+            <div className="py-12 text-center text-muted-foreground text-sm flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading vendors…
+            </div>
+          ) : vendors.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-sm space-y-2">
+              <Globe className="h-10 w-10 mx-auto opacity-20" />
+              <p>No lead vendors yet</p>
+              <p className="text-xs">Add a vendor to track where your leads come from</p>
+            </div>
+          ) : vendors.map(v => (
+            <div key={v.id} className="grid grid-cols-[2fr_1fr_1fr_2fr_100px] gap-4 px-6 py-4 border-b border-border/10 items-center">
+              {editId === v.id ? (
+                <div className="flex items-center gap-2">
+                  <Input value={editName} onChange={e => setEditName(e.target.value)} className="h-7 text-xs" autoFocus />
+                  <button onClick={() => handleEdit(v.id)} className="text-primary hover:text-primary/80 text-xs font-medium">Save</button>
+                  <button onClick={() => setEditId(null)} className="text-muted-foreground text-xs">Cancel</button>
+                </div>
+              ) : (
+                <span className="text-sm font-medium">{v.name}</span>
+              )}
+              <span className="text-xs text-muted-foreground capitalize">{(v.vendor_type || "personal_leads").replace(/_/g, " ")}</span>
+              <div className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
+                <span className="text-xs text-green-400 font-medium">Verified</span>
+              </div>
+              <div className="text-xs text-muted-foreground space-y-0.5">
+                {v.email_address && (
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="h-3 w-3" />
+                    <span className="truncate font-mono text-[10px]">{v.email_address}</span>
+                  </div>
+                )}
+                <button onClick={() => { toast({ title: "Webhook URL copied!", description: `Token: ${v.webhook_token}` }); }}
+                  className="text-primary hover:underline text-[10px]">EMAIL SETUP INSTRUCTIONS</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => { setEditId(v.id); setEditName(v.name); }} className="text-muted-foreground hover:text-primary transition-colors"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => handleDelete(v.id)} className="text-muted-foreground hover:text-destructive transition-colors"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Billing / Credits View ────────────────────────────────────────────────────
 
 function BillingView({ balance, onRefresh }: { balance: number | null; onRefresh: () => void }) {
@@ -3724,13 +4289,15 @@ export default function CRMAgent() {
     { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
     { id: "calendar",     label: "Google Calendar",icon: Calendar },
     { id: "reports",      label: "Reports",       icon: BarChart3 },
-    { id: "campaigns",    label: "Campaigns",     icon: Send },
-    { id: "calls",        label: "Calls",         icon: PhoneCall },
-    { id: "sms",          label: "Messages",      icon: MessageSquare },
-    { id: "emails",       label: "Emails",        icon: Mail },
-    { id: "tasks",        label: "Tasks",         icon: ClipboardList },
-    { id: "phone_setup",  label: "Phone Setup",   icon: Phone },
-    { id: "billing",      label: "Credits & Billing", icon: CreditCard },
+    { id: "campaigns",      label: "Campaigns",       icon: Send },
+    { id: "sms_marketing",  label: "SMS Marketing",   icon: MessageSquare },
+    { id: "lead_vendors",   label: "Lead Vendors",    icon: Globe },
+    { id: "calls",          label: "Calls",           icon: PhoneCall },
+    { id: "sms",            label: "Messages",        icon: MessageSquare },
+    { id: "emails",         label: "Emails",          icon: Mail },
+    { id: "tasks",          label: "Tasks",           icon: ClipboardList },
+    { id: "phone_setup",    label: "Phone Setup",     icon: Phone },
+    { id: "billing",        label: "Credits & Billing", icon: CreditCard },
   ];
 
   // SMS global view
@@ -4220,6 +4787,12 @@ export default function CRMAgent() {
 
         {/* AI SMS Inbox */}
         {view === "ai_sms" && <AISMSInboxView />}
+
+        {/* SMS Marketing */}
+        {view === "sms_marketing" && <SMSMarketingView />}
+
+        {/* Lead Vendors */}
+        {view === "lead_vendors" && <LeadVendorsView />}
 
         {/* Billing */}
         {view === "billing" && <BillingView balance={balance} onRefresh={refreshBalance} />}
