@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { PieChart, Pie, Cell, Tooltip as RechartTooltip, LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Legend } from "recharts";
 import {
   Users, Plus, Search, Phone, Mail, Building2, Pencil, Trash2,
   ChevronDown, X, Upload, Download, StickyNote, PhoneCall,
@@ -1164,110 +1165,227 @@ function TasksView({ contacts }: { contacts: Contact[] }) {
 
 // ── Dashboard View ────────────────────────────────────────────────────────────
 
-function DashboardView({ contacts }: { contacts: Contact[] }) {
-  const total = contacts.length;
-  const closed = contacts.filter((c) => (c as any).status === "closed_won").length;
-  const interested = contacts.filter((c) => (c as any).status === "interested").length;
-  const newLeads = contacts.filter((c) => (c as any).status === "new_lead").length;
-  const convRate = total > 0 ? ((closed / total) * 100).toFixed(1) : "0.0";
+interface DashboardStats {
+  summary: {
+    new_leads_today: number;
+    outbound_calls_today: number;
+    inbound_calls_today: number;
+    texts_today: number;
+    texts_inbound_today: number;
+    active_sms_sessions: number;
+  };
+  sms_deliverability: { delivered: number; undelivered: number };
+  recent_calls: Array<{ id: number; contact_name: string; phone_number: string; direction: string; duration_seconds: number; status: string; called_at: string }>;
+  sms_sessions: Array<{ id: number; contact_name: string; phone_number: string; status: string; created_at: string; msg_count: number; last_msg: string }>;
+}
 
-  const recentContacts = [...contacts].sort((a, b) =>
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  ).slice(0, 5);
+function fmtDuration(secs: number) {
+  if (!secs) return "0s";
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
 
-  const callbackContacts = contacts.filter((c) => (c as any).status === "callback").slice(0, 5);
+function fmtTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch { return iso; }
+}
 
-  const stats = [
-    { label: "Total Contacts", value: total, icon: Users, color: "text-blue-400", bg: "bg-blue-500/10 border-blue-500/20" },
-    { label: "New Leads", value: newLeads, icon: TrendingUp, color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
-    { label: "Interested", value: interested, icon: Star, color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
-    { label: "Closed Won", value: closed, icon: CheckCircle2, color: "text-green-400", bg: "bg-green-500/10 border-green-500/20" },
-    { label: "Conv. Rate", value: `${convRate}%`, icon: BarChart2, color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20" },
-    { label: "Need Callback", value: contacts.filter((c) => (c as any).status === "callback").length, icon: Phone, color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/20" },
+function DashboardView({ contacts, onNav }: { contacts: Contact[]; onNav: (v: string) => void }) {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem("auth_token");
+    fetch(`${import.meta.env.VITE_API_URL || ""}/api/crm/dashboard-stats`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const s = stats?.summary;
+  const summaryCards = [
+    { label: "Leads today",      value: s?.new_leads_today ?? 0,        icon: Users,        color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20", nav: "contacts" },
+    { label: "New texts",        value: s?.texts_today ?? 0,            icon: MessageSquare, color: "text-blue-400",   bg: "bg-blue-500/10 border-blue-500/20",    nav: "ai_sms" },
+    { label: "Outbound calls",   value: s?.outbound_calls_today ?? 0,   icon: PhoneCall,    color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", nav: "calls" },
+    { label: "Inbound calls",    value: s?.inbound_calls_today ?? 0,    icon: PhoneIncoming, color: "text-orange-400", bg: "bg-orange-500/10 border-orange-500/20",   nav: "calls" },
   ];
 
+  const delivered   = stats?.sms_deliverability.delivered ?? 0;
+  const undelivered = stats?.sms_deliverability.undelivered ?? 0;
+  const total = delivered + undelivered || 1;
+  const pieData = [
+    { name: "Delivered",   value: delivered },
+    { name: "Undelivered", value: undelivered },
+  ];
+  const PIE_COLORS = ["#22c55e", "#ef4444"];
+
+  // Build simple hourly chart data from sms_sessions (by hour of creation today)
+  const hourlyMap: Record<number, { outbound: number; inbound: number }> = {};
+  for (let h = 0; h <= 23; h++) hourlyMap[h] = { outbound: 0, inbound: 0 };
+  stats?.sms_sessions.forEach((sess) => {
+    try {
+      const h = new Date(sess.created_at).getHours();
+      hourlyMap[h].outbound += 1;
+    } catch { /* noop */ }
+  });
+  const chartData = Object.entries(hourlyMap).map(([h, v]) => ({
+    time: `${h}:00`,
+    Outbound: v.outbound,
+    Inbound: v.inbound,
+  }));
+
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">CRM overview</p>
+    <div className="flex-1 overflow-auto p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-sm text-muted-foreground">Today's overview</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { setLoading(true); const token=localStorage.getItem("auth_token"); fetch(`${import.meta.env.VITE_API_URL||""}/api/crm/dashboard-stats`,{headers:{Authorization:`Bearer ${token}`}}).then(r=>r.json()).then(setStats).catch(()=>{}).finally(()=>setLoading(false)); }} className="gap-2">
+          <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /> Refresh
+        </Button>
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {stats.map((s) => (
-          <div key={s.label} className={cn("rounded-xl border p-4 space-y-2", s.bg)}>
-            <s.icon className={cn("h-5 w-5", s.color)} />
-            <p className="text-2xl font-bold">{s.value}</p>
-            <p className="text-xs text-muted-foreground">{s.label}</p>
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {summaryCards.map((c) => (
+          <div key={c.label} className={cn("rounded-xl border p-4 cursor-pointer hover:opacity-80 transition-opacity", c.bg)} onClick={() => onNav(c.nav)}>
+            <div className="flex items-center gap-2 mb-2">
+              <c.icon className={cn("h-5 w-5", c.color)} />
+              <span className="text-xs text-muted-foreground">{c.label}</span>
+            </div>
+            <p className="text-3xl font-bold">{loading ? "—" : c.value}</p>
+            <p className={cn("text-xs mt-1 flex items-center gap-1", c.color)}>
+              <ArrowRight className="h-3 w-3" /> Go to {c.label.split(" ").pop()}
+            </p>
           </div>
         ))}
       </div>
 
-      {/* Pipeline breakdown */}
-      <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Activity className="h-4 w-4" /> Pipeline</h2>
-        <div className="space-y-2">
-          {STATUSES.map((s) => {
-            const count = contacts.filter((c) => (c as any).status === s.id).length;
-            const pct = total > 0 ? (count / total) * 100 : 0;
-            return (
-              <div key={s.id} className="flex items-center gap-3">
-                <span className={cn("w-2 h-2 rounded-full shrink-0", s.dot)} />
-                <span className="text-xs w-28 shrink-0">{s.label}</span>
-                <div className="flex-1 bg-secondary/40 rounded-full h-1.5 overflow-hidden">
-                  <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${pct}%` }} />
-                </div>
-                <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>
+      {/* SMS Deliverability + Volume */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Pie */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><BarChart2 className="h-4 w-4" /> SMS Deliverability</h2>
+          {delivered + undelivered === 0 ? (
+            <p className="text-xs text-muted-foreground py-8 text-center">No messages sent yet</p>
+          ) : (
+            <>
+              <div className="flex justify-center">
+                <PieChart width={180} height={180}>
+                  <Pie data={pieData} cx={85} cy={85} innerRadius={50} outerRadius={80} dataKey="value" stroke="none">
+                    {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
+                  </Pie>
+                  <RechartTooltip formatter={(v: number) => [`${v} texts`, ""]} />
+                </PieChart>
               </div>
-            );
-          })}
+              <div className="mt-2 space-y-1 text-xs">
+                <div className="flex justify-between"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Delivered</span><span className="font-medium">{delivered} ({((delivered/total)*100).toFixed(0)}%)</span></div>
+                <div className="flex justify-between"><span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Undelivered</span><span className="font-medium">{undelivered} ({((undelivered/total)*100).toFixed(0)}%)</span></div>
+                <div className="flex justify-between border-t border-border/20 pt-1 mt-1"><span className="font-medium">Total</span><span className="font-medium">{total} texts</span></div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Line chart */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><TrendingUp className="h-4 w-4" /> SMS Volume Today</h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="time" tick={{ fontSize: 9 }} interval={3} />
+              <YAxis tick={{ fontSize: 9 }} allowDecimals={false} />
+              <RechartTooltip contentStyle={{ background: "#1a1a2e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              <Line type="monotone" dataKey="Outbound" stroke="#a855f7" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="Inbound"  stroke="#22c55e" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Recent contacts */}
-        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Clock className="h-4 w-4" /> Recent Contacts</h2>
-          <div className="space-y-2">
-            {recentContacts.map((c) => {
-              const sm = statusMeta((c as any).status);
-              return (
-                <div key={c.id} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">{initials(c)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
-                    <p className="text-xs text-muted-foreground">{c.phone_number}</p>
-                  </div>
-                  <Badge className={cn("text-[10px] px-1.5 border shrink-0", sm.color)}>{sm.label}</Badge>
+      {/* Call History */}
+      <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <PhoneCall className="h-4 w-4" /> Call History
+          <button onClick={() => onNav("calls")} className="ml-auto text-xs text-primary hover:underline flex items-center gap-1">
+            View all <ArrowRight className="h-3 w-3" />
+          </button>
+        </h2>
+        {!stats?.recent_calls.length ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">No calls logged yet</p>
+        ) : (
+          <div className="space-y-1">
+            {stats.recent_calls.map((c) => (
+              <div key={c.id} className="flex items-center gap-3 py-1.5 border-b border-border/10 last:border-0">
+                <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0",
+                  c.direction === "outbound" ? "bg-purple-500/15" : "bg-emerald-500/15")}>
+                  {c.direction === "outbound"
+                    ? <PhoneCall className="h-3.5 w-3.5 text-purple-400" />
+                    : <PhoneIncoming className="h-3.5 w-3.5 text-emerald-400" />}
                 </div>
-              );
-            })}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{c.contact_name || c.phone_number}</p>
+                  <p className="text-xs text-muted-foreground">{c.phone_number}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-xs text-muted-foreground">{fmtDuration(c.duration_seconds)}</p>
+                  <p className="text-[10px] text-muted-foreground/60">{fmtTime(c.called_at)}</p>
+                </div>
+                <Badge variant="outline" className={cn("text-[10px] shrink-0",
+                  c.direction === "outbound" ? "text-purple-400 border-purple-500/30" : "text-emerald-400 border-emerald-500/30")}>
+                  {c.direction === "outbound" ? "↗ Outbound" : "↙ Inbound"}
+                </Badge>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
+      </div>
 
-        {/* Need callback */}
-        <div className="rounded-xl border border-border/30 bg-card/40 p-4">
-          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2"><Phone className="h-4 w-4 text-yellow-400" /> Need Callback</h2>
-          {callbackContacts.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-4 text-center">No callbacks scheduled</p>
-          ) : (
-            <div className="space-y-2">
-              {callbackContacts.map((c) => (
-                <div key={c.id} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-yellow-500/15 flex items-center justify-center text-xs font-bold text-yellow-400 shrink-0">{initials(c)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{fullName(c)}</p>
-                    <p className="text-xs text-muted-foreground">{c.phone_number}</p>
-                  </div>
-                  <a href={`tel:${c.phone_number}`} className="p-1.5 rounded-lg bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors">
-                    <Phone className="h-3.5 w-3.5" />
-                  </a>
-                </div>
+      {/* AI SMS Sessions */}
+      <div className="rounded-xl border border-border/30 bg-card/40 p-4">
+        <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+          <MessageSquare className="h-4 w-4" /> AI Text Follow-Ups
+          <button onClick={() => onNav("ai_sms")} className="ml-auto text-xs text-primary hover:underline flex items-center gap-1">
+            View all <ArrowRight className="h-3 w-3" />
+          </button>
+        </h2>
+        {!stats?.sms_sessions.length ? (
+          <p className="text-xs text-muted-foreground py-4 text-center">No AI text sessions yet</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-muted-foreground border-b border-border/20">
+                <th className="text-left pb-2 font-medium">Contact</th>
+                <th className="text-left pb-2 font-medium">Last Message</th>
+                <th className="text-right pb-2 font-medium">Msgs</th>
+                <th className="text-right pb-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.sms_sessions.map((sess) => (
+                <tr key={sess.id} className="border-b border-border/10 last:border-0">
+                  <td className="py-2 pr-2 font-medium">{sess.contact_name}</td>
+                  <td className="py-2 pr-2 text-muted-foreground truncate max-w-[180px]">{sess.last_msg || "—"}</td>
+                  <td className="py-2 text-right">{sess.msg_count}</td>
+                  <td className="py-2 text-right">
+                    <Badge variant="outline" className={cn("text-[10px]",
+                      sess.status === "active" ? "text-green-400 border-green-500/30" : "text-muted-foreground")}>
+                      {sess.status}
+                    </Badge>
+                  </td>
+                </tr>
               ))}
-            </div>
-          )}
-        </div>
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
@@ -3701,7 +3819,7 @@ export default function CRMAgent() {
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
 
         {/* Dashboard */}
-        {view === "dashboard" && <DashboardView contacts={contacts} />}
+        {view === "dashboard" && <DashboardView contacts={contacts} onNav={(v) => setView(v as View)} />}
 
         {/* Contacts / Leads */}
         {view === "contacts" && (

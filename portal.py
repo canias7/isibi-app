@@ -4110,6 +4110,133 @@ def delete_crm_call(call_id: int, user=Depends(verify_token)):
     return {"deleted": True}
 
 
+@router.get("/crm/dashboard-stats")
+def get_crm_dashboard_stats(user=Depends(verify_token)):
+    """Aggregate stats for the CRM Dashboard view."""
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    uid = user["id"]
+
+    # Today's date boundary
+    from datetime import date
+    today = date.today().isoformat()
+
+    def scalar(query, params):
+        cur.execute(query, params)
+        r = cur.fetchone()
+        if r is None:
+            return 0
+        return (r[0] if not isinstance(r, dict) else list(r.values())[0]) or 0
+
+    # Summary counts ──────────────────────────────────────────────────────────
+    new_leads_today = scalar(
+        sql("SELECT COUNT(*) FROM contacts WHERE user_id={PH} AND DATE(created_at)={PH}"),
+        (uid, today))
+
+    outbound_calls_today = scalar(
+        sql("SELECT COUNT(*) FROM crm_calls WHERE user_id={PH} AND direction='outbound' AND DATE(called_at)={PH}"),
+        (uid, today))
+
+    inbound_calls_today = scalar(
+        sql("SELECT COUNT(*) FROM crm_calls WHERE user_id={PH} AND direction='inbound' AND DATE(called_at)={PH}"),
+        (uid, today))
+
+    texts_today = scalar(
+        sql("""SELECT COUNT(*) FROM ai_sms_messages m
+               JOIN ai_sms_sessions s ON m.session_id=s.id
+               WHERE s.user_id={PH} AND m.role='assistant' AND DATE(m.created_at)={PH}"""),
+        (uid, today))
+
+    texts_inbound_today = scalar(
+        sql("""SELECT COUNT(*) FROM ai_sms_messages m
+               JOIN ai_sms_sessions s ON m.session_id=s.id
+               WHERE s.user_id={PH} AND m.role='user' AND DATE(m.created_at)={PH}"""),
+        (uid, today))
+
+    # SMS deliverability ──────────────────────────────────────────────────────
+    total_texts_sent = scalar(
+        sql("""SELECT COUNT(*) FROM ai_sms_messages m
+               JOIN ai_sms_sessions s ON m.session_id=s.id
+               WHERE s.user_id={PH} AND m.role='assistant'"""),
+        (uid,))
+
+    # SMS sessions ─────────────────────────────────────────────────────────────
+    active_sessions = scalar(
+        sql("SELECT COUNT(*) FROM ai_sms_sessions WHERE user_id={PH} AND status='active'"), (uid,))
+
+    # Recent call history ──────────────────────────────────────────────────────
+    cur.execute(sql("""
+        SELECT c.id, c.contact_name, c.phone_number, c.direction,
+               c.duration_seconds, c.status, c.called_at,
+               co.first_name, co.last_name
+        FROM crm_calls c
+        LEFT JOIN contacts co ON c.contact_id = co.id
+        WHERE c.user_id={PH}
+        ORDER BY c.called_at DESC LIMIT 10
+    """), (uid,))
+    call_rows = cur.fetchall()
+    recent_calls = []
+    for r in call_rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "contact_name": r[1], "phone_number": r[2],
+            "direction": r[3], "duration_seconds": r[4],
+            "status": r[5], "called_at": str(r[6]),
+            "first_name": r[7], "last_name": r[8],
+        }
+        if d.get("called_at") and not isinstance(d["called_at"], str):
+            d["called_at"] = str(d["called_at"])
+        fn = d.pop("first_name", None) or ""
+        ln = d.pop("last_name", None) or ""
+        if not d.get("contact_name") and (fn or ln):
+            d["contact_name"] = f"{fn} {ln}".strip()
+        recent_calls.append(d)
+
+    # AI SMS sessions (drips) ─────────────────────────────────────────────────
+    cur.execute(sql("""
+        SELECT s.id, s.phone_number, s.status, s.created_at,
+               c.first_name, c.last_name,
+               (SELECT COUNT(*) FROM ai_sms_messages WHERE session_id=s.id) AS msg_count,
+               (SELECT content FROM ai_sms_messages WHERE session_id=s.id ORDER BY created_at DESC LIMIT 1) AS last_msg
+        FROM ai_sms_sessions s
+        LEFT JOIN contacts c ON s.contact_id=c.id
+        WHERE s.user_id={PH}
+        ORDER BY s.created_at DESC LIMIT 10
+    """), (uid,))
+    sms_rows = cur.fetchall()
+    sms_sessions = []
+    for r in sms_rows:
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "phone_number": r[1], "status": r[2],
+            "created_at": str(r[3]), "first_name": r[4], "last_name": r[5],
+            "msg_count": r[6], "last_msg": r[7],
+        }
+        if d.get("created_at") and not isinstance(d["created_at"], str):
+            d["created_at"] = str(d["created_at"])
+        fn = d.pop("first_name", None) or ""
+        ln = d.pop("last_name", None) or ""
+        d["contact_name"] = f"{fn} {ln}".strip() or d.get("phone_number", "")
+        sms_sessions.append(d)
+
+    conn.close()
+    return {
+        "summary": {
+            "new_leads_today": new_leads_today,
+            "outbound_calls_today": outbound_calls_today,
+            "inbound_calls_today": inbound_calls_today,
+            "texts_today": texts_today,
+            "texts_inbound_today": texts_inbound_today,
+            "active_sms_sessions": active_sessions,
+        },
+        "sms_deliverability": {
+            "delivered": total_texts_sent,
+            "undelivered": 0,
+        },
+        "recent_calls": recent_calls,
+        "sms_sessions": sms_sessions,
+    }
+
+
 # ── Outbound Calls (AI Pulse) ─────────────────────────────────────────────────
 
 class OutboundCallRequest(BaseModel):
