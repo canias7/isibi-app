@@ -11,6 +11,7 @@ import {
   Activity, RefreshCw, Zap, Layers, BarChart3, PhoneOff, PhoneIncoming,
   SkipForward, Play, Target, ArrowRight, Columns3,
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
+  Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,10 @@ import {
   listPresetReplies, createPresetReply, deletePresetReply,
   listLeadVendors, createLeadVendor, updateLeadVendor, deleteLeadVendor,
   listCampaignsCRM, createCampaignCRM, deleteCampaignCRM,
+  listEmailPresetTexts, createEmailPresetText, updateEmailPresetText, deleteEmailPresetText,
+  listEmailDripSequences, createEmailDripSequence, updateEmailDripSequence, deleteEmailDripSequence,
+  listEmailPresetReplies, createEmailPresetReply, deleteEmailPresetReply,
+  getAccountProfile, updateAccountProfile,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
@@ -61,7 +66,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms" | "sms_marketing" | "lead_vendors";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms" | "sms_marketing" | "lead_vendors" | "email_marketing" | "account_settings";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -4105,6 +4110,566 @@ function LeadVendorsView() {
   );
 }
 
+// ── Email Marketing View ───────────────────────────────────────────────────────
+
+const EMAIL_PRESET_TYPES = [
+  { id: "initial",    label: "Initial Preset Email",    desc: "Send new leads an email when they come into the system." },
+  { id: "follow_up1", label: "Follow Up #1",             desc: "First follow-up email after initial contact." },
+  { id: "follow_up2", label: "Follow Up #2",             desc: "Second follow-up email." },
+  { id: "follow_up3", label: "Follow Up #3",             desc: "Third follow-up email." },
+  { id: "closing",    label: "Closing Email",            desc: "Final email to close the deal." },
+] as const;
+
+const EMAIL_KEYWORDS = [
+  "#first_name","#last_name","#full_name","#email_address","#phone_number",
+  "#street_address","#city","#state","#zip_code","#my_email",
+  "#my_office_phone_number","#my_forwarding_number","#my_first_name",
+  "#my_last_name","#my_full_name","#my_business_website","#my_booking_link",
+  "#my_producer_link","#next_month_full_name",
+];
+
+function EmailMarketingView() {
+  const [emailTab, setEmailTab] = useState<"preset_email" | "drip" | "preset_replies" | "settings">("preset_email");
+  const [selectedType, setSelectedType] = useState<string>("initial");
+  const [presets, setPresets] = useState<any[]>([]);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Drip
+  const [drips, setDrips] = useState<any[]>([]);
+  const [dripForm, setDripForm] = useState({ name: "", days_after: 1, send_time: "08:00", subject: "", message: "", disposition_filter: "" });
+  const [addingDrip, setAddingDrip] = useState(false);
+  const [savingDrip, setSavingDrip] = useState(false);
+
+  // Preset replies
+  const [replies, setReplies] = useState<any[]>([]);
+  const [replyForm, setReplyForm] = useState({ title: "", subject: "", message: "", shortcut: "" });
+  const [addingReply, setAddingReply] = useState(false);
+  const [savingReply, setSavingReply] = useState(false);
+
+  useEffect(() => {
+    listEmailPresetTexts().then(setPresets).catch(() => {});
+    listEmailDripSequences().then(setDrips).catch(() => {});
+    listEmailPresetReplies().then(setReplies).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const existing = presets.find((p: any) => p.preset_type === selectedType);
+    setSubject(existing?.subject ?? "");
+    setBody(existing?.message ?? "");
+  }, [selectedType, presets]);
+
+  const handleSavePreset = async () => {
+    setSaving(true);
+    try {
+      const existing = presets.find((p: any) => p.preset_type === selectedType);
+      if (existing) {
+        await updateEmailPresetText(existing.id, { preset_type: selectedType, subject, message: body });
+      } else {
+        const r = await createEmailPresetText({ preset_type: selectedType, subject, message: body });
+        setPresets(prev => [...prev, { id: r.id, preset_type: selectedType, subject, message: body }]);
+      }
+      toast({ title: "Saved", description: `${EMAIL_PRESET_TYPES.find(t => t.id === selectedType)?.label} saved.` });
+      const fresh = await listEmailPresetTexts();
+      setPresets(fresh);
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const handleDeletePreset = async () => {
+    const existing = presets.find((p: any) => p.preset_type === selectedType);
+    if (!existing) return;
+    await deleteEmailPresetText(existing.id);
+    setPresets(prev => prev.filter((p: any) => p.id !== existing.id));
+    setSubject(""); setBody("");
+    toast({ title: "Deleted" });
+  };
+
+  const handleSaveDrip = async () => {
+    setSavingDrip(true);
+    try {
+      await createEmailDripSequence(dripForm);
+      const fresh = await listEmailDripSequences();
+      setDrips(fresh);
+      setDripForm({ name: "", days_after: 1, send_time: "08:00", subject: "", message: "", disposition_filter: "" });
+      setAddingDrip(false);
+      toast({ title: "Drip sequence added" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setSavingDrip(false); }
+  };
+
+  const handleSaveReply = async () => {
+    setSavingReply(true);
+    try {
+      await createEmailPresetReply(replyForm);
+      const fresh = await listEmailPresetReplies();
+      setReplies(fresh);
+      setReplyForm({ title: "", subject: "", message: "", shortcut: "" });
+      setAddingReply(false);
+      toast({ title: "Preset reply added" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setSavingReply(false); }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
+          <Mail className="h-5 w-5 text-blue-400" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">Email Marketing</h1>
+      </div>
+
+      <div className="flex border-b border-border/20 shrink-0">
+        {([
+          { id: "preset_email", label: "Preset Email" },
+          { id: "drip", label: "Drip Marketing" },
+          { id: "preset_replies", label: "Preset Replies" },
+          { id: "settings", label: "Settings" },
+        ] as const).map(t => (
+          <button key={t.id} onClick={() => setEmailTab(t.id)}
+            className={cn("px-8 py-3 text-sm font-medium border-b-2 transition-all uppercase tracking-wide",
+              emailTab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground")}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        {emailTab === "preset_email" && (
+          <div className="flex h-full">
+            {/* Left sidebar — preset types */}
+            <div className="w-52 shrink-0 border-r border-border/20 bg-card/20 p-3 space-y-1">
+              {EMAIL_PRESET_TYPES.map(t => (
+                <button key={t.id} onClick={() => setSelectedType(t.id)}
+                  className={cn("w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all",
+                    selectedType === t.id ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground")}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Main editor */}
+            <div className="flex-1 p-6 space-y-5 overflow-auto">
+              {(() => {
+                const meta = EMAIL_PRESET_TYPES.find(t => t.id === selectedType)!;
+                return (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
+                        <Mail className="h-5 w-5 text-blue-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-base font-semibold">{meta.label}</h2>
+                        <p className="text-xs text-muted-foreground">{meta.desc}</p>
+                      </div>
+                    </div>
+
+                    {/* Subject */}
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground font-medium">Subject</label>
+                      <Input value={subject} onChange={e => setSubject(e.target.value)}
+                        placeholder="e.g. Custom tailored health coverage for your needs and budget!"
+                        className="h-9 text-sm" />
+                    </div>
+
+                    {/* Available keywords */}
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-muted-foreground">Available keywords</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {EMAIL_KEYWORDS.map(kw => (
+                          <button key={kw} onClick={() => setBody(prev => prev + kw)}
+                            className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors font-mono">
+                            {kw}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Body editor */}
+                    <div className="space-y-1.5">
+                      <label className="text-xs text-muted-foreground font-medium">Email Body</label>
+                      <Textarea value={body} onChange={e => setBody(e.target.value)}
+                        placeholder={`Hi #first_name,\n\nYour email body here...`}
+                        className="min-h-[280px] text-sm font-mono resize-y" />
+                      <p className="text-[10px] text-muted-foreground">Click a keyword chip above to insert it at the end, or type keywords directly in the body.</p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={handleSavePreset} disabled={saving} className="gap-1.5">
+                        {saving ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                        Save
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={handleDeletePreset} className="gap-1.5 text-destructive hover:text-destructive">
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </Button>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {emailTab === "drip" && (
+          <div className="p-6 space-y-4 max-w-4xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Drip Marketing Sequences</h2>
+              <Button size="sm" onClick={() => setAddingDrip(!addingDrip)} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add Sequence
+              </Button>
+            </div>
+
+            {addingDrip && (
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                <h3 className="text-sm font-medium">New Drip Email</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <Input placeholder="Sequence name" value={dripForm.name} onChange={e => setDripForm(f => ({...f, name: e.target.value}))} className="h-8 text-sm" />
+                  <Input type="number" min={1} placeholder="Days after" value={dripForm.days_after} onChange={e => setDripForm(f => ({...f, days_after: +e.target.value}))} className="h-8 text-sm" />
+                  <Input type="time" value={dripForm.send_time} onChange={e => setDripForm(f => ({...f, send_time: e.target.value}))} className="h-8 text-sm" />
+                </div>
+                <Input placeholder="Subject" value={dripForm.subject} onChange={e => setDripForm(f => ({...f, subject: e.target.value}))} className="h-8 text-sm" />
+                <Textarea placeholder="Email body..." value={dripForm.message} onChange={e => setDripForm(f => ({...f, message: e.target.value}))} className="min-h-[100px] text-sm resize-y" />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveDrip} disabled={savingDrip}>
+                    {savingDrip ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAddingDrip(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+
+            {drips.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground/60">
+                <Mail className="h-8 w-8 mx-auto mb-2" />
+                <p className="text-sm">No drip sequences yet</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+                <div className="grid grid-cols-[2fr_80px_80px_3fr_60px] gap-3 px-4 py-2 bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b border-border/20">
+                  <span>Name</span><span>Days After</span><span>Send Time</span><span>Subject</span><span></span>
+                </div>
+                {drips.map((d: any) => (
+                  <div key={d.id} className="grid grid-cols-[2fr_80px_80px_3fr_60px] gap-3 px-4 py-3 border-b border-border/10 hover:bg-secondary/10 text-sm items-center">
+                    <span className="font-medium truncate">{d.name}</span>
+                    <span className="text-muted-foreground">Day {d.days_after}</span>
+                    <span className="text-muted-foreground">{d.send_time}</span>
+                    <span className="text-muted-foreground text-xs truncate">{d.subject || "—"}</span>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive h-7 w-7 p-0"
+                      onClick={async () => { await deleteEmailDripSequence(d.id); setDrips(prev => prev.filter((x: any) => x.id !== d.id)); }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {emailTab === "preset_replies" && (
+          <div className="p-6 space-y-4 max-w-3xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Preset Replies</h2>
+              <Button size="sm" onClick={() => setAddingReply(!addingReply)} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add Reply
+              </Button>
+            </div>
+
+            {addingReply && (
+              <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Input placeholder="Title" value={replyForm.title} onChange={e => setReplyForm(f => ({...f, title: e.target.value}))} className="h-8 text-sm" />
+                  <Input placeholder="Shortcut (optional)" value={replyForm.shortcut} onChange={e => setReplyForm(f => ({...f, shortcut: e.target.value}))} className="h-8 text-sm" />
+                </div>
+                <Input placeholder="Subject" value={replyForm.subject} onChange={e => setReplyForm(f => ({...f, subject: e.target.value}))} className="h-8 text-sm" />
+                <Textarea placeholder="Reply body..." value={replyForm.message} onChange={e => setReplyForm(f => ({...f, message: e.target.value}))} className="min-h-[80px] text-sm resize-y" />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveReply} disabled={savingReply}>
+                    {savingReply ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setAddingReply(false)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+
+            {replies.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground/60">
+                <Mail className="h-8 w-8 mx-auto mb-2" />
+                <p className="text-sm">No preset replies yet</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {replies.map((r: any) => (
+                  <div key={r.id} className="flex items-start gap-3 p-3 rounded-xl border border-border/20 bg-card/40">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{r.title}</p>
+                        {r.shortcut && <code className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/50 text-muted-foreground">{r.shortcut}</code>}
+                      </div>
+                      {r.subject && <p className="text-xs text-primary/80 mt-0.5">Subject: {r.subject}</p>}
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{r.message}</p>
+                    </div>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive h-7 w-7 p-0 shrink-0"
+                      onClick={async () => { await deleteEmailPresetReply(r.id); setReplies(prev => prev.filter((x: any) => x.id !== r.id)); }}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {emailTab === "settings" && (
+          <div className="p-6 space-y-4 max-w-xl">
+            <h2 className="text-base font-semibold">Email Settings</h2>
+            <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Reply-to email address</label>
+                <Input placeholder="your@email.com" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Sender name</label>
+                <Input placeholder="Your name or company" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground font-medium">Stop emailing leads at</label>
+                <select className="w-full h-9 rounded-md border border-input bg-background/50 px-3 text-sm appearance-none">
+                  {["8 PM","9 PM","10 PM","11 PM","Never"].map(v => <option key={v}>{v} in their respective time zones</option>)}
+                </select>
+              </div>
+              <Button size="sm">Save Settings</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Account Settings View ──────────────────────────────────────────────────────
+
+const ACCOUNT_SETTINGS_SIDEBAR = [
+  { id: "general",    label: "General Info",     icon: User },
+  { id: "2fa",        label: "2FA",              icon: Lock },
+  { id: "password",   label: "Change Password",  icon: Lock },
+  { id: "notifs",     label: "Notifications",    icon: Bell },
+  { id: "states",     label: "Business States",  icon: MapPin },
+  { id: "vcard",      label: "VCard",            icon: Contact },
+  { id: "sync",       label: "Sync Account",     icon: RefreshCcw },
+] as const;
+
+type AccountTab = typeof ACCOUNT_SETTINGS_SIDEBAR[number]["id"];
+
+const TIMEZONES = ["Eastern","Central","Mountain","Pacific","Alaska","Hawaii"];
+const STOP_TIMES = ["8 PM","9 PM","10 PM","11 PM","Never"];
+
+function AccountSettingsView() {
+  const [activeTab, setActiveTab] = useState<AccountTab>("general");
+  const [profile, setProfile] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getAccountProfile().then(p => { setProfile(p); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  const set = (key: string, val: any) => setProfile((p: any) => ({ ...p, [key]: val }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateAccountProfile(profile);
+      toast({ title: "Profile saved" });
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+          <Settings className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <h1 className="text-lg font-bold flex-1">Account Settings</h1>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left sidebar */}
+        <div className="w-52 shrink-0 border-r border-border/20 bg-card/20 p-3 space-y-0.5 overflow-auto">
+          {ACCOUNT_SETTINGS_SIDEBAR.map(({ id, label, icon: Icon }) => (
+            <button key={id} onClick={() => setActiveTab(id)}
+              className={cn("w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm transition-all text-left",
+                activeTab === id ? "bg-primary text-primary-foreground font-medium" : "text-muted-foreground hover:bg-secondary/40 hover:text-foreground")}>
+              <Icon className="h-3.5 w-3.5 shrink-0" />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 overflow-auto p-6 max-w-2xl">
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm pt-10">
+              <RefreshCw className="h-4 w-4 animate-spin" /> Loading…
+            </div>
+          ) : activeTab === "general" ? (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-full bg-primary/15 flex items-center justify-center text-xl font-bold text-primary">
+                  {profile.first_name?.[0] ?? profile.email?.[0] ?? "U"}
+                </div>
+                <div>
+                  <h2 className="text-base font-semibold">General Info</h2>
+                  <p className="text-xs text-muted-foreground">{profile.email}</p>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">First name</label>
+                    <Input value={profile.first_name ?? ""} onChange={e => set("first_name", e.target.value)} className="h-9 text-sm" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Last name</label>
+                    <Input value={profile.last_name ?? ""} onChange={e => set("last_name", e.target.value)} className="h-9 text-sm" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Forward calls to</label>
+                    <Input value={profile.forward_calls_to ?? ""} onChange={e => set("forward_calls_to", e.target.value)} placeholder="e.g. 786-218-2384" className="h-9 text-sm" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Default time zone</label>
+                    <select value={profile.default_timezone ?? "Eastern"} onChange={e => set("default_timezone", e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background/50 px-3 text-sm appearance-none">
+                      {TIMEZONES.map(tz => <option key={tz}>{tz}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Agent website</label>
+                    <Input value={profile.agent_website ?? ""} onChange={e => set("agent_website", e.target.value)} placeholder="https://yoursite.com" className="h-9 text-sm" />
+                    <p className="text-[10px] text-muted-foreground">Used for SMS/email templates via #my_business_website</p>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground">Agent ID</label>
+                    <Input value={profile.agent_id_str ?? ""} onChange={e => set("agent_id_str", e.target.value)} placeholder="Exported with reports" className="h-9 text-sm" />
+                    <p className="text-[10px] text-muted-foreground">This can be exported with your reports</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs text-muted-foreground">Stop texting my leads for the night at</label>
+                  <select value={profile.stop_texting_at ?? "10 PM"} onChange={e => set("stop_texting_at", e.target.value)}
+                    className="w-full h-9 rounded-md border border-input bg-background/50 px-3 text-sm appearance-none">
+                    {STOP_TIMES.map(t => <option key={t}>{t} in their respective time zones</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Preferences + System alerts */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold">Preferences</h3>
+                  {([
+                    { key: "pref_dark_mode", label: "Dark mode." },
+                    { key: "pref_auto_save_notes", label: "Auto-save my lead notes." },
+                    { key: "pref_keep_recording", label: "Keep call recording turned on." },
+                  ] as const).map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 cursor-pointer">
+                      <input type="checkbox" checked={!!profile[key]} onChange={e => set(key, e.target.checked ? 1 : 0)}
+                        className="w-4 h-4 rounded accent-primary" />
+                      <span className="text-sm">{label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="rounded-xl border border-border/30 bg-card/40 p-4 space-y-3">
+                  <h3 className="text-sm font-semibold">System alerts</h3>
+                  {([
+                    { key: "alert_new_lead", label: "Show system alerts each time a new lead comes in." },
+                    { key: "alert_new_text", label: "Show system alerts each time a new text message comes in." },
+                    { key: "alert_missed_call", label: "Show system alerts each time I receive a missed call." },
+                  ] as const).map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2.5 cursor-pointer">
+                      <input type="checkbox" checked={!!profile[key]} onChange={e => set(key, e.target.checked ? 1 : 0)}
+                        className="w-4 h-4 rounded accent-primary" />
+                      <span className="text-sm text-sm">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+                {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                Save Changes
+              </Button>
+            </div>
+          ) : activeTab === "password" ? (
+            <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+              <h2 className="text-base font-semibold">Change Password</h2>
+              {["Current password", "New password", "Confirm new password"].map(f => (
+                <div key={f} className="space-y-1">
+                  <label className="text-xs text-muted-foreground">{f}</label>
+                  <Input type="password" placeholder={f} className="h-9 text-sm" />
+                </div>
+              ))}
+              <Button size="sm">Update Password</Button>
+            </div>
+          ) : activeTab === "notifs" ? (
+            <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+              <h2 className="text-base font-semibold">Notifications</h2>
+              <p className="text-sm text-muted-foreground">Configure how you want to receive notifications for important events.</p>
+              {[
+                "Email me when a new lead comes in",
+                "Email me when a lead is marked Closed Won",
+                "Push notification for incoming calls",
+                "Daily summary email",
+              ].map(n => (
+                <label key={n} className="flex items-center gap-2.5 cursor-pointer">
+                  <input type="checkbox" className="w-4 h-4 rounded accent-primary" defaultChecked />
+                  <span className="text-sm">{n}</span>
+                </label>
+              ))}
+              <Button size="sm">Save Notifications</Button>
+            </div>
+          ) : activeTab === "states" ? (
+            <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+              <h2 className="text-base font-semibold">Business States</h2>
+              <p className="text-sm text-muted-foreground">Select the states where you are licensed to do business.</p>
+              <div className="grid grid-cols-5 gap-2">
+                {["AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"].map(s => (
+                  <label key={s} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="checkbox" className="w-3.5 h-3.5 rounded accent-primary" />
+                    <span className="text-xs">{s}</span>
+                  </label>
+                ))}
+              </div>
+              <Button size="sm">Save States</Button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/50">
+              <Settings className="h-10 w-10" />
+              <p className="text-sm">Coming soon</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Billing / Credits View ────────────────────────────────────────────────────
 
 function BillingView({ balance, onRefresh }: { balance: number | null; onRefresh: () => void }) {
@@ -4292,6 +4857,8 @@ export default function CRMAgent() {
     { id: "campaigns",      label: "Campaigns",       icon: Send },
     { id: "sms_marketing",  label: "SMS Marketing",   icon: MessageSquare },
     { id: "lead_vendors",   label: "Lead Vendors",    icon: Globe },
+    { id: "email_marketing", label: "Email Marketing", icon: Mail },
+    { id: "account_settings", label: "Account Settings", icon: Settings },
     { id: "calls",          label: "Calls",           icon: PhoneCall },
     { id: "sms",            label: "Messages",        icon: MessageSquare },
     { id: "emails",         label: "Emails",          icon: Mail },
@@ -4793,6 +5360,12 @@ export default function CRMAgent() {
 
         {/* Lead Vendors */}
         {view === "lead_vendors" && <LeadVendorsView />}
+
+        {/* Email Marketing */}
+        {view === "email_marketing" && <EmailMarketingView />}
+
+        {/* Account Settings */}
+        {view === "account_settings" && <AccountSettingsView />}
 
         {/* Billing */}
         {view === "billing" && <BillingView balance={balance} onRefresh={refreshBalance} />}

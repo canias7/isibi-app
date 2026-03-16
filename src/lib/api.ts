@@ -1335,3 +1335,58 @@ export async function createCampaignCRM(data: object) {
 export async function deleteCampaignCRM(id: number) {
   await fetch(`${API_BASE}/api/campaigns-crm/${id}`, { method: "DELETE", headers: authHeaders() });
 }
+
+// ── Email Marketing ────────────────────────────────────────────────────────────
+export async function listEmailPresetTexts() {
+  const res = await fetch(`${API_BASE}/api/email-marketing/preset-texts`, { headers: authHeaders() });
+  return res.json();
+}
+export async function createEmailPresetText(data: any) {
+  const res = await fetch(`${API_BASE}/api/email-marketing/preset-texts`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+export async function updateEmailPresetText(id: number, data: any) {
+  const res = await fetch(`${API_BASE}/api/email-marketing/preset-texts/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+export async function deleteEmailPresetText(id: number) {
+  await fetch(`${API_BASE}/api/email-marketing/preset-texts/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listEmailDripSequences() {
+  const res = await fetch(`${API_BASE}/api/email-marketing/drip-sequences`, { headers: authHeaders() });
+  return res.json();
+}
+export async function createEmailDripSequence(data: any) {
+  const res = await fetch(`${API_BASE}/api/email-marketing/drip-sequences`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+export async function updateEmailDripSequence(id: number, data: any) {
+  const res = await fetch(`${API_BASE}/api/email-marketing/drip-sequences/${id}`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+export async function deleteEmailDripSequence(id: number) {
+  await fetch(`${API_BASE}/api/email-marketing/drip-sequences/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listEmailPresetReplies() {
+  const res = await fetch(`${API_BASE}/api/email-marketing/preset-replies`, { headers: authHeaders() });
+  return res.json();
+}
+export async function createEmailPresetReply(data: any) {
+  const res = await fetch(`${API_BASE}/api/email-marketing/preset-replies`, { method: "POST", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+export async function deleteEmailPresetReply(id: number) {
+  await fetch(`${API_BASE}/api/email-marketing/preset-replies/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+// ── Account Settings ──────────────────────────────────────────────────────────
+export async function getAccountProfile() {
+  const res = await fetch(`${API_BASE}/api/account/profile`, { headers: authHeaders() });
+  return res.json();
+}
+export async function updateAccountProfile(data: any) {
+  const res = await fetch(`${API_BASE}/api/account/profile`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}

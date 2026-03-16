@@ -626,6 +626,50 @@ def init_db():
     )
     """)
 
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS email_preset_texts (
+        id {ID}, user_id INTEGER NOT NULL,
+        preset_type TEXT NOT NULL DEFAULT 'initial',
+        subject TEXT NOT NULL DEFAULT '',
+        message TEXT NOT NULL, is_active INTEGER DEFAULT 1,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS email_drip_sequences (
+        id {ID}, user_id INTEGER NOT NULL,
+        name TEXT NOT NULL, days_after INTEGER NOT NULL DEFAULT 1,
+        send_time TEXT DEFAULT '08:00', subject TEXT DEFAULT '',
+        message TEXT NOT NULL, disposition_filter TEXT, is_active INTEGER DEFAULT 1,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS email_preset_replies (
+        id {ID}, user_id INTEGER NOT NULL,
+        title TEXT NOT NULL, subject TEXT DEFAULT '',
+        message TEXT NOT NULL, shortcut TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    # User profile fields
+    add_column_if_missing(conn, 'users', 'first_name', 'TEXT')
+    add_column_if_missing(conn, 'users', 'last_name', 'TEXT')
+    add_column_if_missing(conn, 'users', 'forward_calls_to', 'TEXT')
+    add_column_if_missing(conn, 'users', 'default_timezone', "TEXT DEFAULT 'Eastern'")
+    add_column_if_missing(conn, 'users', 'agent_website', 'TEXT')
+    add_column_if_missing(conn, 'users', 'agent_id_str', 'TEXT')
+    add_column_if_missing(conn, 'users', 'stop_texting_at', "TEXT DEFAULT '10 PM'")
+    add_column_if_missing(conn, 'users', 'pref_dark_mode', 'INTEGER DEFAULT 1')
+    add_column_if_missing(conn, 'users', 'pref_auto_save_notes', 'INTEGER DEFAULT 1')
+    add_column_if_missing(conn, 'users', 'pref_keep_recording', 'INTEGER DEFAULT 0')
+    add_column_if_missing(conn, 'users', 'alert_new_lead', 'INTEGER DEFAULT 1')
+    add_column_if_missing(conn, 'users', 'alert_new_text', 'INTEGER DEFAULT 1')
+    add_column_if_missing(conn, 'users', 'alert_missed_call', 'INTEGER DEFAULT 0')
+
     conn.commit()
     conn.close()
 

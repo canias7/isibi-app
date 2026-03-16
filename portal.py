@@ -5240,3 +5240,117 @@ def delete_campaign(campaign_id: int, user=Depends(verify_token)):
     cur.execute(sql("DELETE FROM campaigns WHERE id={PH} AND user_id={PH}"), (campaign_id, user["id"]))
     conn.commit(); conn.close()
     return {"ok": True}
+
+# ── Email Marketing ────────────────────────────────────────────────────────────
+
+@router.get("/api/email-marketing/preset-texts")
+def list_email_preset_texts(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM email_preset_texts WHERE user_id={PH} ORDER BY id"), (user["id"],))
+    rows = [dict(r) if hasattr(r, 'keys') else dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
+    conn.close(); return rows
+
+@router.post("/api/email-marketing/preset-texts")
+def create_email_preset_text(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO email_preset_texts (user_id, preset_type, subject, message) VALUES ({PH},{PH},{PH},{PH})"),
+        (user["id"], payload.get("preset_type","initial"), payload.get("subject",""), payload.get("message","")))
+    conn.commit(); rid = cur.lastrowid; conn.close(); return {"id": rid}
+
+@router.put("/api/email-marketing/preset-texts/{item_id}")
+def update_email_preset_text(item_id: int, payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE email_preset_texts SET preset_type={PH}, subject={PH}, message={PH} WHERE id={PH} AND user_id={PH}"),
+        (payload.get("preset_type","initial"), payload.get("subject",""), payload.get("message",""), item_id, user["id"]))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.delete("/api/email-marketing/preset-texts/{item_id}")
+def delete_email_preset_text(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM email_preset_texts WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.get("/api/email-marketing/drip-sequences")
+def list_email_drip_sequences(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM email_drip_sequences WHERE user_id={PH} ORDER BY days_after"), (user["id"],))
+    rows = [dict(r) if hasattr(r, 'keys') else dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
+    conn.close(); return rows
+
+@router.post("/api/email-marketing/drip-sequences")
+def create_email_drip_sequence(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO email_drip_sequences (user_id, name, days_after, send_time, subject, message, disposition_filter) VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], payload.get("name",""), payload.get("days_after",1), payload.get("send_time","08:00"),
+         payload.get("subject",""), payload.get("message",""), payload.get("disposition_filter",None)))
+    conn.commit(); rid = cur.lastrowid; conn.close(); return {"id": rid}
+
+@router.put("/api/email-marketing/drip-sequences/{item_id}")
+def update_email_drip_sequence(item_id: int, payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE email_drip_sequences SET name={PH}, days_after={PH}, send_time={PH}, subject={PH}, message={PH}, disposition_filter={PH} WHERE id={PH} AND user_id={PH}"),
+        (payload.get("name",""), payload.get("days_after",1), payload.get("send_time","08:00"),
+         payload.get("subject",""), payload.get("message",""), payload.get("disposition_filter",None), item_id, user["id"]))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.delete("/api/email-marketing/drip-sequences/{item_id}")
+def delete_email_drip_sequence(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM email_drip_sequences WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close(); return {"ok": True}
+
+@router.get("/api/email-marketing/preset-replies")
+def list_email_preset_replies(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM email_preset_replies WHERE user_id={PH} ORDER BY id"), (user["id"],))
+    rows = [dict(r) if hasattr(r, 'keys') else dict(zip([d[0] for d in cur.description], r)) for r in cur.fetchall()]
+    conn.close(); return rows
+
+@router.post("/api/email-marketing/preset-replies")
+def create_email_preset_reply(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO email_preset_replies (user_id, title, subject, message, shortcut) VALUES ({PH},{PH},{PH},{PH},{PH})"),
+        (user["id"], payload.get("title",""), payload.get("subject",""), payload.get("message",""), payload.get("shortcut",None)))
+    conn.commit(); rid = cur.lastrowid; conn.close(); return {"id": rid}
+
+@router.delete("/api/email-marketing/preset-replies/{item_id}")
+def delete_email_preset_reply(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM email_preset_replies WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close(); return {"ok": True}
+
+# ── Account Settings / User Profile ──────────────────────────────────────────
+
+@router.get("/api/account/profile")
+def get_account_profile(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT id, email, first_name, last_name, forward_calls_to, default_timezone, agent_website, agent_id_str, stop_texting_at, pref_dark_mode, pref_auto_save_notes, pref_keep_recording, alert_new_lead, alert_new_text, alert_missed_call FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    if not row: return {}
+    cols = [d[0] for d in cur.description]
+    return dict(zip(cols, row)) if not hasattr(row, 'keys') else dict(row)
+
+@router.put("/api/account/profile")
+def update_account_profile(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    fields = ["first_name","last_name","forward_calls_to","default_timezone","agent_website",
+              "agent_id_str","stop_texting_at","pref_dark_mode","pref_auto_save_notes",
+              "pref_keep_recording","alert_new_lead","alert_new_text","alert_missed_call"]
+    updates = {k: payload[k] for k in fields if k in payload}
+    if not updates: return {"ok": True}
+    set_clause = ", ".join(f"{k}={{PH}}" for k in updates)
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql(f"UPDATE users SET {set_clause} WHERE id={{PH}}"), list(updates.values()) + [user["id"]])
+    conn.commit(); conn.close(); return {"ok": True}
