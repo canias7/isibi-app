@@ -2852,7 +2852,7 @@ function MyPromptView() {
             <div key={p.id} onClick={() => selectPrompt(p)}
               className={cn("group relative flex flex-col gap-0.5 px-3 py-2.5 rounded-xl cursor-pointer transition-all",
                 selectedId === p.id ? "bg-primary/10 border border-primary/20" : "hover:bg-secondary/50 border border-transparent")}>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 pr-6">
                 <span className="text-xs font-medium truncate flex-1">{p.name || "Untitled"}</span>
                 {p.id === activeId && <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 rounded-full px-1.5 shrink-0">Active</span>}
               </div>
@@ -2871,9 +2871,12 @@ function MyPromptView() {
                   <p className="text-[9px] text-primary/60 font-mono truncate">{p.phoneNumber}</p>
                 </div>
               )}
-              <button onClick={e => { e.stopPropagation(); deletePrompt(p.id); }}
-                className="absolute right-1 top-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:text-destructive transition-all">
-                <X className="h-3 w-3" />
+              {/* Delete button — visible on hover */}
+              <button
+                onClick={e => { e.stopPropagation(); deletePrompt(p.id); }}
+                title="Delete prompt"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-all">
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
           ))}
@@ -2979,6 +2982,12 @@ function MyPromptView() {
                   : <Badge className="border border-green-500/30 text-green-400 bg-green-500/10 text-xs">Active</Badge>}
                 <Button onClick={handleSave} disabled={saving} size="sm" className="h-7 text-xs gap-1">
                   {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} Save
+                </Button>
+                <Button
+                  variant="ghost" size="sm"
+                  onClick={() => deletePrompt(selected.id)}
+                  className="h-7 text-xs gap-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10">
+                  <Trash2 className="h-3.5 w-3.5" /> Delete
                 </Button>
               </div>
             </div>
