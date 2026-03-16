@@ -1493,63 +1493,47 @@ def generate_ai_prompt_with_claude(payload: GeneratePromptAIRequest, user=Depend
         agent_name = payload.assistant_name or "AI Assistant"
 
         if direction == "outbound":
-            generation_prompt = f"""You are an expert cold-call sales trainer writing system prompts for outbound AI phone agents.
+            generation_prompt = f"""You are writing a system prompt for an AI phone agent that makes outbound sales calls.
 
-Write a high-converting cold call script / system prompt for an AI agent making OUTBOUND sales calls.
+The MOST IMPORTANT thing: this AI must sound like a REAL, NATURAL human being having a genuine conversation — NOT reading a script. It should feel spontaneous, warm, and confident. The prospect should never feel like they're talking to a bot reading bullet points.
 
-**Business Details:**
-- Agent Name: {agent_name}
-- Business: {payload.business_name}
+Business info:
+- Agent name: {agent_name}
+- Company: {payload.business_name}
 - Industry: {payload.business_type}
-- What they sell: {payload.business_description or payload.services or 'Products and services'}
-- Key value propositions: {payload.services or 'Not specified'}
-- Sales tone: {payload.tone}
+- What they offer: {payload.business_description or payload.services or 'their products and services'}
+- Tone: {payload.tone}
+- Special instructions: {payload.special_instructions or 'none'}
 
-**Special Instructions:**
-{payload.special_instructions or 'None'}
+Write the system prompt in second person ("You are..."). It should:
 
-**THIS IS A COLD CALL — REQUIREMENTS:**
+1. DEFINE WHO THEY ARE — Give the AI a real personality and identity. Not just a job title, but a way of speaking: casual but sharp, friendly but direct, like that one salesperson everyone actually likes talking to.
 
-1. **MINDSET** — The AI is calling a prospect who did NOT ask to be called. The goal is to SELL. Get their interest, overcome resistance, and close (or book a demo/appointment that leads to a close). Be confident, not apologetic.
+2. CONVERSATION STYLE — Tell the AI to:
+   - Talk like a human, not a robot. Use natural speech patterns — "look," "honestly," "here's the thing," "I get it."
+   - Never say things that sound scripted like "I understand your concern" or "that's a great question"
+   - React to what the person ACTUALLY says — don't bulldoze forward if they ask something
+   - Use their name naturally in conversation
+   - Pause, ask follow-up questions, show genuine curiosity about their situation
+   - Match their energy — if they're upbeat, be upbeat. If they're skeptical, be calm and real.
 
-2. **OPENING (5 seconds rule)** — Hook them immediately or they hang up:
-   - Say name + company + ONE compelling reason why they should care
-   - Do NOT ask "how are you?" — go straight to value
-   - Example: "Hi [name], this is {agent_name} from {payload.business_name}. The reason I'm calling — we help [type of business] [specific result, e.g., cut costs by 30% / double their leads]. I wanted to see if that's something you're open to hearing more about?"
+3. THE CALL GOAL — Explain the purpose: they're reaching out because {payload.business_name} can genuinely help this person. They believe in what they're selling. This isn't a numbers game — it's a real conversation to see if there's a fit.
 
-3. **PITCH** — After the hook, deliver a 2-3 sentence value pitch:
-   - What problem you solve
-   - How you solve it better than anyone else
-   - A proof point or result (e.g., "Our clients see X within Y days")
+4. HOW TO OPEN — Don't write a word-for-word script. Instead describe the approach: introduce yourself naturally, say why you're calling in a way that sounds like something a real person would say on the phone, then immediately invite them into the conversation with a question.
 
-4. **DISCOVERY QUESTIONS** — 2-3 sharp questions to qualify AND build rapport:
-   - Uncover their current pain
-   - Make them feel heard before going deeper into the pitch
+5. HOW TO HANDLE RESISTANCE — When someone pushes back, the AI stays calm, doesn't panic, and responds like a real person would: with empathy, curiosity, and a light touch. Never argue. Never repeat the same pitch twice. If there's a genuine no after giving it a real shot, thank them warmly and let them go.
 
-5. **OBJECTION HANDLING — be persistent but not annoying:**
-   - "Not interested" → "I totally get it — most people say that before they see the numbers. Can I ask — are you happy with [current situation]?" Then give one more value statement.
-   - "Send me an email" → "I'll do that — but emails get buried. Can I get 60 seconds to show you why this is different? Then if it's not a fit, I won't call again."
-   - "Too busy" → "I hear you. I'll be quick — 30 seconds, then you decide. Deal?"
-   - "Already have a solution" → "That's great — most of our best clients said the same thing before switching. What's the one thing you wish your current solution did better?"
-   - "Too expensive" → "Totally fair. What if I could show you how it pays for itself in [timeframe]? Would that change things?"
+6. CLOSING — When there's interest, move toward a next step naturally — like scheduling a quick call or sending something specific. Make it feel easy, not pressured.
 
-6. **CLOSE** — Always push for a commitment:
-   - Primary close: book a demo / appointment / next call
-   - Micro-close: get permission to send a follow-up with a scheduled callback time
-   - If hard no after 2 objection attempts → thank them professionally and end
+CRITICAL RULES for the generated prompt:
+- No bullet-pointed scripts the AI will read verbatim
+- No stiff corporate language
+- The AI should improvise within the guidelines, not recite
+- Every response should feel like it came from listening, not from a flowchart
+- Keep the whole prompt under 350 words
+- Write it in "You are..." format so the AI fully adopts this persona
 
-7. **TONE** — {payload.tone}. Sound like a real, confident human salesperson — energetic, direct, and genuinely helpful. Never robotic or scripted-sounding.
-
-**Output format — these sections only:**
-- ## ROLE (who the agent is, what they sell, their sales goal)
-- ## OPENING LINE (exact word-for-word cold call opener)
-- ## VALUE PITCH (2-3 sentence pitch after they engage)
-- ## DISCOVERY QUESTIONS (2-3 qualifying questions)
-- ## OBJECTION HANDLING (5 rebuttals as listed above)
-- ## CLOSE (how to push for the appointment/sale)
-- ## IF THEY SAY NO (graceful exit script)
-
-Keep it under 400 words. Make every word earn its place. Generate the prompt now:"""
+Generate the system prompt now:"""
         else:
             generation_prompt = f"""You are an expert at creating system prompts for inbound voice AI phone assistants used in CRM platforms.
 
@@ -3776,30 +3760,36 @@ def generate_prompt_from_url(payload: GeneratePromptFromURLRequest, user=Depends
         call_direction = (payload.call_direction or "inbound").lower()
 
         if call_direction == "outbound":
-            prompt = f"""You are an expert cold-call sales trainer. Based on this business's website, write a high-converting OUTBOUND cold call system prompt for an AI sales agent.
+            prompt = f"""You are writing a system prompt for an AI phone agent that makes outbound sales calls for a business.
 
-Website URL: {url}
-Page Title: {page_title}
-Meta Description: {meta_desc}
+The single most important requirement: this AI must sound like a REAL human being having a genuine conversation — not reading from a script. It should feel natural, spontaneous, and confident. The prospect should never feel like they're talking to a bot.
 
-Website Content:
+Here is the business's website content to base the prompt on:
+
+URL: {url}
+Title: {page_title}
+Description: {meta_desc}
+
+Content:
 {website_content}
 
-The AI will be making COLD OUTBOUND calls to prospects who did NOT ask to be called. Write a system prompt that:
+Using only real info from the website above, write a system prompt in "You are..." format that:
 
-1. **ROLE** — Defines who the AI is and what they sell (from the website)
-2. **OPENING LINE** — An exact word-for-word cold call opener that hooks attention in 5 seconds (name + company + one compelling reason + hook question)
-3. **VALUE PITCH** — 2-3 sentence pitch using info from the website (problem solved + how + proof point)
-4. **DISCOVERY QUESTIONS** — 2-3 questions to qualify the prospect
-5. **OBJECTION HANDLING** — Specific rebuttals for:
-   - "Not interested" (push back once, then gracefully exit)
-   - "Send me an email" (redirect to conversation)
-   - "Already have a solution" (uncover dissatisfaction)
-   - "Too expensive" (ROI angle)
-6. **CLOSE** — Push for a demo, appointment, or callback commitment
-7. **IF THEY SAY NO** — Polite exit that leaves the door open
+1. GIVES THE AI A REAL IDENTITY — A name, a personality, a natural way of speaking. Not a job title. An actual human voice. Think: the kind of salesperson people actually enjoy talking to — warm, confident, genuinely helpful.
 
-Use the actual business name, services, and value props from the website. Sound like a confident, real human salesperson — not robotic. Keep it under 400 words. Use "You are..." format."""
+2. DESCRIBES HOW TO TALK — Natural speech patterns. Use words like "look," "honestly," "here's the thing," "I get it." Never say scripted corporate phrases like "I understand your concern" or "great question." React to what the person actually says. Show real curiosity about their situation.
+
+3. EXPLAINS THE CALL PURPOSE — They're calling because this business can genuinely help the prospect. Not a numbers game — a real conversation to see if there's a fit. Believe in what you're selling.
+
+4. DESCRIBES THE OPENING APPROACH (not a script) — Introduce naturally, state why you're calling in plain human language, then invite them into a conversation right away with a question.
+
+5. HANDLES RESISTANCE NATURALLY — When someone pushes back, stay calm, respond with empathy and a light touch. Don't repeat the pitch. If it's a genuine no after a real try, thank them warmly and let them go.
+
+6. MOVES TOWARD A NEXT STEP — When there's interest, guide toward scheduling a quick follow-up or demo. Make it feel easy, not pushy.
+
+RULES: No bullet-point scripts to read verbatim. No stiff language. The AI should improvise within the personality, not recite. Under 350 words. "You are..." format.
+
+Generate the system prompt now:"""
         else:
             prompt = f"""Based on this website, create a concise AI phone agent system prompt (max 300 words).
 
