@@ -396,6 +396,106 @@ async def incoming_call(request: Request):
     
     return HTMLResponse(twiml_response, media_type="application/xml")
 
+
+@app.post("/sms/webhook")
+async def sms_webhook(request: Request):
+    """Public Twilio SMS webhook — handles inbound replies for AI SMS conversations."""
+    from twilio.rest import Client as TwilioClient
+    from anthropic import Anthropic as _Anthropic
+    from db import get_conn, sql as _sql
+
+    form_data = await request.form()
+    from_number = form_data.get("From", "")   # contact's phone (reply sender)
+    to_number   = form_data.get("To", "")     # our Twilio number
+    body_text   = form_data.get("Body", "").strip()
+
+    logger.info(f"📱 SMS webhook: from={from_number} to={to_number} body={body_text[:60]}")
+
+    # Empty TwiML — we respond via API, not via TwiML <Message>
+    empty_twiml = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
+    if not from_number or not body_text:
+        return HTMLResponse(empty_twiml, media_type="application/xml")
+
+    try:
+        conn = get_conn()
+        cur  = conn.cursor()
+
+        # Find the active AI SMS session for this phone pair
+        cur.execute(_sql("""
+            SELECT id, user_id, system_prompt
+            FROM ai_sms_sessions
+            WHERE phone_number={PH} AND from_number={PH} AND status='active'
+            ORDER BY created_at DESC LIMIT 1
+        """), (from_number, to_number))
+        session_row = cur.fetchone()
+
+        if not session_row:
+            logger.info(f"📱 No active AI SMS session for {from_number} → {to_number}")
+            conn.close()
+            return HTMLResponse(empty_twiml, media_type="application/xml")
+
+        session_id   = session_row["id"]           if isinstance(session_row, dict) else session_row[0]
+        user_id      = session_row["user_id"]      if isinstance(session_row, dict) else session_row[1]
+        system_prompt = session_row["system_prompt"] if isinstance(session_row, dict) else session_row[2]
+
+        # Store the inbound message
+        cur.execute(_sql("""
+            INSERT INTO ai_sms_messages (session_id, role, content)
+            VALUES ({PH},'user',{PH})
+        """), (session_id, body_text))
+        conn.commit()
+
+        # Load conversation history (last 20 messages)
+        cur.execute(_sql("""
+            SELECT role, content FROM ai_sms_messages
+            WHERE session_id={PH} ORDER BY created_at ASC
+        """), (session_id,))
+        history_rows = cur.fetchall()
+        messages = [
+            {"role": r["role"] if isinstance(r, dict) else r[0],
+             "content": r["content"] if isinstance(r, dict) else r[1]}
+            for r in history_rows
+        ][-20:]  # keep last 20
+
+        # Generate AI reply with Claude
+        anthropic_client = _Anthropic()
+        ai_resp = anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=200,
+            system=(
+                (system_prompt or "You are a helpful sales assistant.")
+                + "\n\nIMPORTANT: You are in an SMS conversation. Keep replies under 160 characters, "
+                "conversational and natural. Never add quotes or labels — just the reply text."
+            ),
+            messages=messages,
+        )
+        reply_text = ai_resp.content[0].text.strip()[:160]
+        logger.info(f"📱 AI SMS reply ({len(reply_text)} chars): {reply_text[:60]}")
+
+        # Send reply via Twilio
+        twilio_sid = None
+        _sid = os.getenv("TWILIO_ACCOUNT_SID")
+        _tok = os.getenv("TWILIO_AUTH_TOKEN")
+        if _sid and _tok:
+            tc = TwilioClient(_sid, _tok)
+            msg = tc.messages.create(body=reply_text, from_=to_number, to=from_number)
+            twilio_sid = msg.sid
+
+        # Store assistant reply
+        cur.execute(_sql("""
+            INSERT INTO ai_sms_messages (session_id, role, content, twilio_sid)
+            VALUES ({PH},'assistant',{PH},{PH})
+        """), (session_id, reply_text, twilio_sid))
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        logger.error(f"❌ SMS webhook error: {e}")
+
+    return HTMLResponse(empty_twiml, media_type="application/xml")
+
+
 @app.on_event("startup")
 async def startup_event():
     init_db()

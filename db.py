@@ -517,7 +517,32 @@ def init_db():
     add_column_if_missing(conn, "call_usage", "profit_usd", "REAL DEFAULT 0.0")
     add_column_if_missing(conn, "monthly_usage", "total_revenue_usd", "REAL DEFAULT 0.0")
     add_column_if_missing(conn, "monthly_usage", "total_profit_usd", "REAL DEFAULT 0.0")
-    
+
+    # AI SMS tables
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS ai_sms_sessions (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        contact_id INTEGER,
+        phone_number TEXT NOT NULL,
+        from_number TEXT NOT NULL,
+        system_prompt TEXT,
+        status TEXT DEFAULT 'active',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS ai_sms_messages (
+        id {ID},
+        session_id INTEGER NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        twilio_sid TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

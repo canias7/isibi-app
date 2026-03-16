@@ -4726,3 +4726,174 @@ def delete_task(task_id: int, user=Depends(verify_token)):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+
+# ── AI SMS ────────────────────────────────────────────────────────────────────
+
+class AISMSStartRequest(BaseModel):
+    to_number: str
+    system_prompt: str
+    from_number: Optional[str] = None   # Twilio caller-ID; auto-picks if not supplied
+    contact_id: Optional[int] = None
+    contact_name: Optional[str] = None
+
+@router.post("/sms/ai/start")
+def start_ai_sms(body: AISMSStartRequest, user=Depends(verify_token)):
+    """Kick off an AI SMS conversation: Claude drafts the opener, sends it, stores session."""
+    from db import get_conn, sql
+
+    if not twilio_client:
+        raise HTTPException(status_code=503, detail="Twilio not configured")
+
+    user_id = user["id"]
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # Resolve from_number ─────────────────────────────────────────────────────
+    from_number = body.from_number
+    if not from_number:
+        # Use first Twilio number that belongs to this account
+        try:
+            numbers = twilio_client.incoming_phone_numbers.list(limit=1)
+            if numbers:
+                from_number = numbers[0].phone_number
+        except Exception as e:
+            conn.close()
+            raise HTTPException(status_code=500, detail=f"Could not resolve from_number: {e}")
+
+    if not from_number:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No Twilio number available — purchase one first.")
+
+    # Use Claude to generate the first message ────────────────────────────────
+    anthropic_client = Anthropic()
+    try:
+        contact_ctx = f"Contact name: {body.contact_name}. " if body.contact_name else ""
+        ai_resp = anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=200,
+            system=(
+                body.system_prompt
+                + "\n\nIMPORTANT: You are sending an SMS — keep it under 160 characters, "
+                "conversational and natural. Do NOT add quotes or labels. Just the message text."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"{contact_ctx}Write the opening SMS message to start this conversation. "
+                    "Keep it short, friendly, and under 160 characters."
+                )
+            }]
+        )
+        first_message = ai_resp.content[0].text.strip()[:160]
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {e}")
+
+    # Send via Twilio ─────────────────────────────────────────────────────────
+    twilio_sid = None
+    try:
+        msg = twilio_client.messages.create(
+            body=first_message,
+            from_=from_number,
+            to=body.to_number,
+        )
+        twilio_sid = msg.sid
+    except Exception as e:
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Twilio send failed: {e}")
+
+    # Persist session + first message ─────────────────────────────────────────
+    cur.execute(sql("""
+        INSERT INTO ai_sms_sessions
+            (user_id, contact_id, phone_number, from_number, system_prompt, status)
+        VALUES ({PH},{PH},{PH},{PH},{PH},'active')
+    """), (user_id, body.contact_id, body.to_number, from_number, body.system_prompt))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM ai_sms_sessions WHERE user_id={PH} ORDER BY id DESC LIMIT 1"), (user_id,))
+    session_row = cur.fetchone()
+    session_id = session_row["id"] if isinstance(session_row, dict) else session_row[0]
+
+    cur.execute(sql("""
+        INSERT INTO ai_sms_messages (session_id, role, content, twilio_sid)
+        VALUES ({PH},'assistant',{PH},{PH})
+    """), (session_id, first_message, twilio_sid))
+    conn.commit()
+    conn.close()
+
+    return {
+        "session_id": session_id,
+        "first_message": first_message,
+        "twilio_sid": twilio_sid,
+        "from_number": from_number,
+        "to_number": body.to_number,
+        "status": "active",
+    }
+
+
+@router.get("/sms/ai/sessions")
+def list_ai_sms_sessions(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT s.id, s.contact_id, s.phone_number, s.from_number, s.status, s.created_at,
+               c.first_name, c.last_name,
+               (SELECT content FROM ai_sms_messages WHERE session_id=s.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+               (SELECT COUNT(*) FROM ai_sms_messages WHERE session_id=s.id) AS message_count
+        FROM ai_sms_sessions s
+        LEFT JOIN contacts c ON s.contact_id = c.id
+        WHERE s.user_id={PH}
+        ORDER BY s.created_at DESC
+    """), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        if isinstance(r, dict):
+            d = dict(r)
+        else:
+            d = {
+                "id": r[0], "contact_id": r[1], "phone_number": r[2], "from_number": r[3],
+                "status": r[4], "created_at": r[5], "first_name": r[6], "last_name": r[7],
+                "last_message": r[8], "message_count": r[9],
+            }
+        d["contact_name"] = " ".join(filter(None, [d.get("first_name"), d.get("last_name")])) or d.get("phone_number")
+        result.append(d)
+    return result
+
+
+@router.get("/sms/ai/sessions/{session_id}/messages")
+def get_ai_sms_messages(session_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    # Verify ownership
+    cur.execute(sql("SELECT id FROM ai_sms_sessions WHERE id={PH} AND user_id={PH}"), (session_id, user["id"]))
+    if not cur.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+    cur.execute(sql("""
+        SELECT id, role, content, twilio_sid, created_at
+        FROM ai_sms_messages WHERE session_id={PH} ORDER BY created_at ASC
+    """), (session_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        (dict(r) if isinstance(r, dict) else {
+            "id": r[0], "role": r[1], "content": r[2], "twilio_sid": r[3], "created_at": r[4]
+        }) for r in rows
+    ]
+
+
+@router.patch("/sms/ai/sessions/{session_id}")
+def update_ai_sms_session(session_id: int, body: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn()
+    cur = conn.cursor()
+    status = body.get("status", "closed")
+    cur.execute(sql("UPDATE ai_sms_sessions SET status={PH} WHERE id={PH} AND user_id={PH}"),
+                (status, session_id, user["id"]))
+    conn.commit()
+    conn.close()
+    return {"ok": True}

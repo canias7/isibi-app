@@ -29,10 +29,11 @@ import {
   listCRMCalls, logCRMCall, deleteCRMCall,
   getCreditsBalance, listAgents, initiateOutboundCall, updateAgent,
   generateAIPromptAdvanced,
+  startAISMS, listAISMSSessions, getAISMSMessages, closeAISMSSession,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
-  type AgentOut,
+  type AgentOut, type AISMSSession, type AISMSMessage,
 } from "@/lib/api";
 import {
   searchAvailableNumbers, purchasePhoneNumber, getMyPhoneNumbers, releasePhoneNumber,
@@ -53,7 +54,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -1435,7 +1436,7 @@ function PowerDialerView({ contacts, onStatusChange }: {
 
   const canLaunch = selectedIds.size > 0 && (
     action === "call"  ? !!selectedPrompt :
-    action === "text"  ? !!smsMessage.trim() :
+    action === "text"  ? !!selectedPrompt :     // AI text also requires a CRM prompt
     !!emailSubject.trim() && !!emailBody.trim()
   );
 
@@ -1482,7 +1483,14 @@ function PowerDialerView({ contacts, onStatusChange }: {
             elevenlabs_voice_id: selectedVoiceId,
           });
         } else if (action === "text") {
-          await sendContactSMS(c.id, smsMessage);
+          // AI-powered text: Claude generates personalized opener, handles replies automatically
+          await startAISMS({
+            to_number: c.phone_number,
+            system_prompt: selectedPrompt?.content ?? smsMessage,
+            from_number: selectedPrompt?.phoneNumber ?? undefined,
+            contact_id: c.id,
+            contact_name: fullName(c),
+          });
         } else {
           await addContactEmail(c.id, { subject: emailSubject, body: emailBody, direction: "outbound", to_address: c.email ?? undefined });
         }
@@ -1595,19 +1603,37 @@ function PowerDialerView({ contacts, onStatusChange }: {
 
             {action === "text" && (
               <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">AI will send this SMS to each selected lead at the same time.</p>
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs text-muted-foreground uppercase tracking-wide">Message</Label>
-                  <button onClick={generateAIMessage} disabled={generatingMsg}
-                    className="flex items-center gap-1 text-[11px] text-primary hover:underline disabled:opacity-50">
-                    {generatingMsg ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                    Generate with AI
-                  </button>
+                <div className="rounded-xl border border-border/30 bg-card/30 p-3 flex items-start gap-2">
+                  <MessageSquare className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Claude will craft a <strong className="text-foreground">personalized opening text</strong> for each lead using your CRM prompt. When they reply, AI automatically continues the conversation.
+                  </p>
                 </div>
-                <textarea value={smsMessage} onChange={e => setSmsMessage(e.target.value.slice(0, 160))}
-                  placeholder="Hi [name], this is [company] — just reaching out to..."
-                  className="w-full h-32 rounded-xl border border-border/40 bg-background/50 px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30" />
-                <p className="text-[10px] text-muted-foreground text-right">{smsMessage.length}/160 chars</p>
+                {/* Prompt picker — same as call tab */}
+                <div className={cn("rounded-xl border p-4 space-y-3",
+                  selectedPrompt ? "border-blue-500/30 bg-blue-500/5" : "border-yellow-500/40 bg-yellow-500/5")}>
+                  <div className="flex items-center gap-2">
+                    <BotMessageSquare className={cn("h-4 w-4 shrink-0", selectedPrompt ? "text-blue-400" : "text-yellow-400")} />
+                    <span className={cn("text-xs font-semibold", selectedPrompt ? "text-foreground" : "text-yellow-400")}>
+                      {selectedPrompt ? "AI Prompt selected" : "Select a prompt"}
+                    </span>
+                    {!selectedPrompt && <AlertCircle className="h-3.5 w-3.5 text-yellow-400 ml-auto" />}
+                  </div>
+                  {allPrompts.length === 0
+                    ? <p className="text-[11px] text-yellow-400/80">No prompts yet — go to <strong>My Prompt</strong> and create one first.</p>
+                    : <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}
+                        className={cn("w-full rounded-lg border px-3 h-9 text-sm bg-background/60 focus:outline-none",
+                          selectedPrompt ? "border-blue-500/30" : "border-yellow-500/30 text-yellow-400")}>
+                        <option value="">— choose a prompt —</option>
+                        {allPrompts.map(p => <option key={p.id} value={p.id}>{p.name} ({p.direction})</option>)}
+                      </select>
+                  }
+                  {selectedPrompt && (
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      {selectedPrompt.content?.slice(0, 90) ?? "No content"}…
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1718,6 +1744,161 @@ function PowerDialerView({ contacts, onStatusChange }: {
             })}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── AI SMS Inbox View ─────────────────────────────────────────────────────────
+
+function AISMSInboxView() {
+  const [sessions, setSessions] = useState<AISMSSession[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [activeSession, setActiveSession] = useState<AISMSSession | null>(null);
+  const [messages, setMessages] = useState<AISMSMessage[]>([]);
+  const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const msgEndRef = useRef<HTMLDivElement>(null);
+
+  const refresh = () => {
+    setLoading(true);
+    listAISMSSessions()
+      .then(d => setSessions(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const openSession = async (s: AISMSSession) => {
+    setActiveSession(s);
+    setLoadingMsgs(true);
+    try {
+      const msgs = await getAISMSMessages(s.id);
+      setMessages(msgs);
+    } catch { setMessages([]); }
+    finally { setLoadingMsgs(false); }
+  };
+
+  useEffect(() => {
+    if (activeSession) {
+      const iv = setInterval(async () => {
+        try {
+          const msgs = await getAISMSMessages(activeSession.id);
+          setMessages(msgs);
+        } catch { /* ignore */ }
+      }, 5000);
+      return () => clearInterval(iv);
+    }
+  }, [activeSession]);
+
+  useEffect(() => {
+    msgEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleClose = async (s: AISMSSession) => {
+    await closeAISMSSession(s.id).catch(() => {});
+    refresh();
+    if (activeSession?.id === s.id) { setActiveSession(null); setMessages([]); }
+  };
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Sessions list */}
+      <div className="w-72 shrink-0 border-r border-border/30 flex flex-col">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border/20 bg-card/20">
+          <div className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4 text-blue-400" />
+            <span className="text-sm font-semibold">AI Conversations</span>
+          </div>
+          <button onClick={refresh} className="text-muted-foreground hover:text-foreground transition-colors">
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto divide-y divide-border/20">
+          {loading && <p className="text-xs text-muted-foreground text-center py-8">Loading…</p>}
+          {!loading && sessions.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-12 px-4 text-center">
+              <MessageSquare className="h-8 w-8 text-muted-foreground/30" />
+              <p className="text-xs text-muted-foreground">No AI text conversations yet.</p>
+              <p className="text-[11px] text-muted-foreground/60">Start one from AI Pulse → Text tab.</p>
+            </div>
+          )}
+          {sessions.map(s => (
+            <button key={s.id} onClick={() => openSession(s)}
+              className={cn("w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-secondary/30",
+                activeSession?.id === s.id && "bg-blue-500/10 border-l-2 border-blue-500")}>
+              <div className="w-8 h-8 rounded-full bg-blue-500/15 flex items-center justify-center text-xs font-bold text-blue-400 shrink-0 mt-0.5">
+                {(s.contact_name ?? s.phone_number).slice(0, 2).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-1">
+                  <p className="text-xs font-semibold truncate">{s.contact_name ?? s.phone_number}</p>
+                  <Badge className={cn("text-[9px] px-1.5 border shrink-0",
+                    s.status === "active" ? "bg-green-500/15 text-green-400 border-green-500/30" : "bg-slate-500/15 text-slate-400 border-slate-500/30")}>
+                    {s.status}
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5">{s.last_message ?? "—"}</p>
+                <p className="text-[10px] text-muted-foreground/50 mt-0.5">{s.message_count ?? 0} msgs · {s.phone_number}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Conversation thread */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {!activeSession ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
+            <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center">
+              <MessageSquare className="h-8 w-8 text-blue-400" />
+            </div>
+            <p className="text-sm font-semibold">Select a conversation</p>
+            <p className="text-xs text-muted-foreground">Pick an AI text thread from the left to view the full conversation.</p>
+          </div>
+        ) : (
+          <>
+            {/* Thread header */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border/30 bg-card/20 shrink-0">
+              <div>
+                <p className="text-sm font-semibold">{activeSession.contact_name ?? activeSession.phone_number}</p>
+                <p className="text-xs text-muted-foreground">{activeSession.phone_number} · from {activeSession.from_number}</p>
+              </div>
+              {activeSession.status === "active" && (
+                <Button size="sm" variant="outline" onClick={() => handleClose(activeSession)}
+                  className="h-7 text-xs text-destructive border-destructive/40 hover:bg-destructive/10">
+                  End Conversation
+                </Button>
+              )}
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {loadingMsgs && <p className="text-xs text-muted-foreground text-center py-4">Loading messages…</p>}
+              {messages.map(m => (
+                <div key={m.id} className={cn("flex", m.role === "assistant" ? "justify-start" : "justify-end")}>
+                  <div className={cn("max-w-xs rounded-2xl px-4 py-2.5 text-sm",
+                    m.role === "assistant"
+                      ? "bg-secondary/40 text-foreground rounded-bl-sm"
+                      : "bg-blue-500/80 text-white rounded-br-sm")}>
+                    <p>{m.content}</p>
+                    <p className={cn("text-[10px] mt-1", m.role === "assistant" ? "text-muted-foreground" : "text-blue-100/70")}>
+                      {m.role === "assistant" ? "🤖 AI" : "👤 Lead"} · {new Date(m.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              <div ref={msgEndRef} />
+            </div>
+
+            {activeSession.status === "closed" && (
+              <div className="px-5 py-3 border-t border-border/30 bg-secondary/10 text-center">
+                <p className="text-xs text-muted-foreground">This conversation has been ended.</p>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -3398,6 +3579,7 @@ export default function CRMAgent() {
     { id: "dashboard",    label: "Dashboard",     icon: LayoutDashboard },
     { id: "contacts",     label: "Leads",         icon: Users },
     { id: "power_dialer", label: "AI Pulse",       icon: Rocket },
+    { id: "ai_sms",       label: "AI Texts",      icon: MessageSquare, badge: "AI" },
     { id: "inbox",        label: "Inbox",         icon: Inbox },
     { id: "pipeline",     label: "Sales Pipeline",icon: Columns3 },
     { id: "calendar",     label: "Google Calendar",icon: Calendar },
@@ -3880,6 +4062,9 @@ export default function CRMAgent() {
 
         {/* My Prompt */}
         {view === "my_prompt" && <MyPromptView />}
+
+        {/* AI SMS Inbox */}
+        {view === "ai_sms" && <AISMSInboxView />}
 
         {/* Billing */}
         {view === "billing" && <BillingView balance={balance} onRefresh={refreshBalance} />}

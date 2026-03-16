@@ -1172,3 +1172,70 @@ export async function deleteTask(taskId: number): Promise<void> {
   });
   if (!res.ok) throw new Error("Failed to delete task");
 }
+
+// ── AI SMS ────────────────────────────────────────────────────────────────────
+
+export interface AISMSSession {
+  id: number;
+  contact_id?: number | null;
+  contact_name?: string;
+  phone_number: string;
+  from_number: string;
+  status: "active" | "closed";
+  created_at: string;
+  last_message?: string | null;
+  message_count?: number;
+}
+
+export interface AISMSMessage {
+  id: number;
+  session_id?: number;
+  role: "assistant" | "user";
+  content: string;
+  twilio_sid?: string | null;
+  created_at: string;
+}
+
+export interface AISMSStartRequest {
+  to_number: string;
+  system_prompt: string;
+  from_number?: string;
+  contact_id?: number;
+  contact_name?: string;
+}
+
+export async function startAISMS(data: AISMSStartRequest): Promise<{ session_id: number; first_message: string; from_number: string; to_number: string; status: string }> {
+  const res = await fetch(`${API_BASE}/api/sms/ai/start`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Failed to start AI SMS: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function listAISMSSessions(): Promise<AISMSSession[]> {
+  const res = await fetch(`${API_BASE}/api/sms/ai/sessions`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load AI SMS sessions");
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function getAISMSMessages(sessionId: number): Promise<AISMSMessage[]> {
+  const res = await fetch(`${API_BASE}/api/sms/ai/sessions/${sessionId}/messages`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load messages");
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+export async function closeAISMSSession(sessionId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/sms/ai/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify({ status: "closed" }),
+  });
+  if (!res.ok) throw new Error("Failed to close session");
+}
