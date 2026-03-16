@@ -14,7 +14,7 @@ import DashboardContacts from "@/components/dashboard/DashboardContacts";
 export default function CustomerDashboard() {
   const [searchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<DashboardTab>("assistant");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Contact → Outbound Calls bridge
@@ -81,7 +81,7 @@ export default function CustomerDashboard() {
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {activeTab === "overview" && (
-            <DashboardOverview balance={balance} lowBalance={lowBalance} usage={usage} calls={calls} agents={agents} transactions={transactions} />
+            <DashboardOverview balance={balance} lowBalance={lowBalance} usage={usage} calls={calls} agents={agents} transactions={transactions} onNavigate={(tab) => setActiveTab(tab as DashboardTab)} />
           )}
           {activeTab === "phone-numbers" && (
             <DashboardPhoneNumbers myNumbers={myNumbers} onRefresh={fetchMyNumbers} onCreditsRefresh={fetchCreditsData} />

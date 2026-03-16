@@ -65,7 +65,7 @@ export default function CustomerDashboardAISettings({
 
   const generatePromptFromWebsite = async () => {
     if (!assistantName.trim()) {
-      toast({ title: "Please enter an agent name first", variant: "destructive" });
+      toast({ title: "Please enter an employee name first", variant: "destructive" });
       return;
     }
     if (!websiteUrl.trim()) {
@@ -118,7 +118,7 @@ export default function CustomerDashboardAISettings({
   const handleSaveAgent = async () => {
     const token = localStorage.getItem("token");
     if (!assistantName.trim()) {
-      toast({ title: "Agent name is required", variant: "destructive" });
+      toast({ title: "Employee name is required", variant: "destructive" });
       return;
     }
     setSaving(true);
@@ -159,7 +159,7 @@ export default function CustomerDashboardAISettings({
       }
       const data = await response.json();
       if (data.id) setSavedAgentId(data.id);
-      toast({ title: "Agent published!" });
+      toast({ title: "Employee published!" });
       onAgentsRefresh();
       setEditing(false);
       setSearchParams({});
@@ -193,21 +193,21 @@ export default function CustomerDashboardAISettings({
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-foreground">AI Agents</h2>
-            <p className="text-sm text-muted-foreground mt-1">Configure and manage your AI phone agents.</p>
+            <h2 className="text-xl font-bold text-foreground">AI Employees</h2>
+            <p className="text-sm text-muted-foreground mt-1">Configure and manage your AI phone employees.</p>
           </div>
           <Button onClick={startNew}>
-            <Plus className="h-4 w-4 mr-2" />New Agent
+            <Plus className="h-4 w-4 mr-2" />New Employee
           </Button>
         </div>
 
         {agents.length === 0 ? (
           <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-12 text-center">
             <Bot className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-lg font-semibold text-foreground mb-2">No agents yet</p>
-            <p className="text-sm text-muted-foreground mb-6">Create your first AI phone agent to get started.</p>
+            <p className="text-lg font-semibold text-foreground mb-2">No employees yet</p>
+            <p className="text-sm text-muted-foreground mb-6">Create your first AI phone employee to get started.</p>
             <Button onClick={startNew}>
-              <Plus className="h-4 w-4 mr-2" />Create Agent
+              <Plus className="h-4 w-4 mr-2" />Create Employee
             </Button>
           </div>
         ) : (
@@ -246,10 +246,10 @@ export default function CustomerDashboardAISettings({
                       if (!confirm(`Delete "${agent.assistant_name}"?`)) return;
                       try {
                         await deleteAgent(agent.id);
-                        toast({ title: "Agent deleted" });
+                        toast({ title: "Employee deleted" });
                         onAgentsRefresh();
                       } catch {
-                        toast({ title: "Failed to delete agent", variant: "destructive" });
+                        toast({ title: "Failed to delete employee", variant: "destructive" });
                       }
                     }}
                   >
@@ -266,7 +266,7 @@ export default function CustomerDashboardAISettings({
 
   // ─── Editor view ─────────────────────────────────────────────────────────────
   const subTabs = [
-    { id: "assistant" as const, label: "Agent", icon: Bot },
+    { id: "assistant" as const, label: "Employee", icon: Bot },
     { id: "phone" as const, label: "Phone", icon: Phone },
     { id: "integrations" as const, label: "Integrations", icon: Plug },
   ];
@@ -275,12 +275,12 @@ export default function CustomerDashboardAISettings({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-foreground">{savedAgentId ? "Edit Agent" : "New Agent"}</h2>
-          <p className="text-sm text-muted-foreground mt-1">Configure your AI phone agent.</p>
+          <h2 className="text-xl font-bold text-foreground">{savedAgentId ? "Edit Employee" : "New Employee"}</h2>
+          <p className="text-sm text-muted-foreground mt-1">Configure your AI phone employee.</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => { setEditing(false); setSearchParams({}); }}>
-            Agents
+            Employees
           </Button>
           <Button disabled={saving || !assistantName.trim()} onClick={handleSaveAgent}>
             {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
@@ -312,7 +312,7 @@ export default function CustomerDashboardAISettings({
       <div className={activeSubTab === "assistant" ? "" : "hidden"}>
         <div className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-6 space-y-6">
           <div className="space-y-2">
-            <Label>Agent Name</Label>
+            <Label>Employee Name</Label>
             <Input
               placeholder="e.g. Sarah"
               value={assistantName}
@@ -424,7 +424,7 @@ export default function CustomerDashboardAISettings({
               >
                 {!assistantName.trim() ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    Please enter an agent name above before generating a prompt.
+                    Please enter an employee name above before generating a prompt.
                   </p>
                 ) : (
                   <AIPromptGenerator
@@ -472,7 +472,7 @@ export default function CustomerDashboardAISettings({
             onChange={(e) => setPhoneNumber(e.target.value)}
           />
           <p className="text-xs text-muted-foreground">
-            Assign a phone number to this agent from your purchased numbers.
+            Assign a phone number to this employee from your purchased numbers.
           </p>
         </div>
       </div>

@@ -25,7 +25,7 @@ const developerNavItems: { id: DashboardTab; label: string; icon: React.ElementT
 ];
 
 const customerNavItems: { id: DashboardTab; label: string; icon: React.ElementType }[] = [
-  { id: "assistant", label: "Agent", icon: Bot },
+  { id: "assistant", label: "Employee", icon: Bot },
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "outbound-calls", label: "Outbound Calls", icon: PhoneOutgoing },
   { id: "contacts", label: "Contacts", icon: BookUser },
