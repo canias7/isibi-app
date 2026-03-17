@@ -48,7 +48,8 @@
           "defaultChannel": "default",
           "sounds": []
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "extra": {
       "eas": {
