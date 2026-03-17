@@ -70,28 +70,39 @@ else:
     print("⚠️ Using SQLite database (local dev)")
 
 def add_column_if_missing(conn, table, column, coltype):
-    """Add column to table if it doesn't exist - works with both SQLite and PostgreSQL"""
+    """Add column to table if it doesn't exist - works with both SQLite and PostgreSQL.
+    Silently skips if the table doesn't exist yet."""
     cur = conn.cursor()
-    
+
     if USE_POSTGRES:
+        # First check the table exists
+        cur.execute("SELECT to_regclass(%s)", (table,))
+        if cur.fetchone()[0] is None:
+            return  # table doesn't exist yet — skip
         # PostgreSQL: Check information_schema
         cur.execute("""
-            SELECT column_name 
-            FROM information_schema.columns 
+            SELECT column_name
+            FROM information_schema.columns
             WHERE table_name = %s AND column_name = %s
         """, (table, column))
         exists = cur.fetchone() is not None
-        
         if not exists:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
-            conn.commit()
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+                conn.commit()
+            except Exception:
+                try: conn.rollback()
+                except: pass
     else:
-        # SQLite: Use PRAGMA
+        # SQLite: Use PRAGMA (returns empty list for non-existent tables)
         cur.execute(f"PRAGMA table_info({table})")
         cols = [row[1] for row in cur.fetchall()]
         if column not in cols:
-            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
-            conn.commit()
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+                conn.commit()
+            except Exception:
+                pass
 
 def init_db():
     conn = get_conn()
