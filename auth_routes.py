@@ -84,16 +84,9 @@ async def login_user(request: Request):
     account_type = user.get("account_type", "developer")
     status = user.get("status", "approved")
 
-    # Enforce login portal separation
-    if requested_type == "customer" and account_type != "customer":
-        raise HTTPException(status_code=403, detail="This account is not a customer account. Please use the developer login.")
-    if requested_type != "customer" and account_type == "customer":
-        raise HTTPException(status_code=403, detail="Please use the customer login portal.")
-
-    if account_type == "developer" and status == "pending":
-        raise HTTPException(status_code=403, detail="Your developer access is pending review.")
-    if account_type == "developer" and status == "rejected":
-        raise HTTPException(status_code=403, detail="Your developer access request was not approved.")
+    # Block suspended or explicitly rejected accounts only
+    if status == "rejected":
+        raise HTTPException(status_code=403, detail="Your account application was not approved. Contact support.")
 
     token = make_token({
         "id": user["id"],

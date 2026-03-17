@@ -756,6 +756,14 @@ import bcrypt
 
 def ensure_user_columns():
     """Add new user columns if they don't exist (safe to call multiple times)."""
+    # Define SQL type macros the same way init_db() does
+    if USE_POSTGRES:
+        ID = "SERIAL PRIMARY KEY"
+        TIMESTAMP = "TIMESTAMP"
+    else:
+        ID = "INTEGER PRIMARY KEY AUTOINCREMENT"
+        TIMESTAMP = "TIMESTAMP"
+
     conn = get_conn()
     add_column_if_missing(conn, 'users', 'account_type', "TEXT DEFAULT 'developer'")
     add_column_if_missing(conn, 'users', 'status', "TEXT DEFAULT 'approved'")

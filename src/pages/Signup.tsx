@@ -91,7 +91,7 @@ export default function Signup() {
         body: JSON.stringify({
           email,
           password,
-          account_type: "developer",
+          account_type: "customer",
           full_name: fullName,
           company_name: companyName,
           website: website || null,
