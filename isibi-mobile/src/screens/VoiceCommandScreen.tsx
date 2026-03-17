@@ -11,7 +11,7 @@ import {
   Easing,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Audio } from "expo-av";
+import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
 import { sendVoiceCommand, transcribeAudio, clearToken } from "../lib/api";
 import { C, F, R } from "../lib/theme";
@@ -36,7 +36,7 @@ const EXAMPLE_COMMANDS = [
 ];
 
 export default function VoiceCommandScreen({ onLogout }: Props) {
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -60,16 +60,13 @@ export default function VoiceCommandScreen({ onLogout }: Props) {
 
   async function startRecording() {
     try {
-      const { granted } = await Audio.requestPermissionsAsync();
-      if (!granted) {
+      const status = await AudioModule.requestRecordingPermissionsAsync();
+      if (!status.granted) {
         Alert.alert("Microphone permission required");
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setIsRecording(true);
       pulse.start();
     } catch (e) {
@@ -78,16 +75,15 @@ export default function VoiceCommandScreen({ onLogout }: Props) {
   }
 
   async function stopRecording() {
-    if (!recording) return;
+    if (!isRecording) return;
     pulse.stop();
     pulseAnim.setValue(1);
     setIsRecording(false);
     setIsProcessing(true);
 
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      setRecording(null);
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
 
       if (!uri) throw new Error("No audio recorded");
 

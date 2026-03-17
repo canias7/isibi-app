@@ -39,6 +39,7 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "newArchEnabled": false,
     "plugins": [
       [
         "expo-notifications",
@@ -49,7 +50,8 @@
           "sounds": []
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-audio"
     ],
     "extra": {
       "eas": {
