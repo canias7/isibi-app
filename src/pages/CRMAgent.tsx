@@ -12,7 +12,7 @@ import {
   SkipForward, Play, Target, ArrowRight, Columns3,
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
   Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
-  Copy, Save, AtSign, Link2, ShieldCheck, ShieldAlert, ExternalLink, AlertCircle,
+  Copy, Save, AtSign, Link2, ShieldCheck, ShieldAlert, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

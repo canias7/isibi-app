@@ -5905,3 +5905,311 @@ def test_push(user=Depends(verify_token)):
         raise HTTPException(status_code=404, detail="No push tokens registered for this account")
     send_expo_push(tokens, "🔔 ISIBI Test", "Push notifications are working!", {"type": "test"})
     return {"ok": True, "sent_to": len(tokens)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ACCOUNTING
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from db import get_conn, sql, ensure_user_columns
+import json as _json
+from openai import OpenAI as _OAI
+_oai = _OAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+DEFAULT_ACCOUNTS = [
+    # Assets
+    {"code": "1000", "name": "Cash",                  "type": "asset"},
+    {"code": "1100", "name": "Accounts Receivable",   "type": "asset"},
+    {"code": "1200", "name": "Inventory",             "type": "asset"},
+    {"code": "1500", "name": "Equipment",             "type": "asset"},
+    # Liabilities
+    {"code": "2000", "name": "Accounts Payable",      "type": "liability"},
+    {"code": "2100", "name": "Credit Cards",          "type": "liability"},
+    {"code": "2200", "name": "Loans Payable",         "type": "liability"},
+    # Equity
+    {"code": "3000", "name": "Owner Equity",          "type": "equity"},
+    {"code": "3100", "name": "Retained Earnings",     "type": "equity"},
+    # Revenue
+    {"code": "4000", "name": "Sales Revenue",         "type": "revenue"},
+    {"code": "4100", "name": "Service Revenue",       "type": "revenue"},
+    {"code": "4200", "name": "Other Income",          "type": "revenue"},
+    # Expenses
+    {"code": "5000", "name": "Cost of Goods Sold",    "type": "expense"},
+    {"code": "5100", "name": "Payroll",               "type": "expense"},
+    {"code": "5200", "name": "Rent",                  "type": "expense"},
+    {"code": "5300", "name": "Marketing",             "type": "expense"},
+    {"code": "5400", "name": "Software & Tools",      "type": "expense"},
+    {"code": "5500", "name": "Travel",                "type": "expense"},
+    {"code": "5600", "name": "Utilities",             "type": "expense"},
+    {"code": "5900", "name": "General & Admin",       "type": "expense"},
+]
+
+def _seed_accounts(user_id: int, conn):
+    cur = conn.cursor()
+    cur.execute(sql("SELECT COUNT(*) FROM accounting_accounts WHERE user_id={PH}"), (user_id,))
+    row = cur.fetchone()
+    count = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+    if count == 0:
+        for a in DEFAULT_ACCOUNTS:
+            cur.execute(sql("INSERT INTO accounting_accounts (user_id, name, type, code, is_system) VALUES ({PH},{PH},{PH},{PH},1)"),
+                        (user_id, a["name"], a["type"], a["code"]))
+        conn.commit()
+
+def _row(r):
+    return dict(r) if isinstance(r, dict) else r
+
+def _rows(rs):
+    return [dict(r) if isinstance(r, dict) else r for r in (rs or [])]
+
+
+# ── Chart of Accounts ─────────────────────────────────────────────────────────
+
+@router.get("/accounting/accounts")
+def acc_list_accounts(user=Depends(verify_token)):
+    ensure_user_columns()
+    conn = get_conn(); cur = conn.cursor()
+    _seed_accounts(user["id"], conn)
+    cur.execute(sql("SELECT * FROM accounting_accounts WHERE user_id={PH} ORDER BY code"), (user["id"],))
+    rows = _rows(cur.fetchall()); conn.close()
+    return rows
+
+class AccAccountIn(BaseModel):
+    name: str
+    type: str
+    code: Optional[str] = None
+    description: Optional[str] = None
+
+@router.post("/accounting/accounts")
+def acc_create_account(payload: AccAccountIn, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO accounting_accounts (user_id,name,type,code,description) VALUES ({PH},{PH},{PH},{PH},{PH})"),
+                (user["id"], payload.name, payload.type, payload.code, payload.description))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/accounting/accounts/{acc_id}")
+def acc_delete_account(acc_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM accounting_accounts WHERE id={PH} AND user_id={PH} AND is_system=0"), (acc_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Invoices ──────────────────────────────────────────────────────────────────
+
+class InvoiceItemIn(BaseModel):
+    description: str
+    quantity: float = 1
+    unit_price: float = 0
+
+class InvoiceIn(BaseModel):
+    client_name: str
+    client_email: Optional[str] = None
+    date: Optional[str] = None
+    due_date: Optional[str] = None
+    notes: Optional[str] = None
+    tax_rate: float = 0
+    items: List[InvoiceItemIn] = []
+
+@router.get("/accounting/invoices")
+def acc_list_invoices(user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM accounting_invoices WHERE user_id={PH} ORDER BY created_at DESC"), (user["id"],))
+    invoices = _rows(cur.fetchall())
+    for inv in invoices:
+        inv_id = inv["id"] if isinstance(inv, dict) else inv[0]
+        cur.execute(sql("SELECT * FROM accounting_invoice_items WHERE invoice_id={PH}"), (inv_id,))
+        if isinstance(inv, dict):
+            inv["items"] = _rows(cur.fetchall())
+    conn.close()
+    return invoices
+
+@router.post("/accounting/invoices")
+def acc_create_invoice(payload: InvoiceIn, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    # Generate invoice number
+    cur.execute(sql("SELECT COUNT(*) FROM accounting_invoices WHERE user_id={PH}"), (user["id"],))
+    row = cur.fetchone()
+    count = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+    inv_number = f"INV-{1000 + count + 1}"
+    subtotal = sum(i.quantity * i.unit_price for i in payload.items)
+    tax_amount = round(subtotal * payload.tax_rate / 100, 2)
+    total = round(subtotal + tax_amount, 2)
+    cur.execute(sql("""INSERT INTO accounting_invoices
+        (user_id, invoice_number, client_name, client_email, date, due_date, notes, subtotal, tax_rate, tax_amount, total)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})"""),
+        (user["id"], inv_number, payload.client_name, payload.client_email,
+         payload.date, payload.due_date, payload.notes, subtotal, payload.tax_rate, tax_amount, total))
+    conn.commit()
+    cur.execute(sql("SELECT id FROM accounting_invoices WHERE invoice_number={PH} AND user_id={PH}"), (inv_number, user["id"]))
+    row = cur.fetchone()
+    inv_id = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else None
+    if inv_id:
+        for item in payload.items:
+            amount = round(item.quantity * item.unit_price, 2)
+            cur.execute(sql("INSERT INTO accounting_invoice_items (invoice_id,description,quantity,unit_price,amount) VALUES ({PH},{PH},{PH},{PH},{PH})"),
+                        (inv_id, item.description, item.quantity, item.unit_price, amount))
+        conn.commit()
+    conn.close()
+    return {"ok": True, "invoice_number": inv_number}
+
+class InvoicePatch(BaseModel):
+    status: Optional[str] = None
+    client_name: Optional[str] = None
+    client_email: Optional[str] = None
+    due_date: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.patch("/accounting/invoices/{inv_id}")
+def acc_update_invoice(inv_id: int, payload: InvoicePatch, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    for col, val in updates.items():
+        cur.execute(sql(f"UPDATE accounting_invoices SET {col}={{PH}} WHERE id={{PH}} AND user_id={{PH}}"), (val, inv_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/accounting/invoices/{inv_id}")
+def acc_delete_invoice(inv_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM accounting_invoice_items WHERE invoice_id={PH}"), (inv_id,))
+    cur.execute(sql("DELETE FROM accounting_invoices WHERE id={PH} AND user_id={PH}"), (inv_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Expenses ──────────────────────────────────────────────────────────────────
+
+class ExpenseIn(BaseModel):
+    date: Optional[str] = None
+    description: str
+    category: str = "General"
+    amount: float = 0
+    vendor: Optional[str] = None
+
+@router.get("/accounting/expenses")
+def acc_list_expenses(user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM accounting_expenses WHERE user_id={PH} ORDER BY created_at DESC"), (user["id"],))
+    rows = _rows(cur.fetchall()); conn.close()
+    return rows
+
+@router.post("/accounting/expenses")
+def acc_create_expense(payload: ExpenseIn, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO accounting_expenses (user_id,date,description,category,amount,vendor) VALUES ({PH},{PH},{PH},{PH},{PH},{PH})"),
+                (user["id"], payload.date, payload.description, payload.category, payload.amount, payload.vendor))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.patch("/accounting/expenses/{exp_id}")
+def acc_update_expense(exp_id: int, payload: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    for col, val in payload.items():
+        if col in ("date","description","category","amount","vendor","status"):
+            cur.execute(sql(f"UPDATE accounting_expenses SET {col}={{PH}} WHERE id={{PH}} AND user_id={{PH}}"), (val, exp_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/accounting/expenses/{exp_id}")
+def acc_delete_expense(exp_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM accounting_expenses WHERE id={PH} AND user_id={PH}"), (exp_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+
+@router.get("/accounting/reports/pl")
+def acc_pl_report(date_from: Optional[str] = None, date_to: Optional[str] = None, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    # Revenue = paid invoices total
+    q_rev = "SELECT COALESCE(SUM(total),0) FROM accounting_invoices WHERE user_id={PH} AND status='paid'"
+    params_rev = [user["id"]]
+    if date_from:
+        q_rev += " AND date>={PH}"; params_rev.append(date_from)
+    if date_to:
+        q_rev += " AND date<={PH}"; params_rev.append(date_to)
+    cur.execute(sql(q_rev), params_rev)
+    row = cur.fetchone()
+    revenue = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+
+    # Expenses = sum of expenses
+    q_exp = "SELECT COALESCE(SUM(amount),0) FROM accounting_expenses WHERE user_id={PH}"
+    params_exp = [user["id"]]
+    if date_from:
+        q_exp += " AND date>={PH}"; params_exp.append(date_from)
+    if date_to:
+        q_exp += " AND date<={PH}"; params_exp.append(date_to)
+    cur.execute(sql(q_exp), params_exp)
+    row = cur.fetchone()
+    expenses = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+
+    # Expenses by category
+    cur.execute(sql("SELECT category, COALESCE(SUM(amount),0) as total FROM accounting_expenses WHERE user_id={PH} GROUP BY category ORDER BY total DESC"), (user["id"],))
+    by_cat = [{"category": r["category"] if isinstance(r, dict) else r[0],
+               "total": float(r["total"] if isinstance(r, dict) else r[1])} for r in (cur.fetchall() or [])]
+
+    conn.close()
+    return {"revenue": revenue, "expenses": expenses, "net": round(revenue - expenses, 2), "by_category": by_cat}
+
+@router.get("/accounting/reports/balance-sheet")
+def acc_balance_sheet(user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    # Assets = cash (revenue - expenses)
+    cur.execute(sql("SELECT COALESCE(SUM(total),0) FROM accounting_invoices WHERE user_id={PH} AND status='paid'"), (user["id"],))
+    row = cur.fetchone(); revenue = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    cur.execute(sql("SELECT COALESCE(SUM(amount),0) FROM accounting_expenses WHERE user_id={PH}"), (user["id"],))
+    row = cur.fetchone(); expenses = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    # Receivables = unpaid invoices
+    cur.execute(sql("SELECT COALESCE(SUM(total),0) FROM accounting_invoices WHERE user_id={PH} AND status IN ('sent','overdue')"), (user["id"],))
+    row = cur.fetchone(); receivables = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    conn.close()
+    cash = max(revenue - expenses, 0)
+    total_assets = cash + receivables
+    equity = total_assets
+    return {"assets": {"cash": cash, "accounts_receivable": receivables, "total": total_assets},
+            "liabilities": {"total": 0},
+            "equity": {"retained_earnings": equity, "total": equity}}
+
+
+# ── AI Chat ───────────────────────────────────────────────────────────────────
+
+class AccChatIn(BaseModel):
+    message: str
+    history: List[Dict[str, str]] = []
+
+@router.post("/accounting/ai-chat")
+def acc_ai_chat(payload: AccChatIn, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT COALESCE(SUM(total),0) FROM accounting_invoices WHERE user_id={PH} AND status='paid'"), (user["id"],))
+    row = cur.fetchone(); revenue = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    cur.execute(sql("SELECT COALESCE(SUM(amount),0) FROM accounting_expenses WHERE user_id={PH}"), (user["id"],))
+    row = cur.fetchone(); expenses = float((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    cur.execute(sql("SELECT COUNT(*), COALESCE(SUM(total),0) FROM accounting_invoices WHERE user_id={PH} AND status IN ('draft','sent','overdue')"), (user["id"],))
+    row = cur.fetchone()
+    unpaid_count = int((list(row.values())[0] if isinstance(row, dict) else row[0]) or 0)
+    unpaid_total = float((list(row.values())[1] if isinstance(row, dict) else row[1]) or 0)
+    cur.execute(sql("SELECT category, COALESCE(SUM(amount),0) as t FROM accounting_expenses WHERE user_id={PH} GROUP BY category ORDER BY t DESC LIMIT 5"), (user["id"],))
+    top_exp = [(r["category"] if isinstance(r, dict) else r[0]) + ": $" + str(round(float(r["t"] if isinstance(r, dict) else r[1]), 2)) for r in (cur.fetchall() or [])]
+    conn.close()
+
+    system = f"""You are an expert accounting assistant for the user's business on the Isibi platform.
+Current financial snapshot:
+- Total revenue (paid invoices): ${revenue:,.2f}
+- Total expenses: ${expenses:,.2f}
+- Net profit: ${revenue - expenses:,.2f}
+- Unpaid invoices: {unpaid_count} invoices totaling ${unpaid_total:,.2f}
+- Top expense categories: {', '.join(top_exp) if top_exp else 'None yet'}
+
+Answer accounting questions, give financial advice, help create entries, explain reports.
+Be concise and professional. Format currency with $ and 2 decimal places."""
+
+    msgs = [{"role": "system", "content": system}]
+    for h in payload.history[-10:]:
+        msgs.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+    msgs.append({"role": "user", "content": payload.message})
+
+    resp = _oai.chat.completions.create(model="gpt-4o-mini", messages=msgs, max_tokens=500, temperature=0.7)
+    return {"reply": resp.choices[0].message.content.strip()}

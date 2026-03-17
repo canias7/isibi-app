@@ -1548,3 +1548,97 @@ export async function verifyEmailDomain(id: number): Promise<any> {
 export async function deleteEmailDomain(id: number): Promise<void> {
   await fetch(`${API_BASE}/api/email-domains/${id}`, { method: "DELETE", headers: authHeaders() });
 }
+
+// ── Accounting ────────────────────────────────────────────────────────────────
+
+export interface AccountingAccount {
+  id: number;
+  user_id: number;
+  name: string;
+  type: "asset" | "liability" | "equity" | "revenue" | "expense";
+  code?: string;
+  description?: string;
+  is_system: number;
+}
+
+export interface AccountingInvoiceItem {
+  id?: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  amount?: number;
+}
+
+export interface AccountingInvoice {
+  id: number;
+  invoice_number: string;
+  client_name: string;
+  client_email?: string;
+  date?: string;
+  due_date?: string;
+  status: "draft" | "sent" | "paid" | "overdue";
+  notes?: string;
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  items?: AccountingInvoiceItem[];
+  created_at?: string;
+}
+
+export interface AccountingExpense {
+  id: number;
+  date?: string;
+  description: string;
+  category: string;
+  amount: number;
+  vendor?: string;
+  status: string;
+  created_at?: string;
+}
+
+export interface PLReport {
+  revenue: number;
+  expenses: number;
+  net: number;
+  by_category: { category: string; total: number }[];
+}
+
+export interface BalanceSheet {
+  assets: { cash: number; accounts_receivable: number; total: number };
+  liabilities: { total: number };
+  equity: { retained_earnings: number; total: number };
+}
+
+async function accFetch(path: string, opts: RequestInit = {}) {
+  const res = await fetch(`${API_BASE}/api/accounting${path}`, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
+  return res.json();
+}
+
+export const listAccounts = (): Promise<AccountingAccount[]> => accFetch("/accounts");
+export const createAccount = (p: { name: string; type: string; code?: string; description?: string }) => accFetch("/accounts", { method: "POST", body: JSON.stringify(p) });
+export const deleteAccount = (id: number) => accFetch(`/accounts/${id}`, { method: "DELETE" });
+
+export const listInvoices = (): Promise<AccountingInvoice[]> => accFetch("/invoices");
+export const createInvoice = (p: { client_name: string; client_email?: string; date?: string; due_date?: string; notes?: string; tax_rate?: number; items: AccountingInvoiceItem[] }) => accFetch("/invoices", { method: "POST", body: JSON.stringify(p) });
+export const updateInvoice = (id: number, p: Partial<AccountingInvoice>) => accFetch(`/invoices/${id}`, { method: "PATCH", body: JSON.stringify(p) });
+export const deleteInvoice = (id: number) => accFetch(`/invoices/${id}`, { method: "DELETE" });
+
+export const listExpenses = (): Promise<AccountingExpense[]> => accFetch("/expenses");
+export const createExpense = (p: { date?: string; description: string; category: string; amount: number; vendor?: string }) => accFetch("/expenses", { method: "POST", body: JSON.stringify(p) });
+export const deleteExpense = (id: number) => accFetch(`/expenses/${id}`, { method: "DELETE" });
+
+export const getPLReport = (from?: string, to?: string): Promise<PLReport> => {
+  const qs = new URLSearchParams();
+  if (from) qs.set("date_from", from);
+  if (to)   qs.set("date_to", to);
+  return accFetch(`/reports/pl${qs.toString() ? "?" + qs : ""}`);
+};
+export const getBalanceSheet = (): Promise<BalanceSheet> => accFetch("/reports/balance-sheet");
+
+export const accAIChat = (message: string, history: { role: string; content: string }[]) =>
+  accFetch("/ai-chat", { method: "POST", body: JSON.stringify({ message, history }) }) as Promise<{ reply: string }>;

@@ -891,6 +891,75 @@ def ensure_user_columns():
     )
     """)
 
+    # ── Accounting ────────────────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS accounting_accounts (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        code TEXT,
+        description TEXT,
+        is_system INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS accounting_invoices (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        invoice_number TEXT,
+        client_name TEXT NOT NULL,
+        client_email TEXT,
+        date TEXT,
+        due_date TEXT,
+        status TEXT DEFAULT 'draft',
+        notes TEXT,
+        subtotal NUMERIC DEFAULT 0,
+        tax_rate NUMERIC DEFAULT 0,
+        tax_amount NUMERIC DEFAULT 0,
+        total NUMERIC DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS accounting_invoice_items (
+        id {ID},
+        invoice_id INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        quantity NUMERIC DEFAULT 1,
+        unit_price NUMERIC DEFAULT 0,
+        amount NUMERIC DEFAULT 0
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS accounting_expenses (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        date TEXT,
+        description TEXT NOT NULL,
+        category TEXT DEFAULT 'General',
+        amount NUMERIC DEFAULT 0,
+        vendor TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS accounting_transactions (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        date TEXT,
+        description TEXT,
+        reference TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 
