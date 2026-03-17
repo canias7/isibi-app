@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Audio } from "expo-av";
 import * as Speech from "expo-speech";
-import { sendVoiceCommand, clearToken } from "../lib/api";
+import { sendVoiceCommand, transcribeAudio, clearToken } from "../lib/api";
 import { C, F, R } from "../lib/theme";
 
 interface Message {
@@ -91,19 +91,8 @@ export default function VoiceCommandScreen({ onLogout }: Props) {
 
       if (!uri) throw new Error("No audio recorded");
 
-      // Upload to OpenAI Whisper for transcription
-      const formData = new FormData();
-      formData.append("file", { uri, type: "audio/m4a", name: "command.m4a" } as any);
-      formData.append("model", "whisper-1");
-
-      const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${process.env.EXPO_PUBLIC_OPENAI_KEY ?? ""}` },
-        body: formData,
-      });
-
-      if (!whisperRes.ok) throw new Error("Transcription failed");
-      const { text } = await whisperRes.json();
+      // Transcribe server-side (key stays on backend)
+      const text = await transcribeAudio(uri);
       if (!text?.trim()) {
         setIsProcessing(false);
         return;

@@ -2,8 +2,8 @@
 Voice Command endpoint — interprets natural language commands from the
 isibi mobile app and executes them on behalf of the logged-in customer.
 """
-import os, json, logging
-from fastapi import APIRouter, Depends, HTTPException
+import os, json, logging, tempfile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from openai import OpenAI
 from auth_routes import verify_token
@@ -181,3 +181,32 @@ Return ONLY valid JSON. No markdown, no explanation."""
 
     result = execute_intent(intent, user_id)
     return {"result": result, "intent": intent}
+
+
+@router.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...), user=Depends(verify_token)):
+    """Receive audio from mobile app, transcribe with Whisper, return text."""
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio file")
+
+    suffix = ".m4a" if (file.content_type or "").startswith("audio/mp4") else ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as f:
+            resp = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="text",
+            )
+        text = resp.strip() if isinstance(resp, str) else str(resp).strip()
+        return {"text": text}
+    except Exception as e:
+        logger.error(f"Whisper error: {e}")
+        raise HTTPException(status_code=500, detail="Transcription failed")
+    finally:
+        import os as _os
+        _os.unlink(tmp_path)

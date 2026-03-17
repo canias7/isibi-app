@@ -155,3 +155,18 @@ export async function sendVoiceCommand(text: string): Promise<{ result: string; 
     body: JSON.stringify({ text }),
   });
 }
+
+export async function transcribeAudio(uri: string): Promise<string> {
+  const token = await getToken();
+  const formData = new FormData();
+  formData.append("file", { uri, type: "audio/m4a", name: "command.m4a" } as any);
+
+  const res = await fetch(`${API_BASE}/api/voice-command/transcribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!res.ok) throw new Error("Transcription failed");
+  const data = await res.json();
+  return data.text ?? "";
+}
