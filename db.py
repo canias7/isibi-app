@@ -75,18 +75,23 @@ def add_column_if_missing(conn, table, column, coltype):
     cur = conn.cursor()
 
     if USE_POSTGRES:
-        # First check the table exists
-        cur.execute("SELECT to_regclass(%s)", (table,))
-        if cur.fetchone()[0] is None:
+        # First check the table exists (works with both tuple and dict cursors)
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = %s", (table,)
+        )
+        row = cur.fetchone()
+        count = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+        if not count:
             return  # table doesn't exist yet — skip
-        # PostgreSQL: Check information_schema
-        cur.execute("""
-            SELECT column_name
-            FROM information_schema.columns
-            WHERE table_name = %s AND column_name = %s
-        """, (table, column))
-        exists = cur.fetchone() is not None
-        if not exists:
+        # Check if column already exists
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_name = %s AND column_name = %s", (table, column)
+        )
+        row = cur.fetchone()
+        col_count = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+        if not col_count:
             try:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
                 conn.commit()
