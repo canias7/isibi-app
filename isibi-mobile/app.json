@@ -39,7 +39,9 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "newArchEnabled": false,
+    "experiments": {
+      "newArchEnabled": false
+    },
     "plugins": [
       [
         "expo-notifications",
