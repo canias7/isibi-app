@@ -23,6 +23,7 @@ import Security from "./pages/Security";
 import AdminDashboard from "./pages/AdminDashboard";
 import WebsiteAgent from "./pages/WebsiteAgent";
 import CRMAgent from "./pages/CRMAgent";
+import Workforce from "./pages/Workforce";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -68,6 +69,7 @@ const App = () => (
 
           {/* Shared protected */}
           <Route path="/workflow" element={<P><Workflow /></P>} />
+          <Route path="/workforce" element={<P><Workforce /></P>} />
           <Route path="/calendar-connected" element={<P><CalendarConnected /></P>} />
           <Route path="/admin" element={<P><AdminDashboard /></P>} />
 
