@@ -44,7 +44,10 @@ def register(data: RegisterIn):
         )
         return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        err = str(e)
+        if "UNIQUE" in err or "unique" in err or "duplicate" in err.lower():
+            raise HTTPException(status_code=400, detail="An account with that email already exists.")
+        raise HTTPException(status_code=400, detail=err)
 
 @router.post("/login")
 async def login_user(request: Request):
