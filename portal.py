@@ -4420,9 +4420,9 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         conn = get_conn()
         cur = conn.cursor()
         cur.execute(sql("""
-            INSERT INTO crm_calls (user_id, phone_number, direction, status, notes)
-            VALUES ({PH}, {PH}, {PH}, {PH}, {PH})
-        """), (user_id, to_number, "outbound", "initiated", body.notes or ""))
+            INSERT INTO crm_calls (user_id, contact_name, phone_number, direction, status, notes, call_type, call_sid)
+            VALUES ({PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH}, {PH})
+        """), (user_id, body.contact_name or "", to_number, "outbound", "initiated", body.notes or "", "ai", call.sid))
         conn.commit()
         conn.close()
     except Exception:
@@ -4436,6 +4436,128 @@ def initiate_outbound_call(body: OutboundCallRequest, user=Depends(verify_token)
         "status": call.status,
         "created_at": str(call.date_created),
     }
+
+
+# ── Manual (non-AI) Calls ─────────────────────────────────────────────────────
+
+class ManualCallRequest(BaseModel):
+    to_number: str
+    contact_id: Optional[int] = None
+    contact_name: Optional[str] = None
+    from_number: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.post("/calls/manual")
+def initiate_manual_call(body: ManualCallRequest, user=Depends(verify_token)):
+    """Bridge call: Twilio calls agent's forwarding number → bridges to lead → records."""
+    from db import get_conn, sql
+    if not twilio_client:
+        raise HTTPException(status_code=503, detail="Twilio not configured")
+
+    conn = get_conn(); cur = conn.cursor()
+
+    # Get agent's forwarding number from user profile
+    cur.execute(sql("SELECT forward_calls_to FROM users WHERE id={PH}"), (user["id"],))
+    user_row = cur.fetchone()
+    forward_to = (user_row["forward_calls_to"] if isinstance(user_row, dict) else user_row[0]) if user_row else None
+    if not forward_to:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No forwarding number configured. Set it in Account Settings.")
+
+    # Twilio caller-ID (from_number)
+    from_number = body.from_number
+    if not from_number:
+        numbers = twilio_client.incoming_phone_numbers.list(limit=1)
+        from_number = numbers[0].phone_number if numbers else None
+    if not from_number:
+        conn.close()
+        raise HTTPException(status_code=400, detail="No Twilio phone number available. Buy one in Phone Setup.")
+
+    # Normalize lead number
+    to_number = body.to_number.strip()
+    if not to_number.startswith("+"):
+        to_number = f"+1{to_number}" if len(to_number) == 10 else f"+{to_number}"
+
+    # Log call first to get ID for callbacks
+    cur.execute(sql("""
+        INSERT INTO crm_calls (user_id, contact_id, contact_name, phone_number, direction, status, notes, call_type)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+    """), (user["id"], body.contact_id, body.contact_name, to_number, "outbound", "initiated", body.notes or "", "manual"))
+    conn.commit()
+    crm_id = cur.lastrowid
+    conn.close()
+
+    # Build TwiML URL
+    import urllib.parse
+    params = {"lead": to_number, "crm_id": str(crm_id), "from_num": from_number}
+    if body.contact_name:
+        params["name"] = body.contact_name
+    twiml_url = f"{BACKEND_URL}/manual-call-twiml?{urllib.parse.urlencode(params)}"
+
+    # Call agent's forwarding number
+    forward_e164 = forward_to if forward_to.startswith("+") else (f"+1{forward_to}" if len(forward_to) == 10 else f"+{forward_to}")
+    try:
+        call = twilio_client.calls.create(to=forward_e164, from_=from_number, url=twiml_url, method="GET")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Twilio error: {str(e)}")
+
+    # Store call_sid
+    try:
+        conn = get_conn(); cur = conn.cursor()
+        cur.execute(sql("UPDATE crm_calls SET call_sid={PH} WHERE id={PH}"), (call.sid, crm_id))
+        conn.commit(); conn.close()
+    except Exception:
+        pass
+
+    return {"id": crm_id, "call_sid": call.sid, "status": call.status, "to_number": to_number}
+
+
+@router.post("/calls/recording-webhook")
+async def recording_webhook(request: Request, crm_id: Optional[str] = None):
+    """Twilio calls this when a call recording is ready. Updates recording_url in crm_calls."""
+    form = await request.form()
+    recording_url = str(form.get("RecordingUrl", ""))
+    duration      = str(form.get("RecordingDuration", "0"))
+    call_sid      = str(form.get("CallSid", ""))
+    if recording_url:
+        recording_url = f"{recording_url}.mp3"
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    try:
+        if crm_id:
+            cur.execute(sql("UPDATE crm_calls SET recording_url={PH}, duration_seconds={PH}, status='completed' WHERE id={PH}"),
+                        (recording_url, int(duration or 0), int(crm_id)))
+        elif call_sid:
+            cur.execute(sql("UPDATE crm_calls SET recording_url={PH}, duration_seconds={PH}, status='completed' WHERE call_sid={PH}"),
+                        (recording_url, int(duration or 0), call_sid))
+        conn.commit()
+    except Exception:
+        pass
+    conn.close()
+    return {"ok": True}
+
+
+@router.post("/calls/manual-complete")
+async def manual_call_complete(request: Request, crm_id: Optional[str] = None):
+    """Twilio action callback when the Dial leg ends. Updates status/duration."""
+    form = await request.form()
+    dial_status = str(form.get("DialCallStatus", "completed"))
+    duration    = str(form.get("DialCallDuration", "0"))
+    status_map  = {"completed": "completed", "no-answer": "no_answer", "busy": "no_answer",
+                   "failed": "no_answer", "canceled": "no_answer"}
+    status = status_map.get(dial_status, "completed")
+    if crm_id:
+        from db import get_conn, sql
+        conn = get_conn(); cur = conn.cursor()
+        try:
+            cur.execute(sql("UPDATE crm_calls SET status={PH}, duration_seconds={PH} WHERE id={PH} AND duration_seconds=0"),
+                        (status, int(duration or 0), int(crm_id)))
+            conn.commit()
+        except Exception:
+            pass
+        conn.close()
+    from fastapi.responses import Response as _Resp
+    return _Resp(content='<?xml version="1.0"?><Response></Response>', media_type="application/xml")
 
 
 # ── Contact Calls ─────────────────────────────────────────────────────────────

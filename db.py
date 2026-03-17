@@ -789,6 +789,11 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'contacts', 'last_contacted', 'TEXT')
     add_column_if_missing(conn, 'contacts', 'call_count', 'INTEGER DEFAULT 0')
 
+    # crm_calls — recording + call type fields
+    add_column_if_missing(conn, 'crm_calls', 'call_type', "TEXT DEFAULT 'ai'")
+    add_column_if_missing(conn, 'crm_calls', 'call_sid', 'TEXT')
+    add_column_if_missing(conn, 'crm_calls', 'recording_url', 'TEXT')
+
     conn.close()
 
 def create_user(

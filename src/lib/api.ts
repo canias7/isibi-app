@@ -893,6 +893,9 @@ export interface CRMCall {
   status: string;
   notes?: string | null;
   called_at: string;
+  call_type?: "ai" | "manual" | null;
+  call_sid?: string | null;
+  recording_url?: string | null;
 }
 
 export async function listCRMCalls(): Promise<CRMCall[]> {
@@ -1388,5 +1391,25 @@ export async function getAccountProfile() {
 }
 export async function updateAccountProfile(data: any) {
   const res = await fetch(`${API_BASE}/api/account/profile`, { method: "PUT", headers: authHeaders(), body: JSON.stringify(data) });
+  return res.json();
+}
+
+// ── Manual (non-AI) Calls ─────────────────────────────────────────────────────
+export async function initiateManualCall(data: {
+  to_number: string;
+  contact_id?: number;
+  contact_name?: string;
+  from_number?: string;
+  notes?: string;
+}) {
+  const res = await fetch(`${API_BASE}/api/calls/manual`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || "Failed to initiate call");
+  }
   return res.json();
 }

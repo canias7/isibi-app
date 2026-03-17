@@ -29,7 +29,7 @@ import {
   listAllAppointments, listContactTasks, createContactTask,
   listAllTasks, updateTask, deleteTask,
   listCRMCalls, logCRMCall, deleteCRMCall,
-  getCreditsBalance, listAgents, initiateOutboundCall, updateAgent,
+  getCreditsBalance, listAgents, initiateOutboundCall, initiateManualCall, updateAgent,
   generateAIPromptAdvanced,
   startAISMS, listAISMSSessions, getAISMSMessages, closeAISMSSession,
   listPresetTexts, createPresetText, updatePresetText, deletePresetText,
@@ -1022,27 +1022,47 @@ function CallsView() {
             </div>
           ) : (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.2fr_0.5fr] gap-4 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
-                <span>Contact</span><span>Phone</span><span>Direction</span><span>Duration</span><span>Date</span><span></span>
+              <div className="grid grid-cols-[1.6fr_0.7fr_0.9fr_0.8fr_0.8fr_1.1fr_2fr_0.4fr] gap-3 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+                <span>Contact</span><span>Type</span><span>Phone</span><span>Direction</span><span>Duration</span><span>Status</span><span>Recording</span><span></span>
               </div>
               {calls.map((c) => (
-                <div key={c.id} className="grid grid-cols-[1.8fr_1fr_1fr_1fr_1.2fr_0.5fr] gap-4 px-4 py-3 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
+                <div key={c.id} className="grid grid-cols-[1.6fr_0.7fr_0.9fr_0.8fr_0.8fr_1.1fr_2fr_0.4fr] gap-3 px-4 py-2.5 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
                   <div>
                     <p className="text-xs font-medium">{c.contact_name ?? "Unknown"}</p>
                     {c.notes && <p className="text-[10px] text-muted-foreground truncate">{c.notes}</p>}
+                    <p className="text-[10px] text-muted-foreground/60">{formatDate(c.called_at)}</p>
+                  </div>
+                  {/* Type badge */}
+                  <div>
+                    {c.call_type === "manual" ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                        <Phone className="h-2.5 w-2.5" /> Manual
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/15 text-primary border border-primary/30">
+                        <Bot className="h-2.5 w-2.5" /> AI
+                      </span>
+                    )}
                   </div>
                   <span className="text-xs text-muted-foreground">{c.phone_number ?? "—"}</span>
-                  <div className="flex items-center gap-1.5">
-                    <span className={cn("w-2 h-2 rounded-full shrink-0",
-                      c.direction === "inbound" ? "bg-blue-400" : "bg-green-400")} />
+                  <div className="flex items-center gap-1">
+                    <span className={cn("w-2 h-2 rounded-full shrink-0", c.direction === "inbound" ? "bg-blue-400" : "bg-green-400")} />
                     <span className="text-xs capitalize">{c.direction}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                  <div className="flex items-center gap-1">
                     <span className={cn("w-2 h-2 rounded-full shrink-0",
                       c.status === "completed" ? "bg-green-400" : c.status === "no_answer" ? "bg-red-400" : "bg-yellow-400")} />
-                    <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                    <span className="text-[10px] capitalize">{c.status?.replace("_", " ") ?? "—"}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">{formatDate(c.called_at)}</span>
+                  {/* Recording player */}
+                  <div>
+                    {c.recording_url ? (
+                      <audio controls src={c.recording_url} className="h-6 w-full max-w-[180px]" style={{ height: "24px" }} />
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/50">No recording</span>
+                    )}
+                  </div>
                   <button
                     onClick={() => handleDelete(c.id)}
                     disabled={deleting === c.id}
@@ -5187,10 +5207,18 @@ export default function CRMAgent() {
                               const prompt = prompts.find((p: any) => p.id === activeId) ?? prompts[0] ?? null;
                               try {
                                 await initiateOutboundCall({ to_number: c.phone_number, contact_name: fullName(c), system_prompt: prompt?.content ?? undefined, from_number: prompt?.phoneNumber ?? undefined });
-                                toast({ title: `Calling ${fullName(c)}…` });
+                                toast({ title: `AI calling ${fullName(c)}…` });
                               } catch { toast({ title: "Call failed", variant: "destructive" }); }
                             }} className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] font-bold hover:bg-primary/90 transition-colors whitespace-nowrap">
-                              <Phone className="h-3 w-3" /> CLICK TO CALL
+                              <Phone className="h-3 w-3" /> AI CALL
+                            </button>
+                            <button onClick={async () => {
+                              try {
+                                await initiateManualCall({ to_number: c.phone_number, contact_id: c.id, contact_name: fullName(c) });
+                                toast({ title: `Calling ${fullName(c)} on your phone…`, description: "Answer your forwarding number to connect." });
+                              } catch (err: any) { toast({ title: "Call failed", description: err.message, variant: "destructive" }); }
+                            }} className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold hover:bg-orange-600 transition-colors whitespace-nowrap">
+                              <Phone className="h-3 w-3" /> CALL
                             </button>
                             <div className="flex gap-1">
                               <button onClick={() => { setEditContact(c); setShowForm(true); }}

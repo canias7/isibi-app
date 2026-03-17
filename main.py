@@ -527,6 +527,31 @@ if not OPENAI_API_KEY:
 
 from fastapi.responses import HTMLResponse
 
+# ── Manual (non-AI) call TwiML ────────────────────────────────────────────────
+@app.get("/manual-call-twiml")
+async def manual_call_twiml(lead: str, crm_id: str, from_num: str = "", name: str = ""):
+    """TwiML served to agent's phone when a manual CRM call is placed.
+    When the agent picks up, Twilio bridges them to the lead and records."""
+    from fastapi.responses import Response as _Resp
+    BACKEND = os.getenv("BACKEND_URL", "https://isibi-backend.onrender.com")
+    lead_e164 = lead if lead.startswith("+") else (f"+1{lead}" if len(lead) == 10 else f"+{lead}")
+    say_text  = f"Connecting you to {name}." if name else "Connecting your call now."
+    rec_cb    = f"{BACKEND}/api/calls/recording-webhook?crm_id={crm_id}"
+    done_cb   = f"{BACKEND}/api/calls/manual-complete?crm_id={crm_id}"
+    caller_id = from_num if from_num else ""
+    caller_attr = f' callerId="{caller_id}"' if caller_id else ""
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>{say_text}</Say>
+  <Dial{caller_attr} record="record-from-ringing-dual"
+       recordingStatusCallback="{rec_cb}"
+       recordingStatusCallbackMethod="POST"
+       action="{done_cb}" method="POST">
+    <Number>{lead_e164}</Number>
+  </Dial>
+</Response>"""
+    return _Resp(content=xml, media_type="application/xml")
+
 @app.get("/", response_class=HTMLResponse)
 async def home():
     return """
