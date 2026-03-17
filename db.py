@@ -794,6 +794,7 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'crm_calls', 'call_sid', 'TEXT')
     add_column_if_missing(conn, 'crm_calls', 'recording_url', 'TEXT')
 
+    cur = conn.cursor()
     cur.execute(f"""
     CREATE TABLE IF NOT EXISTS email_signatures (
         id {ID},
@@ -843,6 +844,7 @@ def ensure_user_columns():
     )
     """)
 
+    conn.commit()
     conn.close()
 
 def create_user(
