@@ -881,6 +881,16 @@ def ensure_user_columns():
     )
     """)
 
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS push_tokens (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        token TEXT NOT NULL UNIQUE,
+        platform TEXT DEFAULT 'ios',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

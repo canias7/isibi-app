@@ -3930,6 +3930,15 @@ def create_contact_endpoint(body: ContactIn, user=Depends(verify_token)):
     new_id = row["id"] if isinstance(row, dict) else row[0]
     conn.commit()
     conn.close()
+
+    # Push notification: new lead added
+    try:
+        tokens = get_user_push_tokens(user["id"])
+        name = " ".join(filter(None, [body.first_name, body.last_name])) or body.phone_number or "Unknown"
+        send_expo_push(tokens, "🆕 New Lead", f"{name} added to your CRM", {"type": "new_lead", "contact_id": new_id})
+    except Exception:
+        pass
+
     return {**body.dict(), "id": new_id, "user_id": user["id"]}
 
 @router.patch("/contacts/{contact_id}")
@@ -4097,6 +4106,17 @@ def log_crm_call(body: dict, user=Depends(verify_token)):
     called_at = row["called_at"] if isinstance(row, dict) else row[1]
     conn.commit()
     conn.close()
+
+    # Push notification: call logged
+    try:
+        direction = body.get("direction", "outbound")
+        caller    = body.get("contact_name") or body.get("phone_number") or "Unknown"
+        if direction == "inbound":
+            tokens = get_user_push_tokens(user["id"])
+            send_expo_push(tokens, "📞 Inbound Call", f"Call from {caller}", {"type": "call", "call_id": new_id})
+    except Exception:
+        pass
+
     return {**body, "id": new_id, "called_at": str(called_at), "user_id": user["id"]}
 
 @router.delete("/crm/calls/{call_id}")
@@ -5797,3 +5817,91 @@ def delete_email_domain(domain_id: int, user=Depends(verify_token)):
     cur.execute(sql("DELETE FROM email_domains WHERE id={PH} AND user_id={PH}"), (domain_id, user["id"]))
     conn.commit(); conn.close()
     return {"ok": True}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Push Notifications (Expo)
+# ─────────────────────────────────────────────────────────────────────────────
+
+EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+
+def send_expo_push(tokens: list[str], title: str, body: str, data: dict | None = None):
+    """Fire-and-forget push to a list of Expo push tokens."""
+    if not tokens:
+        return
+    messages = [
+        {"to": t, "title": title, "body": body, "data": data or {}, "sound": "default"}
+        for t in tokens
+    ]
+    try:
+        requests.post(
+            EXPO_PUSH_URL,
+            json=messages,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            timeout=10,
+        )
+    except Exception:
+        pass  # best-effort
+
+def get_user_push_tokens(user_id: int) -> list[str]:
+    """Return all active Expo push tokens for a user."""
+    from db import get_conn, sql
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(sql("SELECT token FROM push_tokens WHERE user_id={PH}"), (user_id,))
+        rows = cur.fetchall()
+        conn.close()
+        if rows and isinstance(rows[0], dict):
+            return [r["token"] for r in rows]
+        return [r[0] for r in rows]
+    except Exception:
+        return []
+
+
+@router.post("/push/register")
+def register_push_token(payload: dict, user=Depends(verify_token)):
+    """Register or refresh an Expo push token for the authenticated user."""
+    from db import get_conn, sql
+    token    = (payload.get("token") or "").strip()
+    platform = (payload.get("platform") or "ios").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+
+    conn = get_conn(); cur = conn.cursor()
+    # Upsert: insert or update user_id for existing token
+    try:
+        cur.execute(
+            sql("INSERT INTO push_tokens (user_id, token, platform) VALUES ({PH},{PH},{PH})"),
+            (user["id"], token, platform),
+        )
+    except Exception:
+        # Token already exists — update user_id (user may have changed account)
+        cur.execute(
+            sql("UPDATE push_tokens SET user_id={PH}, platform={PH} WHERE token={PH}"),
+            (user["id"], platform, token),
+        )
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.post("/push/unregister")
+def unregister_push_token(payload: dict, user=Depends(verify_token)):
+    """Remove a push token (e.g. on logout)."""
+    from db import get_conn, sql
+    token = (payload.get("token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token is required")
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM push_tokens WHERE token={PH} AND user_id={PH}"), (token, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.post("/push/test")
+def test_push(user=Depends(verify_token)):
+    """Send a test push notification to all of the user's devices."""
+    tokens = get_user_push_tokens(user["id"])
+    if not tokens:
+        raise HTTPException(status_code=404, detail="No push tokens registered for this account")
+    send_expo_push(tokens, "🔔 ISIBI Test", "Push notifications are working!", {"type": "test"})
+    return {"ok": True, "sent_to": len(tokens)}
