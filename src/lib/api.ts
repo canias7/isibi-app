@@ -1513,3 +1513,38 @@ export async function updateMyEmail(id: number, data: Partial<UserContactEmail>)
 export async function deleteMyEmail(id: number) {
   await fetch(`${API_BASE}/api/my-contacts/emails/${id}`, { method: "DELETE", headers: authHeaders() });
 }
+
+// ── Email Domains (Resend) ────────────────────────────────────────────────────
+export interface EmailDomain {
+  id: number;
+  domain: string;
+  resend_domain_id: string;
+  status: "pending" | "verified" | "failed" | "temporary_failure";
+  dns_records: string; // JSON string
+  region: string;
+  created_at?: string;
+}
+
+export async function listEmailDomains(): Promise<EmailDomain[]> {
+  const res = await fetch(`${API_BASE}/api/email-domains`, { headers: authHeaders() });
+  return res.json();
+}
+export async function addEmailDomain(domain: string, region = "us-east-1"): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/email-domains`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ domain, region }),
+  });
+  if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Failed to add domain"); }
+  return res.json();
+}
+export async function verifyEmailDomain(id: number): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/email-domains/${id}/verify`, {
+    method: "POST", headers: authHeaders(),
+  });
+  if (!res.ok) { const e = await res.json(); throw new Error(e.detail || "Verification failed"); }
+  return res.json();
+}
+export async function deleteEmailDomain(id: number): Promise<void> {
+  await fetch(`${API_BASE}/api/email-domains/${id}`, { method: "DELETE", headers: authHeaders() });
+}

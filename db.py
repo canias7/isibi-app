@@ -868,6 +868,19 @@ def ensure_user_columns():
     )
     """)
 
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS email_domains (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        domain TEXT NOT NULL,
+        resend_domain_id TEXT,
+        status TEXT DEFAULT 'pending',
+        dns_records TEXT,
+        region TEXT DEFAULT 'us-east-1',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

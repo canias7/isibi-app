@@ -12,7 +12,7 @@ import {
   SkipForward, Play, Target, ArrowRight, Columns3,
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
   Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
-  Copy, Save, AtSign, Link2,
+  Copy, Save, AtSign, Link2, ShieldCheck, ShieldAlert, ExternalLink, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,8 @@ import {
   listMyNumbers, createMyNumber, updateMyNumber, deleteMyNumber,
   listMyEmails, createMyEmail, updateMyEmail, deleteMyEmail,
   type UserContactNumber, type UserContactEmail,
+  listEmailDomains, addEmailDomain, verifyEmailDomain, deleteEmailDomain,
+  type EmailDomain,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
@@ -4886,6 +4888,250 @@ function AIEmailsView() {
 
 // ── Account Settings View ──────────────────────────────────────────────────────
 
+// ── Email Domain Panel (Resend) ───────────────────────────────────────────────
+
+const REGIONS = [
+  { value: "us-east-1",    label: "US East (N. Virginia)" },
+  { value: "eu-west-1",    label: "EU West (Ireland)" },
+  { value: "sa-east-1",    label: "South America (São Paulo)" },
+] as const;
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string; Icon: any }> = {
+    verified:           { label: "Verified",          cls: "bg-green-500/15 text-green-400 border-green-500/30",  Icon: ShieldCheck },
+    pending:            { label: "Pending DNS",        cls: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30", Icon: AlertCircle },
+    failed:             { label: "Failed",             cls: "bg-red-500/15 text-red-400 border-red-500/30",        Icon: ShieldAlert },
+    temporary_failure:  { label: "Temp Failure",       cls: "bg-orange-500/15 text-orange-400 border-orange-500/30", Icon: ShieldAlert },
+  };
+  const s = map[status] ?? { label: status, cls: "bg-secondary/50 text-muted-foreground border-border/30", Icon: AlertCircle };
+  return (
+    <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border", s.cls)}>
+      <s.Icon className="h-2.5 w-2.5" /> {s.label}
+    </span>
+  );
+}
+
+function EmailDomainPanel() {
+  const [domains,   setDomains]   = useState<EmailDomain[]>([]);
+  const [loading,   setLoading]   = useState(true);
+  const [saving,    setSaving]    = useState(false);
+  const [verifying, setVerifying] = useState<number | null>(null);
+  const [deleting,  setDeleting]  = useState<number | null>(null);
+  const [expanded,  setExpanded]  = useState<number | null>(null);
+
+  // Add form
+  const [showForm, setShowForm] = useState(false);
+  const [newDomain, setNewDomain] = useState("");
+  const [newRegion, setNewRegion] = useState("us-east-1");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    listEmailDomains()
+      .then(d => setDomains(Array.isArray(d) ? d : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleAdd = async () => {
+    const d = newDomain.trim().toLowerCase().replace(/^https?:\/\//, "");
+    if (!d) return;
+    setSaving(true);
+    try {
+      await addEmailDomain(d, newRegion);
+      toast({ title: "Domain added", description: "Add the DNS records shown below to your domain registrar." });
+      setNewDomain(""); setShowForm(false); load();
+    } catch (err: any) {
+      toast({ title: "Failed to add domain", description: err.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const handleVerify = async (id: number) => {
+    setVerifying(id);
+    try {
+      const res = await verifyEmailDomain(id);
+      const msg = res.status === "verified" ? "Domain verified! You can now send emails from this domain." : "DNS not verified yet. Make sure all records are added and try again in a few minutes.";
+      toast({ title: res.status === "verified" ? "✅ Verified!" : "Not verified yet", description: msg });
+      load();
+    } catch (err: any) {
+      toast({ title: "Verification error", description: err.message, variant: "destructive" });
+    } finally { setVerifying(null); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm("Remove this domain? This will also delete it from Resend.")) return;
+    setDeleting(id);
+    await deleteEmailDomain(id).catch(() => {});
+    toast({ title: "Domain removed" }); load();
+    setDeleting(null);
+  };
+
+  if (loading) return <div className="flex items-center gap-2 text-muted-foreground text-sm pt-10"><RefreshCw className="h-4 w-4 animate-spin" /> Loading…</div>;
+
+  return (
+    <div className="space-y-6">
+      {/* Header card */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 flex items-start gap-4">
+        <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center shrink-0">
+          <Globe className="h-5 w-5 text-primary" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-sm font-semibold">Custom Email Domain</h2>
+          <p className="text-xs text-muted-foreground mt-1">Send emails from <span className="text-foreground font-medium">you@yourdomain.com</span> instead of a generic address. Powered by <span className="text-primary font-medium">Resend</span>. Add your domain, copy the DNS records, then verify.</p>
+        </div>
+        <button onClick={() => setShowForm(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors shrink-0">
+          <Plus className="h-3.5 w-3.5" /> Add Domain
+        </button>
+      </div>
+
+      {/* Add form */}
+      {showForm && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-5 space-y-4">
+          <p className="text-xs font-semibold text-primary">Register New Domain</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Domain Name</label>
+              <input value={newDomain} onChange={e => setNewDomain(e.target.value)} placeholder="yourdomain.com"
+                onKeyDown={e => e.key === "Enter" && handleAdd()}
+                className="w-full px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50" />
+              <p className="text-[10px] text-muted-foreground mt-1">Just the domain — no http:// or path</p>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Sending Region</label>
+              <select value={newRegion} onChange={e => setNewRegion(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50">
+                {REGIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={handleAdd} disabled={saving || !newDomain.trim()}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Globe className="h-3.5 w-3.5" />} Register Domain
+            </button>
+            <button onClick={() => setShowForm(false)}
+              className="px-3 py-2 rounded-lg border border-border/30 text-xs text-muted-foreground hover:bg-secondary/50 transition-colors">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Domains list */}
+      {domains.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground/50">
+          <Globe className="h-12 w-12 opacity-30" />
+          <p className="text-sm font-medium">No domains added yet</p>
+          <p className="text-xs">Add your domain to send branded emails</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {domains.map(d => {
+            let records: any[] = [];
+            try { records = JSON.parse(d.dns_records || "[]"); } catch {}
+            const isExpanded = expanded === d.id;
+
+            return (
+              <div key={d.id} className="rounded-xl border border-border/30 bg-card/40 overflow-hidden">
+                {/* Domain row */}
+                <div className="flex items-center gap-3 px-5 py-4">
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center shrink-0",
+                    d.status === "verified" ? "bg-green-500/15" : "bg-secondary/50")}>
+                    {d.status === "verified"
+                      ? <ShieldCheck className="h-4 w-4 text-green-400" />
+                      : <Globe className="h-4 w-4 text-muted-foreground" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold">{d.domain}</span>
+                      <StatusBadge status={d.status} />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Region: {d.region} · Added {d.created_at ? new Date(d.created_at).toLocaleDateString() : "—"}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {d.status !== "verified" && (
+                      <button onClick={() => handleVerify(d.id)} disabled={verifying === d.id}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                        {verifying === d.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <ShieldCheck className="h-3 w-3" />} Verify
+                      </button>
+                    )}
+                    <button onClick={() => setExpanded(isExpanded ? null : d.id)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors" title="DNS Records">
+                      <ChevronDown className={cn("h-4 w-4 transition-transform", isExpanded && "rotate-180")} />
+                    </button>
+                    <button onClick={() => handleDelete(d.id)} disabled={deleting === d.id}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                      {deleting === d.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* DNS Records (expandable) */}
+                {isExpanded && (
+                  <div className="border-t border-border/20 bg-secondary/10 p-5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold">DNS Records — add these to your domain registrar</p>
+                      <a href="https://resend.com/docs/dashboard/domains/introduction" target="_blank" rel="noopener noreferrer"
+                        className="flex items-center gap-1 text-[10px] text-primary hover:underline">
+                        Docs <ExternalLink className="h-2.5 w-2.5" />
+                      </a>
+                    </div>
+                    {records.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No DNS records found. Try removing and re-adding the domain.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Header */}
+                        <div className="grid grid-cols-[80px_1fr_60px_80px_60px] gap-2 px-3 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          <span>Type</span><span>Name / Value</span><span>TTL</span><span>Record</span><span>Status</span>
+                        </div>
+                        {records.map((rec: any, i: number) => (
+                          <div key={i} className="grid grid-cols-[80px_1fr_60px_80px_60px] gap-2 px-3 py-2.5 rounded-lg bg-card/60 border border-border/20 text-xs items-start">
+                            <span className="font-mono font-semibold text-primary text-[10px] uppercase">{rec.type}</span>
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-muted-foreground">Name:</span>
+                                <span className="font-mono text-[10px] truncate">{rec.name}</span>
+                                <button onClick={() => { navigator.clipboard.writeText(rec.name); toast({ title: "Copied!" }); }}
+                                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground shrink-0"><Copy className="h-2.5 w-2.5" /></button>
+                              </div>
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-[10px] text-muted-foreground shrink-0">Value:</span>
+                                <span className="font-mono text-[10px] break-all leading-relaxed">{rec.value}</span>
+                                <button onClick={() => { navigator.clipboard.writeText(rec.value); toast({ title: "Copied!" }); }}
+                                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground shrink-0 mt-0.5"><Copy className="h-2.5 w-2.5" /></button>
+                              </div>
+                              {rec.priority != null && (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] text-muted-foreground">Priority:</span>
+                                  <span className="font-mono text-[10px]">{rec.priority}</span>
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-muted-foreground">{rec.ttl ?? "Auto"}</span>
+                            <span className="text-[10px] text-muted-foreground">{rec.record ?? "—"}</span>
+                            <span className={cn("text-[10px] font-semibold",
+                              rec.status === "verified" ? "text-green-400" : "text-yellow-400")}>
+                              {rec.status ?? "pending"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3 flex items-start gap-2">
+                      <AlertCircle className="h-3.5 w-3.5 text-yellow-400 shrink-0 mt-0.5" />
+                      <p className="text-[10px] text-muted-foreground">DNS changes can take <span className="text-foreground font-medium">up to 48 hours</span> to propagate. After adding all records, click <span className="text-foreground font-medium">Verify</span> above to check status.</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── My Numbers & Emails Panel ─────────────────────────────────────────────────
 
 const PHONE_TYPES = ["mobile","office","home","fax","other"] as const;
@@ -5190,6 +5436,7 @@ function MyNumbersEmailsPanel() {
 const ACCOUNT_SETTINGS_SIDEBAR = [
   { id: "general",    label: "General Info",       icon: User },
   { id: "my_numbers", label: "My Numbers & Emails", icon: Phone },
+  { id: "email_domain", label: "Email Domain",     icon: Globe },
   { id: "2fa",        label: "2FA",                icon: Lock },
   { id: "password",   label: "Change Password",    icon: Lock },
   { id: "notifs",     label: "Notifications",      icon: Bell },
@@ -5381,6 +5628,8 @@ function AccountSettingsView() {
             </div>
           ) : activeTab === "my_numbers" ? (
             <MyNumbersEmailsPanel />
+          ) : activeTab === "email_domain" ? (
+            <EmailDomainPanel />
           ) : activeTab === "states" ? (
             <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
               <h2 className="text-base font-semibold">Business States</h2>

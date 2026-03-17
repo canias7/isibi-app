@@ -5669,3 +5669,131 @@ def delete_my_email(item_id: int, user=Depends(verify_token)):
     cur.execute(sql("DELETE FROM user_contact_emails WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
     conn.commit(); conn.close()
     return {"ok": True}
+
+
+# ── Resend Email Domains ───────────────────────────────────────────────────────
+
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+RESEND_BASE    = "https://api.resend.com"
+
+def _resend_headers():
+    return {"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"}
+
+def _rows_list(rows, cur):
+    return [dict(r) if hasattr(r, "keys") else dict(zip([d[0] for d in cur.description], r)) for r in rows]
+
+@router.get("/email-domains")
+def list_email_domains(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM email_domains WHERE user_id={PH} ORDER BY id DESC"), (user["id"],))
+    rows = _rows_list(cur.fetchall(), cur); conn.close()
+    return rows
+
+@router.post("/email-domains")
+def add_email_domain(payload: dict, user=Depends(verify_token)):
+    """Register a custom domain with Resend and store DNS records."""
+    from db import get_conn, sql
+    import json as _json
+
+    domain = (payload.get("domain") or "").strip().lower()
+    region = payload.get("region", "us-east-1")
+    if not domain:
+        raise HTTPException(status_code=400, detail="Domain is required")
+    if not RESEND_API_KEY:
+        raise HTTPException(status_code=503, detail="Resend API key not configured. Add RESEND_API_KEY to environment.")
+
+    # Call Resend to register domain
+    try:
+        resp = requests.post(f"{RESEND_BASE}/domains",
+                             json={"name": domain, "region": region},
+                             headers=_resend_headers(), timeout=15)
+        if resp.status_code not in (200, 201):
+            raise HTTPException(status_code=resp.status_code,
+                                detail=f"Resend error: {resp.text}")
+        data = resp.json()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=502, detail=f"Could not reach Resend: {e}")
+
+    resend_id  = data.get("id", "")
+    status     = data.get("status", "pending")
+    dns_records = _json.dumps(data.get("records", []))
+
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO email_domains (user_id, domain, resend_domain_id, status, dns_records, region)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH})
+    """), (user["id"], domain, resend_id, status, dns_records, region))
+    conn.commit()
+    new_id = cur.lastrowid
+    conn.close()
+
+    return {"id": new_id, "domain": domain, "resend_id": resend_id,
+            "status": status, "records": data.get("records", []), "region": region}
+
+@router.post("/email-domains/{domain_id}/verify")
+def verify_email_domain(domain_id: int, user=Depends(verify_token)):
+    """Trigger Resend DNS verification check and update local status."""
+    from db import get_conn, sql
+    import json as _json
+
+    if not RESEND_API_KEY:
+        raise HTTPException(status_code=503, detail="Resend API key not configured.")
+
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM email_domains WHERE id={PH} AND user_id={PH}"), (domain_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); raise HTTPException(status_code=404, detail="Domain not found")
+    row = dict(row) if hasattr(row, "keys") else dict(zip([d[0] for d in cur.description], row))
+    resend_id = row["resend_domain_id"]
+    if not resend_id:
+        conn.close(); raise HTTPException(status_code=400, detail="No Resend domain ID — add the domain first")
+
+    # Ask Resend to check DNS
+    try:
+        resp = requests.post(f"{RESEND_BASE}/domains/{resend_id}/verify",
+                             headers=_resend_headers(), timeout=15)
+        data = resp.json() if resp.content else {}
+    except requests.RequestException as e:
+        conn.close(); raise HTTPException(status_code=502, detail=str(e))
+
+    # Fetch latest domain state from Resend
+    try:
+        get_resp = requests.get(f"{RESEND_BASE}/domains/{resend_id}",
+                                headers=_resend_headers(), timeout=15)
+        domain_data = get_resp.json() if get_resp.content else {}
+    except Exception:
+        domain_data = {}
+
+    new_status  = domain_data.get("status", row["status"])
+    dns_records = _json.dumps(domain_data.get("records", []))
+
+    cur.execute(sql("UPDATE email_domains SET status={PH}, dns_records={PH} WHERE id={PH}"),
+                (new_status, dns_records, domain_id))
+    conn.commit(); conn.close()
+
+    return {"status": new_status, "records": domain_data.get("records", [])}
+
+@router.delete("/email-domains/{domain_id}")
+def delete_email_domain(domain_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT resend_domain_id FROM email_domains WHERE id={PH} AND user_id={PH}"), (domain_id, user["id"]))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); raise HTTPException(status_code=404, detail="Domain not found")
+    resend_id = (row["resend_domain_id"] if hasattr(row, "keys") else row[0])
+
+    # Remove from Resend (best-effort)
+    if resend_id and RESEND_API_KEY:
+        try:
+            requests.delete(f"{RESEND_BASE}/domains/{resend_id}",
+                            headers=_resend_headers(), timeout=10)
+        except Exception:
+            pass
+
+    cur.execute(sql("DELETE FROM email_domains WHERE id={PH} AND user_id={PH}"), (domain_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
