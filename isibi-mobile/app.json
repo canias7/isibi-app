@@ -15,6 +15,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSUserNotificationUsageDescription": "ISIBI uses notifications to alert you about new leads, calls, and important CRM activity.",
+        "NSMicrophoneUsageDescription": "ISIBI needs microphone access to record your voice commands.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "bundleIdentifier": "com.anonymous.isibimobile"
@@ -24,9 +25,7 @@
         "NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "NOTIFICATIONS",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE"
+        "RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",

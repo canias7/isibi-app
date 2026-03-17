@@ -146,3 +146,12 @@ export async function unregisterPushToken(token: string) {
     body: JSON.stringify({ token }),
   }).catch(() => null); // best-effort
 }
+
+// ── Voice Command ─────────────────────────────────────────────────────────────
+
+export async function sendVoiceCommand(text: string): Promise<{ result: string; intent: any }> {
+  return apiFetch("/api/voice-command", {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
