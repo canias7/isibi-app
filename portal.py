@@ -5476,3 +5476,90 @@ def update_account_profile(payload: dict, user=Depends(verify_token)):
     conn = get_conn(); cur = conn.cursor()
     cur.execute(sql(f"UPDATE users SET {set_clause} WHERE id={{PH}}"), list(updates.values()) + [user["id"]])
     conn.commit(); conn.close(); return {"ok": True}
+
+
+# ── Email Signature Builder ───────────────────────────────────────────────────
+
+SIG_FIELDS = [
+    "full_name","job_title","company_name","phone","email","website","address",
+    "logo_url","profile_image_url","social_linkedin","social_twitter",
+    "social_instagram","social_facebook","cta_text","cta_link","tagline","template"
+]
+
+@router.get("/email-signature")
+def get_email_signature(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cols = ", ".join(SIG_FIELDS)
+    cur.execute(sql(f"SELECT id, {cols} FROM email_signatures WHERE user_id={{PH}}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    if not row:
+        return {}
+    keys = ["id"] + SIG_FIELDS
+    return dict(zip(keys, row)) if not hasattr(row, "keys") else dict(row)
+
+@router.put("/email-signature")
+def save_email_signature(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    updates = {k: payload.get(k) for k in SIG_FIELDS}
+    # upsert
+    cur.execute(sql("SELECT id FROM email_signatures WHERE user_id={PH}"), (user["id"],))
+    existing = cur.fetchone()
+    if existing:
+        set_clause = ", ".join(f"{k}={{PH}}" for k in updates)
+        cur.execute(sql(f"UPDATE email_signatures SET {set_clause}, updated_at=CURRENT_TIMESTAMP WHERE user_id={{PH}}"),
+                    list(updates.values()) + [user["id"]])
+    else:
+        cols   = "user_id, " + ", ".join(updates.keys())
+        phs    = ", ".join(["{PH}"] * (len(updates) + 1))
+        cur.execute(sql(f"INSERT INTO email_signatures ({cols}) VALUES ({phs})"),
+                    [user["id"]] + list(updates.values()))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.post("/email-signature/ai-generate")
+def ai_generate_signature(payload: dict, user=Depends(verify_token)):
+    """Use Claude to suggest tagline, CTA text, and best template based on business type."""
+    business_type  = payload.get("business_type", "")
+    brand_tone     = payload.get("brand_tone", "professional")
+    style_pref     = payload.get("style_preference", "modern")
+    name           = payload.get("full_name", "")
+    company        = payload.get("company_name", "")
+    job_title      = payload.get("job_title", "")
+
+    prompt = f"""You are an expert email signature copywriter. Based on the info below, return ONLY a JSON object (no markdown, no explanation) with these keys:
+- tagline: short 1-line professional tagline (max 8 words)
+- cta_text: call-to-action button text (max 5 words, e.g. "Book a Free Call")
+- cta_link_suggestion: URL path suggestion (e.g. "/contact", "/book")
+- template: best template from ["modern","luxury","bold"]
+- reasoning: 1 sentence why this template fits
+
+Business type: {business_type}
+Brand tone: {brand_tone}
+Style preference: {style_pref}
+Name: {name}
+Company: {company}
+Job title: {job_title}
+
+Respond with valid JSON only."""
+
+    try:
+        client = Anthropic()
+        msg = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        import json as _json
+        text = msg.content[0].text.strip()
+        # strip markdown code fences if present
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        result = _json.loads(text)
+        return result
+    except Exception as e:
+        return {"error": str(e), "tagline": "Helping you grow.", "cta_text": "Get in Touch",
+                "cta_link_suggestion": "/contact", "template": "modern", "reasoning": "Default fallback."}

@@ -794,6 +794,31 @@ def ensure_user_columns():
     add_column_if_missing(conn, 'crm_calls', 'call_sid', 'TEXT')
     add_column_if_missing(conn, 'crm_calls', 'recording_url', 'TEXT')
 
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS email_signatures (
+        id {ID},
+        user_id INTEGER NOT NULL UNIQUE,
+        full_name TEXT,
+        job_title TEXT,
+        company_name TEXT,
+        phone TEXT,
+        email TEXT,
+        website TEXT,
+        address TEXT,
+        logo_url TEXT,
+        profile_image_url TEXT,
+        social_linkedin TEXT,
+        social_twitter TEXT,
+        social_instagram TEXT,
+        social_facebook TEXT,
+        cta_text TEXT,
+        cta_link TEXT,
+        tagline TEXT,
+        template TEXT DEFAULT 'modern',
+        updated_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.close()
 
 def create_user(

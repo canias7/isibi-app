@@ -12,6 +12,7 @@ import {
   SkipForward, Play, Target, ArrowRight, Columns3,
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
   Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
+  Copy, Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +43,8 @@ import {
   listEmailDripSequences, createEmailDripSequence, updateEmailDripSequence, deleteEmailDripSequence,
   listEmailPresetReplies, createEmailPresetReply, deleteEmailPresetReply,
   getAccountProfile, updateAccountProfile,
+  getEmailSignature, saveEmailSignature, aiGenerateSignature,
+  type EmailSignature,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
@@ -66,7 +69,7 @@ const STATUSES = [
 
 const SOURCES = ["Manual", "CSV Import", "Website Form", "Referral", "Social Media", "Cold Call", "Other"];
 const PRIORITIES = ["low", "medium", "high"] as const;
-type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms" | "sms_marketing" | "lead_vendors" | "email_marketing" | "account_settings";
+type View = "dashboard" | "contacts" | "calls" | "sms" | "emails" | "calendar" | "tasks" | "pipeline" | "power_dialer" | "reports" | "inbox" | "campaigns" | "phone_setup" | "my_prompt" | "billing" | "ai_sms" | "sms_marketing" | "lead_vendors" | "email_marketing" | "account_settings" | "ai_emails";
 
 function statusMeta(id?: string | null) {
   return STATUSES.find((s) => s.id === id) ?? STATUSES[0];
@@ -4471,6 +4474,413 @@ function EmailMarketingView() {
   );
 }
 
+// ── AI Emails – Signature Builder ─────────────────────────────────────────────
+
+type SigTemplate = "modern" | "luxury" | "bold";
+
+const EMPTY_SIG: EmailSignature = {
+  full_name: "", job_title: "", company_name: "", phone: "", email: "",
+  website: "", address: "", logo_url: "", profile_image_url: "",
+  social_linkedin: "", social_twitter: "", social_instagram: "", social_facebook: "",
+  cta_text: "Book a Free Call", cta_link: "", tagline: "", template: "modern",
+};
+
+/* ── Template HTML generators (table-based, Gmail/Outlook-safe) ── */
+function buildSignatureHTML(sig: EmailSignature): string {
+  const t = (sig.template ?? "modern") as SigTemplate;
+  if (t === "luxury") return luxurySignature(sig);
+  if (t === "bold")   return boldSignature(sig);
+  return modernSignature(sig);
+}
+
+function modernSignature(s: EmailSignature): string {
+  const accent = "#4F46E5";
+  const photo = s.profile_image_url ? `<td style="padding-right:16px;vertical-align:top;"><img src="${s.profile_image_url}" width="72" height="72" style="border-radius:50%;object-fit:cover;display:block;" alt="${s.full_name||""}"/></td>` : "";
+  const logo  = s.logo_url ? `<tr><td colspan="2" style="padding-bottom:10px;"><img src="${s.logo_url}" height="32" style="display:block;" alt="${s.company_name||""}"/></td></tr>` : "";
+  const tag   = s.tagline ? `<tr><td colspan="2" style="padding-top:4px;font-size:11px;color:#6B7280;font-style:italic;">${s.tagline}</td></tr>` : "";
+  const sep   = `<td style="padding:0 12px;"><div style="width:1px;background:${accent};height:80px;"></div></td>`;
+  const socials = buildSocials(s, accent);
+  const cta   = s.cta_text ? `<tr><td colspan="2" style="padding-top:10px;"><a href="${s.cta_link||"#"}" style="display:inline-block;padding:7px 18px;background:${accent};color:#fff;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;font-family:Arial,sans-serif;">${s.cta_text}</a></td></tr>` : "";
+  return `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#111;max-width:520px;">
+  <tr>
+    ${photo}
+    <td style="vertical-align:top;">
+      <table cellpadding="0" cellspacing="0" border="0">
+        ${logo}
+        <tr><td style="font-size:16px;font-weight:700;color:#111;">${s.full_name||""}</td></tr>
+        <tr><td style="font-size:12px;color:${accent};font-weight:600;padding-top:2px;">${s.job_title||""}${s.job_title&&s.company_name?" · ":""}${s.company_name||""}</td></tr>
+        ${tag}
+        <tr><td style="padding-top:8px;border-top:2px solid ${accent};"></td></tr>
+        ${s.phone?`<tr><td style="font-size:12px;color:#374151;padding-top:4px;">📞 <a href="tel:${s.phone}" style="color:#374151;text-decoration:none;">${s.phone}</a></td></tr>`:""}
+        ${s.email?`<tr><td style="font-size:12px;color:#374151;">✉️ <a href="mailto:${s.email}" style="color:${accent};text-decoration:none;">${s.email}</a></td></tr>`:""}
+        ${s.website?`<tr><td style="font-size:12px;color:#374151;">🌐 <a href="${s.website}" style="color:${accent};text-decoration:none;">${s.website.replace(/https?:\/\//,"")}</a></td></tr>`:""}
+        ${s.address?`<tr><td style="font-size:11px;color:#6B7280;padding-top:2px;">📍 ${s.address}</td></tr>`:""}
+        ${socials?`<tr><td style="padding-top:8px;">${socials}</td></tr>`:""}
+        ${cta}
+      </table>
+    </td>
+  </tr>
+</table>`;
+}
+
+function luxurySignature(s: EmailSignature): string {
+  const gold = "#B8960C";
+  const dark = "#111111";
+  const photo = s.profile_image_url ? `<tr><td align="center" style="padding-bottom:10px;"><img src="${s.profile_image_url}" width="64" height="64" style="border-radius:50%;border:2px solid ${gold};display:block;" alt=""/></td></tr>` : "";
+  const logo  = s.logo_url ? `<tr><td align="center" style="padding-bottom:8px;"><img src="${s.logo_url}" height="28" style="display:block;margin:0 auto;" alt="${s.company_name||""}"/></td></tr>` : "";
+  const cta   = s.cta_text ? `<tr><td align="center" style="padding-top:12px;"><a href="${s.cta_link||"#"}" style="display:inline-block;padding:8px 20px;border:1.5px solid ${gold};color:${gold};font-size:11px;font-weight:700;letter-spacing:1px;text-decoration:none;font-family:Georgia,serif;text-transform:uppercase;">${s.cta_text}</a></td></tr>` : "";
+  const socials = buildSocials(s, gold);
+  return `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Georgia,serif;font-size:13px;color:${dark};max-width:320px;text-align:center;">
+  <tr><td>
+    <table cellpadding="0" cellspacing="0" border="0" width="100%">
+      ${logo}${photo}
+      <tr><td align="center" style="font-size:17px;font-weight:700;letter-spacing:0.5px;color:${dark};">${s.full_name||""}</td></tr>
+      <tr><td align="center" style="font-size:11px;color:${gold};letter-spacing:2px;text-transform:uppercase;padding-top:3px;">${s.job_title||""}</td></tr>
+      ${s.company_name?`<tr><td align="center" style="font-size:11px;color:#555;letter-spacing:1px;text-transform:uppercase;padding-top:1px;">${s.company_name}</td></tr>`:""}
+      ${s.tagline?`<tr><td align="center" style="font-size:11px;color:#888;font-style:italic;padding-top:6px;">"${s.tagline}"</td></tr>`:""}
+      <tr><td style="padding:10px 0;"><div style="height:1px;background:linear-gradient(to right,transparent,${gold},transparent);"></div></td></tr>
+      ${s.phone?`<tr><td align="center" style="font-size:12px;color:#444;"><a href="tel:${s.phone}" style="color:#444;text-decoration:none;">${s.phone}</a></td></tr>`:""}
+      ${s.email?`<tr><td align="center" style="font-size:12px;color:#444;padding-top:2px;"><a href="mailto:${s.email}" style="color:${gold};text-decoration:none;">${s.email}</a></td></tr>`:""}
+      ${s.website?`<tr><td align="center" style="font-size:12px;color:#444;padding-top:2px;"><a href="${s.website}" style="color:${gold};text-decoration:none;">${s.website.replace(/https?:\/\//,"")}</a></td></tr>`:""}
+      ${s.address?`<tr><td align="center" style="font-size:11px;color:#888;padding-top:4px;">${s.address}</td></tr>`:""}
+      ${socials?`<tr><td align="center" style="padding-top:8px;">${socials}</td></tr>`:""}
+      ${cta}
+    </table>
+  </td></tr>
+</table>`;
+}
+
+function boldSignature(s: EmailSignature): string {
+  const primary = "#EF4444";
+  const dark    = "#0F172A";
+  const photo  = s.profile_image_url ? `<td style="padding-right:14px;vertical-align:middle;"><img src="${s.profile_image_url}" width="68" height="68" style="border-radius:8px;display:block;border:3px solid ${primary};" alt=""/></td>` : "";
+  const cta    = s.cta_text ? `<a href="${s.cta_link||"#"}" style="display:inline-block;margin-top:10px;padding:9px 22px;background:${primary};color:#fff;border-radius:4px;font-size:12px;font-weight:800;text-decoration:none;text-transform:uppercase;letter-spacing:0.5px;font-family:Arial,sans-serif;">${s.cta_text} →</a>` : "";
+  const socials = buildSocials(s, "#fff");
+  return `<table cellpadding="0" cellspacing="0" border="0" style="font-family:Arial,Helvetica,sans-serif;font-size:13px;max-width:520px;">
+  <tr>
+    <td style="background:${dark};padding:14px 16px;border-radius:8px 8px 0 0;">
+      <table cellpadding="0" cellspacing="0" border="0"><tr>
+        ${photo}
+        <td style="vertical-align:middle;">
+          <div style="font-size:18px;font-weight:900;color:#fff;line-height:1.1;">${s.full_name||""}</div>
+          <div style="font-size:12px;color:${primary};font-weight:700;text-transform:uppercase;letter-spacing:0.5px;padding-top:3px;">${s.job_title||""}${s.job_title&&s.company_name?" | ":""}${s.company_name||""}</div>
+          ${s.tagline?`<div style="font-size:11px;color:#94A3B8;padding-top:4px;font-style:italic;">${s.tagline}</div>`:""}
+        </td>
+      </tr></table>
+    </td>
+  </tr>
+  <tr>
+    <td style="background:#F8FAFC;padding:12px 16px;border:1px solid #E2E8F0;border-top:3px solid ${primary};border-radius:0 0 8px 8px;">
+      <table cellpadding="0" cellspacing="0" border="0">
+        ${s.logo_url?`<tr><td style="padding-bottom:8px;"><img src="${s.logo_url}" height="28" style="display:block;" alt="${s.company_name||""}"/></td></tr>`:""}
+        <tr>
+          <td style="font-size:12px;color:#374151;">
+            ${s.phone?`<span>📞 <a href="tel:${s.phone}" style="color:#374151;text-decoration:none;">${s.phone}</a></span>`:""}
+            ${s.phone&&s.email?`<span style="padding:0 8px;color:#CBD5E1;">|</span>`:""}
+            ${s.email?`<span>✉️ <a href="mailto:${s.email}" style="color:${primary};text-decoration:none;">${s.email}</a></span>`:""}
+          </td>
+        </tr>
+        ${s.website?`<tr><td style="font-size:12px;color:${primary};padding-top:3px;"><a href="${s.website}" style="color:${primary};text-decoration:none;font-weight:600;">🌐 ${s.website.replace(/https?:\/\//,"")}</a></td></tr>`:""}
+        ${s.address?`<tr><td style="font-size:11px;color:#6B7280;padding-top:3px;">📍 ${s.address}</td></tr>`:""}
+        ${socials?`<tr><td style="padding-top:8px;">${socials}</td></tr>`:""}
+        ${cta?`<tr><td>${cta}</td></tr>`:""}
+      </table>
+    </td>
+  </tr>
+</table>`;
+}
+
+function buildSocials(s: EmailSignature, color: string): string {
+  const links: string[] = [];
+  if (s.social_linkedin)  links.push(`<a href="${s.social_linkedin}"  style="color:${color};text-decoration:none;font-size:11px;font-family:Arial,sans-serif;margin-right:8px;">in</a>`);
+  if (s.social_twitter)   links.push(`<a href="${s.social_twitter}"   style="color:${color};text-decoration:none;font-size:11px;font-family:Arial,sans-serif;margin-right:8px;">𝕏</a>`);
+  if (s.social_instagram) links.push(`<a href="${s.social_instagram}" style="color:${color};text-decoration:none;font-size:11px;font-family:Arial,sans-serif;margin-right:8px;">IG</a>`);
+  if (s.social_facebook)  links.push(`<a href="${s.social_facebook}"  style="color:${color};text-decoration:none;font-size:11px;font-family:Arial,sans-serif;margin-right:8px;">FB</a>`);
+  return links.join("");
+}
+
+/* ── Main component ── */
+function AIEmailsView() {
+  const [sig, setSig] = useState<EmailSignature>(EMPTY_SIG);
+  const [activeTab, setActiveTab] = useState<"form" | "ai">("form");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiForm, setAiForm] = useState({ business_type: "", brand_tone: "professional", style_preference: "modern" });
+  const [aiResult, setAiResult] = useState<{ tagline: string; cta_text: string; cta_link_suggestion: string; template: string; reasoning: string } | null>(null);
+  const [copied, setCopied] = useState<"html" | "gmail" | null>(null);
+
+  // Load saved signature + auto-fill from account profile
+  useEffect(() => {
+    Promise.all([getEmailSignature(), getAccountProfile()]).then(([saved, profile]) => {
+      const merged: EmailSignature = { ...EMPTY_SIG };
+      if (profile && typeof profile === "object") {
+        const p = profile as any;
+        if (p.full_name)    merged.full_name    = `${p.first_name || ""} ${p.last_name || ""}`.trim() || "";
+        if (p.agent_website) merged.website     = p.agent_website;
+      }
+      if (saved && typeof saved === "object" && (saved as any).full_name !== undefined) {
+        Object.assign(merged, saved);
+      }
+      setSig(merged);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const update = (key: keyof EmailSignature, val: string) => setSig(prev => ({ ...prev, [key]: val }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try { await saveEmailSignature(sig); toast({ title: "Signature saved!" }); }
+    catch { toast({ title: "Save failed", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const handleAIGenerate = async () => {
+    setAiLoading(true);
+    try {
+      const res = await aiGenerateSignature({ ...aiForm, full_name: sig.full_name, company_name: sig.company_name, job_title: sig.job_title });
+      setAiResult(res);
+      if (res.tagline)  setSig(prev => ({ ...prev, tagline: res.tagline }));
+      if (res.cta_text) setSig(prev => ({ ...prev, cta_text: res.cta_text }));
+      if (res.template && ["modern","luxury","bold"].includes(res.template))
+        setSig(prev => ({ ...prev, template: res.template as SigTemplate }));
+      toast({ title: "AI suggestions applied!" });
+    } catch { toast({ title: "AI generation failed", variant: "destructive" }); }
+    finally { setAiLoading(false); }
+  };
+
+  const html = buildSignatureHTML(sig);
+
+  const copyHTML = () => {
+    navigator.clipboard.writeText(html);
+    setCopied("html"); setTimeout(() => setCopied(null), 2000);
+    toast({ title: "HTML copied to clipboard!" });
+  };
+
+  const copyGmail = () => {
+    // For Gmail: create a temp contentEditable div and copy as rich text
+    const el = document.createElement("div");
+    el.innerHTML = html;
+    el.style.position = "fixed"; el.style.left = "-9999px";
+    document.body.appendChild(el);
+    const sel = window.getSelection(); sel?.removeAllRanges();
+    const range = document.createRange(); range.selectNodeContents(el);
+    sel?.addRange(range);
+    document.execCommand("copy");
+    sel?.removeAllRanges();
+    document.body.removeChild(el);
+    setCopied("gmail"); setTimeout(() => setCopied(null), 2000);
+    toast({ title: "Signature copied for Gmail!", description: "Paste directly into Gmail Settings → Signature" });
+  };
+
+  const downloadHTML = () => {
+    const blob = new Blob([`<!DOCTYPE html><html><body>${html}</body></html>`], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "email-signature.html";
+    a.click(); URL.revokeObjectURL(url);
+  };
+
+  const TEMPLATES: { id: SigTemplate; label: string; desc: string }[] = [
+    { id: "modern",  label: "Modern Business", desc: "Clean, indigo accent, horizontal layout" },
+    { id: "luxury",  label: "Luxury B&W",      desc: "Gold accents, elegant centered style" },
+    { id: "bold",    label: "Bold Sales",       desc: "Dark header, red accents, high-energy" },
+  ];
+
+  const FORM_FIELDS: { key: keyof EmailSignature; label: string; placeholder: string; type?: string }[] = [
+    { key: "full_name",         label: "Full Name",        placeholder: "Jane Smith" },
+    { key: "job_title",         label: "Job Title",        placeholder: "Insurance Advisor" },
+    { key: "company_name",      label: "Company Name",     placeholder: "FC Insurance Solutions" },
+    { key: "phone",             label: "Phone",            placeholder: "+1 (786) 218-2384" },
+    { key: "email",             label: "Email",            placeholder: "jane@example.com" },
+    { key: "website",           label: "Website",          placeholder: "https://example.com" },
+    { key: "address",           label: "Address",          placeholder: "Miami, FL 33101" },
+    { key: "tagline",           label: "Tagline",          placeholder: "Protecting families, one plan at a time." },
+    { key: "cta_text",          label: "CTA Button Text",  placeholder: "Book a Free Call" },
+    { key: "cta_link",          label: "CTA Button Link",  placeholder: "https://calendly.com/..." },
+    { key: "logo_url",          label: "Logo URL",         placeholder: "https://example.com/logo.png" },
+    { key: "profile_image_url", label: "Profile Image URL",placeholder: "https://example.com/photo.jpg" },
+    { key: "social_linkedin",   label: "LinkedIn URL",     placeholder: "https://linkedin.com/in/..." },
+    { key: "social_twitter",    label: "X / Twitter URL",  placeholder: "https://x.com/..." },
+    { key: "social_instagram",  label: "Instagram URL",    placeholder: "https://instagram.com/..." },
+    { key: "social_facebook",   label: "Facebook URL",     placeholder: "https://facebook.com/..." },
+  ];
+
+  if (loading) return <div className="flex items-center justify-center h-full"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <div>
+          <h1 className="text-xl font-bold flex items-center gap-2"><Sparkles className="h-5 w-5 text-primary" /> AI Email Signature Builder</h1>
+          <p className="text-xs text-muted-foreground">Create a professional email signature · 3 templates · AI-assisted</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={copyGmail} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors", copied === "gmail" ? "bg-green-500/20 border-green-500/40 text-green-400" : "border-border/40 hover:bg-secondary/50 text-muted-foreground hover:text-foreground")}>
+            <Mail className="h-3.5 w-3.5" /> {copied === "gmail" ? "Copied!" : "Copy for Gmail"}
+          </button>
+          <button onClick={copyHTML} className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors", copied === "html" ? "bg-green-500/20 border-green-500/40 text-green-400" : "border-border/40 hover:bg-secondary/50 text-muted-foreground hover:text-foreground")}>
+            <Copy className="h-3.5 w-3.5" /> {copied === "html" ? "Copied!" : "Copy HTML"}
+          </button>
+          <button onClick={downloadHTML} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-border/40 hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors">
+            <Download className="h-3.5 w-3.5" /> Download
+          </button>
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 transition-colors">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
+        {/* Left panel — form */}
+        <div className="w-[380px] shrink-0 border-r border-border/30 flex flex-col overflow-hidden">
+          {/* Template selector */}
+          <div className="px-4 pt-4 pb-3 border-b border-border/20 shrink-0">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Template</p>
+            <div className="flex flex-col gap-1.5">
+              {TEMPLATES.map(t => (
+                <button key={t.id} onClick={() => setSig(prev => ({ ...prev, template: t.id }))}
+                  className={cn("flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-colors",
+                    sig.template === t.id ? "border-primary/60 bg-primary/10 text-foreground" : "border-border/30 hover:bg-secondary/40 text-muted-foreground")}>
+                  <div>
+                    <p className="text-xs font-semibold">{t.label}</p>
+                    <p className="text-[10px] text-muted-foreground">{t.desc}</p>
+                  </div>
+                  {sig.template === t.id && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tab: Form / AI */}
+          <div className="flex border-b border-border/20 shrink-0">
+            {(["form","ai"] as const).map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={cn("flex-1 py-2 text-xs font-semibold transition-colors capitalize",
+                  activeTab === tab ? "border-b-2 border-primary text-foreground" : "text-muted-foreground hover:text-foreground")}>
+                {tab === "ai" ? "✨ Generate with AI" : "📝 Edit Fields"}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-auto">
+            {activeTab === "form" ? (
+              <div className="p-4 space-y-3">
+                {FORM_FIELDS.map(f => (
+                  <div key={f.key}>
+                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">{f.label}</label>
+                    <input
+                      value={(sig[f.key] as string) || ""}
+                      onChange={e => update(f.key, e.target.value)}
+                      placeholder={f.placeholder}
+                      className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                <div className="rounded-xl bg-primary/5 border border-primary/20 p-4">
+                  <p className="text-xs font-bold text-primary mb-3 flex items-center gap-1.5"><Sparkles className="h-3.5 w-3.5" /> AI Signature Assistant</p>
+                  <p className="text-[11px] text-muted-foreground mb-4">Tell us about your business and we'll suggest the perfect tagline, CTA, and template style.</p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Business Type</label>
+                      <input value={aiForm.business_type} onChange={e => setAiForm(p => ({ ...p, business_type: e.target.value }))}
+                        placeholder="e.g. Health Insurance, Real Estate, SaaS"
+                        className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Brand Tone</label>
+                      <select value={aiForm.brand_tone} onChange={e => setAiForm(p => ({ ...p, brand_tone: e.target.value }))}
+                        className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50">
+                        <option value="professional">Professional</option>
+                        <option value="friendly">Friendly & Approachable</option>
+                        <option value="luxury">Luxury & Premium</option>
+                        <option value="bold">Bold & Energetic</option>
+                        <option value="minimal">Clean & Minimal</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Style Preference</label>
+                      <select value={aiForm.style_preference} onChange={e => setAiForm(p => ({ ...p, style_preference: e.target.value }))}
+                        className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50">
+                        <option value="modern">Modern Business</option>
+                        <option value="luxury">Luxury B&W</option>
+                        <option value="bold">Bold Sales</option>
+                      </select>
+                    </div>
+                    <button onClick={handleAIGenerate} disabled={aiLoading || !aiForm.business_type}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                      {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {aiLoading ? "Generating…" : "Generate with AI"}
+                    </button>
+                  </div>
+                </div>
+                {aiResult && (
+                  <div className="rounded-xl bg-card/60 border border-border/30 p-4 space-y-2.5">
+                    <p className="text-xs font-bold text-foreground flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-400" /> AI Suggestions Applied</p>
+                    <div className="space-y-1.5">
+                      <div className="flex gap-2 text-xs"><span className="text-muted-foreground w-20 shrink-0">Tagline</span><span className="text-foreground italic">"{aiResult.tagline}"</span></div>
+                      <div className="flex gap-2 text-xs"><span className="text-muted-foreground w-20 shrink-0">CTA Text</span><span className="text-foreground font-semibold">{aiResult.cta_text}</span></div>
+                      <div className="flex gap-2 text-xs"><span className="text-muted-foreground w-20 shrink-0">Template</span><span className="text-primary font-semibold capitalize">{aiResult.template}</span></div>
+                      <div className="flex gap-2 text-xs"><span className="text-muted-foreground w-20 shrink-0">Why</span><span className="text-muted-foreground">{aiResult.reasoning}</span></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right panel — live preview */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-secondary/10">
+          <div className="px-6 py-3 border-b border-border/20 shrink-0 flex items-center justify-between">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Live Preview</p>
+            <span className={cn("text-[10px] px-2 py-0.5 rounded-full font-semibold",
+              sig.template === "modern" ? "bg-indigo-500/15 text-indigo-400" :
+              sig.template === "luxury" ? "bg-yellow-500/15 text-yellow-500" :
+              "bg-red-500/15 text-red-400")}>
+              {TEMPLATES.find(t => t.id === sig.template)?.label}
+            </span>
+          </div>
+          <div className="flex-1 overflow-auto p-6">
+            {/* Email mock wrapper */}
+            <div className="max-w-2xl mx-auto">
+              <div className="rounded-2xl bg-card border border-border/30 overflow-hidden shadow-lg">
+                {/* Mock email header */}
+                <div className="px-5 py-3 border-b border-border/20 bg-secondary/30">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="w-2.5 h-2.5 rounded-full bg-red-400/60" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/60" />
+                    <div className="w-2.5 h-2.5 rounded-full bg-green-400/60" />
+                    <span className="ml-3 text-[11px]">New Email — Preview</span>
+                  </div>
+                </div>
+                <div className="p-5">
+                  <div className="text-xs text-muted-foreground mb-1">To: <span className="text-foreground">client@example.com</span></div>
+                  <div className="text-xs text-muted-foreground mb-4">Subject: <span className="text-foreground font-medium">Following up on your inquiry</span></div>
+                  <div className="text-sm text-foreground/80 mb-6 leading-relaxed">
+                    Hi there,<br /><br />
+                    Thank you for reaching out. I'd love to help you find the right coverage that fits your needs and budget.<br /><br />
+                    Please feel free to reply or book a time that works for you.<br /><br />
+                    Best regards,
+                  </div>
+                  {/* SIGNATURE */}
+                  <div className="border-t border-border/20 pt-4">
+                    <div dangerouslySetInnerHTML={{ __html: html }} />
+                  </div>
+                </div>
+              </div>
+              <p className="text-center text-[10px] text-muted-foreground/50 mt-3">Preview updates in real time · Compatible with Gmail & Outlook</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Account Settings View ──────────────────────────────────────────────────────
 
 const ACCOUNT_SETTINGS_SIDEBAR = [
@@ -4878,6 +5288,7 @@ export default function CRMAgent() {
     { id: "sms_marketing",  label: "SMS Marketing",   icon: MessageSquare },
     { id: "lead_vendors",   label: "Lead Vendors",    icon: Globe },
     { id: "email_marketing", label: "Email Marketing", icon: Mail },
+    { id: "ai_emails",      label: "AI Emails",        icon: Sparkles },
     { id: "account_settings", label: "Account Settings", icon: Settings },
     { id: "calls",          label: "Calls",           icon: PhoneCall },
     { id: "sms",            label: "Messages",        icon: MessageSquare },
@@ -5391,6 +5802,9 @@ export default function CRMAgent() {
 
         {/* Email Marketing */}
         {view === "email_marketing" && <EmailMarketingView />}
+
+        {/* AI Emails – Signature Builder */}
+        {view === "ai_emails" && <AIEmailsView />}
 
         {/* Account Settings */}
         {view === "account_settings" && <AccountSettingsView />}

@@ -1413,3 +1413,55 @@ export async function initiateManualCall(data: {
   }
   return res.json();
 }
+
+// ── Email Signature Builder ───────────────────────────────────────────────────
+export interface EmailSignature {
+  id?: number;
+  full_name?: string;
+  job_title?: string;
+  company_name?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  address?: string;
+  logo_url?: string;
+  profile_image_url?: string;
+  social_linkedin?: string;
+  social_twitter?: string;
+  social_instagram?: string;
+  social_facebook?: string;
+  cta_text?: string;
+  cta_link?: string;
+  tagline?: string;
+  template?: "modern" | "luxury" | "bold";
+}
+
+export async function getEmailSignature(): Promise<EmailSignature> {
+  const res = await fetch(`${API_BASE}/api/email-signature`, { headers: authHeaders() });
+  return res.json();
+}
+
+export async function saveEmailSignature(data: EmailSignature): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/api/email-signature`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
+
+export async function aiGenerateSignature(data: {
+  business_type: string;
+  brand_tone: string;
+  style_preference: string;
+  full_name?: string;
+  company_name?: string;
+  job_title?: string;
+}): Promise<{ tagline: string; cta_text: string; cta_link_suggestion: string; template: string; reasoning: string }> {
+  const res = await fetch(`${API_BASE}/api/email-signature/ai-generate`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return res.json();
+}
