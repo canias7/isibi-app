@@ -12,7 +12,7 @@ import {
   SkipForward, Play, Target, ArrowRight, Columns3,
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
   Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
-  Copy, Save,
+  Copy, Save, AtSign, Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,6 +45,9 @@ import {
   getAccountProfile, updateAccountProfile,
   getEmailSignature, saveEmailSignature, aiGenerateSignature,
   type EmailSignature,
+  listMyNumbers, createMyNumber, updateMyNumber, deleteMyNumber,
+  listMyEmails, createMyEmail, updateMyEmail, deleteMyEmail,
+  type UserContactNumber, type UserContactEmail,
   type Contact, type ContactCreateRequest,
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
@@ -4883,14 +4886,316 @@ function AIEmailsView() {
 
 // ── Account Settings View ──────────────────────────────────────────────────────
 
+// ── My Numbers & Emails Panel ─────────────────────────────────────────────────
+
+const PHONE_TYPES = ["mobile","office","home","fax","other"] as const;
+const EMAIL_TYPES = ["work","personal","other"] as const;
+
+function MyNumbersEmailsPanel() {
+  const [numbers, setNumbers]   = useState<UserContactNumber[]>([]);
+  const [emails,  setEmails]    = useState<UserContactEmail[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [saving,  setSaving]    = useState(false);
+
+  // New number form
+  const [numForm, setNumForm]   = useState({ label: "Mobile", phone_number: "", phone_type: "mobile" as UserContactNumber["phone_type"], is_primary: 0 });
+  const [showNumForm, setShowNumForm] = useState(false);
+  const [editNum, setEditNum]   = useState<UserContactNumber | null>(null);
+
+  // New email form
+  const [emlForm, setEmlForm]   = useState({ label: "Work", email_address: "", email_type: "work" as UserContactEmail["email_type"], is_primary: 0 });
+  const [showEmlForm, setShowEmlForm] = useState(false);
+  const [editEml, setEditEml]   = useState<UserContactEmail | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    Promise.all([listMyNumbers(), listMyEmails()])
+      .then(([n, e]) => { setNumbers(Array.isArray(n) ? n : []); setEmails(Array.isArray(e) ? e : []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  /* ── Numbers ── */
+  const handleSaveNum = async () => {
+    setSaving(true);
+    try {
+      if (editNum) { await updateMyNumber(editNum.id, numForm); }
+      else         { await createMyNumber(numForm); }
+      toast({ title: editNum ? "Number updated" : "Number added" });
+      setShowNumForm(false); setEditNum(null);
+      setNumForm({ label: "Mobile", phone_number: "", phone_type: "mobile", is_primary: 0 });
+      load();
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteNum = async (id: number) => {
+    if (!confirm("Remove this number?")) return;
+    await deleteMyNumber(id);
+    toast({ title: "Removed" }); load();
+  };
+
+  const handleSetPrimaryNum = async (item: UserContactNumber) => {
+    await updateMyNumber(item.id, { ...item, is_primary: 1 });
+    load();
+  };
+
+  /* ── Emails ── */
+  const handleSaveEml = async () => {
+    setSaving(true);
+    try {
+      if (editEml) { await updateMyEmail(editEml.id, emlForm); }
+      else         { await createMyEmail(emlForm); }
+      toast({ title: editEml ? "Email updated" : "Email added" });
+      setShowEmlForm(false); setEditEml(null);
+      setEmlForm({ label: "Work", email_address: "", email_type: "work", is_primary: 0 });
+      load();
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+
+  const handleDeleteEml = async (id: number) => {
+    if (!confirm("Remove this email?")) return;
+    await deleteMyEmail(id);
+    toast({ title: "Removed" }); load();
+  };
+
+  const handleSetPrimaryEml = async (item: UserContactEmail) => {
+    await updateMyEmail(item.id, { ...item, is_primary: 1 });
+    load();
+  };
+
+  if (loading) return <div className="flex items-center gap-2 text-muted-foreground text-sm pt-10"><RefreshCw className="h-4 w-4 animate-spin" /> Loading…</div>;
+
+  return (
+    <div className="space-y-6">
+      {/* ── Phone Numbers ── */}
+      <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2"><Phone className="h-4 w-4 text-primary" /> My Phone Numbers</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">The CRM tracks calls from these numbers. Your primary number is used as caller ID for manual calls.</p>
+          </div>
+          <button onClick={() => { setEditNum(null); setNumForm({ label: "Mobile", phone_number: "", phone_type: "mobile", is_primary: 0 }); setShowNumForm(v => !v); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="h-3.5 w-3.5" /> Add Number
+          </button>
+        </div>
+
+        {/* Add / Edit form */}
+        {showNumForm && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+            <p className="text-xs font-semibold text-primary">{editNum ? "Edit Number" : "Add New Number"}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Label</label>
+                <input value={numForm.label} onChange={e => setNumForm(p => ({ ...p, label: e.target.value }))} placeholder="Mobile"
+                  className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Type</label>
+                <select value={numForm.phone_type} onChange={e => setNumForm(p => ({ ...p, phone_type: e.target.value as UserContactNumber["phone_type"] }))}
+                  className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 capitalize">
+                  {PHONE_TYPES.map(t => <option key={t} value={t} className="capitalize">{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Phone Number</label>
+              <input value={numForm.phone_number} onChange={e => setNumForm(p => ({ ...p, phone_number: e.target.value }))} placeholder="+1 (786) 555-0123"
+                className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50" />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={numForm.is_primary === 1} onChange={e => setNumForm(p => ({ ...p, is_primary: e.target.checked ? 1 : 0 }))}
+                className="w-3.5 h-3.5 rounded accent-primary" />
+              <span className="text-xs text-muted-foreground">Set as primary (used as caller ID)</span>
+            </label>
+            <div className="flex gap-2">
+              <button onClick={handleSaveNum} disabled={saving || !numForm.phone_number}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} {editNum ? "Save Changes" : "Add Number"}
+              </button>
+              <button onClick={() => { setShowNumForm(false); setEditNum(null); }}
+                className="px-3 py-1.5 rounded-lg border border-border/30 text-xs text-muted-foreground hover:bg-secondary/50 transition-colors">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Numbers list */}
+        {numbers.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground/50">
+            <Phone className="h-8 w-8 mx-auto opacity-30 mb-2" />
+            <p className="text-xs">No numbers added yet</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {numbers.map(n => (
+              <div key={n.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/20 border border-border/20 hover:bg-secondary/30 transition-colors">
+                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", n.is_primary ? "bg-primary/20" : "bg-secondary/50")}>
+                  <Phone className={cn("h-3.5 w-3.5", n.is_primary ? "text-primary" : "text-muted-foreground")} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{n.phone_number}</span>
+                    {n.is_primary ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/15 text-primary border border-primary/30">
+                        <Star className="h-2.5 w-2.5" /> Primary
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">{n.label}</span>
+                    <span className="text-[10px] text-muted-foreground/50">·</span>
+                    <span className="text-[10px] text-muted-foreground capitalize">{n.phone_type}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!n.is_primary && (
+                    <button onClick={() => handleSetPrimaryNum(n)} title="Set as primary"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                      <Star className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button onClick={() => { setEditNum(n); setNumForm({ label: n.label, phone_number: n.phone_number, phone_type: n.phone_type, is_primary: n.is_primary }); setShowNumForm(true); }}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => handleDeleteNum(n.id)}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Email Addresses ── */}
+      <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2"><AtSign className="h-4 w-4 text-primary" /> My Email Addresses</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Emails sent from these addresses are tracked in the CRM. Your primary email is the default sender.</p>
+          </div>
+          <button onClick={() => { setEditEml(null); setEmlForm({ label: "Work", email_address: "", email_type: "work", is_primary: 0 }); setShowEmlForm(v => !v); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors">
+            <Plus className="h-3.5 w-3.5" /> Add Email
+          </button>
+        </div>
+
+        {/* Add / Edit form */}
+        {showEmlForm && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+            <p className="text-xs font-semibold text-primary">{editEml ? "Edit Email" : "Add New Email"}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Label</label>
+                <input value={emlForm.label} onChange={e => setEmlForm(p => ({ ...p, label: e.target.value }))} placeholder="Work"
+                  className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50" />
+              </div>
+              <div>
+                <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Type</label>
+                <select value={emlForm.email_type} onChange={e => setEmlForm(p => ({ ...p, email_type: e.target.value as UserContactEmail["email_type"] }))}
+                  className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50 capitalize">
+                  {EMAIL_TYPES.map(t => <option key={t} value={t} className="capitalize">{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Email Address</label>
+              <input value={emlForm.email_address} onChange={e => setEmlForm(p => ({ ...p, email_address: e.target.value }))} placeholder="you@example.com"
+                className="w-full px-3 py-1.5 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:ring-1 focus:ring-primary/50" />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={emlForm.is_primary === 1} onChange={e => setEmlForm(p => ({ ...p, is_primary: e.target.checked ? 1 : 0 }))}
+                className="w-3.5 h-3.5 rounded accent-primary" />
+              <span className="text-xs text-muted-foreground">Set as primary (default sender address)</span>
+            </label>
+            <div className="flex gap-2">
+              <button onClick={handleSaveEml} disabled={saving || !emlForm.email_address}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />} {editEml ? "Save Changes" : "Add Email"}
+              </button>
+              <button onClick={() => { setShowEmlForm(false); setEditEml(null); }}
+                className="px-3 py-1.5 rounded-lg border border-border/30 text-xs text-muted-foreground hover:bg-secondary/50 transition-colors">Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {/* Emails list */}
+        {emails.length === 0 ? (
+          <div className="text-center py-6 text-muted-foreground/50">
+            <AtSign className="h-8 w-8 mx-auto opacity-30 mb-2" />
+            <p className="text-xs">No email addresses added yet</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {emails.map(e => (
+              <div key={e.id} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-secondary/20 border border-border/20 hover:bg-secondary/30 transition-colors">
+                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center shrink-0", e.is_primary ? "bg-primary/20" : "bg-secondary/50")}>
+                  <AtSign className={cn("h-3.5 w-3.5", e.is_primary ? "text-primary" : "text-muted-foreground")} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">{e.email_address}</span>
+                    {e.is_primary ? (
+                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/15 text-primary border border-primary/30 shrink-0">
+                        <Star className="h-2.5 w-2.5" /> Primary
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">{e.label}</span>
+                    <span className="text-[10px] text-muted-foreground/50">·</span>
+                    <span className="text-[10px] text-muted-foreground capitalize">{e.email_type}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!e.is_primary && (
+                    <button onClick={() => handleSetPrimaryEml(e)} title="Set as primary"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+                      <Star className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button onClick={() => { setEditEml(e); setEmlForm({ label: e.label, email_address: e.email_address, email_type: e.email_type, is_primary: e.is_primary }); setShowEmlForm(true); }}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => handleDeleteEml(e.id)}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* CRM Integration hint */}
+      <div className="rounded-xl border border-border/20 bg-secondary/10 p-4 flex items-start gap-3">
+        <Link2 className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+        <div>
+          <p className="text-xs font-semibold text-foreground">CRM Integration</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Calls made from your primary phone number and emails sent from your primary email will be automatically attributed to your account in the call and email history. The primary number is also used as the caller ID when placing manual calls from the Contacts view.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ACCOUNT_SETTINGS_SIDEBAR = [
-  { id: "general",    label: "General Info",     icon: User },
-  { id: "2fa",        label: "2FA",              icon: Lock },
-  { id: "password",   label: "Change Password",  icon: Lock },
-  { id: "notifs",     label: "Notifications",    icon: Bell },
-  { id: "states",     label: "Business States",  icon: MapPin },
-  { id: "vcard",      label: "VCard",            icon: Contact },
-  { id: "sync",       label: "Sync Account",     icon: RefreshCcw },
+  { id: "general",    label: "General Info",       icon: User },
+  { id: "my_numbers", label: "My Numbers & Emails", icon: Phone },
+  { id: "2fa",        label: "2FA",                icon: Lock },
+  { id: "password",   label: "Change Password",    icon: Lock },
+  { id: "notifs",     label: "Notifications",      icon: Bell },
+  { id: "states",     label: "Business States",    icon: MapPin },
+  { id: "vcard",      label: "VCard",              icon: Contact },
+  { id: "sync",       label: "Sync Account",       icon: RefreshCcw },
 ] as const;
 
 type AccountTab = typeof ACCOUNT_SETTINGS_SIDEBAR[number]["id"];
@@ -5074,6 +5379,8 @@ function AccountSettingsView() {
               ))}
               <Button size="sm">Save Notifications</Button>
             </div>
+          ) : activeTab === "my_numbers" ? (
+            <MyNumbersEmailsPanel />
           ) : activeTab === "states" ? (
             <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
               <h2 className="text-base font-semibold">Business States</h2>
@@ -5625,8 +5932,11 @@ export default function CRMAgent() {
                             </button>
                             <button onClick={async () => {
                               try {
-                                await initiateManualCall({ to_number: c.phone_number, contact_id: c.id, contact_name: fullName(c) });
-                                toast({ title: `Calling ${fullName(c)} on your phone…`, description: "Answer your forwarding number to connect." });
+                                // Use saved primary number as caller ID if available
+                                const nums = await listMyNumbers().catch(() => [] as UserContactNumber[]);
+                                const primary = nums.find((n: UserContactNumber) => n.is_primary) ?? nums[0] ?? null;
+                                await initiateManualCall({ to_number: c.phone_number, contact_id: c.id, contact_name: fullName(c), from_number: primary?.phone_number });
+                                toast({ title: `Calling ${fullName(c)} on your phone…`, description: primary ? `Caller ID: ${primary.phone_number}` : "Answer your forwarding number to connect." });
                               } catch (err: any) { toast({ title: "Call failed", description: err.message, variant: "destructive" }); }
                             }} className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-orange-500 text-white text-[10px] font-bold hover:bg-orange-600 transition-colors whitespace-nowrap">
                               <Phone className="h-3 w-3" /> CALL

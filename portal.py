@@ -5563,3 +5563,109 @@ Respond with valid JSON only."""
     except Exception as e:
         return {"error": str(e), "tagline": "Helping you grow.", "cta_text": "Get in Touch",
                 "cta_link_suggestion": "/contact", "template": "modern", "reasoning": "Default fallback."}
+
+
+# ── My Contact Numbers & Emails ───────────────────────────────────────────────
+
+def _row_to_dict(row, cur):
+    if row is None: return None
+    return dict(row) if hasattr(row, "keys") else dict(zip([d[0] for d in cur.description], row))
+
+def _rows_to_list(rows, cur):
+    return [dict(r) if hasattr(r, "keys") else dict(zip([d[0] for d in cur.description], r)) for r in rows]
+
+# ── Phone numbers ─────────────────────────────────────────────────────────────
+
+@router.get("/my-contacts/numbers")
+def list_my_numbers(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM user_contact_numbers WHERE user_id={PH} ORDER BY is_primary DESC, id ASC"), (user["id"],))
+    rows = _rows_to_list(cur.fetchall(), cur); conn.close()
+    return rows
+
+@router.post("/my-contacts/numbers")
+def create_my_number(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    is_primary = int(payload.get("is_primary", 0))
+    if is_primary:
+        cur.execute(sql("UPDATE user_contact_numbers SET is_primary=0 WHERE user_id={PH}"), (user["id"],))
+    cur.execute(sql("""
+        INSERT INTO user_contact_numbers (user_id, label, phone_number, phone_type, is_primary)
+        VALUES ({PH},{PH},{PH},{PH},{PH})
+    """), (user["id"], payload.get("label","Mobile"), payload.get("phone_number",""),
+           payload.get("phone_type","mobile"), is_primary))
+    conn.commit(); rid = cur.lastrowid; conn.close()
+    return {"id": rid}
+
+@router.put("/my-contacts/numbers/{item_id}")
+def update_my_number(item_id: int, payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    is_primary = int(payload.get("is_primary", 0))
+    if is_primary:
+        cur.execute(sql("UPDATE user_contact_numbers SET is_primary=0 WHERE user_id={PH}"), (user["id"],))
+    cur.execute(sql("""
+        UPDATE user_contact_numbers SET label={PH}, phone_number={PH}, phone_type={PH}, is_primary={PH}
+        WHERE id={PH} AND user_id={PH}
+    """), (payload.get("label","Mobile"), payload.get("phone_number",""),
+           payload.get("phone_type","mobile"), is_primary, item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/my-contacts/numbers/{item_id}")
+def delete_my_number(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM user_contact_numbers WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+# ── Emails ────────────────────────────────────────────────────────────────────
+
+@router.get("/my-contacts/emails")
+def list_my_emails(user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM user_contact_emails WHERE user_id={PH} ORDER BY is_primary DESC, id ASC"), (user["id"],))
+    rows = _rows_to_list(cur.fetchall(), cur); conn.close()
+    return rows
+
+@router.post("/my-contacts/emails")
+def create_my_email(payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    is_primary = int(payload.get("is_primary", 0))
+    if is_primary:
+        cur.execute(sql("UPDATE user_contact_emails SET is_primary=0 WHERE user_id={PH}"), (user["id"],))
+    cur.execute(sql("""
+        INSERT INTO user_contact_emails (user_id, label, email_address, email_type, is_primary)
+        VALUES ({PH},{PH},{PH},{PH},{PH})
+    """), (user["id"], payload.get("label","Work"), payload.get("email_address",""),
+           payload.get("email_type","work"), is_primary))
+    conn.commit(); rid = cur.lastrowid; conn.close()
+    return {"id": rid}
+
+@router.put("/my-contacts/emails/{item_id}")
+def update_my_email(item_id: int, payload: dict, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    is_primary = int(payload.get("is_primary", 0))
+    if is_primary:
+        cur.execute(sql("UPDATE user_contact_emails SET is_primary=0 WHERE user_id={PH}"), (user["id"],))
+    cur.execute(sql("""
+        UPDATE user_contact_emails SET label={PH}, email_address={PH}, email_type={PH}, is_primary={PH}
+        WHERE id={PH} AND user_id={PH}
+    """), (payload.get("label","Work"), payload.get("email_address",""),
+           payload.get("email_type","work"), is_primary, item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@router.delete("/my-contacts/emails/{item_id}")
+def delete_my_email(item_id: int, user=Depends(verify_token)):
+    from db import get_conn, sql
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM user_contact_emails WHERE id={PH} AND user_id={PH}"), (item_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}

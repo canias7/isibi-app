@@ -819,6 +819,30 @@ def ensure_user_columns():
     )
     """)
 
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS user_contact_numbers (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        label TEXT NOT NULL DEFAULT 'Mobile',
+        phone_number TEXT NOT NULL,
+        phone_type TEXT DEFAULT 'mobile',
+        is_primary INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS user_contact_emails (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        label TEXT NOT NULL DEFAULT 'Work',
+        email_address TEXT NOT NULL,
+        email_type TEXT DEFAULT 'work',
+        is_primary INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.close()
 
 def create_user(

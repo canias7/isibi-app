@@ -1465,3 +1465,51 @@ export async function aiGenerateSignature(data: {
   });
   return res.json();
 }
+
+// ── My Contact Numbers & Emails ───────────────────────────────────────────────
+export interface UserContactNumber {
+  id: number;
+  label: string;
+  phone_number: string;
+  phone_type: "mobile" | "office" | "home" | "fax" | "other";
+  is_primary: number;
+}
+export interface UserContactEmail {
+  id: number;
+  label: string;
+  email_address: string;
+  email_type: "work" | "personal" | "other";
+  is_primary: number;
+}
+
+export async function listMyNumbers(): Promise<UserContactNumber[]> {
+  const res = await fetch(`${API_BASE}/api/my-contacts/numbers`, { headers: authHeaders() });
+  return res.json();
+}
+export async function createMyNumber(data: Omit<UserContactNumber, "id">) {
+  const res = await fetch(`${API_BASE}/api/my-contacts/numbers`, { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  return res.json();
+}
+export async function updateMyNumber(id: number, data: Partial<UserContactNumber>) {
+  const res = await fetch(`${API_BASE}/api/my-contacts/numbers/${id}`, { method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  return res.json();
+}
+export async function deleteMyNumber(id: number) {
+  await fetch(`${API_BASE}/api/my-contacts/numbers/${id}`, { method: "DELETE", headers: authHeaders() });
+}
+
+export async function listMyEmails(): Promise<UserContactEmail[]> {
+  const res = await fetch(`${API_BASE}/api/my-contacts/emails`, { headers: authHeaders() });
+  return res.json();
+}
+export async function createMyEmail(data: Omit<UserContactEmail, "id">) {
+  const res = await fetch(`${API_BASE}/api/my-contacts/emails`, { method: "POST", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  return res.json();
+}
+export async function updateMyEmail(id: number, data: Partial<UserContactEmail>) {
+  const res = await fetch(`${API_BASE}/api/my-contacts/emails/${id}`, { method: "PUT", headers: { ...authHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(data) });
+  return res.json();
+}
+export async function deleteMyEmail(id: number) {
+  await fetch(`${API_BASE}/api/my-contacts/emails/${id}`, { method: "DELETE", headers: authHeaders() });
+}
