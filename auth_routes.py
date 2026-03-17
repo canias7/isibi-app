@@ -1,6 +1,10 @@
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
+import re as _re
+
+def _valid_email(e: str) -> bool:
+    return bool(_re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e.strip()))
 from db import create_user, verify_user
 import os
 from datetime import datetime, timedelta
@@ -18,7 +22,7 @@ def make_token(payload: dict) -> str:
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 class RegisterIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
     tenant_phone: Optional[str] = None
     account_type: Optional[str] = "developer"
@@ -30,6 +34,12 @@ class RegisterIn(BaseModel):
 
 @router.post("/register")
 def register(data: RegisterIn):
+    if not data.email or not data.email.strip():
+        raise HTTPException(status_code=400, detail="Email is required.")
+    if not _valid_email(data.email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if not data.password or len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
     try:
         create_user(
             email=data.email,
@@ -102,18 +112,25 @@ async def login_user(request: Request):
 # ── Dedicated customer endpoints ──────────────────────────────────────────────
 
 class CustomerRegisterIn(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 @router.post("/customer-register")
 def customer_register(data: CustomerRegisterIn):
     """Register a new customer account (auto-approved, no review needed)."""
+    if not data.email or not _valid_email(data.email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address.")
+    if not data.password or len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters.")
     try:
         from db import create_user
         create_user(email=data.email, password=data.password, account_type="customer")
         return {"status": "ok"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        err = str(e)
+        if "UNIQUE" in err or "unique" in err or "duplicate" in err.lower():
+            raise HTTPException(status_code=400, detail="An account with that email already exists.")
+        raise HTTPException(status_code=400, detail=err)
 
 
 @router.post("/customer-login")
