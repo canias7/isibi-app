@@ -1642,3 +1642,55 @@ export const getBalanceSheet = (): Promise<BalanceSheet> => accFetch("/reports/b
 
 export const accAIChat = (message: string, history: { role: string; content: string }[]) =>
   accFetch("/ai-chat", { method: "POST", body: JSON.stringify({ message, history }) }) as Promise<{ reply: string }>;
+
+// ── A2P 10DLC Registration ─────────────────────────────────────────────────────
+
+export interface A2PRegistration {
+  user_id?: number;
+  brand_legal_name?: string;
+  brand_ein?: string;
+  brand_company_type?: string;
+  brand_address?: string;
+  brand_city?: string;
+  brand_state?: string;
+  brand_zip?: string;
+  brand_country?: string;
+  brand_website?: string;
+  brand_contact_name?: string;
+  brand_contact_email?: string;
+  brand_contact_phone?: string;
+  brand_status?: string;
+  brand_submitted_at?: string;
+  campaign_use_case?: string;
+  campaign_description?: string;
+  campaign_sample1?: string;
+  campaign_sample2?: string;
+  campaign_optin_method?: string;
+  campaign_optin_keywords?: string;
+  campaign_optout_keywords?: string;
+  campaign_status?: string;
+  campaign_submitted_at?: string;
+}
+
+async function phoneFetch(path: string, opts: RequestInit = {}) {
+  const res = await fetch(`${API_BASE}/api/phone${path}`, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
+  return res.json();
+}
+
+export const getA2PStatus = (): Promise<A2PRegistration> =>
+  phoneFetch("/a2p/status");
+
+export const submitA2PBrand = (data: {
+  legal_name: string; ein: string; company_type: string;
+  address: string; city: string; state: string; zip: string; country?: string;
+  website?: string; contact_name: string; contact_email: string; contact_phone: string;
+}) => phoneFetch("/a2p/brand", { method: "POST", body: JSON.stringify(data) });
+
+export const submitA2PCampaign = (data: {
+  use_case: string; description: string; sample1: string; sample2: string;
+  optin_method: string; optin_keywords?: string; optout_keywords?: string;
+}) => phoneFetch("/a2p/campaign", { method: "POST", body: JSON.stringify(data) });

@@ -6220,3 +6220,82 @@ Be concise and professional. Format currency with $ and 2 decimal places."""
 
     resp = _oai.chat.completions.create(model="gpt-4o-mini", messages=msgs, max_tokens=500, temperature=0.7)
     return {"reply": resp.choices[0].message.content.strip()}
+
+
+# ── A2P 10DLC Registration ─────────────────────────────────────────────────────
+
+@router.get("/phone/a2p/status")
+def get_a2p_status(user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM a2p_registrations WHERE user_id={PH}"), (user["id"],))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return {
+            "brand_status": "not_submitted",
+            "campaign_status": "not_submitted",
+        }
+    return dict(row)
+
+
+@router.post("/phone/a2p/brand")
+def submit_a2p_brand(body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM a2p_registrations WHERE user_id={PH}"), (user["id"],))
+    existing = cur.fetchone()
+    vals = (
+        body.get("legal_name"), body.get("ein"), body.get("company_type"),
+        body.get("address"), body.get("city"), body.get("state"), body.get("zip"),
+        body.get("country", "US"), body.get("website"),
+        body.get("contact_name"), body.get("contact_email"), body.get("contact_phone"),
+    )
+    if existing:
+        cur.execute(sql("""
+            UPDATE a2p_registrations SET
+                brand_legal_name={PH}, brand_ein={PH}, brand_company_type={PH},
+                brand_address={PH}, brand_city={PH}, brand_state={PH}, brand_zip={PH},
+                brand_country={PH}, brand_website={PH},
+                brand_contact_name={PH}, brand_contact_email={PH}, brand_contact_phone={PH},
+                brand_status='pending', brand_submitted_at=CURRENT_TIMESTAMP,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE user_id={PH}
+        """), (*vals, user["id"]))
+    else:
+        cur.execute(sql("""
+            INSERT INTO a2p_registrations (
+                user_id,
+                brand_legal_name, brand_ein, brand_company_type,
+                brand_address, brand_city, brand_state, brand_zip, brand_country,
+                brand_website, brand_contact_name, brand_contact_email, brand_contact_phone,
+                brand_status, brand_submitted_at
+            ) VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},'pending',CURRENT_TIMESTAMP)
+        """), (user["id"], *vals))
+    conn.commit(); conn.close()
+    return {"ok": True, "brand_status": "pending"}
+
+
+@router.post("/phone/a2p/campaign")
+def submit_a2p_campaign(body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT id FROM a2p_registrations WHERE user_id={PH}"), (user["id"],))
+    if not cur.fetchone():
+        raise HTTPException(400, "Brand registration must be submitted first")
+    cur.execute(sql("""
+        UPDATE a2p_registrations SET
+            campaign_use_case={PH}, campaign_description={PH},
+            campaign_sample1={PH}, campaign_sample2={PH},
+            campaign_optin_method={PH},
+            campaign_optin_keywords={PH}, campaign_optout_keywords={PH},
+            campaign_status='pending', campaign_submitted_at=CURRENT_TIMESTAMP,
+            updated_at=CURRENT_TIMESTAMP
+        WHERE user_id={PH}
+    """), (
+        body.get("use_case"), body.get("description"),
+        body.get("sample1"), body.get("sample2"),
+        body.get("optin_method"),
+        body.get("optin_keywords", "START,YES,UNSTOP"),
+        body.get("optout_keywords", "STOP,CANCEL,UNSUBSCRIBE"),
+        user["id"]
+    ))
+    conn.commit(); conn.close()
+    return {"ok": True, "campaign_status": "pending"}

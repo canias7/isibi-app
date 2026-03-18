@@ -960,6 +960,39 @@ def ensure_user_columns():
     )
     """)
 
+    # ── A2P 10DLC Registration ─────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS a2p_registrations (
+        id {ID},
+        user_id INTEGER NOT NULL UNIQUE,
+        brand_legal_name TEXT,
+        brand_ein TEXT,
+        brand_company_type TEXT,
+        brand_address TEXT,
+        brand_city TEXT,
+        brand_state TEXT,
+        brand_zip TEXT,
+        brand_country TEXT DEFAULT 'US',
+        brand_website TEXT,
+        brand_contact_name TEXT,
+        brand_contact_email TEXT,
+        brand_contact_phone TEXT,
+        brand_status TEXT DEFAULT 'not_submitted',
+        brand_submitted_at {TIMESTAMP},
+        campaign_use_case TEXT,
+        campaign_description TEXT,
+        campaign_sample1 TEXT,
+        campaign_sample2 TEXT,
+        campaign_optin_method TEXT,
+        campaign_optin_keywords TEXT DEFAULT 'START,YES,UNSTOP',
+        campaign_optout_keywords TEXT DEFAULT 'STOP,CANCEL,UNSUBSCRIBE',
+        campaign_status TEXT DEFAULT 'not_submitted',
+        campaign_submitted_at {TIMESTAMP},
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP,
+        updated_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

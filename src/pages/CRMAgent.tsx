@@ -13,6 +13,7 @@ import {
   Sparkles, Globe, Wand2, CreditCard, Loader2, BotMessageSquare, Rocket,
   Settings, User, Bell, Lock, MapPin, Contact, RefreshCcw,
   Copy, Save, AtSign, Link2, ShieldCheck, ShieldAlert, ExternalLink,
+  FileCheck, ClipboardCheck, Building, Info, CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,6 +55,8 @@ import {
   type ContactCall, type ContactSMS, type ContactEmail,
   type Appointment, type Task, type CRMCall,
   type AgentOut, type AISMSSession, type AISMSMessage,
+  getA2PStatus, submitA2PBrand, submitA2PCampaign,
+  type A2PRegistration,
 } from "@/lib/api";
 import {
   searchAvailableNumbers, purchasePhoneNumber, getMyPhoneNumbers, releasePhoneNumber,
@@ -2896,6 +2899,552 @@ function CampaignsView({ contacts }: { contacts: Contact[] }) {
   );
 }
 
+// ── Compliance Wizard ──────────────────────────────────────────────────────────
+
+const COMPANY_TYPES = ["LLC", "Corporation", "Partnership", "Sole Proprietor", "Non-Profit", "Other"];
+const A2P_USE_CASES = [
+  "Marketing",
+  "Customer Care",
+  "Account Notifications",
+  "Two-Factor Authentication",
+  "Delivery Notifications",
+  "Fraud Alert Messaging",
+  "Higher Education",
+  "Low Volume Mixed",
+  "Polling and Voting",
+  "Public Service Announcement",
+];
+const OPTIN_METHODS = [
+  "Website form / opt-in checkbox",
+  "Verbal consent over the phone",
+  "Text keyword (e.g. TEXT START to 12345)",
+  "Paper sign-up form",
+  "Mobile app opt-in",
+  "Purchase / transaction opt-in",
+];
+
+function ComplianceWizard() {
+  const [reg, setReg] = useState<A2PRegistration | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState<"overview" | "brand" | "campaign" | "shaken">("overview");
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // Brand form
+  const [brandForm, setBrandForm] = useState({
+    legal_name: "", ein: "", company_type: "LLC",
+    address: "", city: "", state: "", zip: "", country: "US",
+    website: "", contact_name: "", contact_email: "", contact_phone: "",
+  });
+
+  // Campaign form
+  const [campaignForm, setCampaignForm] = useState({
+    use_case: "Marketing", description: "",
+    sample1: "", sample2: "",
+    optin_method: "Website form / opt-in checkbox",
+    optin_keywords: "START,YES,UNSTOP",
+    optout_keywords: "STOP,CANCEL,UNSUBSCRIBE",
+  });
+
+  useEffect(() => {
+    getA2PStatus().then(r => { setReg(r); setLoading(false); }).catch(() => setLoading(false));
+  }, []);
+
+  const statusBadge = (s?: string) => {
+    if (!s || s === "not_submitted") return <Badge className="text-xs border border-zinc-600/40 text-zinc-400 bg-zinc-500/10">Not Started</Badge>;
+    if (s === "pending") return <Badge className="text-xs border border-yellow-500/30 text-yellow-400 bg-yellow-500/10">Pending Review</Badge>;
+    if (s === "approved") return <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Approved ✓</Badge>;
+    if (s === "rejected") return <Badge className="text-xs border border-red-500/30 text-red-400 bg-red-500/10">Rejected</Badge>;
+    return <Badge className="text-xs">{s}</Badge>;
+  };
+
+  const handleBrandSubmit = async () => {
+    if (!brandForm.legal_name || !brandForm.ein || !brandForm.contact_name || !brandForm.contact_email) {
+      toast({ title: "Fill in all required fields", variant: "destructive" }); return;
+    }
+    setSubmitting(true);
+    try {
+      await submitA2PBrand(brandForm);
+      const updated = await getA2PStatus();
+      setReg(updated);
+      setShowTimeline(true);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setSubmitting(false); }
+  };
+
+  const handleCampaignSubmit = async () => {
+    if (!campaignForm.description || !campaignForm.sample1) {
+      toast({ title: "Fill in all required fields", variant: "destructive" }); return;
+    }
+    setSubmitting(true);
+    try {
+      await submitA2PCampaign(campaignForm);
+      const updated = await getA2PStatus();
+      setReg(updated);
+      setShowTimeline(true);
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally { setSubmitting(false); }
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-40"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+
+  // ── Timeline Popup ──
+  if (showTimeline) {
+    const isBrandOnly = reg?.campaign_status === "not_submitted" || !reg?.campaign_status;
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-6 space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+              <CheckCircle className="h-5 w-5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">Submitted Successfully!</h2>
+              <p className="text-xs text-muted-foreground">Your registration has been sent to Twilio for review.</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Expected Timeline</p>
+            {[
+              { label: "Brand Review", time: "3–5 business days", done: reg?.brand_status === "pending" || reg?.brand_status === "approved" },
+              { label: "Campaign Review", time: "5–7 additional business days", done: reg?.campaign_status === "pending" || reg?.campaign_status === "approved" },
+              { label: "SMS Fully Active", time: "Up to 2–3 weeks total", done: reg?.campaign_status === "approved" },
+            ].map((item, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20">
+                <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs font-bold",
+                  item.done ? "bg-primary/20 text-primary" : "bg-secondary text-muted-foreground")}>{i + 1}</div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.time}</p>
+                </div>
+                {item.done && <CheckCircle2 className="h-4 w-4 text-primary shrink-0" />}
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 p-4">
+            <p className="text-xs text-yellow-300 leading-relaxed">
+              ⚠️ <strong>Important:</strong> You will not be able to send SMS to US numbers until your campaign is approved.
+              Twilio may email you if additional information is needed. Check your inbox for updates.
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => setShowTimeline(false)}>
+              Back to Compliance
+            </Button>
+            {isBrandOnly && (
+              <Button className="flex-1" onClick={() => { setShowTimeline(false); setStep("campaign"); }}>
+                Continue → Campaign
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Overview ──
+  if (step === "overview") {
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-1">
+          <h2 className="text-base font-semibold">Compliance Center</h2>
+          <p className="text-xs text-muted-foreground">
+            US regulations require businesses to register before sending SMS or making calls at scale.
+            Complete both registrations below to unlock full texting capabilities.
+          </p>
+        </div>
+
+        {/* A2P Brand */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
+              <Building className="h-4 w-4 text-blue-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold">Step 1 — Brand Registration</p>
+                {statusBadge(reg?.brand_status)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Register your business with The Campaign Registry (TCR). Required once per business.
+              </p>
+              {reg?.brand_submitted_at && (
+                <p className="text-xs text-muted-foreground mt-1">Submitted: {new Date(reg.brand_submitted_at).toLocaleDateString()}</p>
+              )}
+            </div>
+          </div>
+          {reg?.brand_status === "not_submitted" || !reg?.brand_status ? (
+            <Button size="sm" onClick={() => setStep("brand")} className="w-full">
+              Start Brand Registration →
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => {
+              if (reg) {
+                setBrandForm({
+                  legal_name: reg.brand_legal_name ?? "",
+                  ein: reg.brand_ein ?? "",
+                  company_type: reg.brand_company_type ?? "LLC",
+                  address: reg.brand_address ?? "",
+                  city: reg.brand_city ?? "",
+                  state: reg.brand_state ?? "",
+                  zip: reg.brand_zip ?? "",
+                  country: reg.brand_country ?? "US",
+                  website: reg.brand_website ?? "",
+                  contact_name: reg.brand_contact_name ?? "",
+                  contact_email: reg.brand_contact_email ?? "",
+                  contact_phone: reg.brand_contact_phone ?? "",
+                });
+              }
+              setStep("brand");
+            }} className="w-full">
+              Edit Brand Info
+            </Button>
+          )}
+        </div>
+
+        {/* A2P Campaign */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-500/10 flex items-center justify-center shrink-0">
+              <FileCheck className="h-4 w-4 text-purple-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold">Step 2 — Campaign Registration</p>
+                {statusBadge(reg?.campaign_status)}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Describe how and why you send SMS. Required for all US text messaging.
+              </p>
+              {reg?.campaign_submitted_at && (
+                <p className="text-xs text-muted-foreground mt-1">Submitted: {new Date(reg.campaign_submitted_at).toLocaleDateString()}</p>
+              )}
+            </div>
+          </div>
+          {(!reg?.brand_status || reg.brand_status === "not_submitted") ? (
+            <div className="rounded-lg bg-secondary/30 p-3">
+              <p className="text-xs text-muted-foreground">Complete Brand Registration first to unlock this step.</p>
+            </div>
+          ) : reg?.campaign_status === "not_submitted" || !reg?.campaign_status ? (
+            <Button size="sm" onClick={() => setStep("campaign")} className="w-full">
+              Start Campaign Registration →
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => {
+              if (reg) {
+                setCampaignForm({
+                  use_case: reg.campaign_use_case ?? "Marketing",
+                  description: reg.campaign_description ?? "",
+                  sample1: reg.campaign_sample1 ?? "",
+                  sample2: reg.campaign_sample2 ?? "",
+                  optin_method: reg.campaign_optin_method ?? "Website form / opt-in checkbox",
+                  optin_keywords: reg.campaign_optin_keywords ?? "START,YES,UNSTOP",
+                  optout_keywords: reg.campaign_optout_keywords ?? "STOP,CANCEL,UNSUBSCRIBE",
+                });
+              }
+              setStep("campaign");
+            }} className="w-full">
+              Edit Campaign Info
+            </Button>
+          )}
+        </div>
+
+        {/* SHAKEN/STIR */}
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-green-500/10 flex items-center justify-center shrink-0">
+              <ShieldCheck className="h-4 w-4 text-green-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold">SHAKEN/STIR Call Authentication</p>
+                <Badge className="text-xs border border-green-500/30 text-green-400 bg-green-500/10">Handled by Twilio ✓</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Reduces spam labeling on your outbound calls. Twilio automatically handles SHAKEN/STIR for verified numbers.
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setStep("shaken")} className="text-xs text-primary hover:underline">
+            Learn more about SHAKEN/STIR →
+          </button>
+        </div>
+
+        {/* Info */}
+        <div className="rounded-xl bg-secondary/20 border border-border/20 p-4 flex gap-3">
+          <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            A2P 10DLC registration is required by US carriers to send SMS at scale. Without it, messages may be filtered or blocked.
+            Brand approval takes <strong className="text-foreground">3–5 business days</strong>, campaign approval takes an additional{" "}
+            <strong className="text-foreground">5–7 business days</strong>. Total: up to <strong className="text-foreground">2–3 weeks</strong>.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Brand Form ──
+  if (step === "brand") {
+    const bf = brandForm;
+    const set = (k: keyof typeof brandForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setBrandForm(p => ({ ...p, [k]: e.target.value }));
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setStep("overview")} className="p-1.5 rounded-lg hover:bg-secondary/40 transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <h2 className="text-base font-semibold">Brand Registration</h2>
+            <p className="text-xs text-muted-foreground">Tell Twilio about your business entity</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Business Information</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Legal Business Name <span className="text-red-400">*</span></Label>
+              <Input value={bf.legal_name} onChange={set("legal_name")} placeholder="Acme LLC" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">EIN / Tax ID <span className="text-red-400">*</span></Label>
+              <Input value={bf.ein} onChange={set("ein")} placeholder="12-3456789" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Company Type <span className="text-red-400">*</span></Label>
+              <select value={bf.company_type} onChange={set("company_type")}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                {COMPANY_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Business Website</Label>
+              <Input value={bf.website} onChange={set("website")} placeholder="https://acme.com" className="h-9 text-sm" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Business Address</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2 space-y-1">
+              <Label className="text-xs">Street Address <span className="text-red-400">*</span></Label>
+              <Input value={bf.address} onChange={set("address")} placeholder="123 Main St" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">City <span className="text-red-400">*</span></Label>
+              <Input value={bf.city} onChange={set("city")} placeholder="Miami" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">State <span className="text-red-400">*</span></Label>
+              <Input value={bf.state} onChange={set("state")} placeholder="FL" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">ZIP Code <span className="text-red-400">*</span></Label>
+              <Input value={bf.zip} onChange={set("zip")} placeholder="33101" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Country</Label>
+              <Input value={bf.country} onChange={set("country")} placeholder="US" className="h-9 text-sm" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Primary Contact</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Full Name <span className="text-red-400">*</span></Label>
+              <Input value={bf.contact_name} onChange={set("contact_name")} placeholder="Jane Smith" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Email <span className="text-red-400">*</span></Label>
+              <Input value={bf.contact_email} onChange={set("contact_email")} placeholder="jane@acme.com" type="email" className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Phone Number</Label>
+              <Input value={bf.contact_phone} onChange={set("contact_phone")} placeholder="+13055551234" className="h-9 text-sm" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 p-4 flex gap-3">
+          <Info className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-blue-300 leading-relaxed">
+            Brand registration is submitted to The Campaign Registry (TCR) via Twilio.
+            Review takes <strong>3–5 business days</strong>. You will be notified by email when approved.
+          </p>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setStep("overview")} className="flex-1">Cancel</Button>
+          <Button onClick={handleBrandSubmit} disabled={submitting} className="flex-1">
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit Brand Registration →"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Campaign Form ──
+  if (step === "campaign") {
+    const cf = campaignForm;
+    const setc = (k: keyof typeof campaignForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setCampaignForm(p => ({ ...p, [k]: e.target.value }));
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setStep("overview")} className="p-1.5 rounded-lg hover:bg-secondary/40 transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <h2 className="text-base font-semibold">Campaign Registration</h2>
+            <p className="text-xs text-muted-foreground">Describe your SMS use case for carrier approval</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Use Case</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Campaign Type <span className="text-red-400">*</span></Label>
+              <select value={cf.use_case} onChange={setc("use_case")}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                {A2P_USE_CASES.map(u => <option key={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Campaign Description <span className="text-red-400">*</span></Label>
+            <Textarea value={cf.description} onChange={setc("description")}
+              placeholder="Describe what you'll text customers about, e.g. 'We send appointment reminders and follow-up messages to leads who have opted in via our website form.'"
+              className="text-sm min-h-[80px] resize-none" />
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sample Messages</p>
+          <p className="text-xs text-muted-foreground">Provide realistic examples of messages you'll send. Must match your use case.</p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Sample Message 1 <span className="text-red-400">*</span></Label>
+              <Textarea value={cf.sample1} onChange={setc("sample1")}
+                placeholder='e.g. "Hi [Name], your appointment is confirmed for [Date]. Reply STOP to opt out."'
+                className="text-sm min-h-[70px] resize-none" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sample Message 2</Label>
+              <Textarea value={cf.sample2} onChange={setc("sample2")}
+                placeholder='e.g. "Hi [Name], following up on your inquiry. Are you still interested? Reply STOP to opt out."'
+                className="text-sm min-h-[70px] resize-none" />
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Opt-In / Opt-Out</p>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-xs">How do customers opt in? <span className="text-red-400">*</span></Label>
+              <select value={cf.optin_method} onChange={setc("optin_method")}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm">
+                {OPTIN_METHODS.map(m => <option key={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Opt-In Keywords</Label>
+                <Input value={cf.optin_keywords} onChange={setc("optin_keywords")} className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Opt-Out Keywords</Label>
+                <Input value={cf.optout_keywords} onChange={setc("optout_keywords")} className="h-9 text-sm" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-purple-500/10 border border-purple-500/20 p-4 flex gap-3">
+          <Info className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-purple-300 leading-relaxed">
+            Campaign registration is reviewed by US carriers via Twilio.
+            Approval takes <strong>5–7 additional business days</strong> after brand approval.
+            All messages must include opt-out instructions (e.g. "Reply STOP to unsubscribe").
+          </p>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={() => setStep("overview")} className="flex-1">Cancel</Button>
+          <Button onClick={handleCampaignSubmit} disabled={submitting} className="flex-1">
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit Campaign →"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── SHAKEN/STIR Info ──
+  if (step === "shaken") {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setStep("overview")} className="p-1.5 rounded-lg hover:bg-secondary/40 transition-colors">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <h2 className="text-base font-semibold">SHAKEN/STIR</h2>
+            <p className="text-xs text-muted-foreground">Call authentication to reduce spam flagging</p>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border/30 bg-card/40 p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
+              <ShieldCheck className="h-5 w-5 text-green-400" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Automatically handled by Twilio</p>
+              <p className="text-xs text-muted-foreground">No action required from you</p>
+            </div>
+          </div>
+
+          {[
+            { q: "What is SHAKEN/STIR?", a: "SHAKEN/STIR is a framework that verifies the caller ID of phone calls. It helps carriers and consumers identify legitimate calls and reduces spam labeling." },
+            { q: "What do I need to do?", a: "Nothing! Twilio automatically implements SHAKEN/STIR on all phone numbers. Your calls will show an 'A-level attestation' when calling numbers on the same carrier, or 'B-level' on different carriers." },
+            { q: "Why does it matter?", a: "Without SHAKEN/STIR, your outbound calls may be labeled as 'Spam Likely' or 'Scam Likely' by phone carriers. With it, your calls show your real business name and are trusted." },
+            { q: "How long does it take?", a: "Instantly active on all Twilio numbers. No setup required." },
+          ].map(item => (
+            <div key={item.q} className="space-y-1 border-t border-border/20 pt-3">
+              <p className="text-sm font-medium">{item.q}</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">{item.a}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-xl bg-green-500/10 border border-green-500/20 p-4 flex gap-3">
+          <CheckCircle className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-green-300 leading-relaxed">
+            <strong>Your Twilio numbers are already SHAKEN/STIR enabled.</strong> No additional steps needed.
+          </p>
+        </div>
+
+        <Button variant="outline" onClick={() => setStep("overview")} className="w-full">
+          ← Back to Compliance
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // ── Phone Setup View ──────────────────────────────────────────────────────────
 
 function PhoneSetupView() {
@@ -3255,27 +3804,7 @@ function PhoneSetupView() {
           </div>
         )}
 
-        {phoneTab === "compliance" && (
-          <div className="rounded-xl border border-border/30 bg-card/40 p-6 space-y-4">
-            <h2 className="text-base font-semibold">Compliance</h2>
-            <div className="space-y-3">
-              {[
-                { title: "A2P 10DLC Registration", status: "Pending", desc: "Required for sending SMS messages in the US." },
-                { title: "SHAKEN/STIR", status: "Not configured", desc: "Reduces spam flagging on outbound calls." },
-                { title: "SMS Company Name", status: "Submitted", desc: "Displayed to recipients when receiving your texts." },
-              ].map(c => (
-                <div key={c.title} className="flex items-start gap-4 p-4 rounded-xl bg-secondary/20">
-                  <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">{c.title}</p>
-                    <p className="text-xs text-muted-foreground">{c.desc}</p>
-                  </div>
-                  <Badge className="text-xs border border-yellow-500/30 text-yellow-400 bg-yellow-500/10 shrink-0">{c.status}</Badge>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {phoneTab === "compliance" && <ComplianceWizard />}
       </div>
     </div>
   );
