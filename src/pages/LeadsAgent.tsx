@@ -3,15 +3,12 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft, Send, Download, Target, Loader2,
   Mail, Phone, Linkedin, MapPin, Globe, Copy, Check,
-  AlertCircle, Key, ExternalLink, X, Users,
+  AlertCircle, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import {
-  getLeadsSettings, saveLeadsSettings, searchLeads,
-  type Lead, type LeadSearchResult,
-} from "@/lib/api";
+import { searchLeads, type Lead, type LeadSearchResult } from "@/lib/api";
 
 // ── CSV download ──────────────────────────────────────────────────────────────
 function downloadCSV(leads: Lead[]) {
@@ -32,71 +29,7 @@ function downloadCSV(leads: Lead[]) {
   toast({ title: `✓ ${leads.length} leads downloaded` });
 }
 
-// ── API Key Modal ─────────────────────────────────────────────────────────────
-function ApiKeyModal({ onSaved, onClose }: { onSaved: () => void; onClose: () => void }) {
-  const [key, setKey] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const save = async () => {
-    if (!key.trim()) return;
-    setSaving(true);
-    try {
-      await saveLeadsSettings(key.trim());
-      toast({ title: "Apollo.io connected ✓" });
-      onSaved();
-    } catch (e: any) {
-      toast({ title: e.message, variant: "destructive" });
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border/30 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-orange-500/10 flex items-center justify-center">
-              <Key className="h-4.5 w-4.5 text-orange-400" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Connect Apollo.io</p>
-              <p className="text-xs text-muted-foreground">Paste your free API key below</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="rounded-xl bg-secondary/20 border border-border/20 p-4 space-y-1.5">
-          <p className="text-xs font-medium">Where to find your key:</p>
-          <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-            <li>Go to <a href="https://app.apollo.io/#/settings/integrations/api" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-0.5">apollo.io → Settings → API <ExternalLink className="h-3 w-3" /></a></li>
-            <li>Click <strong className="text-foreground">Create new key</strong></li>
-            <li>Copy & paste it below — it's free</li>
-          </ol>
-        </div>
-
-        <input
-          value={key}
-          onChange={e => setKey(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && save()}
-          placeholder="sk-••••••••••••••••••••••"
-          type="password"
-          className="w-full h-9 px-3 rounded-lg bg-secondary/30 border border-border/40 text-sm font-mono focus:outline-none focus:border-primary/50"
-        />
-
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={save} disabled={saving || !key.trim()} className="flex-1">
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Saving…</> : "Connect →"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Lead Table (shown inside chat bubble) ─────────────────────────────────────
+// ── Lead Table ────────────────────────────────────────────────────────────────
 function LeadTable({ leads }: { leads: Lead[] }) {
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
 
@@ -189,29 +122,30 @@ type Msg =
   | { role: "error"; text: string }
   | { role: "thinking" };
 
+const SUGGESTIONS = [
+  "30 SaaS CEOs in Miami with 10-50 employees",
+  "Founders of DTC ecommerce brands in the US",
+  "VPs of Sales at B2B companies with 100-500 employees",
+  "Real estate brokers in Florida",
+  "Marketing directors at healthcare companies",
+  "Small business owners in New York City",
+];
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function LeadsAgent() {
   const navigate = useNavigate();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [hasKey, setHasKey] = useState(false);
-  const [showKeyModal, setShowKeyModal] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    getLeadsSettings()
-      .then(s => setHasKey(s.has_key))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const send = async () => {
-    const q = input.trim();
+  const send = async (text?: string) => {
+    const q = (text ?? input).trim();
     if (!q || busy) return;
     setInput("");
     setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking" }]);
@@ -223,14 +157,10 @@ export default function LeadsAgent() {
         { role: "assistant", result },
       ]);
     } catch (e: any) {
-      const msg = e.message || "Search failed";
       setMessages(prev => [
         ...prev.filter(m => m.role !== "thinking"),
-        { role: "error", text: msg },
+        { role: "error", text: e.message || "Search failed. Try again." },
       ]);
-      if (msg.toLowerCase().includes("api key") || msg.toLowerCase().includes("apollo") || msg.toLowerCase().includes("connect")) {
-        setShowKeyModal(true);
-      }
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -254,19 +184,6 @@ export default function LeadsAgent() {
           </div>
           <span className="text-sm font-bold">Leads Agent</span>
         </div>
-        <div className="ml-auto">
-          {hasKey ? (
-            <button onClick={() => setShowKeyModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-green-500/10 border border-green-500/20 text-xs text-green-400 hover:bg-green-500/15 transition-colors">
-              <Check className="h-3 w-3" /> Apollo Connected
-            </button>
-          ) : (
-            <button onClick={() => setShowKeyModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-orange-500/10 border border-orange-500/20 text-xs text-orange-400 hover:bg-orange-500/15 transition-colors animate-pulse">
-              <AlertCircle className="h-3 w-3" /> Connect Apollo.io
-            </button>
-          )}
-        </div>
       </div>
 
       {/* ── Messages ── */}
@@ -274,25 +191,20 @@ export default function LeadsAgent() {
 
         {/* Empty state */}
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-center pb-20">
+          <div className="flex flex-col items-center justify-center h-full gap-5 text-center pb-20">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/20 flex items-center justify-center">
               <Target className="h-8 w-8 text-orange-400" />
             </div>
-            <div className="space-y-1">
-              <h2 className="text-lg font-bold">Find your next leads</h2>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                Describe who you're looking for in plain English — industry, title, location, company size — and I'll pull the list.
+            <div className="space-y-1.5">
+              <h2 className="text-xl font-bold">Find your next leads</h2>
+              <p className="text-sm text-muted-foreground max-w-md">
+                Describe who you're looking for in plain English — industry, job title, location, company size — and I'll pull the list instantly.
               </p>
             </div>
-            <div className="flex flex-wrap justify-center gap-2 max-w-lg">
-              {[
-                "30 SaaS CEOs in Miami with 10-50 employees",
-                "Founders of DTC ecommerce brands in the US",
-                "VPs of Sales at B2B companies, 100-500 employees",
-                "Real estate brokers in Florida",
-              ].map(s => (
-                <button key={s} onClick={() => setInput(s)}
-                  className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/70 transition-all">
+            <div className="flex flex-wrap justify-center gap-2 max-w-xl">
+              {SUGGESTIONS.map(s => (
+                <button key={s} onClick={() => send(s)}
+                  className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/70 hover:bg-secondary/40 transition-all">
                   "{s}"
                 </button>
               ))}
@@ -302,6 +214,7 @@ export default function LeadsAgent() {
 
         {/* Message list */}
         {messages.map((msg, i) => {
+
           if (msg.role === "user") return (
             <div key={i} className="flex justify-end">
               <div className="max-w-[70%] bg-primary/10 border border-primary/20 rounded-2xl rounded-tr-md px-4 py-2.5">
@@ -313,8 +226,8 @@ export default function LeadsAgent() {
           if (msg.role === "thinking") return (
             <div key={i} className="flex justify-start">
               <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-tl-md bg-card/40 border border-border/30">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="text-sm text-muted-foreground">Searching Apollo.io…</span>
+                <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
+                <span className="text-sm text-muted-foreground">Searching for leads…</span>
               </div>
             </div>
           );
@@ -330,21 +243,24 @@ export default function LeadsAgent() {
 
           if (msg.role === "assistant") {
             const { result } = msg;
-            const withEmail = result.leads.filter(l => l.email).length;
-            const withPhone = result.leads.filter(l => l.phone).length;
+            const withEmail   = result.leads.filter(l => l.email).length;
+            const withPhone   = result.leads.filter(l => l.phone).length;
             const withLinkedIn = result.leads.filter(l => l.linkedin_url).length;
 
             return (
-              <div key={i} className="flex justify-start">
+              <div key={i} className="flex justify-start w-full">
                 <div className="w-full max-w-5xl space-y-3">
                   {/* Header */}
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Users className="h-3.5 w-3.5 text-primary" />
+                      <div className="w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                        <Users className="h-3.5 w-3.5 text-orange-400" />
                       </div>
                       <span className="text-sm font-semibold">
-                        Found {result.total} lead{result.total !== 1 ? "s" : ""}
+                        {result.total === 0
+                          ? "No leads found — try broader criteria"
+                          : `Found ${result.total} lead${result.total !== 1 ? "s" : ""}`
+                        }
                       </span>
                     </div>
                     {result.leads.length > 0 && (
@@ -358,28 +274,15 @@ export default function LeadsAgent() {
 
                   {/* Stats */}
                   {result.leads.length > 0 && (
-                    <div className="flex gap-3">
-                      {[
-                        { label: "with email", value: withEmail, color: "text-blue-400" },
-                        { label: "with phone", value: withPhone, color: "text-green-400" },
-                        { label: "with LinkedIn", value: withLinkedIn, color: "text-sky-400" },
-                      ].map(s => (
-                        <span key={s.label} className={cn("text-xs", s.color)}>
-                          <strong>{s.value}</strong> <span className="text-muted-foreground">{s.label}</span>
-                        </span>
-                      ))}
+                    <div className="flex gap-4">
+                      <span className="text-xs text-blue-400"><strong>{withEmail}</strong> <span className="text-muted-foreground">with email</span></span>
+                      <span className="text-xs text-green-400"><strong>{withPhone}</strong> <span className="text-muted-foreground">with phone</span></span>
+                      <span className="text-xs text-sky-400"><strong>{withLinkedIn}</strong> <span className="text-muted-foreground">with LinkedIn</span></span>
                     </div>
                   )}
 
-                  {/* Table or empty */}
-                  {result.leads.length > 0
-                    ? <LeadTable leads={result.leads} />
-                    : (
-                      <div className="rounded-xl border border-border/30 bg-card/20 p-8 text-center">
-                        <p className="text-sm text-muted-foreground">No leads matched — try broader criteria.</p>
-                      </div>
-                    )
-                  }
+                  {/* Table */}
+                  {result.leads.length > 0 && <LeadTable leads={result.leads} />}
                 </div>
               </div>
             );
@@ -399,29 +302,27 @@ export default function LeadsAgent() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-            placeholder='e.g. "50 real estate agents in Texas"'
+            placeholder='e.g. "50 real estate agents in Texas" or "SaaS CEOs in Miami"'
             disabled={busy}
             className="flex-1 h-11 px-4 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 disabled:opacity-50"
           />
-          <button onClick={send} disabled={busy || !input.trim()}
+          <button
+            onClick={() => send()}
+            disabled={busy || !input.trim()}
             className={cn(
               "w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0",
               input.trim() && !busy
                 ? "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/20 hover:scale-105 active:scale-95"
                 : "bg-secondary/30 text-muted-foreground cursor-not-allowed"
             )}>
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {busy
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Send className="h-4 w-4" />
+            }
           </button>
         </div>
       </div>
 
-      {/* ── API Key Modal ── */}
-      {showKeyModal && (
-        <ApiKeyModal
-          onSaved={() => { setHasKey(true); setShowKeyModal(false); }}
-          onClose={() => setShowKeyModal(false)}
-        />
-      )}
     </div>
   );
 }

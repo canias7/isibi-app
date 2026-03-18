@@ -6379,16 +6379,11 @@ def search_leads(body: dict, user=Depends(verify_token)):
     if not prompt:
         raise HTTPException(400, "Prompt is required")
 
-    # Get Apollo key: prefer user's own key, fall back to server env var
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone()
-    user_key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else None)) or ""
-    apollo_key = user_key or os.getenv("APOLLO_API_KEY", "")
-    conn.close()
+    # Always use platform Apollo key from env — users don't need their own
+    apollo_key = os.getenv("APOLLO_API_KEY", "")
 
     if not apollo_key:
-        raise HTTPException(400, "Apollo.io API key not configured. Add your key in Leads Agent settings.")
+        raise HTTPException(503, "Lead search is temporarily unavailable. Please contact support.")
 
     # ── Step 1: GPT extracts structured filters ──────────────────────────────
     filter_system = """You are a lead generation assistant. Extract Apollo.io search filters from the user's request.
