@@ -4054,6 +4054,7 @@ def list_crm_calls(user=Depends(verify_token)):
     cur.execute(sql("""
         SELECT c.id, c.contact_id, c.contact_name, c.phone_number, c.direction,
                c.duration_seconds, c.status, c.notes, c.called_at,
+               c.recording_url, c.call_type,
                co.first_name, co.last_name
         FROM crm_calls c
         LEFT JOIN contacts co ON c.contact_id = co.id
@@ -4069,7 +4070,8 @@ def list_crm_calls(user=Depends(verify_token)):
             "id": r[0], "contact_id": r[1], "contact_name": r[2],
             "phone_number": r[3], "direction": r[4], "duration_seconds": r[5],
             "status": r[6], "notes": r[7], "called_at": r[8],
-            "first_name": r[9], "last_name": r[10],
+            "recording_url": r[9], "call_type": r[10],
+            "first_name": r[11], "last_name": r[12],
         }
         if d.get("called_at") and not isinstance(d["called_at"], str):
             d["called_at"] = str(d["called_at"])
