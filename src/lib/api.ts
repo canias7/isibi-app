@@ -1739,8 +1739,75 @@ async function leadsFetch(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export const getLeadsSettings  = (): Promise<{ has_key: boolean; masked_key: string }> => leadsFetch("/settings");
-export const saveLeadsSettings  = (apollo_api_key: string) => leadsFetch("/settings", { method: "POST", body: JSON.stringify({ apollo_api_key }) });
-export const getLeadsHistory    = (): Promise<LeadSearch[]> => leadsFetch("/history");
+export const getLeadsSettings      = (): Promise<{ has_key: boolean; masked_key: string }> => leadsFetch("/settings");
+export const saveLeadsSettings     = (apollo_api_key: string) => leadsFetch("/settings", { method: "POST", body: JSON.stringify({ apollo_api_key }) });
+export const getLeadsHistory       = (): Promise<LeadSearch[]> => leadsFetch("/history");
 export const getLeadsSearchResults = (id: number): Promise<{ leads: Lead[] }> => leadsFetch(`/history/${id}/results`);
-export const searchLeads        = (prompt: string): Promise<LeadSearchResult> => leadsFetch("/search", { method: "POST", body: JSON.stringify({ prompt }) });
+export const searchLeads           = (prompt: string): Promise<LeadSearchResult> => leadsFetch("/search", { method: "POST", body: JSON.stringify({ prompt }) });
+
+// ── Lead Marketplace ──────────────────────────────────────────────────────────
+
+export interface MarketplaceLead {
+  id: number;
+  category: string;
+  subcategory?: string;
+  display_name: string;
+  first_name?: string;
+  last_name_initial?: string;
+  last_name?: string;
+  title?: string;
+  company?: string;
+  city?: string;
+  state?: string;
+  industry?: string;
+  company_size?: number;
+  credits_cost: number;
+  created_at: string;
+  is_unlocked: boolean;
+  // Only present when unlocked
+  email?: string;
+  phone?: string;
+  linkedin_url?: string;
+  website?: string;
+}
+
+export interface MarketplaceListResult {
+  leads: MarketplaceLead[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+}
+
+export interface MarketplaceStats {
+  category_counts: Record<string, number>;
+  total: number;
+  unlocked: number;
+  balance: number;
+}
+
+async function mktFetch(path: string, opts: RequestInit = {}) {
+  const res = await fetch(`${API_BASE}/api/marketplace${path}`, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
+  return res.json();
+}
+
+export const getMarketplaceLeads  = (params: {
+  category?: string; state?: string; page?: number; per_page?: number;
+}): Promise<MarketplaceListResult> => {
+  const q = new URLSearchParams();
+  if (params.category) q.set("category", params.category);
+  if (params.state) q.set("state", params.state);
+  if (params.page) q.set("page", String(params.page));
+  if (params.per_page) q.set("per_page", String(params.per_page));
+  return mktFetch(`/leads?${q.toString()}`);
+};
+
+export const unlockMarketplaceLead = (id: number): Promise<{ ok: boolean; lead: MarketplaceLead; credits_remaining: number }> =>
+  mktFetch(`/leads/${id}/unlock`, { method: "POST" });
+
+export const getMarketplaceStats  = (): Promise<MarketplaceStats> => mktFetch("/stats");
+export const getUnlockedLeads     = (): Promise<MarketplaceLead[]> => mktFetch("/unlocked");

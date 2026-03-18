@@ -1,174 +1,319 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, Send, Download, Target, Loader2,
-  Mail, Phone, Linkedin, MapPin, Globe, Copy, Check,
-  AlertCircle, Users,
+  ArrowLeft, Target, Coins, Download, Lock, Unlock, Mail, Phone,
+  Linkedin, Globe, MapPin, ChevronLeft, ChevronRight, Loader2,
+  Building2, Users, Briefcase, Heart, Home, Sun, RefreshCw,
+  Search, SlidersHorizontal, Check, X, AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
-import { searchLeads, type Lead, type LeadSearchResult } from "@/lib/api";
+import {
+  getMarketplaceLeads, unlockMarketplaceLead, getMarketplaceStats,
+  getUnlockedLeads, type MarketplaceLead, type MarketplaceStats,
+} from "@/lib/api";
 
-// ── CSV download ──────────────────────────────────────────────────────────────
-function downloadCSV(leads: Lead[]) {
-  const headers = ["Name","Title","Company","Email","Phone","City","State","Country","LinkedIn","Industry","Company Size","Website"];
-  const rows = leads.map(l => [
-    l.name, l.title ?? "", l.company ?? "", l.email ?? "",
-    l.phone ?? "", l.city ?? "", l.state ?? "", l.country ?? "",
-    l.linkedin_url ?? "", l.industry ?? "",
-    l.company_size ? String(l.company_size) : "", l.website ?? "",
+// ── Category config ───────────────────────────────────────────────────────────
+const CATEGORIES = [
+  { id: "all",         label: "All Leads",             icon: Users,     color: "text-primary     bg-primary/10     border-primary/20" },
+  { id: "insurance",   label: "Health & Life Insurance", icon: Heart,    color: "text-rose-400    bg-rose-500/10    border-rose-500/20" },
+  { id: "real_estate", label: "Real Estate & Mortgage",  icon: Home,     color: "text-blue-400    bg-blue-500/10    border-blue-500/20" },
+  { id: "solar",       label: "Solar",                  icon: Sun,      color: "text-yellow-400  bg-yellow-500/10  border-yellow-500/20" },
+  { id: "business",    label: "Business / B2B",         icon: Briefcase, color: "text-purple-400  bg-purple-500/10  border-purple-500/20" },
+];
+
+const US_STATES = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
+  "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
+  "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
+  "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire",
+  "New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio",
+  "Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota",
+  "Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia",
+  "Wisconsin","Wyoming",
+];
+
+// ── CSV for unlocked leads ────────────────────────────────────────────────────
+function downloadCSV(leads: MarketplaceLead[]) {
+  const headers = ["Name","Title","Company","Email","Phone","City","State","Industry","Company Size","LinkedIn","Website"];
+  const rows = leads.filter(l => l.is_unlocked).map(l => [
+    l.display_name, l.title ?? "", l.company ?? "", l.email ?? "",
+    l.phone ?? "", l.city ?? "", l.state ?? "", l.industry ?? "",
+    l.company_size ? String(l.company_size) : "", l.linkedin_url ?? "", l.website ?? "",
   ]);
   const esc = (v: string) => `"${(v ?? "").replace(/"/g, '""')}"`;
   const csv = [headers, ...rows].map(r => r.map(esc).join(",")).join("\n");
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })),
-    download: `leads-${Date.now()}.csv`,
+    download: `marketplace-leads-${Date.now()}.csv`,
   });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  toast({ title: `✓ ${leads.length} leads downloaded` });
+  toast({ title: `✓ ${rows.length} leads downloaded` });
 }
 
-// ── Lead Table ────────────────────────────────────────────────────────────────
-function LeadTable({ leads }: { leads: Lead[] }) {
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
-
-  const copyEmail = (email: string, i: number) => {
-    navigator.clipboard.writeText(email);
-    setCopiedIdx(i);
-    setTimeout(() => setCopiedIdx(null), 1500);
-  };
+// ── Lead Card ─────────────────────────────────────────────────────────────────
+function LeadCard({
+  lead, onUnlock, unlocking,
+}: {
+  lead: MarketplaceLead;
+  onUnlock: (id: number) => void;
+  unlocking: number | null;
+}) {
+  const cat = CATEGORIES.find(c => c.id === lead.category) ?? CATEGORIES[0];
+  const isUnlocking = unlocking === lead.id;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border/30 bg-background/60">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/20 bg-secondary/20">
-            {["#","Name / Title","Company","Email","Phone","Location","Links"].map(h => (
-              <th key={h} className="px-3 py-2.5 text-left font-medium text-muted-foreground uppercase tracking-wider text-[10px] whitespace-nowrap">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {leads.map((l, i) => (
-            <tr key={i} className="border-b border-border/10 hover:bg-secondary/10 transition-colors">
-              <td className="px-3 py-2.5 text-muted-foreground">{i + 1}</td>
-              <td className="px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-[10px] font-bold text-primary">
-                      {(l.first_name?.[0] ?? l.name?.[0] ?? "?").toUpperCase()}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="font-medium leading-none">{l.name || "—"}</p>
-                    <p className="text-muted-foreground mt-0.5">{l.title || "—"}</p>
-                  </div>
-                </div>
-              </td>
-              <td className="px-3 py-2.5">
-                <p className="font-medium">{l.company || "—"}</p>
-                {l.industry && <p className="text-muted-foreground">{l.industry}</p>}
-              </td>
-              <td className="px-3 py-2.5">
-                {l.email ? (
-                  <button onClick={() => copyEmail(l.email!, i)} className="flex items-center gap-1 group">
-                    <span className="text-primary hover:underline">{l.email}</span>
-                    {copiedIdx === i
-                      ? <Check className="h-3 w-3 text-green-400" />
-                      : <Copy className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    }
-                  </button>
-                ) : <span className="text-muted-foreground italic">—</span>}
-              </td>
-              <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap">{l.phone || "—"}</td>
-              <td className="px-3 py-2.5">
-                {(l.city || l.state) ? (
-                  <span className="flex items-center gap-1 text-muted-foreground">
-                    <MapPin className="h-3 w-3 shrink-0" />
-                    {[l.city, l.state].filter(Boolean).join(", ")}
-                  </span>
-                ) : <span className="text-muted-foreground">—</span>}
-              </td>
-              <td className="px-3 py-2.5">
-                <div className="flex items-center gap-1.5">
-                  {l.linkedin_url && (
-                    <a href={l.linkedin_url} target="_blank" rel="noopener noreferrer"
-                      className="p-1 rounded-md bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors">
-                      <Linkedin className="h-3 w-3" />
-                    </a>
-                  )}
-                  {l.website && (
-                    <a href={l.website.startsWith("http") ? l.website : `https://${l.website}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="p-1 rounded-md bg-secondary/40 hover:bg-secondary/60 text-muted-foreground transition-colors">
-                      <Globe className="h-3 w-3" />
-                    </a>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className={cn(
+      "rounded-2xl border bg-card/30 p-4 flex flex-col gap-3 transition-all duration-200",
+      lead.is_unlocked
+        ? "border-green-500/20 bg-green-500/5"
+        : "border-border/30 hover:border-border/50 hover:bg-card/50"
+    )}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className={cn("w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-bold", cat.color.split(" ").slice(1).join(" "))}>
+            {(lead.first_name?.[0] ?? "?").toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate">{lead.display_name}</p>
+            <p className="text-xs text-muted-foreground truncate">{lead.title || "—"}</p>
+          </div>
+        </div>
+        <Badge className={cn("text-[10px] px-2 py-0.5 shrink-0 border", cat.color)}>
+          {cat.label.split(" ")[0]}
+        </Badge>
+      </div>
+
+      {/* Company + Location */}
+      <div className="space-y-1">
+        {lead.company && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Building2 className="h-3 w-3 shrink-0" />
+            <span className="truncate">{lead.company}</span>
+            {lead.company_size && <span className="text-muted-foreground/50">· {lead.company_size.toLocaleString()} emp</span>}
+          </div>
+        )}
+        {(lead.city || lead.state) && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <MapPin className="h-3 w-3 shrink-0" />
+            <span>{[lead.city, lead.state].filter(Boolean).join(", ")}</span>
+          </div>
+        )}
+        {lead.industry && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Briefcase className="h-3 w-3 shrink-0" />
+            <span className="truncate">{lead.industry}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Contact info (unlocked) */}
+      {lead.is_unlocked && (
+        <div className="space-y-1 pt-1 border-t border-border/20">
+          {lead.email && (
+            <button onClick={() => { navigator.clipboard.writeText(lead.email!); toast({ title: "Email copied" }); }}
+              className="flex items-center gap-1.5 text-xs text-primary hover:underline w-full text-left truncate">
+              <Mail className="h-3 w-3 shrink-0 text-blue-400" />
+              {lead.email}
+            </button>
+          )}
+          {lead.phone && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Phone className="h-3 w-3 shrink-0 text-green-400" />
+              {lead.phone}
+            </div>
+          )}
+          <div className="flex items-center gap-2 pt-0.5">
+            {lead.linkedin_url && (
+              <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
+                className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors">
+                <Linkedin className="h-3 w-3" />
+              </a>
+            )}
+            {lead.website && (
+              <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                target="_blank" rel="noopener noreferrer"
+                className="p-1.5 rounded-lg bg-secondary/40 hover:bg-secondary/60 text-muted-foreground transition-colors">
+                <Globe className="h-3 w-3" />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Footer action */}
+      <div className="mt-auto pt-1">
+        {lead.is_unlocked ? (
+          <div className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
+            <Check className="h-3.5 w-3.5" /> Unlocked
+          </div>
+        ) : (
+          <button
+            onClick={() => onUnlock(lead.id)}
+            disabled={isUnlocking}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-primary/10 hover:bg-primary/20 border border-primary/20 text-xs font-medium text-primary transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+          >
+            {isUnlocking
+              ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Unlocking…</>
+              : <><Coins className="h-3.5 w-3.5" /> Unlock · {lead.credits_cost} credits</>
+            }
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Chat message types ────────────────────────────────────────────────────────
-type Msg =
-  | { role: "user"; text: string }
-  | { role: "assistant"; result: LeadSearchResult }
-  | { role: "error"; text: string }
-  | { role: "thinking" };
-
-const SUGGESTIONS = [
-  "30 SaaS CEOs in Miami with 10-50 employees",
-  "Founders of DTC ecommerce brands in the US",
-  "VPs of Sales at B2B companies with 100-500 employees",
-  "Real estate brokers in Florida",
-  "Marketing directors at healthcare companies",
-  "Small business owners in New York City",
-];
+// ── Buy Credits Modal ─────────────────────────────────────────────────────────
+function BuyCreditsModal({ onClose }: { onClose: () => void }) {
+  const PACKAGES = [
+    { credits: 50,  price: "$49",  per: "$0.98/lead", popular: false },
+    { credits: 100, price: "$89",  per: "$0.89/lead", popular: true  },
+    { credits: 250, price: "$199", per: "$0.80/lead", popular: false },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-card border border-border/30 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold">Buy Credits</h2>
+            <p className="text-xs text-muted-foreground">Each credit unlocks one lead's full contact info</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-3">
+          {PACKAGES.map(pkg => (
+            <button key={pkg.credits}
+              className={cn(
+                "w-full flex items-center justify-between p-4 rounded-xl border transition-all hover:scale-[1.01]",
+                pkg.popular
+                  ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20"
+                  : "border-border/30 bg-secondary/20 hover:border-border/50"
+              )}>
+              <div className="text-left">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">{pkg.credits} Credits</span>
+                  {pkg.popular && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30">Most Popular</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{pkg.per}</p>
+              </div>
+              <span className="text-lg font-bold">{pkg.price}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-[11px] text-center text-muted-foreground">
+          Payments handled securely via Stripe. Credits never expire.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function LeadsAgent() {
   const navigate = useNavigate();
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+
+  const [stats, setStats] = useState<MarketplaceStats | null>(null);
+  const [leads, setLeads] = useState<MarketplaceLead[]>([]);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [unlocking, setUnlocking] = useState<number | null>(null);
+
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [stateFilter, setStateFilter] = useState("");
+  const [searchFilter, setSearchFilter] = useState("");
+  const [showDownloaded, setShowDownloaded] = useState(false);
+  const [unlockedLeads, setUnlockedLeads] = useState<MarketplaceLead[]>([]);
+  const [showBuyModal, setShowBuyModal] = useState(false);
+
+  const fetchLeads = useCallback(async (cat = activeCategory, st = stateFilter, pg = page) => {
+    setLoading(true);
+    try {
+      const res = await getMarketplaceLeads({ category: cat, state: st, page: pg, per_page: 24 });
+      setLeads(res.leads);
+      setTotal(res.total);
+      setPages(res.pages);
+    } catch {
+      toast({ title: "Failed to load leads", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }, [activeCategory, stateFilter, page]);
+
+  const fetchStats = async () => {
+    try { setStats(await getMarketplaceStats()); } catch {}
+  };
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    fetchStats();
+    fetchLeads("all", "", 1);
+  }, []);
 
-  const send = async (text?: string) => {
-    const q = (text ?? input).trim();
-    if (!q || busy) return;
-    setInput("");
-    setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking" }]);
-    setBusy(true);
+  const handleCategory = (id: string) => {
+    setActiveCategory(id);
+    setPage(1);
+    fetchLeads(id, stateFilter, 1);
+  };
+
+  const handleState = (st: string) => {
+    setStateFilter(st);
+    setPage(1);
+    fetchLeads(activeCategory, st, 1);
+  };
+
+  const handlePage = (p: number) => {
+    setPage(p);
+    fetchLeads(activeCategory, stateFilter, p);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleUnlock = async (id: number) => {
+    setUnlocking(id);
     try {
-      const result = await searchLeads(q);
-      setMessages(prev => [
-        ...prev.filter(m => m.role !== "thinking"),
-        { role: "assistant", result },
-      ]);
+      const res = await unlockMarketplaceLead(id);
+      setLeads(prev => prev.map(l => l.id === id ? { ...l, ...res.lead, is_unlocked: true } : l));
+      setStats(prev => prev ? { ...prev, balance: res.credits_remaining, unlocked: prev.unlocked + 1 } : prev);
+      toast({ title: "Lead unlocked ✓", description: `${res.credits_remaining} credits remaining` });
     } catch (e: any) {
-      setMessages(prev => [
-        ...prev.filter(m => m.role !== "thinking"),
-        { role: "error", text: e.message || "Search failed. Try again." },
-      ]);
+      if (e.message?.includes("enough credits") || e.message?.includes("402")) {
+        setShowBuyModal(true);
+        toast({ title: "Not enough credits", description: "Purchase more credits to unlock this lead.", variant: "destructive" });
+      } else {
+        toast({ title: e.message || "Failed to unlock", variant: "destructive" });
+      }
     } finally {
-      setBusy(false);
-      inputRef.current?.focus();
+      setUnlocking(null);
     }
   };
 
+  const handleDownloadAll = async () => {
+    try {
+      const all = await getUnlockedLeads();
+      if (all.length === 0) { toast({ title: "No unlocked leads yet" }); return; }
+      downloadCSV(all);
+    } catch {
+      toast({ title: "Download failed", variant: "destructive" });
+    }
+  };
+
+  // Client-side search filter
+  const filtered = searchFilter.trim()
+    ? leads.filter(l => {
+        const q = searchFilter.toLowerCase();
+        return l.display_name?.toLowerCase().includes(q)
+          || l.company?.toLowerCase().includes(q)
+          || l.title?.toLowerCase().includes(q)
+          || l.industry?.toLowerCase().includes(q);
+      })
+    : leads;
+
   return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
 
       {/* ── Top Bar ── */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border/30 bg-card/20 shrink-0">
@@ -182,147 +327,170 @@ export default function LeadsAgent() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/20 flex items-center justify-center">
             <Target className="h-3.5 w-3.5 text-orange-400" />
           </div>
-          <span className="text-sm font-bold">Leads Agent</span>
+          <span className="text-sm font-bold">Lead Marketplace</span>
         </div>
-      </div>
-
-      {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-
-        {/* Empty state */}
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-5 text-center pb-20">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/20 flex items-center justify-center">
-              <Target className="h-8 w-8 text-orange-400" />
-            </div>
-            <div className="space-y-1.5">
-              <h2 className="text-xl font-bold">Find your next leads</h2>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Describe who you're looking for in plain English — industry, job title, location, company size — and I'll pull the list instantly.
-              </p>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2 max-w-xl">
-              {SUGGESTIONS.map(s => (
-                <button key={s} onClick={() => send(s)}
-                  className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/70 hover:bg-secondary/40 transition-all">
-                  "{s}"
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Message list */}
-        {messages.map((msg, i) => {
-
-          if (msg.role === "user") return (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[70%] bg-primary/10 border border-primary/20 rounded-2xl rounded-tr-md px-4 py-2.5">
-                <p className="text-sm">{msg.text}</p>
-              </div>
-            </div>
-          );
-
-          if (msg.role === "thinking") return (
-            <div key={i} className="flex justify-start">
-              <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-tl-md bg-card/40 border border-border/30">
-                <Loader2 className="h-4 w-4 animate-spin text-orange-400" />
-                <span className="text-sm text-muted-foreground">Searching for leads…</span>
-              </div>
-            </div>
-          );
-
-          if (msg.role === "error") return (
-            <div key={i} className="flex justify-start">
-              <div className="flex items-start gap-2.5 max-w-[80%] px-4 py-3 rounded-2xl rounded-tl-md bg-red-500/10 border border-red-500/20">
-                <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
-                <p className="text-sm text-red-300">{msg.text}</p>
-              </div>
-            </div>
-          );
-
-          if (msg.role === "assistant") {
-            const { result } = msg;
-            const withEmail   = result.leads.filter(l => l.email).length;
-            const withPhone   = result.leads.filter(l => l.phone).length;
-            const withLinkedIn = result.leads.filter(l => l.linkedin_url).length;
-
-            return (
-              <div key={i} className="flex justify-start w-full">
-                <div className="w-full max-w-5xl space-y-3">
-                  {/* Header */}
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-lg bg-orange-500/10 flex items-center justify-center">
-                        <Users className="h-3.5 w-3.5 text-orange-400" />
-                      </div>
-                      <span className="text-sm font-semibold">
-                        {result.total === 0
-                          ? "No leads found — try broader criteria"
-                          : `Found ${result.total} lead${result.total !== 1 ? "s" : ""}`
-                        }
-                      </span>
-                    </div>
-                    {result.leads.length > 0 && (
-                      <Button size="sm" onClick={() => downloadCSV(result.leads)}
-                        className="gap-1.5 h-8 text-xs bg-green-600 hover:bg-green-700 text-white border-0">
-                        <Download className="h-3.5 w-3.5" />
-                        Download CSV
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Stats */}
-                  {result.leads.length > 0 && (
-                    <div className="flex gap-4">
-                      <span className="text-xs text-blue-400"><strong>{withEmail}</strong> <span className="text-muted-foreground">with email</span></span>
-                      <span className="text-xs text-green-400"><strong>{withPhone}</strong> <span className="text-muted-foreground">with phone</span></span>
-                      <span className="text-xs text-sky-400"><strong>{withLinkedIn}</strong> <span className="text-muted-foreground">with LinkedIn</span></span>
-                    </div>
-                  )}
-
-                  {/* Table */}
-                  {result.leads.length > 0 && <LeadTable leads={result.leads} />}
-                </div>
-              </div>
-            );
-          }
-
-          return null;
-        })}
-
-        <div ref={bottomRef} />
-      </div>
-
-      {/* ── Input Bar ── */}
-      <div className="shrink-0 px-4 py-4 border-t border-border/30 bg-card/10">
-        <div className="max-w-4xl mx-auto flex items-center gap-3">
-          <input
-            ref={inputRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-            placeholder='e.g. "50 real estate agents in Texas" or "SaaS CEOs in Miami"'
-            disabled={busy}
-            className="flex-1 h-11 px-4 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 disabled:opacity-50"
-          />
-          <button
-            onClick={() => send()}
-            disabled={busy || !input.trim()}
-            className={cn(
-              "w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0",
-              input.trim() && !busy
-                ? "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-500/20 hover:scale-105 active:scale-95"
-                : "bg-secondary/30 text-muted-foreground cursor-not-allowed"
-            )}>
-            {busy
-              ? <Loader2 className="h-4 w-4 animate-spin" />
-              : <Send className="h-4 w-4" />
-            }
+        <div className="ml-auto flex items-center gap-2">
+          {/* Credits balance */}
+          <button onClick={() => setShowBuyModal(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-yellow-500/10 border border-yellow-500/20 text-xs text-yellow-400 hover:bg-yellow-500/15 transition-colors">
+            <Coins className="h-3.5 w-3.5" />
+            {stats ? <><strong>{stats.balance}</strong> credits</> : "— credits"}
+            <span className="text-yellow-400/60 ml-1">+ Buy</span>
+          </button>
+          {/* Download unlocked */}
+          {stats && stats.unlocked > 0 && (
+            <button onClick={handleDownloadAll}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green-500/10 border border-green-500/20 text-xs text-green-400 hover:bg-green-500/15 transition-colors">
+              <Download className="h-3.5 w-3.5" />
+              Download ({stats.unlocked})
+            </button>
+          )}
+          <button onClick={() => { fetchStats(); fetchLeads(); }}
+            className="p-2 rounded-lg hover:bg-secondary/40 text-muted-foreground hover:text-foreground transition-colors">
+            <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </div>
 
+      {/* ── Stats Bar ── */}
+      {stats && (
+        <div className="flex items-center gap-6 px-5 py-2.5 border-b border-border/20 bg-card/10 text-xs text-muted-foreground shrink-0 flex-wrap">
+          <span><strong className="text-foreground">{stats.total.toLocaleString()}</strong> total leads</span>
+          {Object.entries(stats.category_counts).map(([cat, count]) => {
+            const c = CATEGORIES.find(x => x.id === cat);
+            return c ? (
+              <span key={cat}><strong className="text-foreground">{count}</strong> {c.label.split(" ")[0]}</span>
+            ) : null;
+          })}
+          <span className="ml-auto"><strong className="text-green-400">{stats.unlocked}</strong> unlocked by you</span>
+        </div>
+      )}
+
+      {/* ── Category Tabs ── */}
+      <div className="flex items-center gap-2 px-5 py-3 border-b border-border/20 overflow-x-auto shrink-0">
+        {CATEGORIES.map(cat => {
+          const Icon = cat.icon;
+          const count = cat.id === "all" ? stats?.total : stats?.category_counts[cat.id];
+          return (
+            <button key={cat.id}
+              onClick={() => handleCategory(cat.id)}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium border whitespace-nowrap transition-all",
+                activeCategory === cat.id
+                  ? cn("border", cat.color)
+                  : "border-border/20 text-muted-foreground hover:text-foreground hover:border-border/40 bg-transparent"
+              )}>
+              <Icon className="h-3.5 w-3.5" />
+              {cat.label}
+              {count !== undefined && (
+                <span className={cn("text-[11px] px-1.5 py-0.5 rounded-full",
+                  activeCategory === cat.id ? "bg-current/10" : "bg-secondary/60 text-muted-foreground/70"
+                )}>
+                  {count.toLocaleString()}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Filter Bar ── */}
+      <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border/20 bg-card/5 shrink-0">
+        <SlidersHorizontal className="h-4 w-4 text-muted-foreground shrink-0" />
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input
+            value={searchFilter}
+            onChange={e => setSearchFilter(e.target.value)}
+            placeholder="Search name, company, title…"
+            className="h-8 pl-8 pr-3 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/40 w-56"
+          />
+        </div>
+        {/* State */}
+        <select
+          value={stateFilter}
+          onChange={e => handleState(e.target.value)}
+          className="h-8 px-2 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/40 text-muted-foreground">
+          <option value="">All States</option>
+          {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        {(stateFilter || searchFilter) && (
+          <button onClick={() => { setStateFilter(""); setSearchFilter(""); handleState(""); }}
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        )}
+        <div className="ml-auto text-xs text-muted-foreground">
+          {loading ? "Loading…" : `${filtered.length} of ${total} leads`}
+        </div>
+      </div>
+
+      {/* ── Lead Grid ── */}
+      <div className="flex-1 p-5">
+        {loading ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading leads…</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
+            <Target className="h-12 w-12 text-muted-foreground/20" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">No leads found</p>
+              <p className="text-xs text-muted-foreground/60">
+                {total === 0
+                  ? "This category hasn't been populated yet. Contact your admin."
+                  : "Try adjusting your filters."}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {filtered.map(lead => (
+                <LeadCard key={lead.id} lead={lead} onUnlock={handleUnlock} unlocking={unlocking} />
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {pages > 1 && (
+              <div className="flex items-center justify-center gap-2 mt-8">
+                <button
+                  onClick={() => handlePage(page - 1)}
+                  disabled={page === 1}
+                  className="p-2 rounded-lg border border-border/30 hover:bg-secondary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                {Array.from({ length: Math.min(pages, 7) }, (_, i) => {
+                  const p = i + 1;
+                  return (
+                    <button key={p} onClick={() => handlePage(p)}
+                      className={cn(
+                        "w-9 h-9 rounded-lg text-sm transition-colors",
+                        p === page
+                          ? "bg-primary text-primary-foreground"
+                          : "border border-border/30 hover:bg-secondary/40 text-muted-foreground"
+                      )}>
+                      {p}
+                    </button>
+                  );
+                })}
+                {pages > 7 && <span className="text-muted-foreground text-sm">…</span>}
+                <button
+                  onClick={() => handlePage(page + 1)}
+                  disabled={page === pages}
+                  className="p-2 rounded-lg border border-border/30 hover:bg-secondary/40 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ── Buy Credits Modal ── */}
+      {showBuyModal && <BuyCreditsModal onClose={() => setShowBuyModal(false)} />}
     </div>
   );
 }

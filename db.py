@@ -1008,6 +1008,46 @@ def ensure_user_columns():
     )
     """)
 
+    # ── Lead Marketplace ──────────────────────────────────────────────────────
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS marketplace_leads (
+        id {ID},
+        category VARCHAR(50) NOT NULL,
+        subcategory VARCHAR(100),
+        -- Visible teaser info (shown to all users)
+        first_name VARCHAR(100),
+        last_name_initial CHAR(1),
+        title VARCHAR(200),
+        company VARCHAR(200),
+        city VARCHAR(100),
+        state VARCHAR(50),
+        industry VARCHAR(100),
+        company_size INTEGER,
+        -- Hidden until unlocked
+        last_name VARCHAR(100),
+        email VARCHAR(200),
+        phone VARCHAR(50),
+        linkedin_url TEXT,
+        website TEXT,
+        -- Meta
+        credits_cost INTEGER DEFAULT 5,
+        source VARCHAR(50) DEFAULT 'apollo',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS marketplace_unlocks (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        lead_id INTEGER NOT NULL REFERENCES marketplace_leads(id),
+        credits_spent INTEGER NOT NULL DEFAULT 5,
+        unlocked_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, lead_id)
+    )
+    """)
+
     conn.commit()
     conn.close()
 

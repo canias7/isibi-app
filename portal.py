@@ -6491,3 +6491,315 @@ Only return the JSON object, no explanation."""
         "filters": filters,
         "prompt": prompt,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LEAD MARKETPLACE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CATEGORY_QUERIES = {
+    "insurance": {
+        "label": "Health & Life Insurance",
+        "titles": ["Insurance Agent", "Insurance Broker", "Life Insurance Agent",
+                   "Health Insurance Agent", "Medicare Agent", "Benefits Manager"],
+        "industries": ["Insurance"],
+    },
+    "real_estate": {
+        "label": "Real Estate & Mortgage",
+        "titles": ["Real Estate Agent", "Real Estate Broker", "Loan Officer",
+                   "Mortgage Broker", "Realtor", "Real Estate Investor"],
+        "industries": ["Real Estate"],
+    },
+    "solar": {
+        "label": "Solar",
+        "titles": ["Solar Sales", "Solar Consultant", "Solar Advisor",
+                   "Energy Consultant", "Solar Sales Representative"],
+        "industries": ["Renewables & Environment", "Utilities"],
+    },
+    "business": {
+        "label": "Business / B2B",
+        "titles": ["CEO", "Founder", "Co-Founder", "Owner", "President",
+                   "Managing Director", "General Manager"],
+        "industries": [],
+    },
+}
+
+
+@router.get("/marketplace/leads")
+def list_marketplace_leads(
+    category: str = "all",
+    state: str = "",
+    page: int = 1,
+    per_page: int = 24,
+    user=Depends(verify_token),
+):
+    """Browse marketplace leads with teaser info. Marks which ones the user has unlocked."""
+    import json as _json
+    conn = get_conn(); cur = conn.cursor()
+
+    # Build filter
+    where_clauses = ["ml.is_active = TRUE"]
+    params = []
+    if category and category != "all":
+        where_clauses.append(sql("ml.category = {PH}"))
+        params.append(category)
+    if state:
+        where_clauses.append(sql("ml.state ILIKE {PH}"))
+        params.append(state)
+
+    where_sql = " AND ".join(where_clauses)
+    offset = (page - 1) * per_page
+
+    # Total count
+    count_sql = f"SELECT COUNT(*) FROM marketplace_leads ml WHERE {where_sql}"
+    cur.execute(count_sql, params)
+    total_row = cur.fetchone()
+    total = (total_row["count"] if isinstance(total_row, dict) else total_row[0]) if total_row else 0
+
+    # Leads with unlock status
+    leads_sql = f"""
+        SELECT ml.id, ml.category, ml.subcategory,
+               ml.first_name, ml.last_name_initial,
+               ml.title, ml.company, ml.city, ml.state,
+               ml.industry, ml.company_size, ml.credits_cost, ml.created_at,
+               -- unlocked columns (NULL if not unlocked)
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.last_name  ELSE NULL END AS last_name,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.email      ELSE NULL END AS email,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.phone      ELSE NULL END AS phone,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.linkedin_url ELSE NULL END AS linkedin_url,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.website    ELSE NULL END AS website,
+               CASE WHEN mu.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_unlocked
+        FROM marketplace_leads ml
+        LEFT JOIN marketplace_unlocks mu ON mu.lead_id = ml.id AND mu.user_id = {sql('{PH}')}
+        WHERE {where_sql}
+        ORDER BY ml.created_at DESC
+        LIMIT {sql('{PH}')} OFFSET {sql('{PH}')}
+    """
+    cur.execute(leads_sql, [user["id"]] + params + [per_page, offset])
+    rows = cur.fetchall()
+    conn.close()
+
+    def row_to_dict(r):
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "category": r[1], "subcategory": r[2],
+            "first_name": r[3], "last_name_initial": r[4],
+            "title": r[5], "company": r[6], "city": r[7], "state": r[8],
+            "industry": r[9], "company_size": r[10], "credits_cost": r[11],
+            "created_at": str(r[12]),
+            "last_name": r[13], "email": r[14], "phone": r[15],
+            "linkedin_url": r[16], "website": r[17], "is_unlocked": r[18],
+        }
+        # Build display name
+        fn = d.get("first_name") or ""
+        li = d.get("last_name_initial") or ""
+        ln = d.get("last_name") or ""
+        d["display_name"] = f"{fn} {ln}".strip() if d.get("is_unlocked") else f"{fn} {li}.".strip()
+        if isinstance(d.get("created_at"), object) and not isinstance(d.get("created_at"), str):
+            d["created_at"] = str(d["created_at"])
+        return d
+
+    return {
+        "leads": [row_to_dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page,
+    }
+
+
+@router.post("/marketplace/leads/{lead_id}/unlock")
+def unlock_marketplace_lead(lead_id: int, user=Depends(verify_token)):
+    """Spend credits to unlock a lead's contact info."""
+    conn = get_conn(); cur = conn.cursor()
+
+    # Get lead cost
+    cur.execute(sql("SELECT id, credits_cost FROM marketplace_leads WHERE id={PH} AND is_active=TRUE"), (lead_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Lead not found")
+    cost = (row["credits_cost"] if isinstance(row, dict) else row[1]) or 5
+
+    # Check if already unlocked
+    cur.execute(sql("SELECT id FROM marketplace_unlocks WHERE user_id={PH} AND lead_id={PH}"), (user["id"], lead_id))
+    if cur.fetchone():
+        conn.close()
+        raise HTTPException(400, "Already unlocked")
+
+    # Check credit balance
+    balance = get_user_credits(user["id"])
+    if balance < cost:
+        conn.close()
+        raise HTTPException(402, f"Not enough credits. You have {balance}, need {cost}.")
+
+    # Deduct and record
+    deduct_credits(user["id"], cost, f"Unlocked marketplace lead #{lead_id}")
+    cur.execute(
+        sql("INSERT INTO marketplace_unlocks (user_id, lead_id, credits_spent) VALUES ({PH},{PH},{PH})"),
+        (user["id"], lead_id, cost)
+    )
+    conn.commit()
+
+    # Return the full lead
+    cur.execute(sql("""
+        SELECT ml.*, TRUE AS is_unlocked
+        FROM marketplace_leads ml WHERE ml.id={PH}
+    """), (lead_id,))
+    lead_row = cur.fetchone()
+    conn.close()
+
+    lead = dict(lead_row) if isinstance(lead_row, dict) else {}
+    lead["is_unlocked"] = True
+    lead["display_name"] = f"{lead.get('first_name','')} {lead.get('last_name','')}".strip()
+    return {"ok": True, "lead": lead, "credits_remaining": get_user_credits(user["id"])}
+
+
+@router.get("/marketplace/credits")
+def get_marketplace_credits(user=Depends(verify_token)):
+    """Get user's current credit balance."""
+    return {"balance": get_user_credits(user["id"])}
+
+
+@router.get("/marketplace/stats")
+def get_marketplace_stats(user=Depends(verify_token)):
+    """Stats for the marketplace header."""
+    conn = get_conn(); cur = conn.cursor()
+
+    # Count per category
+    cur.execute("SELECT category, COUNT(*) FROM marketplace_leads WHERE is_active=TRUE GROUP BY category")
+    cats = cur.fetchall()
+
+    # User's unlocked count
+    cur.execute(sql("SELECT COUNT(*) FROM marketplace_unlocks WHERE user_id={PH}"), (user["id"],))
+    unlocked_row = cur.fetchone()
+    unlocked = (unlocked_row["count"] if isinstance(unlocked_row, dict) else unlocked_row[0]) if unlocked_row else 0
+
+    conn.close()
+    category_counts = {}
+    for r in cats:
+        k = r["category"] if isinstance(r, dict) else r[0]
+        v = r["count"] if isinstance(r, dict) else r[1]
+        category_counts[k] = v
+
+    return {
+        "category_counts": category_counts,
+        "total": sum(category_counts.values()),
+        "unlocked": unlocked,
+        "balance": get_user_credits(user["id"]),
+    }
+
+
+@router.post("/marketplace/admin/populate")
+def populate_marketplace(body: dict, user=Depends(verify_token)):
+    """
+    Admin-only: Pull leads from Apollo.io and populate the marketplace.
+    Body: { category: str, state: str (optional), limit: int (default 50) }
+    """
+    import json as _json
+
+    # Verify admin
+    from admin import is_admin
+    if not is_admin(user["id"]):
+        raise HTTPException(403, "Admin only")
+
+    category = (body.get("category") or "").lower()
+    if category not in _CATEGORY_QUERIES:
+        raise HTTPException(400, f"Unknown category. Valid: {list(_CATEGORY_QUERIES.keys())}")
+
+    cat_cfg = _CATEGORY_QUERIES[category]
+    limit = min(int(body.get("limit", 50)), 100)
+    state_filter = body.get("state", "")
+
+    apollo_key = os.getenv("APOLLO_API_KEY", "")
+    if not apollo_key:
+        raise HTTPException(503, "APOLLO_API_KEY not set")
+
+    apollo_payload = {
+        "api_key": apollo_key,
+        "page": 1,
+        "per_page": limit,
+        "person_titles": cat_cfg["titles"],
+    }
+    if cat_cfg.get("industries"):
+        apollo_payload["q_organization_keyword_tags"] = cat_cfg["industries"]
+    if state_filter:
+        apollo_payload["person_locations"] = [state_filter, f"{state_filter}, United States"]
+
+    try:
+        resp = requests.post(
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            json=apollo_payload,
+            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
+            timeout=30
+        )
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(502, str(e))
+
+    if resp.status_code != 200:
+        raise HTTPException(502, data.get("message", "Apollo error"))
+
+    people = data.get("people") or data.get("contacts") or []
+
+    conn = get_conn(); cur = conn.cursor()
+    inserted = 0
+    for p in people:
+        org = p.get("organization") or p.get("account") or {}
+        phones = p.get("phone_numbers") or []
+        phone = phones[0].get("sanitized_number", "") if phones else ""
+        fn = (p.get("first_name") or "").strip()
+        ln = (p.get("last_name") or "").strip()
+        if not fn:
+            continue
+        try:
+            cur.execute(sql("""
+                INSERT INTO marketplace_leads
+                    (category, first_name, last_name_initial, last_name,
+                     title, company, city, state, industry, company_size,
+                     email, phone, linkedin_url, website, source)
+                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+                ON CONFLICT DO NOTHING
+            """), (
+                category, fn, ln[:1] if ln else "",  ln,
+                p.get("title") or p.get("headline", ""),
+                org.get("name") or p.get("organization_name", ""),
+                p.get("city", ""), p.get("state", ""),
+                org.get("industry", ""),
+                org.get("num_employees") or org.get("estimated_num_employees"),
+                p.get("email", ""), phone,
+                p.get("linkedin_url", ""),
+                org.get("website_url", ""),
+                "apollo"
+            ))
+            inserted += 1
+        except Exception:
+            continue
+
+    conn.commit(); conn.close()
+    return {"ok": True, "inserted": inserted, "total_from_apollo": len(people)}
+
+
+@router.get("/marketplace/unlocked")
+def get_unlocked_leads(user=Depends(verify_token)):
+    """Return all leads the user has unlocked (for download)."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT ml.*, mu.unlocked_at
+        FROM marketplace_leads ml
+        JOIN marketplace_unlocks mu ON mu.lead_id = ml.id
+        WHERE mu.user_id = {PH}
+        ORDER BY mu.unlocked_at DESC
+    """), (user["id"],))
+    rows = cur.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {}
+        d["is_unlocked"] = True
+        d["display_name"] = f"{d.get('first_name','')} {d.get('last_name','')}".strip()
+        if d.get("created_at"):
+            d["created_at"] = str(d["created_at"])
+        if d.get("unlocked_at"):
+            d["unlocked_at"] = str(d["unlocked_at"])
+        result.append(d)
+    return result
