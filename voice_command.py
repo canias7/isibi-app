@@ -3,6 +3,7 @@ Voice Command endpoint — interprets natural language commands from the
 isibi mobile app and executes them on behalf of the logged-in customer.
 """
 import os, json, logging, tempfile
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from openai import OpenAI
@@ -19,7 +20,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 def _agents(user_id: int):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(sql("SELECT id, name, is_active, phone_number FROM agents WHERE owner_user_id={PH}"), (user_id,))
+    cur.execute(sql("SELECT id, name, (deleted_at IS NULL) as is_active, phone_number FROM agents WHERE owner_user_id={PH} AND deleted_at IS NULL"), (user_id,))
     rows = cur.fetchall()
     conn.close()
     if not rows:
@@ -90,8 +91,8 @@ def execute_intent(intent: dict, user_id: int) -> str:
             return f"I couldn't find an agent named '{intent.get('agent_name')}'. Your agents are: {', '.join(a['name'] for a in agents)}."
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute(sql("UPDATE agents SET is_active={PH} WHERE id={PH} AND owner_user_id={PH}"),
-                    (1 if enable else 0, match["id"], user_id))
+        cur.execute(sql("UPDATE agents SET deleted_at={PH} WHERE id={PH} AND owner_user_id={PH}"),
+                    (None if enable else datetime.utcnow(), match["id"], user_id))
         conn.commit()
         conn.close()
         state = "activated" if enable else "paused"
