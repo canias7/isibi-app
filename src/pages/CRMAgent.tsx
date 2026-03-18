@@ -984,13 +984,39 @@ function CalendarView({ contacts }: { contacts: Contact[] }) {
 // ── Calls View ─────────────────────────────────────────────────────────────────
 
 function CallsView() {
-  const [calls, setCalls] = useState<CRMCall[]>([]);
+  const [calls, setCalls]     = useState<CRMCall[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState<number | null>(null);
+  const [typeFilter, setTypeFilter] = useState<"all"|"ai"|"manual"|"personal">("all");
+  const [dirFilter, setDirFilter]   = useState<"all"|"inbound"|"outbound">("all");
+  const [search, setSearch]         = useState("");
+
+  // Log a Call modal state
+  const [showLog, setShowLog] = useState(false);
+  const [logForm, setLogForm] = useState({
+    contact_id: "" as string | number,
+    contact_name: "", phone_number: "", direction: "outbound" as "inbound"|"outbound",
+    called_at: new Date().toISOString().slice(0,16),
+    duration_min: "0", duration_sec: "0",
+    status: "completed", notes: "", recording_url: "",
+  });
+  const [logContact, setLogContact] = useState("");
+  const [logSaving, setLogSaving] = useState(false);
+
+  // Bridge Call modal state
+  const [showBridge, setShowBridge] = useState(false);
+  const [bridgeSearch, setBridgeSearch] = useState("");
+  const [bridgeContact, setBridgeContact] = useState<Contact|null>(null);
+  const [bridgeCalling, setBridgeCalling] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState("");
 
   const loadCalls = useCallback(() => {
     setLoading(true);
-    listCRMCalls().then(d => setCalls(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([listCRMCalls(), listContacts()])
+      .then(([c, ct]) => { setCalls(Array.isArray(c) ? c : []); setContacts(Array.isArray(ct) ? ct : []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadCalls(); }, [loadCalls]);
@@ -1004,85 +1030,366 @@ function CallsView() {
       toast({ title: "Call log deleted" });
     } catch (err: any) {
       toast({ title: "Delete failed", description: err.message, variant: "destructive" });
-    } finally {
-      setDeleting(null);
+    } finally { setDeleting(null); }
+  };
+
+  const handleLogSave = async () => {
+    if (!logForm.contact_name.trim() && !logForm.phone_number.trim()) return;
+    setLogSaving(true);
+    try {
+      const dur = (parseInt(logForm.duration_min)||0)*60 + (parseInt(logForm.duration_sec)||0);
+      const payload: any = {
+        contact_id: logForm.contact_id || null,
+        contact_name: logForm.contact_name || null,
+        phone_number: logForm.phone_number || null,
+        direction: logForm.direction,
+        called_at: logForm.called_at ? new Date(logForm.called_at).toISOString() : undefined,
+        duration_seconds: dur,
+        status: logForm.status,
+        notes: logForm.notes || null,
+        recording_url: logForm.recording_url || null,
+        call_type: "personal",
+      };
+      const newCall = await logCRMCall(payload);
+      setCalls(prev => [newCall, ...prev]);
+      setShowLog(false);
+      setLogForm({ contact_id:"", contact_name:"", phone_number:"", direction:"outbound",
+        called_at: new Date().toISOString().slice(0,16), duration_min:"0", duration_sec:"0",
+        status:"completed", notes:"", recording_url:"" });
+      setLogContact("");
+      toast({ title: "Call logged ✓" });
+    } catch (e: any) {
+      toast({ title: "Failed to log", description: e.message, variant: "destructive" });
+    } finally { setLogSaving(false); }
+  };
+
+  const handleBridgeCall = async () => {
+    if (!bridgeContact) return;
+    setBridgeCalling(true);
+    setBridgeStatus("Calling your phone…");
+    try {
+      const name = [bridgeContact.first_name, bridgeContact.last_name].filter(Boolean).join(" ");
+      await initiateManualCall({ to_number: bridgeContact.phone ?? "", contact_id: bridgeContact.id, contact_name: name });
+      setBridgeStatus("✓ Your phone should ring now. Answer to connect to " + name);
+      setTimeout(() => { setShowBridge(false); setBridgeStatus(""); setBridgeCalling(false); loadCalls(); }, 4000);
+    } catch (e: any) {
+      setBridgeStatus("Error: " + (e.message || "Failed"));
+      setBridgeCalling(false);
     }
   };
 
+  const filteredCalls = calls.filter(c => {
+    if (typeFilter !== "all" && (c.call_type ?? "ai") !== typeFilter) return false;
+    if (dirFilter !== "all" && c.direction !== dirFilter) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!(c.contact_name ?? "").toLowerCase().includes(q) && !(c.phone_number ?? "").toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+
+  const contactSuggestions = logContact.length > 1
+    ? contacts.filter(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(logContact.toLowerCase()) || (c.phone??"").includes(logContact)).slice(0,6)
+    : [];
+  const bridgeSuggestions = bridgeSearch.length > 1
+    ? contacts.filter(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(bridgeSearch.toLowerCase()) || (c.phone??"").includes(bridgeSearch)).slice(0,6)
+    : [];
+
+  const TYPE_BADGE: Record<string, string> = {
+    ai:       "bg-primary/15 text-primary border-primary/30",
+    manual:   "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    personal: "bg-green-500/15 text-green-400 border-green-500/30",
+  };
+  const TYPE_LABEL: Record<string, string> = { ai:"AI", manual:"Bridge", personal:"Personal" };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border/30 bg-card/20 shrink-0 gap-3">
         <div>
-          <h1 className="text-xl font-bold">CRM Call Logs</h1>
-          <p className="text-xs text-muted-foreground">{calls.length} total calls logged</p>
+          <h1 className="text-xl font-bold">Call Logs</h1>
+          <p className="text-xs text-muted-foreground">{filteredCalls.length} of {calls.length} calls</p>
         </div>
-        <button onClick={loadCalls} className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground">
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <Button size="sm" variant="outline" onClick={() => setShowBridge(true)}
+            className="border-orange-500/30 text-orange-400 hover:bg-orange-500/10 gap-1.5">
+            <PhoneCall className="h-3.5 w-3.5" /> Bridge Call
+          </Button>
+          <Button size="sm" onClick={() => setShowLog(true)} className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> Log a Call
+          </Button>
+          <button onClick={loadCalls} className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2 px-6 py-2.5 border-b border-border/20 bg-card/10 shrink-0 flex-wrap">
+        <div className="relative flex-1 min-w-[160px] max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search contact…"
+            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border border-border/30 bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+        </div>
+        <div className="flex gap-1">
+          {(["all","ai","manual","personal"] as const).map(t => (
+            <button key={t} onClick={() => setTypeFilter(t)}
+              className={cn("px-2.5 py-1 text-[10px] font-medium rounded-full border transition-colors capitalize",
+                typeFilter===t ? "bg-primary/10 border-primary/30 text-primary" : "border-border/30 text-muted-foreground hover:text-foreground")}>
+              {t==="all" ? "All Types" : t==="manual" ? "Bridge" : t.charAt(0).toUpperCase()+t.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          {(["all","inbound","outbound"] as const).map(d => (
+            <button key={d} onClick={() => setDirFilter(d)}
+              className={cn("px-2.5 py-1 text-[10px] font-medium rounded-full border transition-colors capitalize",
+                dirFilter===d ? "bg-primary/10 border-primary/30 text-primary" : "border-border/30 text-muted-foreground hover:text-foreground")}>
+              {d==="all" ? "All Dirs" : d}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
       <div className="flex-1 overflow-auto p-4">
         {loading ? <p className="text-center text-muted-foreground text-sm py-12">Loading calls…</p>
-          : calls.length === 0 ? (
+          : filteredCalls.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
               <PhoneCall className="h-12 w-12 opacity-30 mb-3" />
-              <p className="text-sm font-medium">No CRM calls logged yet</p>
-              <p className="text-xs text-muted-foreground/70 mt-1">Calls you log against contacts will appear here</p>
+              <p className="text-sm font-medium">No calls found</p>
+              <p className="text-xs text-muted-foreground/70 mt-2">Use <strong>Log a Call</strong> to record a personal call, or <strong>Bridge Call</strong> to dial through the platform.</p>
             </div>
           ) : (
             <div className="space-y-1.5">
-              <div className="grid grid-cols-[1.6fr_0.7fr_0.9fr_0.8fr_0.8fr_1.1fr_2fr_0.4fr] gap-3 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
+              <div className="grid grid-cols-[1.8fr_0.8fr_1fr_0.8fr_0.7fr_0.9fr_2fr_0.4fr] gap-3 px-4 pb-1 text-xs font-medium text-muted-foreground border-b border-border/20">
                 <span>Contact</span><span>Type</span><span>Phone</span><span>Direction</span><span>Duration</span><span>Status</span><span>Recording</span><span></span>
               </div>
-              {calls.map((c) => (
-                <div key={c.id} className="grid grid-cols-[1.6fr_0.7fr_0.9fr_0.8fr_0.8fr_1.1fr_2fr_0.4fr] gap-3 px-4 py-2.5 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
-                  <div>
-                    <p className="text-xs font-medium">{c.contact_name ?? "Unknown"}</p>
-                    {c.notes && <p className="text-[10px] text-muted-foreground truncate">{c.notes}</p>}
-                    <p className="text-[10px] text-muted-foreground/60">{formatDate(c.called_at)}</p>
+              {filteredCalls.map((c) => {
+                const callType = c.call_type ?? "ai";
+                return (
+                  <div key={c.id} className="grid grid-cols-[1.8fr_0.8fr_1fr_0.8fr_0.7fr_0.9fr_2fr_0.4fr] gap-3 px-4 py-2.5 rounded-xl bg-card/40 border border-border/20 text-sm items-center hover:bg-secondary/20 transition-colors">
+                    <div>
+                      <p className="text-xs font-medium">{c.contact_name ?? "Unknown"}</p>
+                      {c.notes && <p className="text-[10px] text-muted-foreground truncate max-w-[200px]">{c.notes}</p>}
+                      <p className="text-[10px] text-muted-foreground/60">{formatDate(c.called_at)}</p>
+                    </div>
+                    <span className={cn("inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold border w-fit", TYPE_BADGE[callType] ?? TYPE_BADGE.ai)}>
+                      {callType === "ai" ? <Bot className="h-2.5 w-2.5" /> : callType === "manual" ? <PhoneCall className="h-2.5 w-2.5" /> : <Phone className="h-2.5 w-2.5" />}
+                      {TYPE_LABEL[callType] ?? "AI"}
+                    </span>
+                    <span className="text-xs text-muted-foreground truncate">{c.phone_number ?? "—"}</span>
+                    <div className="flex items-center gap-1">
+                      <span className={cn("w-2 h-2 rounded-full shrink-0", c.direction === "inbound" ? "bg-blue-400" : "bg-green-400")} />
+                      <span className="text-xs capitalize">{c.direction}</span>
+                    </div>
+                    <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
+                    <div className="flex items-center gap-1">
+                      <span className={cn("w-2 h-2 rounded-full shrink-0",
+                        c.status==="completed" ? "bg-green-400" : c.status==="no_answer" ? "bg-red-400" : "bg-yellow-400")} />
+                      <span className="text-[10px] capitalize">{c.status?.replace("_"," ") ?? "—"}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {c.recording_url ? (
+                        <>
+                          <audio controls src={c.recording_url} className="h-6 flex-1 min-w-0" style={{ height:"24px" }} />
+                          <a href={c.recording_url} download target="_blank" rel="noopener noreferrer"
+                            className="p-1 rounded text-muted-foreground hover:text-primary" title="Download">
+                            <Download className="h-3 w-3" />
+                          </a>
+                        </>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground/50">No recording</span>
+                      )}
+                    </div>
+                    <button onClick={() => handleDelete(c.id)} disabled={deleting===c.id}
+                      className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                      {deleting===c.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
+                    </button>
                   </div>
-                  {/* Type badge */}
-                  <div>
-                    {c.call_type === "manual" ? (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-orange-500/15 text-orange-400 border border-orange-500/30">
-                        <Phone className="h-2.5 w-2.5" /> Manual
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-primary/15 text-primary border border-primary/30">
-                        <Bot className="h-2.5 w-2.5" /> AI
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs text-muted-foreground">{c.phone_number ?? "—"}</span>
-                  <div className="flex items-center gap-1">
-                    <span className={cn("w-2 h-2 rounded-full shrink-0", c.direction === "inbound" ? "bg-blue-400" : "bg-green-400")} />
-                    <span className="text-xs capitalize">{c.direction}</span>
-                  </div>
-                  <span className="text-xs">{formatDuration(c.duration_seconds)}</span>
-                  <div className="flex items-center gap-1">
-                    <span className={cn("w-2 h-2 rounded-full shrink-0",
-                      c.status === "completed" ? "bg-green-400" : c.status === "no_answer" ? "bg-red-400" : "bg-yellow-400")} />
-                    <span className="text-[10px] capitalize">{c.status?.replace("_", " ") ?? "—"}</span>
-                  </div>
-                  {/* Recording player */}
-                  <div>
-                    {c.recording_url ? (
-                      <audio controls src={c.recording_url} className="h-6 w-full max-w-[180px]" style={{ height: "24px" }} />
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/50">No recording</span>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => handleDelete(c.id)}
-                    disabled={deleting === c.id}
-                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    {deleting === c.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
       </div>
+
+      {/* ── Log a Call Modal ─────────────────────────────────────────────── */}
+      {showLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowLog(false)} />
+          <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-card border-b border-border/30 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+              <div>
+                <h2 className="text-base font-semibold">Log a Call</h2>
+                <p className="text-xs text-muted-foreground">Record a call you made from your personal phone</p>
+              </div>
+              <button onClick={() => setShowLog(false)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Contact search */}
+              <div className="space-y-1.5">
+                <Label>Contact</Label>
+                <div className="relative">
+                  <input value={logContact} onChange={e => { setLogContact(e.target.value); setLogForm(f=>({...f, contact_name: e.target.value, contact_id:""})); }}
+                    placeholder="Search by name…" className="w-full h-9 px-3 text-sm rounded-md border border-input bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                  {contactSuggestions.length > 0 && (
+                    <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-card border border-border/50 rounded-xl shadow-xl overflow-hidden">
+                      {contactSuggestions.map(ct => {
+                        const n = [ct.first_name, ct.last_name].filter(Boolean).join(" ");
+                        return (
+                          <button key={ct.id} onClick={() => { setLogContact(n); setLogForm(f=>({...f, contact_id: ct.id, contact_name: n, phone_number: ct.phone||f.phone_number})); }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/60 text-left">
+                            <span className="font-medium">{n}</span>
+                            {ct.phone && <span className="text-xs text-muted-foreground">{ct.phone}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Phone Number</Label>
+                  <Input value={logForm.phone_number} onChange={e => setLogForm(f=>({...f, phone_number:e.target.value}))} placeholder="+1 (555) 000-0000" />
+                </div>
+                {/* Direction */}
+                <div className="space-y-1.5">
+                  <Label>Direction</Label>
+                  <div className="flex gap-2">
+                    {(["outbound","inbound"] as const).map(d => (
+                      <button key={d} onClick={() => setLogForm(f=>({...f, direction:d}))}
+                        className={cn("flex-1 py-1.5 text-xs font-medium rounded-lg border capitalize transition-colors",
+                          logForm.direction===d ? "bg-primary/10 border-primary/30 text-primary" : "border-border/30 text-muted-foreground hover:text-foreground")}>
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Date/time */}
+                <div className="space-y-1.5">
+                  <Label>Date & Time</Label>
+                  <Input type="datetime-local" value={logForm.called_at} onChange={e => setLogForm(f=>({...f, called_at:e.target.value}))} className="text-xs" />
+                </div>
+                {/* Duration */}
+                <div className="space-y-1.5">
+                  <Label>Duration</Label>
+                  <div className="flex items-center gap-1.5">
+                    <Input type="number" min="0" value={logForm.duration_min} onChange={e => setLogForm(f=>({...f, duration_min:e.target.value}))} className="w-16 text-center text-sm" />
+                    <span className="text-xs text-muted-foreground">min</span>
+                    <Input type="number" min="0" max="59" value={logForm.duration_sec} onChange={e => setLogForm(f=>({...f, duration_sec:e.target.value}))} className="w-16 text-center text-sm" />
+                    <span className="text-xs text-muted-foreground">sec</span>
+                  </div>
+                </div>
+                {/* Status */}
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <select value={logForm.status} onChange={e => setLogForm(f=>({...f, status:e.target.value}))}
+                    className="w-full h-9 rounded-md border border-input bg-background/50 px-3 text-sm">
+                    {[["completed","Completed"],["no_answer","No Answer"],["busy","Busy"],["voicemail","Voicemail"],["left_message","Left Message"],["callback","Callback Scheduled"]].map(([v,l]) => (
+                      <option key={v} value={v}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Notes</Label>
+                <Textarea value={logForm.notes} onChange={e => setLogForm(f=>({...f, notes:e.target.value}))} placeholder="What was discussed…" rows={2} className="text-sm resize-none" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Recording URL <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Input value={logForm.recording_url} onChange={e => setLogForm(f=>({...f, recording_url:e.target.value}))} placeholder="https://…" />
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <Button variant="outline" onClick={() => setShowLog(false)} className="flex-1" disabled={logSaving}>Cancel</Button>
+                <Button onClick={handleLogSave} disabled={logSaving || (!logForm.contact_name.trim() && !logForm.phone_number.trim())} className="flex-1">
+                  {logSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Call Log"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Bridge Call Modal ────────────────────────────────────────────── */}
+      {showBridge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => { if(!bridgeCalling) setShowBridge(false); }} />
+          <div className="relative bg-card border border-border/50 rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="sticky top-0 bg-card border-b border-border/30 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+              <div>
+                <h2 className="text-base font-semibold">Bridge Call</h2>
+                <p className="text-xs text-muted-foreground">Your phone rings first, then connects & records</p>
+              </div>
+              {!bridgeCalling && <button onClick={() => setShowBridge(false)} className="p-1 rounded-lg text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>}
+            </div>
+            <div className="p-6 space-y-4">
+              {/* How it works */}
+              <div className="rounded-xl bg-orange-500/5 border border-orange-500/20 p-3 text-xs text-muted-foreground space-y-1">
+                <p className="font-medium text-orange-400">How Bridge Calls work</p>
+                <ol className="list-decimal ml-4 space-y-0.5">
+                  <li>Twilio calls <strong>your</strong> forwarding number</li>
+                  <li>You pick up on your personal phone</li>
+                  <li>Twilio bridges you to the contact</li>
+                  <li>The entire call is recorded &amp; logged automatically</li>
+                </ol>
+              </div>
+
+              {/* Contact search */}
+              <div className="space-y-1.5 relative">
+                <Label>Contact to call</Label>
+                {bridgeContact ? (
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-secondary/40 border border-border/30">
+                    <div>
+                      <p className="text-sm font-medium">{[bridgeContact.first_name,bridgeContact.last_name].filter(Boolean).join(" ")}</p>
+                      <p className="text-xs text-muted-foreground">{bridgeContact.phone}</p>
+                    </div>
+                    <button onClick={() => { setBridgeContact(null); setBridgeSearch(""); }} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    <input value={bridgeSearch} onChange={e => setBridgeSearch(e.target.value)} placeholder="Search contact…"
+                      className="w-full h-9 pl-8 pr-3 text-sm rounded-md border border-input bg-background/50 focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                    {bridgeSuggestions.length > 0 && (
+                      <div className="absolute z-10 left-0 right-0 top-full mt-1 bg-card border border-border/50 rounded-xl shadow-xl overflow-hidden">
+                        {bridgeSuggestions.map(ct => {
+                          const n = [ct.first_name, ct.last_name].filter(Boolean).join(" ");
+                          return (
+                            <button key={ct.id} onClick={() => { setBridgeContact(ct); setBridgeSearch(n); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary/60 text-left">
+                              <span className="font-medium">{n}</span>
+                              <span className="text-xs text-muted-foreground ml-auto">{ct.phone}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {bridgeStatus && (
+                <div className={cn("text-xs px-3 py-2 rounded-lg border", bridgeStatus.startsWith("✓") ? "bg-green-500/10 border-green-500/30 text-green-400" : bridgeStatus.startsWith("Error") ? "bg-red-500/10 border-red-500/30 text-red-400" : "bg-orange-500/10 border-orange-500/30 text-orange-400")}>
+                  {bridgeStatus}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <Button variant="outline" onClick={() => setShowBridge(false)} className="flex-1" disabled={bridgeCalling}>Cancel</Button>
+                <Button onClick={handleBridgeCall} disabled={bridgeCalling || !bridgeContact || !bridgeContact.phone}
+                  className="flex-1 bg-orange-500 hover:bg-orange-600 text-white border-0">
+                  {bridgeCalling ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <PhoneCall className="h-4 w-4 mr-1" />}
+                  {bridgeCalling ? "Calling…" : "Start Bridge Call"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4088,10 +4088,12 @@ def log_crm_call(body: dict, user=Depends(verify_token)):
     from db import get_conn, sql
     conn = get_conn()
     cur = conn.cursor()
+    called_at_val = body.get("called_at") or None
     cur.execute(sql("""
         INSERT INTO crm_calls (user_id, contact_id, contact_name, phone_number, direction,
-            duration_seconds, status, notes)
-        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+            duration_seconds, status, notes, call_type, recording_url, called_at)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},
+            COALESCE({PH}, CURRENT_TIMESTAMP))
         RETURNING id, called_at
     """), (
         user["id"],
@@ -4102,6 +4104,9 @@ def log_crm_call(body: dict, user=Depends(verify_token)):
         body.get("duration_seconds", 0),
         body.get("status", "completed"),
         body.get("notes"),
+        body.get("call_type", "personal"),
+        body.get("recording_url"),
+        called_at_val,
     ))
     row = cur.fetchone()
     new_id = row["id"] if isinstance(row, dict) else row[0]

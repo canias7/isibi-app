@@ -893,7 +893,7 @@ export interface CRMCall {
   status: string;
   notes?: string | null;
   called_at: string;
-  call_type?: "ai" | "manual" | null;
+  call_type?: "ai" | "manual" | "personal" | null;
   call_sid?: string | null;
   recording_url?: string | null;
 }
