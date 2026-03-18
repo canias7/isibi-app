@@ -35,6 +35,37 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
+# ── Twilio webhook signature validation ───────────────────────────────────────
+# Set TWILIO_VALIDATE_WEBHOOKS=true in Render to enforce signature checking.
+# Twilio signs every request it sends with your auth token.
+_VALIDATE_TWILIO = os.getenv("TWILIO_VALIDATE_WEBHOOKS", "false").lower() == "true"
+_TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
+_BACKEND_URL = os.getenv("BACKEND_URL", "https://isibi-backend.onrender.com")
+
+async def _verify_twilio_signature(request: Request) -> None:
+    """Validate that a webhook request genuinely came from Twilio.
+    Only enforced when TWILIO_VALIDATE_WEBHOOKS=true."""
+    if not _VALIDATE_TWILIO:
+        return
+    if not _TWILIO_AUTH_TOKEN:
+        print("⚠️  TWILIO_VALIDATE_WEBHOOKS=true but TWILIO_AUTH_TOKEN is not set — skipping validation.")
+        return
+    from twilio.request_validator import RequestValidator as _TwilioValidator
+    validator = _TwilioValidator(_TWILIO_AUTH_TOKEN)
+    twilio_sig = request.headers.get("X-Twilio-Signature", "")
+    # Reconstruct the full URL Twilio signed
+    url = str(request.url)
+    if not url.startswith("https://"):
+        url = _BACKEND_URL + str(request.url.path)
+        if request.url.query:
+            url += "?" + request.url.query
+    try:
+        form = dict(await request.form())
+    except Exception:
+        form = {}
+    if not validator.validate(url, form, twilio_sig):
+        raise HTTPException(status_code=403, detail="Invalid Twilio signature")
+
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 PORT = int(os.getenv("PORT", 5050))
@@ -339,6 +370,7 @@ async def outbound_twiml(
 
 @app.post("/incoming-call")
 async def incoming_call(request: Request):
+    await _verify_twilio_signature(request)
     # Twilio sends form data, not JSON
     form_data = await request.form()
     
@@ -439,6 +471,7 @@ async def incoming_call(request: Request):
 @app.post("/sms/webhook")
 async def sms_webhook(request: Request):
     """Public Twilio SMS webhook — handles inbound replies for AI SMS conversations."""
+    await _verify_twilio_signature(request)
     from twilio.rest import Client as TwilioClient
     from anthropic import Anthropic as _Anthropic
     from db import get_conn, sql as _sql
@@ -544,12 +577,24 @@ async def startup_event():
 
 from fastapi.middleware.cors import CORSMiddleware
 
+# ── CORS ──────────────────────────────────────────────────────────────────────
+# Set ALLOWED_ORIGINS in Render as comma-separated list of your frontend domains.
+# Example: "https://isibi-app.lovable.app,https://app.isibi.io,http://localhost:5173"
+_raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+if _raw_origins.strip():
+    ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in _raw_origins.split(",") if o.strip()]
+else:
+    # Fallback: allow all but print a loud warning
+    ALLOWED_ORIGINS = ["*"]
+    print("⚠️  SECURITY WARNING: ALLOWED_ORIGINS env var not set — CORS is open to all origins.")
+    print("⚠️  Set ALLOWED_ORIGINS in Render to restrict access to your frontend domain(s).")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # later restrict to lovable domain
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 app.include_router(prompt_router)
