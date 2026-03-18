@@ -16,5 +16,11 @@
     "ui": "@/components/ui",
     "lib": "@/lib",
     "hooks": "@/hooks"
+  },
+  "registries": {
+    "21st": {
+      "url": "https://21st.dev/r",
+      "type": "registry:ui"
+    }
   }
 }
