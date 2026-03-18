@@ -11,4 +11,4 @@ android/
 *.orig.*
 web-build/
 .env
-isibi-mobile/package-lock.json
+package-lock.json
