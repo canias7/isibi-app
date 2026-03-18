@@ -1853,3 +1853,22 @@ export const searchApollo  = (prompt: string): Promise<{ leads: SearchLead[]; to
 
 export const searchNextGen = (params: { vertical?: string; state?: string; limit?: number }): Promise<{ leads: SearchLead[]; total: number }> =>
   mktFetch("/search/nextgen", { method: "POST", body: JSON.stringify(params) });
+
+export const generateOutreachMessage = (lead: SearchLead, channel: "sms" | "email" | "call", context?: string) =>
+  mktFetch("/outreach/generate", { method: "POST", body: JSON.stringify({ lead, channel, context }) });
+
+// Send SMS to a lead phone number (reuses existing CRM SMS infra)
+export const sendLeadSMS = (phone: string, message: string) =>
+  fetch(`${API_BASE}/api/sms/send-to-number`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ phone, message }),
+  }).then(r => r.json());
+
+// Initiate outbound call to a lead
+export const callLead = (phone: string, name: string) =>
+  fetch(`${API_BASE}/api/calls/outbound`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ to_number: phone, contact_name: name }),
+  }).then(r => r.json());

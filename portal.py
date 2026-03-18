@@ -6759,6 +6759,63 @@ def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
     return {"source": "nextgen", "leads": leads, "total": len(leads)}
 
 
+# ── AI outreach message generator ─────────────────────────────────────────────
+
+@router.post("/marketplace/outreach/generate")
+def generate_outreach_message(body: dict, user=Depends(verify_token)):
+    """
+    AI generates a personalized SMS, email subject+body, or call script
+    based on a lead's info.
+    Body: { lead: {...}, channel: 'sms'|'email'|'call', context: str (optional) }
+    """
+    lead    = body.get("lead", {})
+    channel = body.get("channel", "sms")
+    context = body.get("context", "")   # e.g. "I sell health insurance"
+
+    name      = lead.get("name") or lead.get("first_name", "there")
+    title     = lead.get("title", "")
+    company   = lead.get("company", "")
+    interest  = lead.get("interest", "")
+    industry  = lead.get("industry", "")
+    location  = " ".join(filter(None, [lead.get("city",""), lead.get("state","")]))
+
+    about_lead = f"Name: {name}"
+    if title:    about_lead += f", Title: {title}"
+    if company:  about_lead += f", Company: {company}"
+    if interest: about_lead += f", Interest: {interest}"
+    if industry: about_lead += f", Industry: {industry}"
+    if location: about_lead += f", Location: {location}"
+
+    if channel == "sms":
+        system = "You write short, personalized, friendly SMS messages for sales outreach. Keep it under 160 characters. No spam language. Sound human."
+        user_prompt = f"""Write a single SMS to this lead:\n{about_lead}\n\nContext about the sender: {context or 'Sales professional'}\n\nSMS only, no quotes, no labels."""
+    elif channel == "email":
+        system = "You write personalized sales email subject lines and bodies. Professional but warm. Keep body under 150 words. No spam words."
+        user_prompt = f"""Write a sales email to this lead:\n{about_lead}\n\nSender context: {context or 'Sales professional'}\n\nRespond in JSON: {{"subject": "...", "body": "..."}}"""
+    else:  # call script
+        system = "You write short, natural call opening scripts for sales reps. 30-45 seconds when spoken aloud. Sound like a real person."
+        user_prompt = f"""Write a call opening script to this lead:\n{about_lead}\n\nSender context: {context or 'Sales professional'}\n\nScript only, no labels."""
+
+    resp = _oai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role":"system","content":system},{"role":"user","content":user_prompt}],
+        max_tokens=300,
+        temperature=0.7,
+        **({"response_format":{"type":"json_object"}} if channel == "email" else {})
+    )
+    content = resp.choices[0].message.content.strip()
+
+    if channel == "email":
+        import json as _json
+        try:
+            parsed = _json.loads(content)
+            return {"channel": "email", "subject": parsed.get("subject",""), "body": parsed.get("body","")}
+        except Exception:
+            return {"channel": "email", "subject": "Following up", "body": content}
+
+    return {"channel": channel, "message": content}
+
+
 # ── Keep old unused stub so old imports don't break ───────────────────────────
 @router.get("/leads/settings")
 def get_leads_settings(user=Depends(verify_token)):
