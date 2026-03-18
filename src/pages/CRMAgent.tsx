@@ -2908,6 +2908,34 @@ function PhoneSetupView() {
   const [purchasing, setPurchasing]   = useState<string | null>(null);
   const [releasing, setReleasing]     = useState<string | null>(null);
 
+  // Personal phone connection
+  const [personalNumber, setPersonalNumber] = useState("");
+  const [savedPersonal, setSavedPersonal]   = useState("");
+  const [savingPersonal, setSavingPersonal] = useState(false);
+  const [personalEdit, setPersonalEdit]     = useState(false);
+
+  useEffect(() => {
+    getAccountProfile().then((p: any) => {
+      if (p?.forward_calls_to) {
+        setSavedPersonal(p.forward_calls_to);
+        setPersonalNumber(p.forward_calls_to);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSavePersonal = async () => {
+    if (!personalNumber.trim()) return;
+    setSavingPersonal(true);
+    try {
+      await updateAccountProfile({ forward_calls_to: personalNumber.trim() });
+      setSavedPersonal(personalNumber.trim());
+      setPersonalEdit(false);
+      toast({ title: "Phone connected ✓", description: "Inbound calls will now forward to " + personalNumber.trim() });
+    } catch {
+      toast({ title: "Failed to save", variant: "destructive" });
+    } finally { setSavingPersonal(false); }
+  };
+
   const fetchMyNumbers = async () => {
     setLoadingMy(true);
     try { setMyNumbers(await getMyPhoneNumbers()); }
@@ -2985,6 +3013,75 @@ function PhoneSetupView() {
       <div className="flex-1 overflow-auto p-6 space-y-6 max-w-5xl">
         {phoneTab === "numbers" && (
           <>
+            {/* ── Connect Your Personal Phone ── */}
+            <div className={cn("rounded-xl border p-6 transition-all", savedPersonal && !personalEdit ? "border-green-500/30 bg-green-500/5" : "border-blue-500/30 bg-blue-500/5")}>
+              <div className="flex items-start gap-4">
+                <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0", savedPersonal && !personalEdit ? "bg-green-500/15" : "bg-blue-500/15")}>
+                  <Phone className={cn("h-6 w-6", savedPersonal && !personalEdit ? "text-green-400" : "text-blue-400")} />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-base font-semibold">Connect Your Personal Phone</h2>
+                    {savedPersonal && !personalEdit && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30 font-bold">● Connected</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Enter your personal cell number. When someone calls your business Twilio number,
+                    the call forwards to <strong>your phone</strong> and is recorded automatically.
+                  </p>
+
+                  {savedPersonal && !personalEdit ? (
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-green-500/10 border border-green-500/20 flex-1">
+                        <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
+                        <span className="font-semibold text-sm">{savedPersonal}</span>
+                        <span className="text-xs text-muted-foreground ml-auto">Your forwarding number</span>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => setPersonalEdit(true)}>
+                        <Pencil className="h-3.5 w-3.5 mr-1" /> Change
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3 items-end">
+                      <div className="flex-1 space-y-1.5">
+                        <label className="text-xs text-muted-foreground font-medium">Your Personal Cell Number</label>
+                        <Input
+                          value={personalNumber}
+                          onChange={e => setPersonalNumber(e.target.value)}
+                          placeholder="+1 (555) 000-0000"
+                          className="h-10 text-sm"
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        {savedPersonal && <Button variant="outline" size="sm" className="h-10" onClick={() => { setPersonalEdit(false); setPersonalNumber(savedPersonal); }}>Cancel</Button>}
+                        <Button onClick={handleSavePersonal} disabled={savingPersonal || !personalNumber.trim()} className="h-10 bg-blue-500 hover:bg-blue-600 text-white border-0 gap-2">
+                          {savingPersonal ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                          {savingPersonal ? "Connecting…" : "Connect My Phone"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {savedPersonal && !personalEdit && (
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      {[
+                        { icon: PhoneIncoming, label: "Inbound calls forwarded to you", ok: true },
+                        { icon: PhoneCall,     label: "Bridge calls go through your phone", ok: true },
+                        { icon: Activity,      label: "All calls recorded automatically", ok: true },
+                        { icon: Bot,           label: "AI agent handles calls when active", ok: true },
+                      ].map(item => (
+                        <div key={item.label} className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <item.icon className="h-3.5 w-3.5 text-green-400 shrink-0" />
+                          {item.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
             {/* Search & Purchase */}
             <div className="rounded-xl border border-border/30 bg-card/40 p-6">
               <div className="flex items-center gap-3 mb-5">

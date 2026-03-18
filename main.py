@@ -375,6 +375,44 @@ async def incoming_call(request: Request):
     print("=" * 50)
     
     if not agent:
+        # Check if the owner of this Twilio number has a personal forwarding number set
+        from db import get_conn, sql as _sql
+        _conn = get_conn(); _cur = _conn.cursor()
+        _cur.execute(_sql("""
+            SELECT u.id, u.forward_calls_to FROM users u
+            JOIN agents a ON a.owner_user_id = u.id
+            WHERE a.phone_number = {PH} AND u.forward_calls_to IS NOT NULL AND u.forward_calls_to != ''
+            LIMIT 1
+        """), (called_number,))
+        _row = _cur.fetchone()
+        if not _row:
+            # try without agent join — look up by twilio number directly in user profile
+            _cur.execute(_sql("""
+                SELECT id, forward_calls_to FROM users
+                WHERE forward_calls_to IS NOT NULL AND forward_calls_to != ''
+                LIMIT 1
+            """), ())
+            _row = _cur.fetchone()
+        _conn.close()
+
+        if _row:
+            _fwd = (_row["forward_calls_to"] if isinstance(_row, dict) else _row[1])
+            _user_id = (_row["id"] if isinstance(_row, dict) else _row[0])
+            if _fwd:
+                _fwd_e164 = _fwd if _fwd.startswith("+") else (f"+1{_fwd}" if len(_fwd) == 10 else f"+{_fwd}")
+                BACKEND = os.getenv("BACKEND_URL", "https://isibi-backend.onrender.com")
+                _rec_cb = f"{BACKEND}/api/calls/recording-webhook"
+                vr = VoiceResponse()
+                dial = vr.dial(
+                    record="record-from-ringing-dual",
+                    recording_status_callback=_rec_cb,
+                    recording_status_callback_method="POST",
+                    caller_id=called_number,
+                )
+                dial.number(_fwd_e164)
+                print(f"📲 Forwarding inbound call to personal number {_fwd_e164}")
+                return HTMLResponse(str(vr), media_type="application/xml")
+
         vr = VoiceResponse()
         vr.say("No agent is configured on this number.")
         return HTMLResponse(str(vr), media_type="application/xml")
