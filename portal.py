@@ -6574,19 +6574,21 @@ def _mask(key: str) -> str:
 def get_marketplace_keys(user=Depends(verify_token)):
     """Return which API keys the user has connected (masked)."""
     conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT apollo_api_key, nextgen_api_key FROM users WHERE id={PH}"), (user["id"],))
+    cur.execute(sql("SELECT apollo_api_key, nextgen_api_key, vibe_api_key FROM users WHERE id={PH}"), (user["id"],))
     row = cur.fetchone(); conn.close()
     ak = (row["apollo_api_key"]  if isinstance(row, dict) else (row[0] if row else "")) or ""
     nk = (row["nextgen_api_key"] if isinstance(row, dict) else (row[1] if row else "")) or ""
+    vk = (row["vibe_api_key"]    if isinstance(row, dict) else (row[2] if row else "")) or ""
     return {
         "apollo":  {"connected": bool(ak), "masked": _mask(ak)},
         "nextgen": {"connected": bool(nk), "masked": _mask(nk)},
+        "vibe":    {"connected": bool(vk), "masked": _mask(vk)},
     }
 
 
 @router.post("/marketplace/keys")
 def save_marketplace_keys(body: dict, user=Depends(verify_token)):
-    """Save Apollo and/or NextGen API keys for this user."""
+    """Save Apollo, NextGen and/or Vibe API keys for this user."""
     conn = get_conn(); cur = conn.cursor()
     updates = []
     params = []
@@ -6596,6 +6598,9 @@ def save_marketplace_keys(body: dict, user=Depends(verify_token)):
     if "nextgen_key" in body:
         updates.append(sql("nextgen_api_key = {PH}"))
         params.append((body["nextgen_key"] or "").strip())
+    if "vibe_key" in body:
+        updates.append(sql("vibe_api_key = {PH}"))
+        params.append((body["vibe_key"] or "").strip())
     if not updates:
         return {"ok": True}
     params.append(user["id"])
@@ -6760,6 +6765,125 @@ def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
 
 
 # ── AI outreach message generator ─────────────────────────────────────────────
+
+
+
+@router.post("/marketplace/search/vibe")
+def marketplace_vibe_search(body: dict, user=Depends(verify_token)):
+    """
+    Search Explorium (Vibe Prospecting) using the user's own API key.
+    Body: { prompt: str, size: int }
+    API: POST https://api.explorium.ai/v1/prospects
+    Auth header: API_KEY: <key>
+    """
+    import json as _json
+
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT vibe_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    vibe_key = (row["vibe_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
+    if not vibe_key:
+        raise HTTPException(400, "Vibe Prospecting API key not connected. Add it in Leads Settings.")
+
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Prompt is required")
+
+    size = min(int(body.get("size", 25)), 100)
+
+    # GPT extracts Explorium-compatible filters from natural language
+    filter_system = """Extract Explorium prospect search filters from the user's lead request.
+Return ONLY valid JSON with these optional fields:
+{
+  "job_levels": [],
+  "job_departments": [],
+  "country_codes": [],
+  "company_size_min": null,
+  "company_size_max": null,
+  "keywords": []
+}
+job_levels options: c_suite, vp, director, manager, individual_contributor
+job_departments options: sales, marketing, engineering, finance, hr, operations, it, legal, product
+country_codes: ISO 2-letter codes, e.g. ["US"]
+company_size: integers or null"""
+
+    try:
+        gpt = _oai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": filter_system}, {"role": "user", "content": prompt}],
+            max_tokens=300, temperature=0.2, response_format={"type": "json_object"}
+        )
+        filters = _json.loads(gpt.choices[0].message.content)
+    except Exception:
+        filters = {}
+
+    # Build Explorium filter payload
+    ef: dict = {"has_email": {"value": True}}
+    if filters.get("job_levels"):
+        ef["job_level"] = {"values": filters["job_levels"]}
+    if filters.get("job_departments"):
+        ef["job_department"] = {"values": filters["job_departments"]}
+    if filters.get("country_codes"):
+        ef["country_code"] = {"values": filters["country_codes"]}
+    if filters.get("company_size_min") or filters.get("company_size_max"):
+        cs: dict = {}
+        if filters.get("company_size_min"): cs["gte"] = filters["company_size_min"]
+        if filters.get("company_size_max"): cs["lte"] = filters["company_size_max"]
+        ef["company_size"] = cs
+
+    payload = {
+        "mode": "full",
+        "size": size,
+        "page_size": size,
+        "page": 1,
+        "filters": ef,
+    }
+
+    try:
+        resp = requests.post(
+            "https://api.explorium.ai/v1/prospects",
+            json=payload,
+            headers={"API_KEY": vibe_key, "Content-Type": "application/json"},
+            timeout=30
+        )
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(502, f"Vibe Prospecting request failed: {e}")
+
+    if resp.status_code == 401:
+        raise HTTPException(401, "Invalid Vibe Prospecting API key. Check your key in Leads Settings.")
+    if resp.status_code == 402:
+        raise HTTPException(402, "Insufficient Vibe Prospecting credits.")
+    if resp.status_code != 200:
+        msg = data.get("message") or data.get("error") or f"Vibe error {resp.status_code}"
+        raise HTTPException(502, msg)
+
+    raw = data.get("prospects") or data.get("data") or data.get("results") or []
+    leads = []
+    for p in raw:
+        org = p.get("organization") or p.get("company") or {}
+        phones = p.get("phone_numbers") or []
+        phone = phones[0] if phones and isinstance(phones[0], str) else (phones[0].get("number", "") if phones else "")
+        leads.append({
+            "source":       "vibe",
+            "name":         p.get("full_name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+            "first_name":   p.get("first_name", ""),
+            "last_name":    p.get("last_name", ""),
+            "title":        p.get("job_title") or p.get("title", ""),
+            "company":      p.get("company_name") or (org.get("name") if isinstance(org, dict) else "") or "",
+            "email":        p.get("email") or p.get("work_email", ""),
+            "phone":        p.get("phone") or phone or "",
+            "city":         p.get("city", ""),
+            "state":        p.get("state") or p.get("region", ""),
+            "country":      p.get("country") or p.get("country_code", ""),
+            "linkedin_url": p.get("linkedin_url") or p.get("linkedin_profile_url", ""),
+            "company_size": p.get("company_size") or (org.get("size") if isinstance(org, dict) else "") or "",
+            "industry":     p.get("industry") or p.get("company_industry", ""),
+            "website":      p.get("company_website") or (org.get("website") if isinstance(org, dict) else "") or "",
+        })
+
+    return {"source": "vibe", "leads": leads, "total": len(leads), "filters": filters}
+
 
 @router.post("/marketplace/outreach/generate")
 def generate_outreach_message(body: dict, user=Depends(verify_token)):

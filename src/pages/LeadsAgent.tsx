@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
   getMarketplaceKeys, saveMarketplaceKeys,
-  searchApollo, searchNextGen, generateOutreachMessage,
+  searchApollo, searchNextGen, searchVibe, generateOutreachMessage,
   sendLeadSMS, callLead,
   type MarketplaceKeys, type SearchLead,
 } from "@/lib/api";
@@ -207,12 +207,14 @@ function KeysModal({ keys, onSaved, onClose }: {
 }) {
   const [apolloKey,  setApolloKey]  = useState("");
   const [nextgenKey, setNextgenKey] = useState("");
+  const [vibeKey,    setVibeKey]    = useState("");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     const body: Record<string, string> = {};
     if (apolloKey.trim())  body.apollo_key  = apolloKey.trim();
     if (nextgenKey.trim()) body.nextgen_key = nextgenKey.trim();
+    if (vibeKey.trim())    body.vibe_key    = vibeKey.trim();
     if (!Object.keys(body).length) { onClose(); return; }
     setSaving(true);
     try {
@@ -285,6 +287,29 @@ function KeysModal({ keys, onSaved, onClose }: {
           </div>
         </div>
 
+        {/* Vibe Prospecting */}
+        <div className="p-4 rounded-xl border border-border/30 bg-secondary/10 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center"><Sparkles className="h-4 w-4 text-purple-400"/></div>
+              <div>
+                <p className="text-sm font-medium">Vibe Prospecting</p>
+                <p className="text-xs text-muted-foreground">B2B · 800M+ professionals · 150M+ companies</p>
+              </div>
+            </div>
+            {keys.vibe?.connected
+              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
+              : <Badge className="text-[10px] text-muted-foreground border-border/30 bg-secondary/50">Not connected</Badge>}
+          </div>
+          {keys.vibe?.connected && <p className="text-[11px] text-muted-foreground font-mono bg-secondary/30 px-3 py-1 rounded">{keys.vibe.masked}</p>}
+          <div className="flex items-center gap-2">
+            <input value={vibeKey} onChange={e => setVibeKey(e.target.value)} placeholder="Explorium API key…" type="password"
+              className="flex-1 h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"/>
+            <a href="https://www.vibeprospecting.ai" target="_blank" rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0">Get key <ExternalLink className="h-3 w-3"/></a>
+          </div>
+        </div>
+
         <div className="flex gap-3">
           <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
           <Button onClick={save} disabled={saving} className="flex-1">
@@ -341,8 +366,10 @@ function LeadRow({ lead, onOutreach }: { lead: SearchLead; onOutreach: (l: Searc
         <Badge className={cn("text-[10px] border px-2 hidden sm:flex",
           lead.source === "apollo"
             ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
+            : lead.source === "vibe"
+            ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
             : "bg-blue-500/10 text-blue-300 border-blue-500/20")}>
-          {lead.source === "apollo" ? "Apollo" : "NextGen"}
+          {lead.source === "apollo" ? "Apollo" : lead.source === "vibe" ? "Vibe" : "NextGen"}
         </Badge>
         {lead.linkedin_url && (
           <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
@@ -363,9 +390,9 @@ function LeadRow({ lead, onOutreach }: { lead: SearchLead; onOutreach: (l: Searc
 // ── Chat message types ────────────────────────────────────────────────────────
 type Msg =
   | { role: "user"; text: string }
-  | { role: "assistant"; leads: SearchLead[]; source: "apollo" | "nextgen"; prompt: string }
+  | { role: "assistant"; leads: SearchLead[]; source: "apollo" | "nextgen" | "vibe"; prompt: string }
   | { role: "error"; text: string }
-  | { role: "thinking"; source: "apollo" | "nextgen" };
+  | { role: "thinking"; source: "apollo" | "nextgen" | "vibe" };
 
 const NEXTGEN_VERTICALS = [
   { id: "health_insurance", label: "Health Insurance" },
@@ -393,7 +420,7 @@ export default function LeadsAgent() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
-  const [source, setSource]     = useState<"apollo" | "nextgen">("apollo");
+  const [source, setSource]     = useState<"apollo" | "nextgen" | "vibe">("apollo");
   const [outreachLead, setOutreachLead] = useState<SearchLead | null>(null);
 
   // NextGen filters
@@ -409,6 +436,7 @@ export default function LeadsAgent() {
 
   const hasApollo  = keys?.apollo.connected  ?? false;
   const hasNextGen = keys?.nextgen.connected ?? false;
+  const hasVibe    = keys?.vibe?.connected   ?? false;
 
   const runApolloSearch = async (q: string) => {
     setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking", source: "apollo" }]);
@@ -441,9 +469,28 @@ export default function LeadsAgent() {
     } finally { setBusy(false); }
   };
 
+  const runVibeSearch = async (q: string) => {
+    setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking", source: "vibe" }]);
+    setBusy(true);
+    try {
+      const res = await searchVibe(q);
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== "thinking"),
+        { role: "assistant", leads: res.leads, source: "vibe", prompt: q },
+      ]);
+    } catch (e: any) {
+      setMessages(prev => [...prev.filter(m => m.role !== "thinking"), { role: "error", text: e.message || "Search failed" }]);
+      if (e.message?.toLowerCase().includes("key")) setShowKeys(true);
+    } finally { setBusy(false); inputRef.current?.focus(); }
+  };
+
   const handleSend = () => {
     const q = input.trim();
     if (!q || busy) return;
+    if (source === "vibe") {
+      if (!hasVibe) { setShowKeys(true); return; }
+      setInput(""); runVibeSearch(q); return;
+    }
     if (!hasApollo) { setShowKeys(true); return; }
     setInput("");
     runApolloSearch(q);
@@ -469,8 +516,9 @@ export default function LeadsAgent() {
         {/* Source switcher */}
         <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/30 border border-border/30 ml-3">
           {[
-            { id: "apollo",  label: "Apollo",   icon: Target, color: "text-orange-400", has: hasApollo  },
-            { id: "nextgen", label: "NextGen",   icon: Zap,    color: "text-blue-400",  has: hasNextGen },
+            { id: "apollo",  label: "Apollo",   icon: Target, color: "text-orange-400",  has: hasApollo  },
+            { id: "nextgen", label: "NextGen",   icon: Zap,    color: "text-blue-400",   has: hasNextGen },
+            { id: "vibe",    label: "Vibe",      icon: Sparkles, color: "text-purple-400", has: hasVibe   },
           ].map(s => {
             const Icon = s.icon;
             return (
@@ -488,11 +536,11 @@ export default function LeadsAgent() {
         <div className="ml-auto">
           <button onClick={() => setShowKeys(true)}
             className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
-              (hasApollo || hasNextGen)
+              (hasApollo || hasNextGen || hasVibe)
                 ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/15"
                 : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/15 animate-pulse")}>
             <Settings className="h-3.5 w-3.5"/>
-            {hasApollo || hasNextGen ? "API Keys" : "Connect Keys"}
+            {hasApollo || hasNextGen || hasVibe ? "API Keys" : "Connect Keys"}
           </button>
         </div>
       </div>
@@ -501,13 +549,13 @@ export default function LeadsAgent() {
       <div className="flex-1 overflow-y-auto">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full gap-6 pb-24 px-4 text-center">
-            {(!hasApollo && !hasNextGen) ? (
+            {(!hasApollo && !hasNextGen && !hasVibe) ? (
               <div className="max-w-sm space-y-4">
                 <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto">
                   <Key className="h-7 w-7 text-orange-400"/>
                 </div>
                 <h2 className="text-lg font-bold">Connect your lead sources</h2>
-                <p className="text-sm text-muted-foreground">Add your Apollo.io and/or NextGen Leads API keys to start finding leads instantly.</p>
+                <p className="text-sm text-muted-foreground">Add your Apollo.io, NextGen Leads, and/or Vibe Prospecting API keys to start finding leads instantly.</p>
                 <Button onClick={() => setShowKeys(true)} className="gap-2 mx-auto"><Key className="h-4 w-4"/>Connect API Keys →</Button>
               </div>
             ) : source === "apollo" ? (
@@ -529,13 +577,38 @@ export default function LeadsAgent() {
                 </div>
               </div>
             ) : (
-              <div className="max-w-sm space-y-3 text-center">
-                <div className="flex items-center justify-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><Zap className="h-4 w-4 text-blue-400"/></div>
-                  <h2 className="text-lg font-bold">NextGen Leads</h2>
+              {source === "nextgen" ? (
+                <div className="max-w-sm space-y-3 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><Zap className="h-4 w-4 text-blue-400"/></div>
+                    <h2 className="text-lg font-bold">NextGen Leads</h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Pick a category below and click Get Leads</p>
                 </div>
-                <p className="text-sm text-muted-foreground">Pick a category below and click Get Leads</p>
-              </div>
+              ) : (
+                <div className="max-w-lg space-y-5">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center"><Sparkles className="h-4 w-4 text-purple-400"/></div>
+                      <h2 className="text-lg font-bold">Vibe Prospecting</h2>
+                    </div>
+                    <p className="text-sm text-muted-foreground">800M+ professionals · 150M+ companies · 50+ data sources</p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {[
+                      "Sales VPs at Series B fintech companies in San Francisco",
+                      "CTOs at healthcare SaaS startups with 50–200 employees",
+                      "Marketing directors at e-commerce brands in New York",
+                      "Finance executives at companies that raised funding in the last 90 days",
+                    ].map(s => (
+                      <button key={s} onClick={() => { if (!hasVibe) { setShowKeys(true); return; } runVibeSearch(s); }}
+                        className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/60 transition-all text-left">
+                        "{s}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             )}
           </div>
         )}
@@ -556,7 +629,7 @@ export default function LeadsAgent() {
                 <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-tl-md bg-card/40 border border-border/30">
                   <Loader2 className="h-4 w-4 animate-spin text-primary"/>
                   <span className="text-sm text-muted-foreground">
-                    {msg.source === "apollo" ? "Searching Apollo.io…" : "Fetching NextGen leads…"}
+                    {msg.source === "apollo" ? "Searching Apollo.io…" : msg.source === "vibe" ? "Searching Vibe Prospecting…" : "Fetching NextGen leads…"}
                   </span>
                 </div>
               </div>
@@ -583,8 +656,10 @@ export default function LeadsAgent() {
                       <Badge className={cn("text-xs border px-2.5 py-1",
                         msg.source === "apollo"
                           ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
+                          : msg.source === "vibe"
+                          ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
                           : "bg-blue-500/10 text-blue-300 border-blue-500/20")}>
-                        {msg.source === "apollo" ? "Apollo" : "NextGen"}
+                        {msg.source === "apollo" ? "Apollo" : msg.source === "vibe" ? "Vibe" : "NextGen"}
                       </Badge>
                       <span className="text-sm font-semibold">
                         {msg.leads.length === 0 ? "No leads found — try different search" : `${msg.leads.length} leads found`}
@@ -628,18 +703,24 @@ export default function LeadsAgent() {
 
       {/* ── Input Bar ── */}
       <div className="shrink-0 border-t border-border/30 bg-card/10">
-        {source === "apollo" ? (
+        {source === "apollo" || source === "vibe" ? (
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
             <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder={hasApollo ? 'e.g. "Insurance agents in Miami" or "High income doctors in Texas"' : "Connect your Apollo API key to search →"}
-              disabled={busy || !hasApollo}
+              placeholder={
+                source === "vibe"
+                  ? (hasVibe ? 'e.g. "Sales directors at SaaS companies in New York" or "VPs at funded fintech startups"' : "Connect your Vibe API key to search →")
+                  : (hasApollo ? 'e.g. "Insurance agents in Miami" or "High income doctors in Texas"' : "Connect your Apollo API key to search →")
+              }
+              disabled={busy || (source === "apollo" ? !hasApollo : !hasVibe)}
               className="flex-1 h-11 px-4 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 disabled:opacity-50"
             />
-            <button onClick={handleSend} disabled={busy || !input.trim() || !hasApollo}
+            <button onClick={handleSend} disabled={busy || !input.trim() || (source === "apollo" ? !hasApollo : !hasVibe)}
               className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0",
-                input.trim() && !busy && hasApollo
-                  ? "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg hover:scale-105 active:scale-95"
+                input.trim() && !busy && (source === "apollo" ? hasApollo : hasVibe)
+                  ? source === "vibe"
+                    ? "bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-lg hover:scale-105 active:scale-95"
+                    : "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg hover:scale-105 active:scale-95"
                   : "bg-secondary/30 text-muted-foreground cursor-not-allowed")}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
             </button>

@@ -1818,15 +1818,16 @@ export const getPurchasedLeads      = (): Promise<MarketplaceLead[]> => mktFetch
 export interface MarketplaceKeys {
   apollo:  { connected: boolean; masked: string };
   nextgen: { connected: boolean; masked: string };
+  vibe:    { connected: boolean; masked: string };
 }
 
 export const getMarketplaceKeys = (): Promise<MarketplaceKeys> => mktFetch("/keys");
-export const saveMarketplaceKeys = (keys: { apollo_key?: string; nextgen_key?: string }) =>
+export const saveMarketplaceKeys = (keys: { apollo_key?: string; nextgen_key?: string; vibe_key?: string }) =>
   mktFetch("/keys", { method: "POST", body: JSON.stringify(keys) });
 
 // ── Dual-source search results ────────────────────────────────────────────────
 export interface SearchLead {
-  source: "apollo" | "nextgen";
+  source: "apollo" | "nextgen" | "vibe";
   name: string;
   first_name?: string;
   last_name?: string;
@@ -1853,6 +1854,9 @@ export const searchApollo  = (prompt: string): Promise<{ leads: SearchLead[]; to
 
 export const searchNextGen = (params: { vertical?: string; state?: string; limit?: number }): Promise<{ leads: SearchLead[]; total: number }> =>
   mktFetch("/search/nextgen", { method: "POST", body: JSON.stringify(params) });
+
+export const searchVibe = (prompt: string, size?: number): Promise<{ leads: SearchLead[]; total: number; filters?: object }> =>
+  mktFetch("/search/vibe", { method: "POST", body: JSON.stringify({ prompt, size: size ?? 25 }) });
 
 export const generateOutreachMessage = (lead: SearchLead, channel: "sms" | "email" | "call", context?: string) =>
   mktFetch("/outreach/generate", { method: "POST", body: JSON.stringify({ lead, channel, context }) });
