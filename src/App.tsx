@@ -25,6 +25,7 @@ import WebsiteAgent from "./pages/WebsiteAgent";
 import CRMAgent from "./pages/CRMAgent";
 import Workforce from "./pages/Workforce";
 import Accounting from "./pages/Accounting";
+import LeadsAgent from "./pages/LeadsAgent";
 import NotFound from "./pages/NotFound";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -72,6 +73,7 @@ const App = () => (
           <Route path="/workflow" element={<P><Workflow /></P>} />
           <Route path="/workforce" element={<P><Workforce /></P>} />
           <Route path="/accounting" element={<P><Accounting /></P>} />
+          <Route path="/leads-agent" element={<P><LeadsAgent /></P>} />
           <Route path="/calendar-connected" element={<P><CalendarConnected /></P>} />
           <Route path="/admin" element={<P><AdminDashboard /></P>} />
 

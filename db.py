@@ -993,6 +993,21 @@ def ensure_user_columns():
     )
     """)
 
+    # ── Leads Agent ────────────────────────────────────────────────────────────
+    add_column_if_missing(conn, 'users', 'apollo_api_key', 'TEXT')
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS leads_searches (
+        id {ID},
+        user_id INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        filters_json TEXT,
+        results_count INTEGER DEFAULT 0,
+        results_json TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     conn.commit()
     conn.close()
 

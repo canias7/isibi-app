@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Bot, Phone, Plus, Settings, Users, BrainCircuit,
-  Workflow as WorkflowIcon, Mic, ChevronDown,
+  Workflow as WorkflowIcon, Mic, ChevronDown, Target, ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -277,6 +277,55 @@ export default function DashboardOverview({ agents, onNavigate }: DashboardOverv
           </DropdownMenu>
         </div>
       )}
+      {/* ── Tools row ──────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Tools</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              path: "/leads-agent",
+              icon: Target,
+              label: "Leads Agent",
+              desc: "AI prospecting with Apollo.io",
+              color: "from-orange-500/15 to-rose-500/10 border-orange-500/25",
+              iconColor: "bg-orange-500/10 text-orange-400",
+            },
+            {
+              path: "/accounting",
+              icon: BrainCircuit,
+              label: "Accounting",
+              desc: "Invoices, expenses & P&L",
+              color: "from-emerald-500/15 to-teal-500/10 border-emerald-500/25",
+              iconColor: "bg-emerald-500/10 text-emerald-400",
+            },
+            {
+              path: "/crm-agent",
+              icon: Users,
+              label: "CRM",
+              desc: "Contacts, calls & pipeline",
+              color: "from-violet-500/15 to-purple-500/10 border-violet-500/25",
+              iconColor: "bg-violet-500/10 text-violet-400",
+            },
+          ].map(tool => (
+            <button key={tool.path} onClick={() => navigate(tool.path)}
+              className={cn(
+                "rounded-2xl border bg-gradient-to-br p-4 text-left flex items-center gap-3",
+                "hover:scale-[1.02] active:scale-[0.99] transition-all duration-150 group",
+                tool.color
+              )}>
+              <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", tool.iconColor)}>
+                <tool.icon className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold">{tool.label}</p>
+                <p className="text-xs text-muted-foreground">{tool.desc}</p>
+              </div>
+              <ArrowRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+
     </div>
   );
 }

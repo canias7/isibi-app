@@ -6299,3 +6299,200 @@ def submit_a2p_campaign(body: dict, user=Depends(verify_token)):
     ))
     conn.commit(); conn.close()
     return {"ok": True, "campaign_status": "pending"}
+
+
+# ── Leads Agent ────────────────────────────────────────────────────────────────
+
+@router.get("/leads/settings")
+def get_leads_settings(user=Depends(verify_token)):
+    """Return whether the user has an Apollo API key configured."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone()
+    conn.close()
+    key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else None)) or ""
+    # Return masked key
+    masked = (key[:4] + "•" * (len(key) - 8) + key[-4:]) if len(key) > 8 else ("•" * len(key) if key else "")
+    return {"has_key": bool(key), "masked_key": masked}
+
+
+@router.post("/leads/settings")
+def save_leads_settings(body: dict, user=Depends(verify_token)):
+    """Save the user's Apollo.io API key."""
+    api_key = (body.get("apollo_api_key") or "").strip()
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE users SET apollo_api_key={PH} WHERE id={PH}"), (api_key, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.get("/leads/history")
+def get_leads_history(user=Depends(verify_token)):
+    """Return the user's past lead searches."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT id, prompt, filters_json, results_count, created_at
+        FROM leads_searches WHERE user_id={PH}
+        ORDER BY created_at DESC LIMIT 20
+    """), (user["id"],))
+    rows = cur.fetchall() or []
+    conn.close()
+    return [
+        {
+            "id": r["id"] if isinstance(r, dict) else r[0],
+            "prompt": r["prompt"] if isinstance(r, dict) else r[1],
+            "filters_json": r["filters_json"] if isinstance(r, dict) else r[2],
+            "results_count": r["results_count"] if isinstance(r, dict) else r[3],
+            "created_at": str(r["created_at"] if isinstance(r, dict) else r[4]),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/leads/history/{search_id}/results")
+def get_leads_search_results(search_id: int, user=Depends(verify_token)):
+    """Return the cached results of a previous search."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT results_json FROM leads_searches WHERE id={PH} AND user_id={PH}
+    """), (search_id, user["id"]))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Search not found")
+    raw = row["results_json"] if isinstance(row, dict) else row[0]
+    import json as _json
+    return {"leads": _json.loads(raw) if raw else []}
+
+
+@router.post("/leads/search")
+def search_leads(body: dict, user=Depends(verify_token)):
+    """
+    AI-powered lead search using Apollo.io.
+    1. Use GPT to extract structured filters from the natural-language prompt.
+    2. Call Apollo.io People Search API with those filters.
+    3. Cache results and return leads.
+    """
+    import json as _json
+
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Prompt is required")
+
+    # Get Apollo key: prefer user's own key, fall back to server env var
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone()
+    user_key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else None)) or ""
+    apollo_key = user_key or os.getenv("APOLLO_API_KEY", "")
+    conn.close()
+
+    if not apollo_key:
+        raise HTTPException(400, "Apollo.io API key not configured. Add your key in Leads Agent settings.")
+
+    # ── Step 1: GPT extracts structured filters ──────────────────────────────
+    filter_system = """You are a lead generation assistant. Extract Apollo.io search filters from the user's request.
+Return ONLY valid JSON with these keys (omit any that aren't mentioned):
+{
+  "job_titles": [],          // e.g. ["CEO", "Founder", "VP of Sales"]
+  "locations": [],           // e.g. ["Miami, Florida", "New York, NY", "United States"]
+  "company_size_ranges": [], // e.g. ["1,10", "11,50", "51,200", "201,500", "501,1000", "1001,5000"]
+  "industries": [],          // e.g. ["SaaS", "Healthcare", "Real Estate"]
+  "keywords": [],            // general keywords about the company/person
+  "limit": 25                // number of leads (max 100)
+}
+Only return the JSON object, no explanation."""
+
+    gpt_resp = _oai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": filter_system},
+            {"role": "user", "content": prompt}
+        ],
+        max_tokens=400,
+        temperature=0.2,
+        response_format={"type": "json_object"}
+    )
+    raw_filters = gpt_resp.choices[0].message.content.strip()
+    try:
+        filters = _json.loads(raw_filters)
+    except Exception:
+        filters = {}
+
+    limit = min(int(filters.get("limit", 25)), 100)
+
+    # ── Step 2: Call Apollo.io People Search ──────────────────────────────────
+    apollo_payload = {
+        "api_key": apollo_key,
+        "page": 1,
+        "per_page": limit,
+    }
+    if filters.get("job_titles"):
+        apollo_payload["person_titles"] = filters["job_titles"]
+    if filters.get("locations"):
+        apollo_payload["person_locations"] = filters["locations"]
+    if filters.get("company_size_ranges"):
+        apollo_payload["organization_num_employees_ranges"] = filters["company_size_ranges"]
+    if filters.get("industries"):
+        apollo_payload["q_organization_keyword_tags"] = filters["industries"]
+    if filters.get("keywords"):
+        apollo_payload["q_keywords"] = " ".join(filters["keywords"])
+
+    try:
+        apollo_resp = requests.post(
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            json=apollo_payload,
+            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
+            timeout=30
+        )
+        apollo_data = apollo_resp.json()
+    except Exception as e:
+        raise HTTPException(502, f"Apollo.io request failed: {str(e)}")
+
+    if apollo_resp.status_code == 401:
+        raise HTTPException(401, "Invalid Apollo.io API key. Check your key in Leads Agent settings.")
+    if apollo_resp.status_code != 200:
+        raise HTTPException(502, f"Apollo.io error: {apollo_data.get('message', 'Unknown error')}")
+
+    # ── Step 3: Normalize results ─────────────────────────────────────────────
+    people = apollo_data.get("people") or apollo_data.get("contacts") or []
+    leads = []
+    for p in people:
+        org = p.get("organization") or p.get("account") or {}
+        phone_numbers = p.get("phone_numbers") or []
+        phone = phone_numbers[0].get("sanitized_number", "") if phone_numbers else ""
+        leads.append({
+            "name": p.get("name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+            "first_name": p.get("first_name", ""),
+            "last_name": p.get("last_name", ""),
+            "title": p.get("title") or p.get("headline", ""),
+            "company": org.get("name") or p.get("organization_name", ""),
+            "email": p.get("email", ""),
+            "phone": phone,
+            "city": p.get("city", ""),
+            "state": p.get("state", ""),
+            "country": p.get("country", ""),
+            "linkedin_url": p.get("linkedin_url", ""),
+            "company_size": org.get("num_employees") or org.get("estimated_num_employees", ""),
+            "industry": org.get("industry", ""),
+            "website": org.get("website_url", ""),
+        })
+
+    # ── Step 4: Cache to DB ───────────────────────────────────────────────────
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO leads_searches (user_id, prompt, filters_json, results_count, results_json)
+        VALUES ({PH},{PH},{PH},{PH},{PH})
+        RETURNING id
+    """), (user["id"], prompt, raw_filters, len(leads), _json.dumps(leads)))
+    new_row = cur.fetchone()
+    search_id = (new_row["id"] if isinstance(new_row, dict) else new_row[0]) if new_row else None
+    conn.commit(); conn.close()
+
+    return {
+        "search_id": search_id,
+        "leads": leads,
+        "total": len(leads),
+        "filters": filters,
+        "prompt": prompt,
+    }

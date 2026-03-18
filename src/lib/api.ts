@@ -1694,3 +1694,53 @@ export const submitA2PCampaign = (data: {
   use_case: string; description: string; sample1: string; sample2: string;
   optin_method: string; optin_keywords?: string; optout_keywords?: string;
 }) => phoneFetch("/a2p/campaign", { method: "POST", body: JSON.stringify(data) });
+
+// ── Leads Agent ────────────────────────────────────────────────────────────────
+
+export interface Lead {
+  name: string;
+  first_name?: string;
+  last_name?: string;
+  title?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  linkedin_url?: string;
+  company_size?: string | number;
+  industry?: string;
+  website?: string;
+}
+
+export interface LeadSearch {
+  id: number;
+  prompt: string;
+  filters_json?: string;
+  results_count: number;
+  created_at: string;
+}
+
+export interface LeadSearchResult {
+  search_id?: number;
+  leads: Lead[];
+  total: number;
+  filters?: Record<string, unknown>;
+  prompt?: string;
+}
+
+async function leadsFetch(path: string, opts: RequestInit = {}) {
+  const res = await fetch(`${API_BASE}/api/leads${path}`, {
+    ...opts,
+    headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
+  return res.json();
+}
+
+export const getLeadsSettings  = (): Promise<{ has_key: boolean; masked_key: string }> => leadsFetch("/settings");
+export const saveLeadsSettings  = (apollo_api_key: string) => leadsFetch("/settings", { method: "POST", body: JSON.stringify({ apollo_api_key }) });
+export const getLeadsHistory    = (): Promise<LeadSearch[]> => leadsFetch("/history");
+export const getLeadsSearchResults = (id: number): Promise<{ leads: Lead[] }> => leadsFetch(`/history/${id}/results`);
+export const searchLeads        = (prompt: string): Promise<LeadSearchResult> => leadsFetch("/search", { method: "POST", body: JSON.stringify({ prompt }) });
