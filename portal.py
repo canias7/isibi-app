@@ -6301,8 +6301,268 @@ def submit_a2p_campaign(body: dict, user=Depends(verify_token)):
     return {"ok": True, "campaign_status": "pending"}
 
 
-# ── Leads Agent ────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# LEAD MARKETPLACE  (NextGen-style: admin uploads leads, users buy with credits)
+# ═══════════════════════════════════════════════════════════════════════════════
 
+# ── Browse ────────────────────────────────────────────────────────────────────
+
+@router.get("/marketplace/leads")
+def list_marketplace_leads(
+    category: str = "all",
+    state: str = "",
+    lead_type: str = "",
+    page: int = 1,
+    per_page: int = 24,
+    user=Depends(verify_token),
+):
+    """Browse marketplace leads. Contact info hidden until purchased."""
+    conn = get_conn(); cur = conn.cursor()
+
+    where_clauses = ["ml.is_active = TRUE"]
+    params: list = []
+    if category and category != "all":
+        where_clauses.append(sql("ml.category = {PH}")); params.append(category)
+    if state:
+        where_clauses.append(sql("ml.state ILIKE {PH}")); params.append(state)
+    if lead_type:
+        where_clauses.append(sql("ml.lead_type ILIKE {PH}")); params.append(lead_type)
+
+    where_sql = " AND ".join(where_clauses)
+    offset = (page - 1) * per_page
+
+    cur.execute(f"SELECT COUNT(*) FROM marketplace_leads ml WHERE {where_sql}", params)
+    total_row = cur.fetchone()
+    total = (total_row["count"] if isinstance(total_row, dict) else total_row[0]) if total_row else 0
+
+    leads_sql = f"""
+        SELECT ml.id, ml.category, ml.lead_type,
+               ml.first_name, ml.last_name_initial,
+               ml.age, ml.gender, ml.city, ml.state, ml.zip_code,
+               ml.interest, ml.notes_public,
+               ml.credits_cost, ml.created_at,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.last_name       ELSE NULL END AS last_name,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.email           ELSE NULL END AS email,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.phone           ELSE NULL END AS phone,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.address         ELSE NULL END AS address,
+               CASE WHEN mu.user_id IS NOT NULL THEN ml.notes_private   ELSE NULL END AS notes_private,
+               CASE WHEN mu.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_purchased
+        FROM marketplace_leads ml
+        LEFT JOIN marketplace_unlocks mu
+               ON mu.lead_id = ml.id AND mu.user_id = {sql('{PH}')}
+        WHERE {where_sql}
+        ORDER BY ml.created_at DESC
+        LIMIT {sql('{PH}')} OFFSET {sql('{PH}')}
+    """
+    cur.execute(leads_sql, [user["id"]] + params + [per_page, offset])
+    rows = cur.fetchall(); conn.close()
+
+    def serialize(r):
+        d = dict(r) if isinstance(r, dict) else {
+            "id": r[0], "category": r[1], "lead_type": r[2],
+            "first_name": r[3], "last_name_initial": r[4],
+            "age": r[5], "gender": r[6], "city": r[7], "state": r[8], "zip_code": r[9],
+            "interest": r[10], "notes_public": r[11], "credits_cost": r[12],
+            "created_at": str(r[13]),
+            "last_name": r[14], "email": r[15], "phone": r[16],
+            "address": r[17], "notes_private": r[18], "is_purchased": r[19],
+        }
+        fn = d.get("first_name") or ""
+        ln = d.get("last_name") or ""
+        li = d.get("last_name_initial") or ""
+        d["display_name"] = f"{fn} {ln}".strip() if d.get("is_purchased") else f"{fn} {li}.".strip()
+        if d.get("created_at") and not isinstance(d["created_at"], str):
+            d["created_at"] = str(d["created_at"])
+        return d
+
+    return {"leads": [serialize(r) for r in rows], "total": total,
+            "page": page, "per_page": per_page, "pages": max(1, (total + per_page - 1) // per_page)}
+
+
+@router.post("/marketplace/leads/{lead_id}/purchase")
+def purchase_marketplace_lead(lead_id: int, user=Depends(verify_token)):
+    """Spend credits to purchase a lead and reveal contact info."""
+    conn = get_conn(); cur = conn.cursor()
+
+    cur.execute(sql("SELECT id, credits_cost FROM marketplace_leads WHERE id={PH} AND is_active=TRUE"), (lead_id,))
+    row = cur.fetchone()
+    if not row:
+        conn.close(); raise HTTPException(404, "Lead not found")
+    cost = (row["credits_cost"] if isinstance(row, dict) else row[1]) or 5
+
+    cur.execute(sql("SELECT id FROM marketplace_unlocks WHERE user_id={PH} AND lead_id={PH}"), (user["id"], lead_id))
+    if cur.fetchone():
+        conn.close(); raise HTTPException(400, "Already purchased")
+
+    balance = get_user_credits(user["id"])
+    if balance < cost:
+        conn.close(); raise HTTPException(402, f"Not enough credits. You have {balance}, need {cost}.")
+
+    deduct_credits(user["id"], cost, f"Purchased marketplace lead #{lead_id}")
+    cur.execute(sql("INSERT INTO marketplace_unlocks (user_id, lead_id, credits_spent) VALUES ({PH},{PH},{PH})"),
+                (user["id"], lead_id, cost))
+    conn.commit()
+
+    cur.execute(sql("SELECT * FROM marketplace_leads WHERE id={PH}"), (lead_id,))
+    lead_row = cur.fetchone(); conn.close()
+    lead = dict(lead_row) if isinstance(lead_row, dict) else {}
+    lead["is_purchased"] = True
+    lead["display_name"] = f"{lead.get('first_name','')} {lead.get('last_name','')}".strip()
+    for k in ("created_at",):
+        if lead.get(k) and not isinstance(lead[k], str): lead[k] = str(lead[k])
+    return {"ok": True, "lead": lead, "credits_remaining": get_user_credits(user["id"])}
+
+
+@router.get("/marketplace/stats")
+def get_marketplace_stats(user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute("SELECT category, COUNT(*) FROM marketplace_leads WHERE is_active=TRUE GROUP BY category")
+    cats = cur.fetchall()
+    cur.execute(sql("SELECT COUNT(*) FROM marketplace_unlocks WHERE user_id={PH}"), (user["id"],))
+    pur_row = cur.fetchone()
+    purchased = (pur_row["count"] if isinstance(pur_row, dict) else pur_row[0]) if pur_row else 0
+    conn.close()
+    counts = {}
+    for r in cats:
+        k = r["category"] if isinstance(r, dict) else r[0]
+        v = r["count"] if isinstance(r, dict) else r[1]
+        counts[k] = v
+    return {"category_counts": counts, "total": sum(counts.values()),
+            "purchased": purchased, "balance": get_user_credits(user["id"])}
+
+
+@router.get("/marketplace/purchased")
+def get_purchased_leads(user=Depends(verify_token)):
+    """All leads the user has purchased."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        SELECT ml.*, mu.unlocked_at
+        FROM marketplace_leads ml
+        JOIN marketplace_unlocks mu ON mu.lead_id = ml.id
+        WHERE mu.user_id = {PH} ORDER BY mu.unlocked_at DESC
+    """), (user["id"],))
+    rows = cur.fetchall(); conn.close()
+    result = []
+    for r in rows:
+        d = dict(r) if isinstance(r, dict) else {}
+        d["is_purchased"] = True
+        d["display_name"] = f"{d.get('first_name','')} {d.get('last_name','')}".strip()
+        for k in ("created_at", "unlocked_at"):
+            if d.get(k) and not isinstance(d[k], str): d[k] = str(d[k])
+        result.append(d)
+    return result
+
+
+# ── Admin: upload leads via CSV or single entry ───────────────────────────────
+
+@router.post("/marketplace/admin/upload-csv")
+async def admin_upload_leads_csv(
+    request: Request,
+    user=Depends(verify_token),
+):
+    """
+    Admin-only. Upload a CSV of leads.
+    Expected columns (case-insensitive): category, lead_type, first_name, last_name,
+    email, phone, age, gender, city, state, zip_code, interest, notes_public,
+    notes_private, credits_cost
+    """
+    from admin import is_admin
+    import csv, io
+    if not is_admin(user["id"]):
+        raise HTTPException(403, "Admin only")
+
+    body = await request.body()
+    text = body.decode("utf-8-sig", errors="replace")
+    reader = csv.DictReader(io.StringIO(text))
+
+    # Normalize headers
+    def norm(h): return h.strip().lower().replace(" ", "_")
+    conn = get_conn(); cur = conn.cursor()
+    inserted = skipped = 0
+
+    for row in reader:
+        row = {norm(k): (v or "").strip() for k, v in row.items()}
+        fn = row.get("first_name") or row.get("firstname") or ""
+        if not fn:
+            skipped += 1; continue
+        try:
+            cur.execute(sql("""
+                INSERT INTO marketplace_leads
+                    (category, lead_type, first_name, last_name, last_name_initial,
+                     email, phone, age, gender, city, state, zip_code,
+                     interest, notes_public, notes_private, credits_cost, source)
+                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+            """), (
+                row.get("category","other"),
+                row.get("lead_type") or row.get("type",""),
+                fn,
+                row.get("last_name") or row.get("lastname",""),
+                (row.get("last_name") or row.get("lastname",""))[:1],
+                row.get("email",""), row.get("phone",""),
+                int(row["age"]) if row.get("age","").isdigit() else None,
+                row.get("gender",""),
+                row.get("city",""), row.get("state",""), row.get("zip_code") or row.get("zip",""),
+                row.get("interest",""), row.get("notes_public") or row.get("public_notes",""),
+                row.get("notes_private") or row.get("private_notes",""),
+                int(row["credits_cost"]) if row.get("credits_cost","").isdigit() else 5,
+                "csv_upload"
+            ))
+            inserted += 1
+        except Exception:
+            skipped += 1
+
+    conn.commit(); conn.close()
+    return {"ok": True, "inserted": inserted, "skipped": skipped}
+
+
+@router.post("/marketplace/admin/add-lead")
+def admin_add_single_lead(body: dict, user=Depends(verify_token)):
+    """Admin-only. Add a single lead manually."""
+    from admin import is_admin
+    if not is_admin(user["id"]):
+        raise HTTPException(403, "Admin only")
+    fn = (body.get("first_name") or "").strip()
+    if not fn:
+        raise HTTPException(400, "first_name required")
+    ln = (body.get("last_name") or "").strip()
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO marketplace_leads
+            (category, lead_type, first_name, last_name, last_name_initial,
+             email, phone, age, gender, city, state, zip_code,
+             interest, notes_public, notes_private, credits_cost, source)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
+        RETURNING id
+    """), (
+        body.get("category","other"),
+        body.get("lead_type",""),
+        fn, ln, ln[:1],
+        body.get("email",""), body.get("phone",""),
+        body.get("age"), body.get("gender",""),
+        body.get("city",""), body.get("state",""), body.get("zip_code",""),
+        body.get("interest",""), body.get("notes_public",""),
+        body.get("notes_private",""),
+        body.get("credits_cost", 5),
+        "manual"
+    ))
+    new_row = cur.fetchone()
+    new_id = (new_row["id"] if isinstance(new_row, dict) else new_row[0]) if new_row else None
+    conn.commit(); conn.close()
+    return {"ok": True, "id": new_id}
+
+
+@router.delete("/marketplace/admin/leads/{lead_id}")
+def admin_delete_lead(lead_id: int, user=Depends(verify_token)):
+    """Admin-only. Soft-delete a lead."""
+    from admin import is_admin
+    if not is_admin(user["id"]): raise HTTPException(403, "Admin only")
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("UPDATE marketplace_leads SET is_active=FALSE WHERE id={PH}"), (lead_id,))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+# ── Keep old unused stub so old imports don't break ───────────────────────────
 @router.get("/leads/settings")
 def get_leads_settings(user=Depends(verify_token)):
     """Return whether the user has an Apollo API key configured."""

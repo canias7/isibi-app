@@ -1012,28 +1012,29 @@ def ensure_user_columns():
     cur.execute(f"""
     CREATE TABLE IF NOT EXISTS marketplace_leads (
         id {ID},
-        category VARCHAR(50) NOT NULL,
-        subcategory VARCHAR(100),
-        -- Visible teaser info (shown to all users)
-        first_name VARCHAR(100),
+        category    VARCHAR(50)  NOT NULL DEFAULT 'other',
+        lead_type   VARCHAR(100),
+        -- Public teaser (visible before purchase)
+        first_name        VARCHAR(100),
         last_name_initial CHAR(1),
-        title VARCHAR(200),
-        company VARCHAR(200),
-        city VARCHAR(100),
-        state VARCHAR(50),
-        industry VARCHAR(100),
-        company_size INTEGER,
-        -- Hidden until unlocked
-        last_name VARCHAR(100),
-        email VARCHAR(200),
-        phone VARCHAR(50),
-        linkedin_url TEXT,
-        website TEXT,
-        -- Meta
-        credits_cost INTEGER DEFAULT 5,
-        source VARCHAR(50) DEFAULT 'apollo',
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+        age               INTEGER,
+        gender            VARCHAR(20),
+        city              VARCHAR(100),
+        state             VARCHAR(50),
+        zip_code          VARCHAR(20),
+        interest          TEXT,
+        notes_public      TEXT,
+        -- Private (revealed after purchase)
+        last_name         VARCHAR(100),
+        email             VARCHAR(200),
+        phone             VARCHAR(50),
+        address           TEXT,
+        notes_private     TEXT,
+        -- Pricing & meta
+        credits_cost INTEGER     DEFAULT 5,
+        source       VARCHAR(50) DEFAULT 'manual',
+        is_active    BOOLEAN     DEFAULT TRUE,
+        created_at   {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
     """)
 

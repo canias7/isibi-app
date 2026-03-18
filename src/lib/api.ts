@@ -1750,25 +1750,26 @@ export const searchLeads           = (prompt: string): Promise<LeadSearchResult>
 export interface MarketplaceLead {
   id: number;
   category: string;
-  subcategory?: string;
+  lead_type?: string;
   display_name: string;
   first_name?: string;
   last_name_initial?: string;
-  last_name?: string;
-  title?: string;
-  company?: string;
+  age?: number;
+  gender?: string;
   city?: string;
   state?: string;
-  industry?: string;
-  company_size?: number;
+  zip_code?: string;
+  interest?: string;
+  notes_public?: string;
   credits_cost: number;
   created_at: string;
-  is_unlocked: boolean;
-  // Only present when unlocked
+  is_purchased: boolean;
+  // Revealed after purchase
+  last_name?: string;
   email?: string;
   phone?: string;
-  linkedin_url?: string;
-  website?: string;
+  address?: string;
+  notes_private?: string;
 }
 
 export interface MarketplaceListResult {
@@ -1782,7 +1783,7 @@ export interface MarketplaceListResult {
 export interface MarketplaceStats {
   category_counts: Record<string, number>;
   total: number;
-  unlocked: number;
+  purchased: number;
   balance: number;
 }
 
@@ -1795,19 +1796,20 @@ async function mktFetch(path: string, opts: RequestInit = {}) {
   return res.json();
 }
 
-export const getMarketplaceLeads  = (params: {
-  category?: string; state?: string; page?: number; per_page?: number;
+export const getMarketplaceLeads = (params: {
+  category?: string; state?: string; lead_type?: string; page?: number; per_page?: number;
 }): Promise<MarketplaceListResult> => {
   const q = new URLSearchParams();
-  if (params.category) q.set("category", params.category);
-  if (params.state) q.set("state", params.state);
-  if (params.page) q.set("page", String(params.page));
-  if (params.per_page) q.set("per_page", String(params.per_page));
+  if (params.category)  q.set("category",  params.category);
+  if (params.state)     q.set("state",     params.state);
+  if (params.lead_type) q.set("lead_type", params.lead_type);
+  if (params.page)      q.set("page",      String(params.page));
+  if (params.per_page)  q.set("per_page",  String(params.per_page));
   return mktFetch(`/leads?${q.toString()}`);
 };
 
-export const unlockMarketplaceLead = (id: number): Promise<{ ok: boolean; lead: MarketplaceLead; credits_remaining: number }> =>
-  mktFetch(`/leads/${id}/unlock`, { method: "POST" });
+export const purchaseMarketplaceLead = (id: number): Promise<{ ok: boolean; lead: MarketplaceLead; credits_remaining: number }> =>
+  mktFetch(`/leads/${id}/purchase`, { method: "POST" });
 
-export const getMarketplaceStats  = (): Promise<MarketplaceStats> => mktFetch("/stats");
-export const getUnlockedLeads     = (): Promise<MarketplaceLead[]> => mktFetch("/unlocked");
+export const getMarketplaceStats    = (): Promise<MarketplaceStats> => mktFetch("/stats");
+export const getPurchasedLeads      = (): Promise<MarketplaceLead[]> => mktFetch("/purchased");
