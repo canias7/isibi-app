@@ -6137,46 +6137,40 @@ export default function CRMAgent() {
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" })); a.download = "contacts_sample.csv"; a.click();
   };
 
-  const NAV_GROUPS: { label?: string; items: { id: View; label: string; icon: React.ElementType; badge?: string }[] }[] = [
-    {
-      items: [
-        { id: "dashboard",    label: "Dashboard",      icon: LayoutDashboard },
-        { id: "contacts",     label: "Leads",          icon: Users },
-        { id: "inbox",        label: "Inbox",          icon: Inbox },
-        { id: "pipeline",     label: "Sales Pipeline", icon: Columns3 },
-        { id: "calls",        label: "Calls",          icon: PhoneCall },
-        { id: "tasks",        label: "Tasks",          icon: ClipboardList },
-        { id: "calendar",     label: "Calendar",       icon: Calendar },
-      ],
-    },
-    {
-      label: "AI",
-      items: [
-        { id: "my_prompt",    label: "My Prompt",      icon: BotMessageSquare, badge: "AI" },
-        { id: "power_dialer", label: "AI Pulse",        icon: Rocket,           badge: "AI" },
-        { id: "ai_sms",       label: "AI Texts",        icon: MessageSquare,    badge: "AI" },
-        { id: "ai_emails",    label: "AI Emails",       icon: Sparkles,         badge: "AI" },
-      ],
-    },
-    {
-      label: "Marketing",
-      items: [
-        { id: "campaigns",       label: "Campaigns",       icon: Send },
-        { id: "sms_marketing",   label: "SMS Marketing",   icon: MessageSquare },
-        { id: "email_marketing", label: "Email Marketing", icon: Mail },
-        { id: "lead_vendors",    label: "Lead Vendors",    icon: Globe },
-      ],
-    },
-    {
-      label: "Settings",
-      items: [
-        { id: "reports",          label: "Reports",           icon: BarChart3 },
-        { id: "phone_setup",      label: "Phone Setup",       icon: Phone },
-        { id: "account_settings", label: "Account Settings",  icon: Settings },
-      ],
-    },
+  // 5 core tabs — always visible
+  const CORE_NAV: { id: View; label: string; icon: React.ElementType; desc: string }[] = [
+    { id: "dashboard",  label: "Home",     icon: LayoutDashboard, desc: "Overview" },
+    { id: "contacts",   label: "Contacts", icon: Users,           desc: "Your leads" },
+    { id: "inbox",      label: "Messages", icon: Inbox,           desc: "Texts & emails" },
+    { id: "calls",      label: "Calls",    icon: PhoneCall,       desc: "Call history" },
+    { id: "pipeline",   label: "Pipeline", icon: Columns3,        desc: "Track deals" },
   ];
-  const NAV_ITEMS = NAV_GROUPS.flatMap(g => g.items);
+
+  // Everything else — hidden until "More" is clicked
+  const MORE_NAV: { label: string; items: { id: View; label: string; icon: React.ElementType; badge?: string }[] }[] = [
+    { label: "Tools", items: [
+      { id: "tasks",          label: "Tasks",           icon: ClipboardList },
+      { id: "calendar",       label: "Calendar",        icon: Calendar },
+      { id: "reports",        label: "Reports",         icon: BarChart3 },
+    ]},
+    { label: "AI", items: [
+      { id: "my_prompt",      label: "AI Agent Setup",  icon: BotMessageSquare, badge: "AI" },
+      { id: "power_dialer",   label: "Auto Dialer",     icon: Rocket,           badge: "AI" },
+      { id: "ai_sms",         label: "AI Texts",        icon: MessageSquare,    badge: "AI" },
+      { id: "ai_emails",      label: "AI Emails",       icon: Sparkles,         badge: "AI" },
+    ]},
+    { label: "Marketing", items: [
+      { id: "campaigns",       label: "Campaigns",      icon: Send },
+      { id: "sms_marketing",   label: "SMS Blasts",     icon: MessageSquare },
+      { id: "email_marketing", label: "Email Blasts",   icon: Mail },
+      { id: "lead_vendors",    label: "Lead Sources",   icon: Globe },
+    ]},
+    { label: "Settings", items: [
+      { id: "phone_setup",      label: "Phone Setup",     icon: Phone },
+      { id: "account_settings", label: "My Account",      icon: Settings },
+    ]},
+  ];
+  const NAV_ITEMS = [...CORE_NAV, ...MORE_NAV.flatMap(g => g.items)];
 
   // SMS global view
   const [allSmsContacts, setAllSmsContacts] = useState<Contact | null>(null);
@@ -6191,6 +6185,7 @@ export default function CRMAgent() {
   const [filterTimezone, setFilterTimezone] = useState("");
   const [selectedLeads, setSelectedLeads] = useState<Set<number>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
+  const [showMore, setShowMore] = useState(false);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -6230,34 +6225,65 @@ export default function CRMAgent() {
           )}
         </button>
 
-        <nav className="flex-1 px-2 py-3 overflow-y-auto space-y-3">
-          {NAV_GROUPS.map((group, gi) => (
-            <div key={gi}>
-              {group.label && !sidebarCollapsed && (
-                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50">{group.label}</p>
-              )}
-              {group.label && sidebarCollapsed && gi > 0 && (
-                <div className="mx-2 my-1 border-t border-border/20" />
-              )}
-              <div className="space-y-0.5">
-                {group.items.map((item) => (
-                  <button key={item.id} onClick={() => { setView(item.id); if (item.id !== "contacts") setSelected(null); }}
-                    className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all",
-                      sidebarCollapsed && "justify-center px-2",
-                      view === item.id ? "bg-primary/10 text-primary border border-primary/15" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50")}>
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
-                    {!sidebarCollapsed && item.badge && (
-                      <span className="text-[10px] bg-yellow-500/20 text-yellow-400 rounded-full px-1.5 py-0.5 border border-yellow-500/30">{item.badge}</span>
+        <nav className="flex-1 px-2 py-3 overflow-y-auto flex flex-col gap-1">
+          {/* ── 5 Core Items ── */}
+          {CORE_NAV.map((item) => {
+            const active = view === item.id;
+            return (
+              <button key={item.id} onClick={() => { setView(item.id); if (item.id !== "contacts") setSelected(null); setShowMore(false); }}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 rounded-xl font-medium transition-all",
+                  sidebarCollapsed ? "justify-center px-2 py-3" : "py-2.5",
+                  active ? "bg-primary/10 text-primary border border-primary/15" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+                )}>
+                <item.icon className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
+                {!sidebarCollapsed && (
+                  <div className="flex-1 text-left">
+                    <p className="text-sm leading-tight">{item.label}</p>
+                    {!active && <p className="text-[10px] text-muted-foreground/60 leading-tight">{item.desc}</p>}
+                  </div>
+                )}
+                {!sidebarCollapsed && item.id === "contacts" && contacts.length > 0 && (
+                  <span className="text-xs bg-secondary/60 rounded-full px-1.5 py-0.5">{contacts.length}</span>
+                )}
+              </button>
+            );
+          })}
+
+          {/* ── More Tools toggle ── */}
+          <div className="mt-2 border-t border-border/20 pt-2">
+            <button onClick={() => setShowMore(v => !v)}
+              className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all",
+                sidebarCollapsed && "justify-center px-2")}>
+              <Layers className={cn("shrink-0", sidebarCollapsed ? "h-5 w-5" : "h-4 w-4")} />
+              {!sidebarCollapsed && <span className="flex-1 text-left">More Tools</span>}
+              {!sidebarCollapsed && <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", showMore && "rotate-180")} />}
+            </button>
+
+            {showMore && (
+              <div className="mt-1 space-y-3">
+                {MORE_NAV.map((group) => (
+                  <div key={group.label}>
+                    {!sidebarCollapsed && (
+                      <p className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/40">{group.label}</p>
                     )}
-                    {!sidebarCollapsed && item.id === "contacts" && contacts.length > 0 && (
-                      <span className="text-xs bg-secondary/60 rounded-full px-1.5 py-0.5">{contacts.length}</span>
-                    )}
-                  </button>
+                    {group.items.map((item) => (
+                      <button key={item.id} onClick={() => { setView(item.id); if (item.id !== "contacts") setSelected(null); }}
+                        className={cn("w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all",
+                          sidebarCollapsed && "justify-center px-2",
+                          view === item.id ? "bg-primary/10 text-primary border border-primary/15" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50")}>
+                        <item.icon className="h-4 w-4 shrink-0" />
+                        {!sidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+                        {!sidebarCollapsed && item.badge && (
+                          <span className="text-[10px] bg-yellow-500/20 text-yellow-400 rounded-full px-1.5 py-0.5 border border-yellow-500/30">{item.badge}</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 ))}
               </div>
-            </div>
-          ))}
+            )}
+          </div>
 
           {/* Pipeline sub-filters (only in contacts view) */}
           {view === "contacts" && !sidebarCollapsed && (
