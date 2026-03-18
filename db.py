@@ -993,8 +993,9 @@ def ensure_user_columns():
     )
     """)
 
-    # ── Leads Agent ────────────────────────────────────────────────────────────
-    add_column_if_missing(conn, 'users', 'apollo_api_key', 'TEXT')
+    # ── Leads Agent / Marketplace ────────────────────────────────────────────
+    add_column_if_missing(conn, 'users', 'apollo_api_key',  'TEXT')
+    add_column_if_missing(conn, 'users', 'nextgen_api_key', 'TEXT')
 
     cur.execute(f"""
     CREATE TABLE IF NOT EXISTS leads_searches (

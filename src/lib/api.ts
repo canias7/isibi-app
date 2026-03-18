@@ -1813,3 +1813,43 @@ export const purchaseMarketplaceLead = (id: number): Promise<{ ok: boolean; lead
 
 export const getMarketplaceStats    = (): Promise<MarketplaceStats> => mktFetch("/stats");
 export const getPurchasedLeads      = (): Promise<MarketplaceLead[]> => mktFetch("/purchased");
+
+// ── Marketplace API key settings ──────────────────────────────────────────────
+export interface MarketplaceKeys {
+  apollo:  { connected: boolean; masked: string };
+  nextgen: { connected: boolean; masked: string };
+}
+
+export const getMarketplaceKeys = (): Promise<MarketplaceKeys> => mktFetch("/keys");
+export const saveMarketplaceKeys = (keys: { apollo_key?: string; nextgen_key?: string }) =>
+  mktFetch("/keys", { method: "POST", body: JSON.stringify(keys) });
+
+// ── Dual-source search results ────────────────────────────────────────────────
+export interface SearchLead {
+  source: "apollo" | "nextgen";
+  name: string;
+  first_name?: string;
+  last_name?: string;
+  title?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip_code?: string;
+  linkedin_url?: string;
+  company_size?: string | number;
+  industry?: string;
+  website?: string;
+  age?: number;
+  gender?: string;
+  interest?: string;
+  notes_public?: string;
+}
+
+export const searchApollo  = (prompt: string): Promise<{ leads: SearchLead[]; total: number; filters?: object }> =>
+  mktFetch("/search/apollo",  { method: "POST", body: JSON.stringify({ prompt }) });
+
+export const searchNextGen = (params: { vertical?: string; state?: string; limit?: number }): Promise<{ leads: SearchLead[]; total: number }> =>
+  mktFetch("/search/nextgen", { method: "POST", body: JSON.stringify(params) });

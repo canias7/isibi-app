@@ -6562,6 +6562,203 @@ def admin_delete_lead(lead_id: int, user=Depends(verify_token)):
     return {"ok": True}
 
 
+# ── Marketplace: API key settings & dual-source search ───────────────────────
+
+def _mask(key: str) -> str:
+    if not key: return ""
+    if len(key) <= 8: return "•" * len(key)
+    return key[:4] + "•" * (len(key) - 8) + key[-4:]
+
+
+@router.get("/marketplace/keys")
+def get_marketplace_keys(user=Depends(verify_token)):
+    """Return which API keys the user has connected (masked)."""
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT apollo_api_key, nextgen_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    ak = (row["apollo_api_key"]  if isinstance(row, dict) else (row[0] if row else "")) or ""
+    nk = (row["nextgen_api_key"] if isinstance(row, dict) else (row[1] if row else "")) or ""
+    return {
+        "apollo":  {"connected": bool(ak), "masked": _mask(ak)},
+        "nextgen": {"connected": bool(nk), "masked": _mask(nk)},
+    }
+
+
+@router.post("/marketplace/keys")
+def save_marketplace_keys(body: dict, user=Depends(verify_token)):
+    """Save Apollo and/or NextGen API keys for this user."""
+    conn = get_conn(); cur = conn.cursor()
+    updates = []
+    params = []
+    if "apollo_key" in body:
+        updates.append(sql("apollo_api_key = {PH}"))
+        params.append((body["apollo_key"] or "").strip())
+    if "nextgen_key" in body:
+        updates.append(sql("nextgen_api_key = {PH}"))
+        params.append((body["nextgen_key"] or "").strip())
+    if not updates:
+        return {"ok": True}
+    params.append(user["id"])
+    cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.post("/marketplace/search/apollo")
+def marketplace_apollo_search(body: dict, user=Depends(verify_token)):
+    """
+    Search Apollo.io using the user's own API key.
+    Body: { prompt: str }
+    Returns leads with full contact info (user is paying Apollo directly).
+    """
+    import json as _json
+
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    apollo_key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
+    if not apollo_key:
+        raise HTTPException(400, "Apollo.io API key not connected. Add it in Leads Settings.")
+
+    prompt = (body.get("prompt") or "").strip()
+    if not prompt:
+        raise HTTPException(400, "Prompt is required")
+
+    # GPT extracts filters
+    filter_system = """Extract Apollo.io search filters from the user's lead request.
+Return ONLY valid JSON:
+{
+  "job_titles": [],
+  "locations": [],
+  "company_size_ranges": [],
+  "industries": [],
+  "keywords": [],
+  "limit": 25
+}"""
+    gpt = _oai.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": filter_system}, {"role": "user", "content": prompt}],
+        max_tokens=400, temperature=0.2, response_format={"type": "json_object"}
+    )
+    try:
+        filters = _json.loads(gpt.choices[0].message.content)
+    except Exception:
+        filters = {}
+
+    limit = min(int(filters.get("limit", 25)), 100)
+    payload = {"api_key": apollo_key, "page": 1, "per_page": limit}
+    if filters.get("job_titles"):       payload["person_titles"] = filters["job_titles"]
+    if filters.get("locations"):        payload["person_locations"] = filters["locations"]
+    if filters.get("company_size_ranges"): payload["organization_num_employees_ranges"] = filters["company_size_ranges"]
+    if filters.get("industries"):       payload["q_organization_keyword_tags"] = filters["industries"]
+    if filters.get("keywords"):         payload["q_keywords"] = " ".join(filters["keywords"])
+
+    try:
+        resp = requests.post(
+            "https://api.apollo.io/api/v1/mixed_people/search",
+            json=payload,
+            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
+            timeout=30
+        )
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(502, f"Apollo request failed: {e}")
+
+    if resp.status_code == 401:
+        raise HTTPException(401, "Invalid Apollo API key. Check your key in Leads Settings.")
+    if resp.status_code != 200:
+        raise HTTPException(502, data.get("message", "Apollo error"))
+
+    people = data.get("people") or data.get("contacts") or []
+    leads = []
+    for p in people:
+        org = p.get("organization") or p.get("account") or {}
+        phones = p.get("phone_numbers") or []
+        phone = phones[0].get("sanitized_number", "") if phones else ""
+        leads.append({
+            "source": "apollo",
+            "name":        p.get("name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+            "first_name":  p.get("first_name", ""),
+            "last_name":   p.get("last_name", ""),
+            "title":       p.get("title") or p.get("headline", ""),
+            "company":     org.get("name") or p.get("organization_name", ""),
+            "email":       p.get("email", ""),
+            "phone":       phone,
+            "city":        p.get("city", ""),
+            "state":       p.get("state", ""),
+            "country":     p.get("country", ""),
+            "linkedin_url": p.get("linkedin_url", ""),
+            "company_size": org.get("num_employees") or org.get("estimated_num_employees", ""),
+            "industry":    org.get("industry", ""),
+            "website":     org.get("website_url", ""),
+        })
+
+    return {"source": "apollo", "leads": leads, "total": len(leads), "filters": filters}
+
+
+@router.post("/marketplace/search/nextgen")
+def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
+    """
+    Query NextGen Leads using the user's own API key.
+    Body: { vertical: str, state: str, limit: int }
+    NextGen Leads API: https://docs.nextgenleads.com
+    """
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT nextgen_api_key FROM users WHERE id={PH}"), (user["id"],))
+    row = cur.fetchone(); conn.close()
+    ng_key = (row["nextgen_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
+    if not ng_key:
+        raise HTTPException(400, "NextGen Leads API key not connected. Add it in Leads Settings.")
+
+    vertical = body.get("vertical", "health_insurance")
+    state    = body.get("state", "")
+    limit    = min(int(body.get("limit", 25)), 100)
+
+    params: dict = {
+        "vertical": vertical,
+        "limit": limit,
+    }
+    if state:
+        params["state"] = state
+
+    try:
+        resp = requests.get(
+            "https://api.nextgenleads.com/v1/leads",
+            params=params,
+            headers={"Authorization": f"Bearer {ng_key}", "Accept": "application/json"},
+            timeout=30
+        )
+        data = resp.json()
+    except Exception as e:
+        raise HTTPException(502, f"NextGen request failed: {e}")
+
+    if resp.status_code == 401:
+        raise HTTPException(401, "Invalid NextGen API key.")
+    if resp.status_code != 200:
+        raise HTTPException(502, data.get("message", f"NextGen error {resp.status_code}"))
+
+    raw_leads = data.get("leads") or data.get("data") or []
+    leads = []
+    for l in raw_leads:
+        leads.append({
+            "source":      "nextgen",
+            "name":        f"{l.get('first_name','')} {l.get('last_name','')}".strip(),
+            "first_name":  l.get("first_name", ""),
+            "last_name":   l.get("last_name", ""),
+            "email":       l.get("email", ""),
+            "phone":       l.get("phone", "") or l.get("phone_number", ""),
+            "city":        l.get("city", ""),
+            "state":       l.get("state", ""),
+            "zip_code":    l.get("zip", "") or l.get("zip_code", ""),
+            "age":         l.get("age"),
+            "gender":      l.get("gender", ""),
+            "interest":    l.get("vertical", vertical),
+            "notes_public": l.get("notes", ""),
+        })
+
+    return {"source": "nextgen", "leads": leads, "total": len(leads)}
+
+
 # ── Keep old unused stub so old imports don't break ───────────────────────────
 @router.get("/leads/settings")
 def get_leads_settings(user=Depends(verify_token)):

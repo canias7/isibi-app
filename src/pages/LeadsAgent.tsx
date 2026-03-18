@@ -1,422 +1,620 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ArrowLeft, ShoppingCart, Coins, Download, Lock, Check,
-  Mail, Phone, MapPin, ChevronLeft, ChevronRight, Loader2,
-  Heart, Home, Sun, Briefcase, Shield, Car, Baby, Zap,
-  SlidersHorizontal, X, RefreshCw, Users, Tag,
+  ArrowLeft, Send, Download, Loader2, Settings, Key,
+  Check, X, AlertCircle, Users, Mail, Phone, MapPin,
+  Linkedin, Globe, Copy, Building2, Briefcase, ExternalLink,
+  Zap, Target, ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { toast } from "@/hooks/use-toast";
 import {
-  getMarketplaceLeads, purchaseMarketplaceLead, getMarketplaceStats,
-  getPurchasedLeads, type MarketplaceLead, type MarketplaceStats,
+  getMarketplaceKeys, saveMarketplaceKeys,
+  searchApollo, searchNextGen,
+  type MarketplaceKeys, type SearchLead,
 } from "@/lib/api";
 
-// ── Category config ───────────────────────────────────────────────────────────
-const CATEGORIES = [
-  { id: "all",          label: "All Leads",              icon: Users,   color: "bg-slate-500/10 text-slate-300 border-slate-500/30",   dot: "bg-slate-400" },
-  { id: "health",       label: "Health Insurance",       icon: Heart,   color: "bg-rose-500/10  text-rose-300  border-rose-500/30",    dot: "bg-rose-400"  },
-  { id: "life",         label: "Life Insurance",         icon: Shield,  color: "bg-blue-500/10  text-blue-300  border-blue-500/30",    dot: "bg-blue-400"  },
-  { id: "medicare",     label: "Medicare",               icon: Baby,    color: "bg-teal-500/10  text-teal-300  border-teal-500/30",    dot: "bg-teal-400"  },
-  { id: "auto",         label: "Auto Insurance",         icon: Car,     color: "bg-orange-500/10 text-orange-300 border-orange-500/30", dot: "bg-orange-400"},
-  { id: "real_estate",  label: "Real Estate",            icon: Home,    color: "bg-indigo-500/10 text-indigo-300 border-indigo-500/30", dot: "bg-indigo-400"},
-  { id: "mortgage",     label: "Mortgage",               icon: Home,    color: "bg-violet-500/10 text-violet-300 border-violet-500/30", dot: "bg-violet-400"},
-  { id: "solar",        label: "Solar",                  icon: Sun,     color: "bg-yellow-500/10 text-yellow-300 border-yellow-500/30", dot: "bg-yellow-400"},
-  { id: "business",     label: "Business",               icon: Briefcase, color: "bg-green-500/10 text-green-300 border-green-500/30", dot: "bg-green-400"},
-  { id: "other",        label: "Other",                  icon: Zap,     color: "bg-gray-500/10  text-gray-300  border-gray-500/30",   dot: "bg-gray-400"  },
-];
-
-const US_STATES = [
-  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut",
-  "Delaware","Florida","Georgia","Hawaii","Idaho","Illinois","Indiana","Iowa",
-  "Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts","Michigan",
-  "Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire",
-  "New Jersey","New Mexico","New York","North Carolina","North Dakota","Ohio",
-  "Oklahoma","Oregon","Pennsylvania","Rhode Island","South Carolina","South Dakota",
-  "Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia",
-  "Wisconsin","Wyoming",
-];
-
-// ── CSV download ──────────────────────────────────────────────────────────────
-function downloadCSV(leads: MarketplaceLead[]) {
-  const cols = ["Name","Age","Gender","City","State","Zip","Interest","Email","Phone","Address","Notes"];
-  const rows = leads.filter(l => l.is_purchased).map(l => [
-    l.display_name, l.age ?? "", l.gender ?? "", l.city ?? "",
-    l.state ?? "", l.zip_code ?? "", l.interest ?? "",
-    l.email ?? "", l.phone ?? "", l.address ?? "", l.notes_private ?? "",
+// ── CSV ───────────────────────────────────────────────────────────────────────
+function downloadCSV(leads: SearchLead[], label: string) {
+  const cols = ["Source","Name","Title","Company","Email","Phone","City","State","Country","LinkedIn","Industry","Company Size","Website","Age","Gender","Interest"];
+  const rows = leads.map(l => [
+    l.source, l.name, l.title ?? "", l.company ?? "", l.email ?? "",
+    l.phone ?? "", l.city ?? "", l.state ?? "", l.country ?? "",
+    l.linkedin_url ?? "", l.industry ?? "",
+    l.company_size ? String(l.company_size) : "",
+    l.website ?? "", l.age ?? "", l.gender ?? "", l.interest ?? "",
   ]);
   const e = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const csv = [cols, ...rows].map(r => r.map(e).join(",")).join("\n");
   const a = Object.assign(document.createElement("a"), {
     href: URL.createObjectURL(new Blob([csv], { type: "text/csv" })),
-    download: `leads-${Date.now()}.csv`,
+    download: `leads-${label}-${Date.now()}.csv`,
   });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   toast({ title: `✓ ${rows.length} leads downloaded` });
 }
 
-// ── Buy Credits Modal ─────────────────────────────────────────────────────────
-function BuyCreditsModal({ onClose }: { onClose: () => void }) {
-  const pkgs = [
-    { credits: 50,  price: "$49",  label: "Starter",  per: "$0.98 / lead" },
-    { credits: 100, price: "$89",  label: "Growth",   per: "$0.89 / lead", popular: true },
-    { credits: 250, price: "$199", label: "Pro",       per: "$0.80 / lead" },
-  ];
+// ── API Keys Setup Modal ──────────────────────────────────────────────────────
+function KeysModal({ keys, onSaved, onClose }: {
+  keys: MarketplaceKeys;
+  onSaved: (k: MarketplaceKeys) => void;
+  onClose: () => void;
+}) {
+  const [apolloKey,  setApolloKey]  = useState("");
+  const [nextgenKey, setNextgenKey] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    const body: { apollo_key?: string; nextgen_key?: string } = {};
+    if (apolloKey.trim())  body.apollo_key  = apolloKey.trim();
+    if (nextgenKey.trim()) body.nextgen_key = nextgenKey.trim();
+    if (!Object.keys(body).length) { onClose(); return; }
+    setSaving(true);
+    try {
+      await saveMarketplaceKeys(body);
+      const updated = await getMarketplaceKeys();
+      onSaved(updated);
+      toast({ title: "API keys saved ✓" });
+      onClose();
+    } catch (e: any) {
+      toast({ title: e.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border/40 rounded-2xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+      <div className="bg-card border border-border/40 rounded-2xl w-full max-w-lg p-6 space-y-6 shadow-2xl">
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="font-semibold">Buy Credits</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">1 credit = 1 lead's full contact info</p>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Key className="h-4.5 w-4.5 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold">Connect Lead Sources</h2>
+              <p className="text-xs text-muted-foreground">Add your own API keys — you pay the source directly</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/50"><X className="h-4 w-4"/></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40"><X className="h-4 w-4"/></button>
         </div>
-        <div className="space-y-2.5">
-          {pkgs.map(p => (
-            <button key={p.credits}
-              className={cn("w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-all hover:scale-[1.01]",
-                p.popular ? "border-primary/50 bg-primary/5 ring-1 ring-primary/20" : "border-border/30 bg-secondary/20 hover:border-border/50")}>
-              <div className="text-left">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">{p.credits} Credits — {p.label}</span>
-                  {p.popular && <Badge className="text-[10px] bg-primary/20 text-primary border-primary/30 px-1.5">Popular</Badge>}
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{p.per}</p>
+
+        {/* Apollo */}
+        <div className="space-y-3 p-4 rounded-xl border border-border/30 bg-secondary/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                <Target className="h-4 w-4 text-orange-400" />
               </div>
-              <span className="text-xl font-bold">{p.price}</span>
-            </button>
-          ))}
+              <div>
+                <p className="text-sm font-medium">Apollo.io</p>
+                <p className="text-xs text-muted-foreground">B2B leads — CEOs, VPs, decision makers</p>
+              </div>
+            </div>
+            {keys.apollo.connected
+              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
+              : <Badge className="text-[10px] bg-secondary/50 text-muted-foreground border-border/30">Not connected</Badge>
+            }
+          </div>
+          {keys.apollo.connected && (
+            <p className="text-xs text-muted-foreground font-mono bg-secondary/30 px-3 py-1.5 rounded-lg">{keys.apollo.masked}</p>
+          )}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-muted-foreground">{keys.apollo.connected ? "Replace key" : "API Key"}</label>
+              <a href="https://app.apollo.io/#/settings/integrations/api" target="_blank" rel="noopener noreferrer"
+                className="text-[11px] text-primary hover:underline flex items-center gap-1">
+                Get free key <ExternalLink className="h-2.5 w-2.5"/>
+              </a>
+            </div>
+            <input
+              value={apolloKey}
+              onChange={e => setApolloKey(e.target.value)}
+              placeholder="Paste your Apollo API key…"
+              type="password"
+              className="w-full h-9 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"
+            />
+          </div>
         </div>
-        <p className="text-[11px] text-center text-muted-foreground">Secure payment via Stripe · Credits never expire</p>
+
+        {/* NextGen */}
+        <div className="space-y-3 p-4 rounded-xl border border-border/30 bg-secondary/10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Zap className="h-4 w-4 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">NextGen Leads</p>
+                <p className="text-xs text-muted-foreground">Consumer leads — insurance, mortgage, solar</p>
+              </div>
+            </div>
+            {keys.nextgen.connected
+              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
+              : <Badge className="text-[10px] bg-secondary/50 text-muted-foreground border-border/30">Not connected</Badge>
+            }
+          </div>
+          {keys.nextgen.connected && (
+            <p className="text-xs text-muted-foreground font-mono bg-secondary/30 px-3 py-1.5 rounded-lg">{keys.nextgen.masked}</p>
+          )}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-muted-foreground">{keys.nextgen.connected ? "Replace key" : "API Key"}</label>
+              <a href="https://www.nextgenleads.com" target="_blank" rel="noopener noreferrer"
+                className="text-[11px] text-primary hover:underline flex items-center gap-1">
+                Get key <ExternalLink className="h-2.5 w-2.5"/>
+              </a>
+            </div>
+            <input
+              value={nextgenKey}
+              onChange={e => setNextgenKey(e.target.value)}
+              placeholder="Paste your NextGen Leads API key…"
+              type="password"
+              className="w-full h-9 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button onClick={save} disabled={saving} className="flex-1">
+            {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2"/>Saving…</> : "Save Keys →"}
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Lead Card ─────────────────────────────────────────────────────────────────
-function LeadCard({ lead, onBuy, buying }: {
-  lead: MarketplaceLead;
-  onBuy: (id: number) => void;
-  buying: number | null;
-}) {
-  const cat = CATEGORIES.find(c => c.id === lead.category) ?? CATEGORIES[0];
-  const isBuying = buying === lead.id;
+// ── Lead result card ──────────────────────────────────────────────────────────
+function LeadCard({ lead, idx }: { lead: SearchLead; idx: number }) {
+  const [copied, setCopied] = useState(false);
+  const copyEmail = () => {
+    if (!lead.email) return;
+    navigator.clipboard.writeText(lead.email);
+    setCopied(true); setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
-    <div className={cn(
-      "rounded-xl border flex flex-col gap-0 overflow-hidden transition-all duration-200",
-      lead.is_purchased
-        ? "border-green-500/25 bg-green-500/5"
-        : "border-border/30 bg-card/40 hover:border-border/50 hover:bg-card/60"
-    )}>
-      {/* Card top strip */}
-      <div className={cn("h-1 w-full", cat.dot)} />
-
-      <div className="p-4 flex flex-col gap-3 flex-1">
-        {/* Header row */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold border shrink-0", cat.color)}>
-              {(lead.first_name?.[0] ?? "?").toUpperCase()}
-            </div>
-            <div>
-              <p className="text-sm font-semibold leading-tight">{lead.display_name}</p>
-              {lead.lead_type && <p className="text-xs text-muted-foreground">{lead.lead_type}</p>}
-            </div>
-          </div>
-          <Badge className={cn("text-[10px] px-2 py-0.5 shrink-0 border font-medium", cat.color)}>
-            {cat.label}
-          </Badge>
+    <div className="flex items-start gap-3 px-4 py-3 border-b border-border/15 hover:bg-secondary/10 transition-colors group">
+      <span className="text-xs text-muted-foreground/50 w-5 shrink-0 pt-0.5">{idx + 1}</span>
+      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-xs font-bold text-primary">
+        {(lead.first_name?.[0] ?? lead.name?.[0] ?? "?").toUpperCase()}
+      </div>
+      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-0.5">
+        {/* Name + title */}
+        <div>
+          <p className="text-sm font-medium truncate">{lead.name || "—"}</p>
+          <p className="text-xs text-muted-foreground truncate">{lead.title || lead.interest || "—"}</p>
         </div>
-
-        {/* Details */}
-        <div className="space-y-1.5">
-          {(lead.city || lead.state) && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <MapPin className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-              {[lead.city, lead.state, lead.zip_code].filter(Boolean).join(", ")}
-            </div>
-          )}
-          {lead.age && (
-            <p className="text-xs text-muted-foreground">
-              Age: <span className="text-foreground/80">{lead.age}</span>
-              {lead.gender && <> · {lead.gender}</>}
-            </p>
-          )}
-          {lead.interest && (
-            <p className="text-xs text-muted-foreground line-clamp-2">
-              <span className="font-medium text-foreground/70">Looking for: </span>
-              {lead.interest}
-            </p>
-          )}
-          {lead.notes_public && (
-            <p className="text-xs text-muted-foreground/70 italic line-clamp-2">{lead.notes_public}</p>
+        {/* Company / consumer info */}
+        <div>
+          {lead.company ? (
+            <>
+              <p className="text-xs font-medium truncate">{lead.company}</p>
+              {lead.industry && <p className="text-xs text-muted-foreground truncate">{lead.industry}</p>}
+            </>
+          ) : (
+            <>
+              {lead.age && <p className="text-xs text-muted-foreground">Age {lead.age}{lead.gender ? ` · ${lead.gender}` : ""}</p>}
+            </>
           )}
         </div>
-
-        {/* Purchased — show contact */}
-        {lead.is_purchased && (
-          <div className="pt-2 border-t border-green-500/20 space-y-1.5">
-            {lead.email && (
-              <button onClick={() => { navigator.clipboard.writeText(lead.email!); toast({ title: "Email copied" }); }}
-                className="flex items-center gap-1.5 text-xs text-primary hover:underline w-full text-left">
-                <Mail className="h-3 w-3 text-blue-400 shrink-0" />{lead.email}
-              </button>
-            )}
-            {lead.phone && (
-              <div className="flex items-center gap-1.5 text-xs text-foreground/80">
-                <Phone className="h-3 w-3 text-green-400 shrink-0" />{lead.phone}
+        {/* Contact */}
+        <div className="space-y-0.5">
+          {lead.email ? (
+            <button onClick={copyEmail} className="flex items-center gap-1 text-xs text-primary hover:underline">
+              <span className="truncate max-w-[180px]">{lead.email}</span>
+              {copied ? <Check className="h-3 w-3 text-green-400 shrink-0"/> : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-60 shrink-0"/>}
+            </button>
+          ) : <span className="text-xs text-muted-foreground/50">No email</span>}
+          {lead.phone && <p className="text-xs text-muted-foreground">{lead.phone}</p>}
+        </div>
+        {/* Location + links */}
+        <div className="flex items-center justify-between">
+          <div>
+            {(lead.city || lead.state) && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                <MapPin className="h-3 w-3 shrink-0"/>
+                {[lead.city, lead.state].filter(Boolean).join(", ")}
               </div>
             )}
-            {lead.address && (
-              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                <MapPin className="h-3 w-3 text-muted-foreground/50 shrink-0 mt-0.5" />{lead.address}
+          </div>
+          <div className="flex items-center gap-1.5 ml-2">
+            {lead.linkedin_url && (
+              <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
+                className="p-1 rounded bg-blue-500/10 hover:bg-blue-500/20 text-blue-400">
+                <Linkedin className="h-3 w-3"/>
+              </a>
+            )}
+            {lead.website && (
+              <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`}
+                target="_blank" rel="noopener noreferrer"
+                className="p-1 rounded bg-secondary/40 hover:bg-secondary/60 text-muted-foreground">
+                <Globe className="h-3 w-3"/>
+              </a>
+            )}
+          </div>
+        </div>
+      </div>
+      <Badge className={cn("text-[10px] shrink-0 border px-2",
+        lead.source === "apollo"
+          ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
+          : "bg-blue-500/10 text-blue-300 border-blue-500/20"
+      )}>
+        {lead.source === "apollo" ? "Apollo" : "NextGen"}
+      </Badge>
+    </div>
+  );
+}
+
+// ── Chat message types ────────────────────────────────────────────────────────
+type Msg =
+  | { role: "user"; text: string }
+  | { role: "assistant"; leads: SearchLead[]; source: "apollo" | "nextgen"; prompt: string }
+  | { role: "error"; text: string }
+  | { role: "thinking"; source: "apollo" | "nextgen" };
+
+const NEXTGEN_VERTICALS = [
+  { id: "health_insurance",  label: "Health Insurance"  },
+  { id: "life_insurance",    label: "Life Insurance"    },
+  { id: "medicare",          label: "Medicare"          },
+  { id: "auto_insurance",    label: "Auto Insurance"    },
+  { id: "mortgage",          label: "Mortgage"          },
+  { id: "solar",             label: "Solar"             },
+  { id: "home_insurance",    label: "Home Insurance"    },
+];
+
+const APOLLO_SUGGESTIONS = [
+  "Insurance agents and brokers in Florida",
+  "High income executives — doctors, lawyers, CFOs in New York",
+  "Small business owners in Texas with 10-50 employees",
+  "Real estate agents and mortgage brokers in California",
+  "CEOs of companies with $1M+ revenue in the United States",
+];
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+export default function LeadsAgent() {
+  const navigate = useNavigate();
+  const [keys, setKeys]         = useState<MarketplaceKeys | null>(null);
+  const [showKeys, setShowKeys] = useState(false);
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput]       = useState("");
+  const [busy, setBusy]         = useState(false);
+  const [source, setSource]     = useState<"apollo" | "nextgen">("apollo");
+
+  // NextGen specific filters
+  const [ngVertical, setNgVertical] = useState("health_insurance");
+  const [ngState,    setNgState]    = useState("");
+  const [ngLimit,    setNgLimit]    = useState(25);
+
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef  = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getMarketplaceKeys().then(setKeys).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const hasApollo  = keys?.apollo.connected  ?? false;
+  const hasNextGen = keys?.nextgen.connected ?? false;
+  const canSearch  = source === "apollo" ? hasApollo : hasNextGen;
+
+  const searchApolloHandler = async (q: string) => {
+    setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking", source: "apollo" }]);
+    setBusy(true);
+    try {
+      const res = await searchApollo(q);
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== "thinking"),
+        { role: "assistant", leads: res.leads, source: "apollo", prompt: q },
+      ]);
+    } catch (e: any) {
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== "thinking"),
+        { role: "error", text: e.message || "Apollo search failed" },
+      ]);
+      if (e.message?.includes("key")) setShowKeys(true);
+    } finally { setBusy(false); inputRef.current?.focus(); }
+  };
+
+  const searchNextGenHandler = async () => {
+    const label = `${NEXTGEN_VERTICALS.find(v => v.id === ngVertical)?.label ?? ngVertical}${ngState ? ` in ${ngState}` : ""}`;
+    setMessages(prev => [...prev, { role: "user", text: label }, { role: "thinking", source: "nextgen" }]);
+    setBusy(true);
+    try {
+      const res = await searchNextGen({ vertical: ngVertical, state: ngState, limit: ngLimit });
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== "thinking"),
+        { role: "assistant", leads: res.leads, source: "nextgen", prompt: label },
+      ]);
+    } catch (e: any) {
+      setMessages(prev => [
+        ...prev.filter(m => m.role !== "thinking"),
+        { role: "error", text: e.message || "NextGen search failed" },
+      ]);
+      if (e.message?.includes("key")) setShowKeys(true);
+    } finally { setBusy(false); }
+  };
+
+  const handleSend = () => {
+    const q = input.trim();
+    if (!q || busy) return;
+    if (!canSearch) { setShowKeys(true); return; }
+    setInput("");
+    searchApolloHandler(q);
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-background text-foreground">
+
+      {/* ── Top Bar ── */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-border/30 bg-card/20 shrink-0">
+        <button onClick={() => navigate("/workflow")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-4 w-4"/> Dashboard
+        </button>
+        <div className="w-px h-4 bg-border/40"/>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500/20 to-blue-500/20 border border-orange-500/20 flex items-center justify-center">
+            <Users className="h-3.5 w-3.5 text-orange-400"/>
+          </div>
+          <span className="text-sm font-bold">Leads Agent</span>
+        </div>
+
+        {/* Source toggle */}
+        <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/30 border border-border/30 ml-4">
+          {[
+            { id: "apollo",  label: "Apollo",  icon: Target, color: "text-orange-400" },
+            { id: "nextgen", label: "NextGen",  icon: Zap,    color: "text-blue-400"  },
+          ].map(s => {
+            const Icon = s.icon;
+            const connected = s.id === "apollo" ? hasApollo : hasNextGen;
+            return (
+              <button key={s.id}
+                onClick={() => setSource(s.id as "apollo" | "nextgen")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                  source === s.id
+                    ? "bg-card shadow-sm border border-border/30 text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                )}>
+                <Icon className={cn("h-3 w-3", connected ? s.color : "text-muted-foreground/50")}/>
+                {s.label}
+                {connected
+                  ? <span className="w-1.5 h-1.5 rounded-full bg-green-400 ml-0.5"/>
+                  : <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 ml-0.5"/>
+                }
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="ml-auto">
+          <button onClick={() => setShowKeys(true)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+              (hasApollo || hasNextGen)
+                ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/15"
+                : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/15 animate-pulse"
+            )}>
+            <Settings className="h-3.5 w-3.5"/>
+            {hasApollo || hasNextGen ? "API Keys" : "Connect Keys"}
+          </button>
+        </div>
+      </div>
+
+      {/* ── Messages ── */}
+      <div className="flex-1 overflow-y-auto">
+
+        {/* Empty state */}
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-6 pb-24 px-4 text-center">
+            {(!hasApollo && !hasNextGen) ? (
+              <div className="max-w-sm space-y-4">
+                <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto">
+                  <Key className="h-7 w-7 text-orange-400"/>
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-lg font-bold">Connect your lead sources</h2>
+                  <p className="text-sm text-muted-foreground">Add your Apollo.io and/or NextGen Leads API keys to start finding leads.</p>
+                </div>
+                <Button onClick={() => setShowKeys(true)} className="gap-2">
+                  <Key className="h-4 w-4"/> Connect API Keys →
+                </Button>
+              </div>
+            ) : source === "apollo" ? (
+              <div className="max-w-lg space-y-5">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                      <Target className="h-4 w-4 text-orange-400"/>
+                    </div>
+                    <h2 className="text-lg font-bold">Apollo Search</h2>
+                  </div>
+                  <p className="text-sm text-muted-foreground">Describe who you're looking for in plain English</p>
+                </div>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {APOLLO_SUGGESTIONS.map(s => (
+                    <button key={s} onClick={() => { if (!canSearch) { setShowKeys(true); return; } searchApolloHandler(s); }}
+                      className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/60 transition-all">
+                      "{s}"
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="max-w-sm space-y-4">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                    <Zap className="h-4 w-4 text-blue-400"/>
+                  </div>
+                  <h2 className="text-lg font-bold">NextGen Leads</h2>
+                </div>
+                <p className="text-sm text-muted-foreground">Select a lead vertical and click Search</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Footer */}
-        <div className="mt-auto pt-1">
-          {lead.is_purchased ? (
-            <div className="flex items-center gap-1.5 text-xs font-medium text-green-400">
-              <Check className="h-3.5 w-3.5" /> Purchased
-            </div>
-          ) : (
-            <button
-              onClick={() => onBuy(lead.id)}
-              disabled={isBuying}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold transition-all hover:shadow-md active:scale-[0.98] disabled:opacity-60">
-              {isBuying
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Purchasing…</>
-                : <><ShoppingCart className="h-3.5 w-3.5" /> Get Contact Info · <Coins className="h-3 w-3" />{lead.credits_cost}</>
-              }
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+        {/* Message list */}
+        <div className="max-w-5xl mx-auto px-4 py-4 space-y-6">
+          {messages.map((msg, i) => {
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
-export default function LeadsAgent() {
-  const navigate = useNavigate();
-
-  const [stats, setStats]           = useState<MarketplaceStats | null>(null);
-  const [leads, setLeads]           = useState<MarketplaceLead[]>([]);
-  const [total, setTotal]           = useState(0);
-  const [pages, setPages]           = useState(1);
-  const [page, setPage]             = useState(1);
-  const [loading, setLoading]       = useState(true);
-  const [buying, setBuying]         = useState<number | null>(null);
-  const [showBuyModal, setShowBuyModal] = useState(false);
-
-  const [activeCategory, setActiveCategory] = useState("all");
-  const [stateFilter, setStateFilter]       = useState("");
-  const [typeFilter, setTypeFilter]         = useState("");
-
-  const load = useCallback(async (cat = activeCategory, st = stateFilter, typ = typeFilter, pg = page) => {
-    setLoading(true);
-    try {
-      const res = await getMarketplaceLeads({ category: cat, state: st, lead_type: typ, page: pg, per_page: 20 });
-      setLeads(res.leads); setTotal(res.total); setPages(res.pages);
-    } catch { toast({ title: "Failed to load leads", variant: "destructive" }); }
-    finally { setLoading(false); }
-  }, [activeCategory, stateFilter, typeFilter, page]);
-
-  useEffect(() => {
-    getMarketplaceStats().then(setStats).catch(() => {});
-    load("all", "", "", 1);
-  }, []);
-
-  const handleCategory = (id: string) => { setActiveCategory(id); setPage(1); load(id, stateFilter, typeFilter, 1); };
-  const handleState    = (s: string)  => { setStateFilter(s);     setPage(1); load(activeCategory, s, typeFilter, 1); };
-  const handleType     = (t: string)  => { setTypeFilter(t);      setPage(1); load(activeCategory, stateFilter, t, 1); };
-  const handlePage     = (p: number)  => { setPage(p); load(activeCategory, stateFilter, typeFilter, p); window.scrollTo({ top: 0 }); };
-
-  const handleBuy = async (id: number) => {
-    setBuying(id);
-    try {
-      const res = await purchaseMarketplaceLead(id);
-      setLeads(prev => prev.map(l => l.id === id ? { ...l, ...res.lead, is_purchased: true } : l));
-      setStats(prev => prev ? { ...prev, balance: res.credits_remaining, purchased: prev.purchased + 1 } : prev);
-      toast({ title: "Lead purchased ✓", description: `${res.credits_remaining} credits remaining` });
-    } catch (e: any) {
-      if (e.message?.includes("enough credits") || e.message?.startsWith("402")) {
-        setShowBuyModal(true);
-      } else {
-        toast({ title: e.message || "Failed", variant: "destructive" });
-      }
-    } finally { setBuying(null); }
-  };
-
-  const handleDownloadAll = async () => {
-    try {
-      const all = await getPurchasedLeads();
-      if (!all.length) { toast({ title: "No purchased leads yet" }); return; }
-      downloadCSV(all);
-    } catch { toast({ title: "Download failed", variant: "destructive" }); }
-  };
-
-  const clearFilters = () => { setStateFilter(""); setTypeFilter(""); load(activeCategory, "", "", 1); };
-
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-
-      {/* ── Top Bar ── */}
-      <div className="sticky top-0 z-20 flex items-center gap-3 px-5 py-3 border-b border-border/30 bg-background/95 backdrop-blur-sm">
-        <button onClick={() => navigate("/workflow")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="h-4 w-4" /> Dashboard
-        </button>
-        <div className="w-px h-4 bg-border/40" />
-        <span className="text-sm font-bold">Lead Marketplace</span>
-
-        <div className="ml-auto flex items-center gap-2">
-          <button onClick={() => setShowBuyModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 border border-yellow-500/25 text-xs text-yellow-300 hover:bg-yellow-500/15 transition-colors font-medium">
-            <Coins className="h-3.5 w-3.5" />
-            {stats ? <><strong>{stats.balance}</strong> credits</> : "— credits"}
-            <span className="opacity-60 ml-1">Buy →</span>
-          </button>
-          {stats && stats.purchased > 0 && (
-            <button onClick={handleDownloadAll}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-500/10 border border-green-500/25 text-xs text-green-300 hover:bg-green-500/15 transition-colors font-medium">
-              <Download className="h-3.5 w-3.5" /> Download ({stats.purchased})
-            </button>
-          )}
-          <button onClick={() => { getMarketplaceStats().then(setStats).catch(() => {}); load(); }}
-            className="p-2 rounded-lg hover:bg-secondary/40 text-muted-foreground hover:text-foreground transition-colors">
-            <RefreshCw className="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-
-      <div className="flex h-[calc(100vh-57px)]">
-
-        {/* ── Left Sidebar — Categories ── */}
-        <div className="w-52 shrink-0 border-r border-border/25 bg-card/10 overflow-y-auto p-3 space-y-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-2 pb-1">Lead Type</p>
-          {CATEGORIES.map(cat => {
-            const Icon = cat.icon;
-            const count = cat.id === "all" ? stats?.total : stats?.category_counts[cat.id];
-            return (
-              <button key={cat.id}
-                onClick={() => handleCategory(cat.id)}
-                className={cn(
-                  "w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-all",
-                  activeCategory === cat.id
-                    ? cn("border", cat.color)
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
-                )}>
-                <div className="flex items-center gap-2">
-                  <Icon className="h-3.5 w-3.5 shrink-0" />
-                  {cat.label}
+            if (msg.role === "user") return (
+              <div key={i} className="flex justify-end">
+                <div className="max-w-[70%] bg-primary/10 border border-primary/20 rounded-2xl rounded-tr-md px-4 py-2.5">
+                  <p className="text-sm">{msg.text}</p>
                 </div>
-                {count !== undefined && count > 0 && (
-                  <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full font-medium",
-                    activeCategory === cat.id ? "bg-white/10" : "bg-secondary/60 text-muted-foreground/60")}>
-                    {count}
-                  </span>
-                )}
-              </button>
+              </div>
             );
-          })}
 
-          {/* Stats */}
-          {stats && (
-            <div className="pt-4 border-t border-border/20 space-y-2 px-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Your Account</p>
-              <div className="space-y-1.5 text-xs text-muted-foreground">
-                <div className="flex justify-between"><span>Credits</span><strong className="text-yellow-300">{stats.balance}</strong></div>
-                <div className="flex justify-between"><span>Purchased</span><strong className="text-green-300">{stats.purchased}</strong></div>
-                <div className="flex justify-between"><span>Available</span><strong className="text-foreground">{stats.total}</strong></div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Main Content ── */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-
-          {/* Filter bar */}
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/20 bg-card/5 shrink-0">
-            <SlidersHorizontal className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-            <select value={stateFilter} onChange={e => handleState(e.target.value)}
-              className="h-8 px-2 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/40 text-muted-foreground max-w-[160px]">
-              <option value="">All States</option>
-              {US_STATES.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <input
-              value={typeFilter}
-              onChange={e => handleType(e.target.value)}
-              placeholder="Filter by type…"
-              className="h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/40 w-40"
-            />
-            {(stateFilter || typeFilter) && (
-              <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                <X className="h-3 w-3" /> Clear
-              </button>
-            )}
-            <span className="ml-auto text-xs text-muted-foreground">
-              {loading ? "Loading…" : <><strong className="text-foreground">{total.toLocaleString()}</strong> leads</>}
-            </span>
-          </div>
-
-          {/* Lead grid */}
-          <div className="flex-1 overflow-y-auto p-4">
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-32 gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Loading leads…</p>
-              </div>
-            ) : leads.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
-                <Tag className="h-12 w-12 text-muted-foreground/20" />
-                <p className="text-sm font-medium text-muted-foreground">No leads available yet</p>
-                <p className="text-xs text-muted-foreground/60">Check back soon — new leads are added regularly.</p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {leads.map(lead => (
-                    <LeadCard key={lead.id} lead={lead} onBuy={handleBuy} buying={buying} />
-                  ))}
+            if (msg.role === "thinking") return (
+              <div key={i} className="flex justify-start">
+                <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-tl-md bg-card/40 border border-border/30">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary"/>
+                  <span className="text-sm text-muted-foreground">
+                    {msg.source === "apollo" ? "Searching Apollo.io…" : "Fetching NextGen leads…"}
+                  </span>
                 </div>
+              </div>
+            );
 
-                {/* Pagination */}
-                {pages > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-8 pb-4">
-                    <button onClick={() => handlePage(page - 1)} disabled={page === 1}
-                      className="p-2 rounded-lg border border-border/30 hover:bg-secondary/40 disabled:opacity-30 transition-colors">
-                      <ChevronLeft className="h-4 w-4" />
-                    </button>
-                    {Array.from({ length: Math.min(pages, 7) }, (_, i) => i + 1).map(p => (
-                      <button key={p} onClick={() => handlePage(p)}
-                        className={cn("w-9 h-9 rounded-lg text-sm transition-colors font-medium",
-                          p === page ? "bg-primary text-primary-foreground" : "border border-border/30 hover:bg-secondary/40 text-muted-foreground")}>
-                        {p}
-                      </button>
-                    ))}
-                    {pages > 7 && <span className="text-muted-foreground text-sm px-1">…</span>}
-                    <button onClick={() => handlePage(page + 1)} disabled={page === pages}
-                      className="p-2 rounded-lg border border-border/30 hover:bg-secondary/40 disabled:opacity-30 transition-colors">
-                      <ChevronRight className="h-4 w-4" />
-                    </button>
+            if (msg.role === "error") return (
+              <div key={i} className="flex justify-start">
+                <div className="flex items-start gap-2.5 max-w-[80%] px-4 py-3 rounded-2xl rounded-tl-md bg-red-500/10 border border-red-500/20">
+                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5"/>
+                  <p className="text-sm text-red-300">{msg.text}</p>
+                </div>
+              </div>
+            );
+
+            if (msg.role === "assistant") {
+              const withEmail    = msg.leads.filter(l => l.email).length;
+              const withPhone    = msg.leads.filter(l => l.phone).length;
+              const withLinkedIn = msg.leads.filter(l => l.linkedin_url).length;
+
+              return (
+                <div key={i} className="flex justify-start w-full">
+                  <div className="w-full space-y-3">
+                    {/* Header */}
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <Badge className={cn("text-xs border px-2.5 py-1",
+                          msg.source === "apollo"
+                            ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
+                            : "bg-blue-500/10 text-blue-300 border-blue-500/20"
+                        )}>
+                          {msg.source === "apollo" ? "Apollo" : "NextGen"}
+                        </Badge>
+                        <span className="text-sm font-semibold">
+                          {msg.leads.length === 0 ? "No leads found" : `${msg.leads.length} leads found`}
+                        </span>
+                      </div>
+                      {msg.leads.length > 0 && (
+                        <Button size="sm" onClick={() => downloadCSV(msg.leads, msg.source)}
+                          className="gap-1.5 h-8 text-xs bg-green-600 hover:bg-green-700 text-white border-0">
+                          <Download className="h-3.5 w-3.5"/> Download CSV
+                        </Button>
+                      )}
+                    </div>
+
+                    {/* Stats */}
+                    {msg.leads.length > 0 && (
+                      <div className="flex gap-4 text-xs">
+                        <span className="text-blue-400"><strong>{withEmail}</strong> <span className="text-muted-foreground">with email</span></span>
+                        <span className="text-green-400"><strong>{withPhone}</strong> <span className="text-muted-foreground">with phone</span></span>
+                        {withLinkedIn > 0 && <span className="text-sky-400"><strong>{withLinkedIn}</strong> <span className="text-muted-foreground">with LinkedIn</span></span>}
+                      </div>
+                    )}
+
+                    {/* Table */}
+                    {msg.leads.length > 0 && (
+                      <div className="rounded-xl border border-border/30 bg-card/20 overflow-hidden">
+                        <div className="grid grid-cols-4 gap-x-4 px-4 py-2 bg-secondary/20 border-b border-border/20">
+                          {["Person","Company / Info","Contact","Location"].map(h => (
+                            <p key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</p>
+                          ))}
+                        </div>
+                        {msg.leads.map((lead, idx) => (
+                          <LeadCard key={idx} lead={lead} idx={idx}/>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-              </>
-            )}
-          </div>
+                </div>
+              );
+            }
+            return null;
+          })}
+          <div ref={bottomRef}/>
         </div>
       </div>
 
-      {showBuyModal && <BuyCreditsModal onClose={() => setShowBuyModal(false)} />}
+      {/* ── Input Bar ── */}
+      <div className="shrink-0 border-t border-border/30 bg-card/10">
+        {source === "apollo" ? (
+          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
+              placeholder={hasApollo ? 'e.g. "High income doctors and lawyers in Miami"' : "Connect your Apollo API key first →"}
+              disabled={busy || !hasApollo}
+              className="flex-1 h-11 px-4 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 disabled:opacity-50"
+            />
+            <button onClick={handleSend} disabled={busy || !input.trim() || !hasApollo}
+              className={cn(
+                "w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0",
+                input.trim() && !busy && hasApollo
+                  ? "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg hover:scale-105 active:scale-95"
+                  : "bg-secondary/30 text-muted-foreground cursor-not-allowed"
+              )}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
+            </button>
+          </div>
+        ) : (
+          /* NextGen filter bar */
+          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
+            <select value={ngVertical} onChange={e => setNgVertical(e.target.value)}
+              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 text-foreground">
+              {NEXTGEN_VERTICALS.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+            <input value={ngState} onChange={e => setNgState(e.target.value)}
+              placeholder="State (e.g. Florida)"
+              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 w-40 placeholder:text-muted-foreground/40"
+            />
+            <select value={ngLimit} onChange={e => setNgLimit(Number(e.target.value))}
+              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50">
+              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} leads</option>)}
+            </select>
+            <button onClick={searchNextGenHandler} disabled={busy || !hasNextGen}
+              className={cn(
+                "h-10 px-5 rounded-xl text-sm font-medium transition-all flex items-center gap-2",
+                !busy && hasNextGen
+                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:scale-[1.02] active:scale-[0.98]"
+                  : "bg-secondary/30 text-muted-foreground cursor-not-allowed"
+              )}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Zap className="h-4 w-4"/>}
+              {hasNextGen ? "Get Leads" : "Connect NextGen Key First"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Keys Modal ── */}
+      {showKeys && keys && (
+        <KeysModal keys={keys} onSaved={setKeys} onClose={() => setShowKeys(false)}/>
+      )}
+      {showKeys && !keys && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <Loader2 className="h-8 w-8 animate-spin text-primary"/>
+        </div>
+      )}
     </div>
   );
 }
