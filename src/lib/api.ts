@@ -1695,184 +1695,160 @@ export const submitA2PCampaign = (data: {
   optin_method: string; optin_keywords?: string; optout_keywords?: string;
 }) => phoneFetch("/a2p/campaign", { method: "POST", body: JSON.stringify(data) });
 
-// ── Leads Agent ────────────────────────────────────────────────────────────────
 
-export interface Lead {
-  name: string;
+// ── Leads Intelligence ────────────────────────────────────────────────────────
+
+export interface ProspectLead {
+  id?: number;
+  user_id?: number;
+  full_name?: string;
   first_name?: string;
   last_name?: string;
-  title?: string;
-  company?: string;
-  email?: string;
   phone?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  linkedin_url?: string;
-  company_size?: string | number;
-  industry?: string;
-  website?: string;
-}
-
-export interface LeadSearch {
-  id: number;
-  prompt: string;
-  filters_json?: string;
-  results_count: number;
-  created_at: string;
-}
-
-export interface LeadSearchResult {
-  search_id?: number;
-  leads: Lead[];
-  total: number;
-  filters?: Record<string, unknown>;
-  prompt?: string;
-}
-
-async function leadsFetch(path: string, opts: RequestInit = {}) {
-  const res = await fetch(`${API_BASE}/api/leads${path}`, {
-    ...opts,
-    headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
-  });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
-  return res.json();
-}
-
-export const getLeadsSettings      = (): Promise<{ has_key: boolean; masked_key: string }> => leadsFetch("/settings");
-export const saveLeadsSettings     = (apollo_api_key: string) => leadsFetch("/settings", { method: "POST", body: JSON.stringify({ apollo_api_key }) });
-export const getLeadsHistory       = (): Promise<LeadSearch[]> => leadsFetch("/history");
-export const getLeadsSearchResults = (id: number): Promise<{ leads: Lead[] }> => leadsFetch(`/history/${id}/results`);
-export const searchLeads           = (prompt: string): Promise<LeadSearchResult> => leadsFetch("/search", { method: "POST", body: JSON.stringify({ prompt }) });
-
-// ── Lead Marketplace ──────────────────────────────────────────────────────────
-
-export interface MarketplaceLead {
-  id: number;
-  category: string;
-  lead_type?: string;
-  display_name: string;
-  first_name?: string;
-  last_name_initial?: string;
-  age?: number;
-  gender?: string;
+  email?: string;
+  address?: string;
   city?: string;
   state?: string;
   zip_code?: string;
-  interest?: string;
-  notes_public?: string;
-  credits_cost: number;
+  homeowner_status?: "owner" | "renter" | "unknown";
+  estimated_home_value?: number;
+  zip_median_income?: number;
+  business_owner_flag?: boolean;
+  lead_source?: string;
+  tags?: string[];
+  score?: number;
+  score_reasons?: string[];
+  status?: "new" | "contacted" | "qualified" | "converted" | "dead";
+  ai_summary?: string;
+  ai_outreach_angle?: string;
+  ai_confidence?: string;
+  ai_insurance_types?: string[];
+  notes?: string;
+  notes_list?: { id: number; note: string; created_at: string }[];
+  outreach_history?: OutreachEvent[];
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface OutreachEvent {
+  id?: number;
+  lead_id?: number;
+  channel: "sms" | "email" | "call";
+  direction?: string;
+  content?: string;
+  status?: string;
+  created_at?: string;
+}
+
+export interface SavedSearch {
+  id: number;
+  name: string;
+  filters: LeadFilters;
+  result_count: number;
   created_at: string;
-  is_purchased: boolean;
-  // Revealed after purchase
-  last_name?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  notes_private?: string;
 }
 
-export interface MarketplaceListResult {
-  leads: MarketplaceLead[];
-  total: number;
-  page: number;
-  per_page: number;
-  pages: number;
+export interface LeadFilters {
+  q?: string;
+  state?: string;
+  city?: string;
+  zip_code?: string;
+  homeowner?: "owner" | "renter" | "any";
+  business_owner?: "yes" | "no" | "any";
+  min_home_value?: number;
+  max_home_value?: number;
+  min_score?: number;
+  max_score?: number;
+  status?: string;
 }
 
-export interface MarketplaceStats {
-  category_counts: Record<string, number>;
-  total: number;
-  purchased: number;
-  balance: number;
-}
-
-async function mktFetch(path: string, opts: RequestInit = {}) {
-  const res = await fetch(`${API_BASE}/api/marketplace${path}`, {
+function leadFetch(path: string, opts: RequestInit = {}) {
+  return fetch(`${API_BASE}/api${path}`, {
     ...opts,
     headers: { ...authHeaders(), ...(opts.headers as Record<string, string> ?? {}) },
+  }).then(async (res) => {
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
+    return res.json();
   });
-  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Request failed"); }
-  return res.json();
 }
 
-export const getMarketplaceLeads = (params: {
-  category?: string; state?: string; lead_type?: string; page?: number; per_page?: number;
-}): Promise<MarketplaceListResult> => {
+// List / search
+export const getLeads = (params: LeadFilters & { limit?: number; offset?: number } = {}) => {
   const q = new URLSearchParams();
-  if (params.category)  q.set("category",  params.category);
-  if (params.state)     q.set("state",     params.state);
-  if (params.lead_type) q.set("lead_type", params.lead_type);
-  if (params.page)      q.set("page",      String(params.page));
-  if (params.per_page)  q.set("per_page",  String(params.per_page));
-  return mktFetch(`/leads?${q.toString()}`);
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") q.set(k, String(v)); });
+  return leadFetch(`/leads?${q}`) as Promise<{ leads: ProspectLead[]; total: number }>;
 };
 
-export const purchaseMarketplaceLead = (id: number): Promise<{ ok: boolean; lead: MarketplaceLead; credits_remaining: number }> =>
-  mktFetch(`/leads/${id}/purchase`, { method: "POST" });
+export const searchLeads = (filters: LeadFilters, limit = 100, offset = 0) =>
+  leadFetch("/leads/search", { method: "POST", body: JSON.stringify({ filters, limit, offset }) }) as
+  Promise<{ leads: ProspectLead[]; total: number }>;
 
-export const getMarketplaceStats    = (): Promise<MarketplaceStats> => mktFetch("/stats");
-export const getPurchasedLeads      = (): Promise<MarketplaceLead[]> => mktFetch("/purchased");
+// Import
+export const importLeadsCSV = (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  const token = localStorage.getItem("token");
+  return fetch(`${API_BASE}/api/leads/import`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  }).then(async (res) => {
+    if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Import failed"); }
+    return res.json() as Promise<{ imported: number; skipped: number; errors: string[] }>;
+  });
+};
 
-// ── Marketplace API key settings ──────────────────────────────────────────────
-export interface MarketplaceKeys {
-  apollo:  { connected: boolean; masked: string };
-  nextgen: { connected: boolean; masked: string };
-  vibe:    { connected: boolean; masked: string };
-}
+// Add / update / delete
+export const addLead = (data: Partial<ProspectLead>) =>
+  leadFetch("/leads/add", { method: "POST", body: JSON.stringify(data) });
 
-export const getMarketplaceKeys = (): Promise<MarketplaceKeys> => mktFetch("/keys");
-export const saveMarketplaceKeys = (keys: { apollo_key?: string; nextgen_key?: string; vibe_key?: string }) =>
-  mktFetch("/keys", { method: "POST", body: JSON.stringify(keys) });
+export const updateLead = (id: number, data: Partial<ProspectLead>) =>
+  leadFetch(`/leads/${id}`, { method: "PUT", body: JSON.stringify(data) });
 
-// ── Dual-source search results ────────────────────────────────────────────────
-export interface SearchLead {
-  source: "apollo" | "nextgen" | "vibe";
-  name: string;
-  first_name?: string;
-  last_name?: string;
-  title?: string;
-  company?: string;
-  email?: string;
-  phone?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  zip_code?: string;
-  linkedin_url?: string;
-  company_size?: string | number;
-  industry?: string;
-  website?: string;
-  age?: number;
-  gender?: string;
-  interest?: string;
-  notes_public?: string;
-}
+export const deleteLead = (id: number) =>
+  leadFetch(`/leads/${id}`, { method: "DELETE" });
 
-export const searchApollo  = (prompt: string): Promise<{ leads: SearchLead[]; total: number; filters?: object }> =>
-  mktFetch("/search/apollo",  { method: "POST", body: JSON.stringify({ prompt }) });
+// Get single lead (with notes + outreach history)
+export const getLead = (id: number): Promise<ProspectLead> =>
+  leadFetch(`/leads/${id}`);
 
-export const searchNextGen = (params: { vertical?: string; state?: string; limit?: number }): Promise<{ leads: SearchLead[]; total: number }> =>
-  mktFetch("/search/nextgen", { method: "POST", body: JSON.stringify(params) });
+// Notes
+export const addLeadNote = (leadId: number, note: string) =>
+  leadFetch(`/leads/${leadId}/note`, { method: "POST", body: JSON.stringify({ note }) });
 
-export const searchVibe = (prompt: string, size?: number): Promise<{ leads: SearchLead[]; total: number; filters?: object }> =>
-  mktFetch("/search/vibe", { method: "POST", body: JSON.stringify({ prompt, size: size ?? 25 }) });
+// AI summary
+export const generateAISummary = (leadId: number): Promise<{
+  summary: string; outreach_angle: string; confidence: string; insurance_types: string[];
+}> => leadFetch(`/leads/${leadId}/ai-summary`, { method: "POST" });
 
-export const generateOutreachMessage = (lead: SearchLead, channel: "sms" | "email" | "call", context?: string) =>
-  mktFetch("/outreach/generate", { method: "POST", body: JSON.stringify({ lead, channel, context }) });
+// Outreach
+export const generateLeadOutreach = (
+  leadId: number, channel: "sms" | "email" | "call", context?: string
+) => leadFetch(`/leads/${leadId}/generate-outreach`, { method: "POST", body: JSON.stringify({ channel, context }) });
 
-// Send SMS to a lead phone number (reuses existing CRM SMS infra)
-export const sendLeadSMS = (phone: string, message: string) =>
+export const logOutreachEvent = (leadId: number, event: Partial<OutreachEvent>) =>
+  leadFetch(`/leads/${leadId}/outreach-event`, { method: "POST", body: JSON.stringify(event) });
+
+export const sendProspectSMS = (phone: string, message: string) =>
   fetch(`${API_BASE}/api/sms/send-to-number`, {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ phone, message }),
+    body: JSON.stringify({ to: phone, message }),
   }).then(r => r.json());
 
-// Initiate outbound call to a lead
-export const callLead = (phone: string, name: string) =>
+export const callProspect = (phone: string, name: string) =>
   fetch(`${API_BASE}/api/calls/outbound`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ to_number: phone, contact_name: name }),
   }).then(r => r.json());
+
+// Saved searches
+export const getSavedSearches = (): Promise<SavedSearch[]> =>
+  leadFetch("/saved-searches");
+
+export const saveSearch = (name: string, filters: LeadFilters, result_count?: number) =>
+  leadFetch("/saved-searches", { method: "POST", body: JSON.stringify({ name, filters, result_count }) });
+
+export const deleteSavedSearch = (id: number) =>
+  leadFetch(`/saved-searches/${id}`, { method: "DELETE" });

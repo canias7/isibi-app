@@ -1,757 +1,924 @@
-import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useRef, useCallback } from "react";
 import {
-  ArrowLeft, Send, Download, Loader2, Key, Check, X,
-  AlertCircle, Mail, Phone, MapPin, Linkedin, Globe, Copy,
-  MessageSquare, PhoneCall, FileText, Sparkles, Target, Zap,
-  Settings, ExternalLink, ChevronRight, Building2,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
-import { toast } from "@/hooks/use-toast";
-import {
-  getMarketplaceKeys, saveMarketplaceKeys,
-  searchApollo, searchNextGen, searchVibe, generateOutreachMessage,
-  sendLeadSMS, callLead,
-  type MarketplaceKeys, type SearchLead,
-} from "@/lib/api";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+  ProspectLead, LeadFilters, SavedSearch,
+  searchLeads, addLead, updateLead, getLead,
+  addLeadNote, generateAISummary, generateLeadOutreach, logOutreachEvent,
+  sendProspectSMS, callProspect, importLeadsCSV, getSavedSearches,
+  saveSearch, deleteSavedSearch,
+} from "../lib/api";
 
-// ── PDF export ────────────────────────────────────────────────────────────────
-function exportPDF(leads: SearchLead[], title: string) {
-  const doc = new jsPDF();
-  doc.setFontSize(16);
-  doc.text(title, 14, 18);
-  doc.setFontSize(9);
-  doc.setTextColor(120);
-  doc.text(`Generated ${new Date().toLocaleDateString()} · ${leads.length} leads`, 14, 25);
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
-  autoTable(doc, {
-    startY: 30,
-    head: [["Name", "Title / Interest", "Company", "Email", "Phone", "Location"]],
-    body: leads.map(l => [
-      l.name || "",
-      l.title || l.interest || "",
-      l.company || "",
-      l.email || "",
-      l.phone || "",
-      [l.city, l.state].filter(Boolean).join(", "),
-    ]),
-    styles: { fontSize: 8, cellPadding: 3 },
-    headStyles: { fillColor: [30, 30, 30], textColor: 255 },
-    alternateRowStyles: { fillColor: [245, 245, 245] },
-  });
+const scoreColor = (s: number) =>
+  s >= 80 ? "text-emerald-400" : s >= 60 ? "text-yellow-400" : s >= 40 ? "text-orange-400" : "text-slate-400";
 
-  doc.save(`leads-${Date.now()}.pdf`);
-  toast({ title: `✓ PDF downloaded — ${leads.length} leads` });
+const scoreBg = (s: number) =>
+  s >= 80 ? "bg-emerald-500/20 border-emerald-500/40"
+  : s >= 60 ? "bg-yellow-500/20 border-yellow-500/40"
+  : s >= 40 ? "bg-orange-500/20 border-orange-500/40"
+  : "bg-slate-700/40 border-slate-600/40";
+
+const scoreLabel = (s: number) =>
+  s >= 80 ? "High" : s >= 60 ? "Medium" : s >= 40 ? "Low-Med" : "Low";
+
+const statusColors: Record<string, string> = {
+  new:       "bg-blue-500/20 text-blue-300 border-blue-500/30",
+  contacted: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
+  qualified: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  converted: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+  dead:      "bg-slate-700/40 text-slate-500 border-slate-600/30",
+};
+
+const fmt = (n?: number) => n ? `$${n.toLocaleString()}` : "—";
+const initials = (name?: string) =>
+  (name || "?").split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+
+// ─── ScoreBar ──────────────────────────────────────────────────────────────────
+
+function ScoreBar({ score }: { score: number }) {
+  const color = score >= 80 ? "bg-emerald-500" : score >= 60 ? "bg-yellow-500"
+              : score >= 40 ? "bg-orange-400" : "bg-slate-600";
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${score}%` }} />
+      </div>
+      <span className={`text-xs font-bold w-7 text-right ${scoreColor(score)}`}>{score}</span>
+    </div>
+  );
 }
 
-// ── AI Outreach Modal ─────────────────────────────────────────────────────────
-function OutreachModal({ lead, onClose }: { lead: SearchLead; onClose: () => void }) {
-  const [tab, setTab]         = useState<"sms" | "email" | "call">("sms");
-  const [message, setMessage] = useState("");
-  const [subject, setSubject] = useState("");
+// ─── OutreachModal ─────────────────────────────────────────────────────────────
+
+function OutreachModal({ lead, onClose, onLogged }: {
+  lead: ProspectLead; onClose: () => void; onLogged: () => void;
+}) {
+  const [tab, setTab]       = useState<"sms"|"email"|"call">("sms");
   const [context, setContext] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [sending, setSending]       = useState(false);
+  const [msg, setMsg]         = useState("");
+  const [subject, setSubject] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent]       = useState(false);
 
   const generate = async () => {
-    setGenerating(true);
+    setLoading(true); setMsg(""); setSubject("");
     try {
-      const res = await generateOutreachMessage(lead, tab, context);
-      if (tab === "email") { setSubject(res.subject || ""); setMessage(res.body || ""); }
-      else { setMessage(res.message || ""); }
-    } catch (e: any) {
-      toast({ title: e.message, variant: "destructive" });
-    } finally { setGenerating(false); }
+      const res = await generateLeadOutreach(lead.id!, tab, context);
+      if (tab === "email") { setSubject(res.subject || ""); setMsg(res.body || ""); }
+      else setMsg(res.message || "");
+    } catch (e: any) { alert(e.message); }
+    finally { setLoading(false); }
   };
 
-  const handleSend = async () => {
-    if (tab === "sms") {
-      if (!lead.phone) { toast({ title: "No phone number for this lead", variant: "destructive" }); return; }
-      if (!message.trim()) { toast({ title: "Write a message first", variant: "destructive" }); return; }
-      setSending(true);
-      try {
-        await sendLeadSMS(lead.phone, message);
-        toast({ title: `SMS sent to ${lead.name} ✓` });
-        onClose();
-      } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
-      finally { setSending(false); }
-    }
-    if (tab === "call") {
-      if (!lead.phone) { toast({ title: "No phone number for this lead", variant: "destructive" }); return; }
-      setSending(true);
-      try {
-        await callLead(lead.phone, lead.name);
-        toast({ title: `Calling ${lead.name}…` });
-        onClose();
-      } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
-      finally { setSending(false); }
-    }
-    if (tab === "email") {
-      toast({ title: "Email feature coming soon" });
-    }
+  const send = async () => {
+    if (!msg.trim()) return;
+    setSending(true);
+    try {
+      if (tab === "sms")  await sendProspectSMS(lead.phone!, msg);
+      if (tab === "call") await callProspect(lead.phone!, lead.full_name || "");
+      await logOutreachEvent(lead.id!, {
+        channel: tab,
+        content: tab === "email" ? `${subject}\n\n${msg}` : msg,
+      });
+      setSent(true); onLogged();
+      setTimeout(() => { setSent(false); onClose(); }, 1500);
+    } catch (e: any) { alert(e.message); }
+    finally { setSending(false); }
   };
-
-  const TABS = [
-    { id: "sms",   label: "SMS",    icon: MessageSquare, color: "text-green-400"  },
-    { id: "email", label: "Email",  icon: Mail,          color: "text-blue-400"   },
-    { id: "call",  label: "Call",   icon: PhoneCall,     color: "text-purple-400" },
-  ] as const;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border/40 rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-border/20">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-[#1a1f2e] border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl">
+
+        <div className="flex items-center justify-between p-5 border-b border-slate-700">
           <div>
-            <p className="text-sm font-semibold">Reach out to {lead.name}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {lead.title || lead.interest || ""}{lead.company ? ` · ${lead.company}` : ""}
-            </p>
+            <p className="font-semibold text-white">Reach Out</p>
+            <p className="text-sm text-slate-400">{lead.full_name}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40"><X className="h-4 w-4"/></button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>
         </div>
 
-        {/* Channel tabs */}
-        <div className="flex gap-1 px-5 pt-4">
-          {TABS.map(t => {
-            const Icon = t.icon;
-            return (
-              <button key={t.id} onClick={() => { setTab(t.id); setMessage(""); setSubject(""); }}
-                className={cn("flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-all flex-1 justify-center",
-                  tab === t.id
-                    ? "bg-secondary/40 border-border/50 text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground")}>
-                <Icon className={cn("h-3.5 w-3.5", tab === t.id ? t.color : "")}/>
-                {t.label}
-              </button>
-            );
-          })}
+        <div className="flex border-b border-slate-700">
+          {(["sms","email","call"] as const).map(t => (
+            <button key={t} onClick={() => { setTab(t); setMsg(""); setSubject(""); }}
+              className={`flex-1 py-3 text-sm font-medium capitalize transition-colors ${
+                tab === t ? "text-indigo-400 border-b-2 border-indigo-500" : "text-slate-400 hover:text-white"
+              }`}>
+              {t === "sms" ? "📱 SMS" : t === "email" ? "✉️ Email" : "📞 Call Script"}
+            </button>
+          ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-          {/* Context hint */}
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">What do you sell? (helps AI personalize)</label>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Context (optional)</label>
             <input value={context} onChange={e => setContext(e.target.value)}
-              placeholder="e.g. Health insurance, solar panels, real estate…"
-              className="w-full h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40"
-            />
+              placeholder="e.g. following up on a referral…"
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
           </div>
 
-          {/* Email subject */}
-          {tab === "email" && (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Subject</label>
+          <button onClick={generate} disabled={loading}
+            className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium transition-colors flex items-center justify-center gap-2">
+            {loading ? <><span className="animate-spin inline-block">⟳</span> Generating…</> : "✨ Generate with AI"}
+          </button>
+
+          {tab === "email" && msg && (
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Subject</label>
               <input value={subject} onChange={e => setSubject(e.target.value)}
-                placeholder="Email subject line…"
-                className="w-full h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/50"
-              />
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 mb-2" />
             </div>
           )}
 
-          {/* Message area */}
-          {tab !== "call" ? (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <label className="text-xs text-muted-foreground">{tab === "sms" ? "Message" : "Body"}</label>
-                {tab === "sms" && message && (
-                  <span className={cn("text-[10px]", message.length > 160 ? "text-red-400" : "text-muted-foreground/60")}>
-                    {message.length}/160
-                  </span>
-                )}
-              </div>
-              <textarea value={message} onChange={e => setMessage(e.target.value)}
-                placeholder={generating ? "AI is writing…" : "Write your message or click Generate with AI →"}
-                rows={tab === "email" ? 6 : 4}
-                className="w-full px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/50 resize-none placeholder:text-muted-foreground/40"
-              />
-            </div>
-          ) : (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Call script</label>
-              <textarea value={message} onChange={e => setMessage(e.target.value)}
-                placeholder={generating ? "AI is writing…" : "Generate an AI call script to read when they pick up →"}
-                rows={6}
-                className="w-full px-3 py-2 rounded-lg bg-secondary/30 border border-border/30 text-xs focus:outline-none focus:border-primary/50 resize-none placeholder:text-muted-foreground/40"
-              />
+          {msg && (
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">
+                {tab === "sms" ? `Message (${msg.length}/160)` : tab === "call" ? "Call Script" : "Email Body"}
+              </label>
+              <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={5}
+                className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500 resize-none" />
             </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div className="flex gap-2 px-5 pb-5 pt-3 border-t border-border/20">
-          <Button variant="outline" onClick={generate} disabled={generating} className="flex-1 gap-2 text-xs">
-            {generating ? <><Loader2 className="h-3.5 w-3.5 animate-spin"/>Generating…</> : <><Sparkles className="h-3.5 w-3.5"/>Generate with AI</>}
-          </Button>
-          <Button onClick={handleSend} disabled={sending || (!message.trim() && tab !== "email")} className="flex-1 gap-2 text-xs">
-            {sending
-              ? <><Loader2 className="h-3.5 w-3.5 animate-spin"/>Sending…</>
-              : tab === "sms"   ? <><MessageSquare className="h-3.5 w-3.5"/>Send SMS</>
-              : tab === "email" ? <><Mail className="h-3.5 w-3.5"/>Send Email</>
-              :                   <><PhoneCall className="h-3.5 w-3.5"/>Start Call</>
-            }
-          </Button>
+          {msg && (
+            <button onClick={send} disabled={sending}
+              className={`w-full py-2.5 rounded-lg font-medium text-sm transition-all disabled:opacity-50 ${
+                sent ? "bg-emerald-600 text-white" : "bg-white text-slate-900 hover:bg-slate-100"
+              }`}>
+              {sent ? "✓ Sent!" : sending ? "Sending…"
+                : tab === "call" ? "📞 Start Call"
+                : tab === "sms"  ? "📱 Send SMS" : "✉️ Send Email"}
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ── API Keys Setup Modal ──────────────────────────────────────────────────────
-function KeysModal({ keys, onSaved, onClose }: {
-  keys: MarketplaceKeys; onSaved: (k: MarketplaceKeys) => void; onClose: () => void;
-}) {
-  const [apolloKey,  setApolloKey]  = useState("");
-  const [nextgenKey, setNextgenKey] = useState("");
-  const [vibeKey,    setVibeKey]    = useState("");
-  const [saving, setSaving] = useState(false);
+// ─── AddLeadModal ─────────────────────────────────────────────────────────────
 
-  const save = async () => {
-    const body: Record<string, string> = {};
-    if (apolloKey.trim())  body.apollo_key  = apolloKey.trim();
-    if (nextgenKey.trim()) body.nextgen_key = nextgenKey.trim();
-    if (vibeKey.trim())    body.vibe_key    = vibeKey.trim();
-    if (!Object.keys(body).length) { onClose(); return; }
+function AddLeadModal({ onClose, onAdded }: { onClose: () => void; onAdded: () => void }) {
+  const [form, setForm] = useState<Partial<ProspectLead>>({
+    homeowner_status: "unknown", business_owner_flag: false,
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof ProspectLead, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    if (!form.full_name && !form.phone && !form.email) {
+      alert("Add at least a name, phone, or email."); return;
+    }
     setSaving(true);
-    try {
-      await saveMarketplaceKeys(body);
-      const updated = await getMarketplaceKeys();
-      onSaved(updated);
-      toast({ title: "API keys saved ✓" });
-      onClose();
-    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+    try { await addLead(form); onAdded(); onClose(); }
+    catch (e: any) { alert(e.message); }
     finally { setSaving(false); }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border/40 rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center"><Key className="h-4 w-4 text-primary"/></div>
-            <div>
-              <p className="text-sm font-semibold">Connect Lead Sources</p>
-              <p className="text-xs text-muted-foreground">Your keys — you pay the source directly</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary/40"><X className="h-4 w-4"/></button>
-        </div>
-
-        {/* Apollo */}
-        <div className="p-4 rounded-xl border border-border/30 bg-secondary/10 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center"><Target className="h-4 w-4 text-orange-400"/></div>
-              <div>
-                <p className="text-sm font-medium">Apollo.io</p>
-                <p className="text-xs text-muted-foreground">B2B — executives, decision makers</p>
-              </div>
-            </div>
-            {keys.apollo.connected
-              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
-              : <Badge className="text-[10px] text-muted-foreground border-border/30 bg-secondary/50">Not connected</Badge>}
-          </div>
-          {keys.apollo.connected && <p className="text-[11px] text-muted-foreground font-mono bg-secondary/30 px-3 py-1 rounded">{keys.apollo.masked}</p>}
-          <div className="flex items-center gap-2">
-            <input value={apolloKey} onChange={e => setApolloKey(e.target.value)} placeholder="Apollo API key…" type="password"
-              className="flex-1 h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"/>
-            <a href="https://app.apollo.io/#/settings/integrations/api" target="_blank" rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0">Get free key <ExternalLink className="h-3 w-3"/></a>
-          </div>
-        </div>
-
-        {/* NextGen */}
-        <div className="p-4 rounded-xl border border-border/30 bg-secondary/10 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><Zap className="h-4 w-4 text-blue-400"/></div>
-              <div>
-                <p className="text-sm font-medium">NextGen Leads</p>
-                <p className="text-xs text-muted-foreground">Consumer — insurance, mortgage, solar</p>
-              </div>
-            </div>
-            {keys.nextgen.connected
-              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
-              : <Badge className="text-[10px] text-muted-foreground border-border/30 bg-secondary/50">Not connected</Badge>}
-          </div>
-          {keys.nextgen.connected && <p className="text-[11px] text-muted-foreground font-mono bg-secondary/30 px-3 py-1 rounded">{keys.nextgen.masked}</p>}
-          <div className="flex items-center gap-2">
-            <input value={nextgenKey} onChange={e => setNextgenKey(e.target.value)} placeholder="NextGen API key…" type="password"
-              className="flex-1 h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"/>
-            <a href="https://app.nextgenleads.app" target="_blank" rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0">Get key <ExternalLink className="h-3 w-3"/></a>
-          </div>
-        </div>
-
-        {/* Vibe Prospecting */}
-        <div className="p-4 rounded-xl border border-border/30 bg-secondary/10 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center"><Sparkles className="h-4 w-4 text-purple-400"/></div>
-              <div>
-                <p className="text-sm font-medium">Vibe Prospecting</p>
-                <p className="text-xs text-muted-foreground">B2B · 800M+ professionals · 150M+ companies</p>
-              </div>
-            </div>
-            {keys.vibe?.connected
-              ? <Badge className="text-[10px] bg-green-500/10 text-green-400 border-green-500/20"><Check className="h-3 w-3 mr-1"/>Connected</Badge>
-              : <Badge className="text-[10px] text-muted-foreground border-border/30 bg-secondary/50">Not connected</Badge>}
-          </div>
-          {keys.vibe?.connected && <p className="text-[11px] text-muted-foreground font-mono bg-secondary/30 px-3 py-1 rounded">{keys.vibe.masked}</p>}
-          <div className="flex items-center gap-2">
-            <input value={vibeKey} onChange={e => setVibeKey(e.target.value)} placeholder="Explorium API key…" type="password"
-              className="flex-1 h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"/>
-            <a href="https://www.vibeprospecting.ai" target="_blank" rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0">Get key <ExternalLink className="h-3 w-3"/></a>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
-          <Button variant="outline" onClick={onClose} className="flex-1">Cancel</Button>
-          <Button onClick={save} disabled={saving} className="flex-1">
-            {saving ? <><Loader2 className="h-4 w-4 animate-spin mr-2"/>Saving…</> : "Save →"}
-          </Button>
-        </div>
-      </div>
+  const Field = ({ label, field, type = "text", placeholder = "", span = 1 }: any) => (
+    <div className={span === 2 ? "col-span-2" : ""}>
+      <label className="text-xs text-slate-400 mb-1 block">{label}</label>
+      <input type={type} value={(form as any)[field] || ""} onChange={e => set(field, e.target.value)}
+        placeholder={placeholder}
+        className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
     </div>
   );
-}
-
-// ── Lead row inside chat bubble ───────────────────────────────────────────────
-function LeadRow({ lead, onOutreach }: { lead: SearchLead; onOutreach: (l: SearchLead) => void }) {
-  const [copied, setCopied] = useState(false);
-  const copy = (txt: string) => { navigator.clipboard.writeText(txt); setCopied(true); setTimeout(() => setCopied(false), 1500); };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-border/10 hover:bg-secondary/10 transition-colors group last:border-0">
-      {/* Avatar */}
-      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0 text-xs font-bold text-primary">
-        {(lead.first_name?.[0] ?? lead.name?.[0] ?? "?").toUpperCase()}
-      </div>
-
-      {/* Info grid */}
-      <div className="flex-1 min-w-0 grid grid-cols-3 gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium truncate">{lead.name || "—"}</p>
-          <p className="text-xs text-muted-foreground truncate">{lead.title || lead.interest || "—"}</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-[#1a1f2e] border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-5 border-b border-slate-700 sticky top-0 bg-[#1a1f2e]">
+          <p className="font-semibold text-white">Add Lead Manually</p>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl">✕</button>
         </div>
-        <div className="min-w-0">
-          {lead.company
-            ? <p className="text-xs font-medium truncate">{lead.company}</p>
-            : lead.age ? <p className="text-xs text-muted-foreground">Age {lead.age}{lead.gender ? ` · ${lead.gender}` : ""}</p> : null}
-          {lead.industry && <p className="text-xs text-muted-foreground truncate">{lead.industry}</p>}
-        </div>
-        <div className="min-w-0 space-y-0.5">
-          {lead.email ? (
-            <button onClick={() => copy(lead.email!)} className="flex items-center gap-1 text-xs text-primary hover:underline group/e">
-              <span className="truncate max-w-[150px]">{lead.email}</span>
-              {copied ? <Check className="h-3 w-3 text-green-400 shrink-0"/> : <Copy className="h-3 w-3 opacity-0 group-hover/e:opacity-60 shrink-0"/>}
-            </button>
-          ) : null}
-          {lead.phone && <p className="text-xs text-muted-foreground">{lead.phone}</p>}
-          {(lead.city || lead.state) && (
-            <div className="flex items-center gap-1 text-xs text-muted-foreground/70">
-              <MapPin className="h-2.5 w-2.5 shrink-0"/>{[lead.city, lead.state].filter(Boolean).join(", ")}
-            </div>
-          )}
-        </div>
-      </div>
 
-      {/* Source + actions */}
-      <div className="flex items-center gap-2 shrink-0">
-        <Badge className={cn("text-[10px] border px-2 hidden sm:flex",
-          lead.source === "apollo"
-            ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
-            : lead.source === "vibe"
-            ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
-            : "bg-blue-500/10 text-blue-300 border-blue-500/20")}>
-          {lead.source === "apollo" ? "Apollo" : lead.source === "vibe" ? "Vibe" : "NextGen"}
-        </Badge>
-        {lead.linkedin_url && (
-          <a href={lead.linkedin_url} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors">
-            <Linkedin className="h-3 w-3"/>
-          </a>
-        )}
-        {/* Outreach button */}
-        <button onClick={() => onOutreach(lead)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 hover:bg-primary/20 border border-primary/20 text-xs text-primary font-medium transition-all hover:scale-[1.02] active:scale-[0.98] opacity-0 group-hover:opacity-100">
-          <Sparkles className="h-3 w-3"/> Reach out
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Chat message types ────────────────────────────────────────────────────────
-type Msg =
-  | { role: "user"; text: string }
-  | { role: "assistant"; leads: SearchLead[]; source: "apollo" | "nextgen" | "vibe"; prompt: string }
-  | { role: "error"; text: string }
-  | { role: "thinking"; source: "apollo" | "nextgen" | "vibe" };
-
-const NEXTGEN_VERTICALS = [
-  { id: "health_insurance", label: "Health Insurance" },
-  { id: "life_insurance",   label: "Life Insurance"   },
-  { id: "medicare",         label: "Medicare"         },
-  { id: "auto_insurance",   label: "Auto Insurance"   },
-  { id: "mortgage",         label: "Mortgage"         },
-  { id: "solar",            label: "Solar"            },
-  { id: "home_insurance",   label: "Home Insurance"   },
-];
-
-const APOLLO_SUGGESTIONS = [
-  "Insurance agents in Florida looking to grow their book of business",
-  "High income professionals — doctors, lawyers, CFOs in New York",
-  "Small business owners in Texas with 10-50 employees",
-  "Real estate agents and mortgage brokers in California",
-  "CEOs of companies with 50+ employees in the United States",
-];
-
-// ── Main Page ─────────────────────────────────────────────────────────────────
-export default function LeadsAgent() {
-  const navigate = useNavigate();
-  const [keys, setKeys]         = useState<MarketplaceKeys | null>(null);
-  const [showKeys, setShowKeys] = useState(false);
-  const [messages, setMessages] = useState<Msg[]>([]);
-  const [input, setInput]       = useState("");
-  const [busy, setBusy]         = useState(false);
-  const [source, setSource]     = useState<"apollo" | "nextgen" | "vibe">("apollo");
-  const [outreachLead, setOutreachLead] = useState<SearchLead | null>(null);
-
-  // NextGen filters
-  const [ngVertical, setNgVertical] = useState("health_insurance");
-  const [ngState,    setNgState]    = useState("");
-  const [ngLimit,    setNgLimit]    = useState(25);
-
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef  = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { getMarketplaceKeys().then(setKeys).catch(() => {}); }, []);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-
-  const hasApollo  = keys?.apollo.connected  ?? false;
-  const hasNextGen = keys?.nextgen.connected ?? false;
-  const hasVibe    = keys?.vibe?.connected   ?? false;
-
-  const runApolloSearch = async (q: string) => {
-    setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking", source: "apollo" }]);
-    setBusy(true);
-    try {
-      const res = await searchApollo(q);
-      setMessages(prev => [
-        ...prev.filter(m => m.role !== "thinking"),
-        { role: "assistant", leads: res.leads, source: "apollo", prompt: q },
-      ]);
-    } catch (e: any) {
-      setMessages(prev => [...prev.filter(m => m.role !== "thinking"), { role: "error", text: e.message || "Search failed" }]);
-      if (e.message?.toLowerCase().includes("key")) setShowKeys(true);
-    } finally { setBusy(false); inputRef.current?.focus(); }
-  };
-
-  const runNextGenSearch = async () => {
-    const label = NEXTGEN_VERTICALS.find(v => v.id === ngVertical)?.label ?? ngVertical;
-    const text = `${label}${ngState ? ` in ${ngState}` : ""} · ${ngLimit} leads`;
-    setMessages(prev => [...prev, { role: "user", text }, { role: "thinking", source: "nextgen" }]);
-    setBusy(true);
-    try {
-      const res = await searchNextGen({ vertical: ngVertical, state: ngState, limit: ngLimit });
-      setMessages(prev => [
-        ...prev.filter(m => m.role !== "thinking"),
-        { role: "assistant", leads: res.leads, source: "nextgen", prompt: text },
-      ]);
-    } catch (e: any) {
-      setMessages(prev => [...prev.filter(m => m.role !== "thinking"), { role: "error", text: e.message || "Search failed" }]);
-    } finally { setBusy(false); }
-  };
-
-  const runVibeSearch = async (q: string) => {
-    setMessages(prev => [...prev, { role: "user", text: q }, { role: "thinking", source: "vibe" }]);
-    setBusy(true);
-    try {
-      const res = await searchVibe(q);
-      setMessages(prev => [
-        ...prev.filter(m => m.role !== "thinking"),
-        { role: "assistant", leads: res.leads, source: "vibe", prompt: q },
-      ]);
-    } catch (e: any) {
-      setMessages(prev => [...prev.filter(m => m.role !== "thinking"), { role: "error", text: e.message || "Search failed" }]);
-      if (e.message?.toLowerCase().includes("key")) setShowKeys(true);
-    } finally { setBusy(false); inputRef.current?.focus(); }
-  };
-
-  const handleSend = () => {
-    const q = input.trim();
-    if (!q || busy) return;
-    if (source === "vibe") {
-      if (!hasVibe) { setShowKeys(true); return; }
-      setInput(""); runVibeSearch(q); return;
-    }
-    if (!hasApollo) { setShowKeys(true); return; }
-    setInput("");
-    runApolloSearch(q);
-  };
-
-  return (
-    <div className="flex flex-col h-screen bg-background text-foreground">
-
-      {/* ── Top Bar ── */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-border/30 bg-card/20 shrink-0">
-        <button onClick={() => navigate("/workflow")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="h-4 w-4"/> Dashboard
-        </button>
-        <div className="w-px h-4 bg-border/40"/>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-orange-500/20 to-blue-500/20 border border-orange-500/20 flex items-center justify-center">
-            <Target className="h-3.5 w-3.5 text-orange-400"/>
+        <div className="p-5 grid grid-cols-2 gap-4">
+          <Field label="Full Name"  field="full_name"             placeholder="John Doe" />
+          <Field label="Phone"      field="phone"                 placeholder="(305) 555-0100" />
+          <Field label="Email"      field="email"                 placeholder="john@example.com" />
+          <Field label="City"       field="city"                  placeholder="Miami" />
+          <Field label="State"      field="state"                 placeholder="FL" />
+          <Field label="ZIP Code"   field="zip_code"              placeholder="33101" />
+          <Field label="Address"    field="address"               placeholder="123 Main St" span={2} />
+          <Field label="Estimated Home Value ($)"  field="estimated_home_value"  type="number" placeholder="500000" />
+          <Field label="ZIP Median Income ($)"     field="zip_median_income"     type="number" placeholder="85000" />
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Homeowner Status</label>
+            <select value={form.homeowner_status} onChange={e => set("homeowner_status", e.target.value)}
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+              <option value="unknown">Unknown</option>
+              <option value="owner">Owner</option>
+              <option value="renter">Renter</option>
+            </select>
           </div>
-          <span className="text-sm font-bold">Leads Agent</span>
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Business Owner?</label>
+            <select value={form.business_owner_flag ? "yes" : "no"}
+              onChange={e => set("business_owner_flag", e.target.value === "yes")}
+              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+            </select>
+          </div>
+          <Field label="Lead Source" field="lead_source" placeholder="referral, event, website…" span={2} />
         </div>
 
-        {/* Source switcher */}
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-secondary/30 border border-border/30 ml-3">
-          {[
-            { id: "apollo",  label: "Apollo",   icon: Target, color: "text-orange-400",  has: hasApollo  },
-            { id: "nextgen", label: "NextGen",   icon: Zap,    color: "text-blue-400",   has: hasNextGen },
-            { id: "vibe",    label: "Vibe",      icon: Sparkles, color: "text-purple-400", has: hasVibe   },
-          ].map(s => {
-            const Icon = s.icon;
-            return (
-              <button key={s.id} onClick={() => setSource(s.id as any)}
-                className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                  source === s.id ? "bg-card shadow-sm border border-border/30 text-foreground" : "text-muted-foreground hover:text-foreground")}>
-                <Icon className={cn("h-3 w-3", s.has ? s.color : "text-muted-foreground/40")}/>
-                {s.label}
-                <span className={cn("w-1.5 h-1.5 rounded-full ml-0.5", s.has ? "bg-green-400" : "bg-muted-foreground/30")}/>
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="ml-auto">
-          <button onClick={() => setShowKeys(true)}
-            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
-              (hasApollo || hasNextGen || hasVibe)
-                ? "bg-green-500/10 border-green-500/20 text-green-400 hover:bg-green-500/15"
-                : "bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/15 animate-pulse")}>
-            <Settings className="h-3.5 w-3.5"/>
-            {hasApollo || hasNextGen || hasVibe ? "API Keys" : "Connect Keys"}
+        <div className="p-5 border-t border-slate-700 flex gap-3 justify-end">
+          <button onClick={onClose}
+            className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white border border-slate-600 hover:border-slate-400 transition-colors">
+            Cancel
+          </button>
+          <button onClick={submit} disabled={saving}
+            className="px-6 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium transition-colors">
+            {saving ? "Saving…" : "Add Lead"}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* ── Messages ── */}
-      <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 pb-24 px-4 text-center">
-            {(!hasApollo && !hasNextGen && !hasVibe) ? (
-              <div className="max-w-sm space-y-4">
-                <div className="w-16 h-16 rounded-2xl bg-orange-500/10 border border-orange-500/20 flex items-center justify-center mx-auto">
-                  <Key className="h-7 w-7 text-orange-400"/>
+// ─── LeadDetailDrawer ──────────────────────────────────────────────────────────
+
+function LeadDetailDrawer({ lead: initial, onClose, onUpdate }: {
+  lead: ProspectLead; onClose: () => void; onUpdate: () => void;
+}) {
+  const [lead, setLead]       = useState(initial);
+  const [fetching, setFetching] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [note, setNote]         = useState("");
+  const [addingNote, setAddingNote] = useState(false);
+  const [outreachOpen, setOutreachOpen] = useState(false);
+  const [status, setStatus]     = useState(lead.status || "new");
+
+  const refresh = async () => {
+    if (!lead.id) return;
+    setFetching(true);
+    try { setLead(await getLead(lead.id)); }
+    catch {} finally { setFetching(false); }
+  };
+
+  const generateAI = async () => {
+    if (!lead.id) return;
+    setAiLoading(true);
+    try { const ai = await generateAISummary(lead.id); setLead(l => ({ ...l, ...ai })); onUpdate(); }
+    catch (e: any) { alert(e.message); }
+    finally { setAiLoading(false); }
+  };
+
+  const changeStatus = async (s: string) => {
+    setStatus(s);
+    if (lead.id) await updateLead(lead.id, { status: s as any });
+    onUpdate();
+  };
+
+  const submitNote = async () => {
+    if (!note.trim() || !lead.id) return;
+    setAddingNote(true);
+    try { await addLeadNote(lead.id, note); setNote(""); await refresh(); }
+    catch (e: any) { alert(e.message); }
+    finally { setAddingNote(false); }
+  };
+
+  const score = lead.score || 0;
+  const reasons: string[] = lead.score_reasons || [];
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
+      <div className="fixed top-0 right-0 h-full w-full max-w-[520px] z-50 bg-[#12151e] border-l border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center gap-4 p-5 border-b border-slate-700 flex-shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500/30 to-purple-500/30 border border-indigo-500/20 flex items-center justify-center text-white font-bold text-lg">
+            {initials(lead.full_name)}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-white truncate">{lead.full_name || "Unknown"}</h2>
+            <p className="text-sm text-slate-400 truncate">
+              {[lead.city, lead.state].filter(Boolean).join(", ") || "—"}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className={`px-3 py-1 rounded-full border text-xs font-bold ${scoreBg(score)}`}>
+              <span className={scoreColor(score)}>{score}</span>
+              <span className="text-slate-500 ml-1">/100</span>
+            </div>
+            <button onClick={onClose}
+              className="text-slate-400 hover:text-white w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-700 transition-colors">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+
+          {/* Contact info */}
+          <div className="p-5 border-b border-slate-800 space-y-2">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Contact Info</p>
+            {lead.phone  && <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 w-5">📞</span><span className="text-slate-200">{lead.phone}</span></div>}
+            {lead.email  && <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 w-5">✉️</span><span className="text-slate-200">{lead.email}</span></div>}
+            {lead.address && <div className="flex items-center gap-2 text-sm"><span className="text-slate-500 w-5">📍</span><span className="text-slate-400">{lead.address}</span></div>}
+            {!lead.phone && !lead.email && !lead.address && <p className="text-sm text-slate-500">No contact info on file.</p>}
+          </div>
+
+          {/* Status */}
+          <div className="p-5 border-b border-slate-800">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Status</p>
+            <div className="flex flex-wrap gap-2">
+              {(["new","contacted","qualified","converted","dead"] as const).map(s => (
+                <button key={s} onClick={() => changeStatus(s)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium border capitalize transition-all ${
+                    status === s ? statusColors[s] : "bg-transparent border-slate-700 text-slate-500 hover:border-slate-500"
+                  }`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Wealth signals */}
+          <div className="p-5 border-b border-slate-800">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Wealth Probability Signals</p>
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              {[
+                { label: "Home Value",          val: fmt(lead.estimated_home_value) },
+                { label: "ZIP Median Income",   val: fmt(lead.zip_median_income) },
+                { label: "Homeowner",           val: lead.homeowner_status ? lead.homeowner_status.charAt(0).toUpperCase() + lead.homeowner_status.slice(1) : "—" },
+                { label: "Business Owner",      val: lead.business_owner_flag ? "Yes" : "No" },
+              ].map(({ label, val }) => (
+                <div key={label} className="bg-slate-800/50 rounded-xl p-3">
+                  <p className="text-xs text-slate-500 mb-1">{label}</p>
+                  <p className="text-sm font-semibold text-white">{val}</p>
                 </div>
-                <h2 className="text-lg font-bold">Connect your lead sources</h2>
-                <p className="text-sm text-muted-foreground">Add your Apollo.io, NextGen Leads, and/or Vibe Prospecting API keys to start finding leads instantly.</p>
-                <Button onClick={() => setShowKeys(true)} className="gap-2 mx-auto"><Key className="h-4 w-4"/>Connect API Keys →</Button>
-              </div>
-            ) : source === "apollo" ? (
-              <div className="max-w-lg space-y-5">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-center gap-2 mb-2">
-                    <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center"><Target className="h-4 w-4 text-orange-400"/></div>
-                    <h2 className="text-lg font-bold">What leads are you looking for?</h2>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Describe in plain English — AI handles the search</p>
-                </div>
-                <div className="flex flex-wrap justify-center gap-2">
-                  {APOLLO_SUGGESTIONS.map(s => (
-                    <button key={s} onClick={() => { if (!hasApollo) { setShowKeys(true); return; } runApolloSearch(s); }}
-                      className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/60 transition-all text-left">
-                      "{s}"
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              {source === "nextgen" ? (
-                <div className="max-w-sm space-y-3 text-center">
-                  <div className="flex items-center justify-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center"><Zap className="h-4 w-4 text-blue-400"/></div>
-                    <h2 className="text-lg font-bold">NextGen Leads</h2>
-                  </div>
-                  <p className="text-sm text-muted-foreground">Pick a category below and click Get Leads</p>
-                </div>
-              ) : (
-                <div className="max-w-lg space-y-5">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center"><Sparkles className="h-4 w-4 text-purple-400"/></div>
-                      <h2 className="text-lg font-bold">Vibe Prospecting</h2>
-                    </div>
-                    <p className="text-sm text-muted-foreground">800M+ professionals · 150M+ companies · 50+ data sources</p>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {[
-                      "Sales VPs at Series B fintech companies in San Francisco",
-                      "CTOs at healthcare SaaS startups with 50–200 employees",
-                      "Marketing directors at e-commerce brands in New York",
-                      "Finance executives at companies that raised funding in the last 90 days",
-                    ].map(s => (
-                      <button key={s} onClick={() => { if (!hasVibe) { setShowKeys(true); return; } runVibeSearch(s); }}
-                        className="px-3 py-1.5 rounded-full border border-border/40 bg-secondary/20 text-xs text-muted-foreground hover:text-foreground hover:border-border/60 transition-all text-left">
-                        "{s}"
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              ))}
+            </div>
+
+            <p className="text-xs text-slate-500 mb-2">Score Breakdown</p>
+            <ScoreBar score={score} />
+            {reasons.length > 0 && (
+              <ul className="mt-3 space-y-1.5">
+                {reasons.map((r, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-slate-300">
+                    <span className="text-emerald-400 mt-0.5 flex-shrink-0">✓</span>{r}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-        )}
 
-        <div className="max-w-5xl mx-auto px-4 py-4 space-y-6">
-          {messages.map((msg, i) => {
-
-            if (msg.role === "user") return (
-              <div key={i} className="flex justify-end">
-                <div className="max-w-[70%] bg-primary/10 border border-primary/20 rounded-2xl rounded-tr-md px-4 py-2.5">
-                  <p className="text-sm">{msg.text}</p>
-                </div>
-              </div>
-            );
-
-            if (msg.role === "thinking") return (
-              <div key={i} className="flex">
-                <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl rounded-tl-md bg-card/40 border border-border/30">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary"/>
-                  <span className="text-sm text-muted-foreground">
-                    {msg.source === "apollo" ? "Searching Apollo.io…" : msg.source === "vibe" ? "Searching Vibe Prospecting…" : "Fetching NextGen leads…"}
-                  </span>
-                </div>
-              </div>
-            );
-
-            if (msg.role === "error") return (
-              <div key={i} className="flex">
-                <div className="flex items-start gap-2.5 max-w-[80%] px-4 py-3 rounded-2xl rounded-tl-md bg-red-500/10 border border-red-500/20">
-                  <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5"/>
-                  <p className="text-sm text-red-300">{msg.text}</p>
-                </div>
-              </div>
-            );
-
-            if (msg.role === "assistant") {
-              const withEmail    = msg.leads.filter(l => l.email).length;
-              const withPhone    = msg.leads.filter(l => l.phone).length;
-
-              return (
-                <div key={i} className="w-full space-y-2">
-                  {/* Result header */}
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <Badge className={cn("text-xs border px-2.5 py-1",
-                        msg.source === "apollo"
-                          ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
-                          : msg.source === "vibe"
-                          ? "bg-purple-500/10 text-purple-300 border-purple-500/20"
-                          : "bg-blue-500/10 text-blue-300 border-blue-500/20")}>
-                        {msg.source === "apollo" ? "Apollo" : msg.source === "vibe" ? "Vibe" : "NextGen"}
-                      </Badge>
-                      <span className="text-sm font-semibold">
-                        {msg.leads.length === 0 ? "No leads found — try different search" : `${msg.leads.length} leads found`}
-                      </span>
-                      {msg.leads.length > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                          · <span className="text-blue-400">{withEmail} emails</span>
-                          · <span className="text-green-400">{withPhone} phones</span>
-                        </span>
-                      )}
-                    </div>
-                    {msg.leads.length > 0 && (
-                      <Button size="sm" onClick={() => exportPDF(msg.leads, msg.prompt)}
-                        className="gap-1.5 h-8 text-xs bg-red-600 hover:bg-red-700 text-white border-0">
-                        <FileText className="h-3.5 w-3.5"/> Download PDF
-                      </Button>
-                    )}
+          {/* AI Summary */}
+          <div className="p-5 border-b border-slate-800">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">AI Summary</p>
+              <button onClick={generateAI} disabled={aiLoading}
+                className="px-3 py-1 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/30 text-xs transition-colors disabled:opacity-50">
+                {aiLoading ? "⟳ Analyzing…" : "✨ Generate AI"}
+              </button>
+            </div>
+            {lead.ai_summary ? (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-300 leading-relaxed">{lead.ai_summary}</p>
+                <div className="bg-slate-800/50 rounded-xl p-3 space-y-2">
+                  <div>
+                    <span className="text-xs text-slate-500">Pitch angle: </span>
+                    <span className="text-xs text-slate-200">{lead.ai_outreach_angle}</span>
                   </div>
-
-                  {/* Leads table */}
-                  {msg.leads.length > 0 && (
-                    <div className="rounded-xl border border-border/30 bg-card/20 overflow-hidden">
-                      <div className="hidden sm:grid grid-cols-3 gap-3 px-4 py-2 bg-secondary/20 border-b border-border/20 pr-36">
-                        {["Person","Company / Details","Contact & Location"].map(h => (
-                          <p key={h} className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</p>
-                        ))}
-                      </div>
-                      {msg.leads.map((lead, idx) => (
-                        <LeadRow key={idx} lead={lead} onOutreach={setOutreachLead}/>
+                  <div>
+                    <span className="text-xs text-slate-500">Confidence: </span>
+                    <span className={`text-xs font-medium ${
+                      lead.ai_confidence === "high" ? "text-emerald-400"
+                      : lead.ai_confidence === "medium-high" ? "text-yellow-400"
+                      : "text-orange-400"
+                    }`}>{lead.ai_confidence}</span>
+                  </div>
+                  {(lead.ai_insurance_types || []).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {lead.ai_insurance_types!.map((t, i) => (
+                        <span key={i} className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded-full text-xs text-indigo-300">{t}</span>
                       ))}
                     </div>
                   )}
                 </div>
-              );
-            }
-            return null;
-          })}
-          <div ref={bottomRef}/>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500 italic">Click "Generate AI" to get an intelligent prospect summary and pitch angle.</p>
+            )}
+          </div>
+
+          {/* Outreach history */}
+          {(lead.outreach_history || []).length > 0 && (
+            <div className="p-5 border-b border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Outreach History</p>
+              <div className="space-y-2">
+                {lead.outreach_history!.map((e, i) => (
+                  <div key={i} className="flex items-start gap-3 text-xs">
+                    <span className="text-slate-500 capitalize w-10 flex-shrink-0">{e.channel}</span>
+                    <span className="text-slate-300 flex-1 line-clamp-2">{e.content}</span>
+                    <span className="text-slate-600 whitespace-nowrap">
+                      {e.created_at ? new Date(e.created_at).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div className="p-5">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Notes</p>
+            {(lead.notes_list || []).map((n, i) => (
+              <div key={i} className="mb-2 text-xs text-slate-300 bg-slate-800/50 rounded-lg p-2.5 leading-relaxed">{n.note}</div>
+            ))}
+            <div className="flex gap-2 mt-3">
+              <input value={note} onChange={e => setNote(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && submitNote()}
+                placeholder="Add a note…"
+                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+              <button onClick={submitNote} disabled={addingNote || !note.trim()}
+                className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-white text-sm disabled:opacity-40 transition-colors">
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-slate-700 p-4 flex gap-2 flex-shrink-0">
+          <button onClick={() => setOutreachOpen(true)} disabled={!lead.phone && !lead.email}
+            className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium transition-colors">
+            📲 Reach Out
+          </button>
         </div>
       </div>
 
-      {/* ── Input Bar ── */}
-      <div className="shrink-0 border-t border-border/30 bg-card/10">
-        {source === "apollo" || source === "vibe" ? (
-          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
-            <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSend()}
-              placeholder={
-                source === "vibe"
-                  ? (hasVibe ? 'e.g. "Sales directors at SaaS companies in New York" or "VPs at funded fintech startups"' : "Connect your Vibe API key to search →")
-                  : (hasApollo ? 'e.g. "Insurance agents in Miami" or "High income doctors in Texas"' : "Connect your Apollo API key to search →")
-              }
-              disabled={busy || (source === "apollo" ? !hasApollo : !hasVibe)}
-              className="flex-1 h-11 px-4 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 placeholder:text-muted-foreground/40 disabled:opacity-50"
-            />
-            <button onClick={handleSend} disabled={busy || !input.trim() || (source === "apollo" ? !hasApollo : !hasVibe)}
-              className={cn("w-11 h-11 rounded-xl flex items-center justify-center transition-all shrink-0",
-                input.trim() && !busy && (source === "apollo" ? hasApollo : hasVibe)
-                  ? source === "vibe"
-                    ? "bg-gradient-to-br from-purple-500 to-violet-600 text-white shadow-lg hover:scale-105 active:scale-95"
-                    : "bg-gradient-to-br from-orange-500 to-rose-500 text-white shadow-lg hover:scale-105 active:scale-95"
-                  : "bg-secondary/30 text-muted-foreground cursor-not-allowed")}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Send className="h-4 w-4"/>}
-            </button>
+      {outreachOpen && (
+        <OutreachModal lead={lead} onClose={() => setOutreachOpen(false)}
+          onLogged={() => { refresh(); onUpdate(); }} />
+      )}
+    </>
+  );
+}
+
+// ─── LeadRow ───────────────────────────────────────────────────────────────────
+
+function LeadRow({ lead, onClick, onStatusChange }: {
+  lead: ProspectLead; onClick: () => void; onStatusChange: (s: string) => void;
+}) {
+  const score = lead.score || 0;
+  return (
+    <tr onClick={onClick}
+      className="border-b border-slate-800/60 hover:bg-slate-800/30 cursor-pointer transition-colors">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 flex-shrink-0">
+            {initials(lead.full_name)}
           </div>
-        ) : (
-          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-            <select value={ngVertical} onChange={e => setNgVertical(e.target.value)}
-              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none text-foreground">
-              {NEXTGEN_VERTICALS.map(v => <option key={v.id} value={v.id}>{v.label}</option>)}
-            </select>
-            <input value={ngState} onChange={e => setNgState(e.target.value)} placeholder="State (optional)"
-              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none focus:border-primary/50 w-36 placeholder:text-muted-foreground/40"/>
-            <select value={ngLimit} onChange={e => setNgLimit(Number(e.target.value))}
-              className="h-10 px-3 rounded-xl bg-secondary/30 border border-border/40 text-sm focus:outline-none">
-              {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n} leads</option>)}
-            </select>
-            <button onClick={runNextGenSearch} disabled={busy || !hasNextGen}
-              className={cn("h-10 px-6 rounded-xl text-sm font-medium transition-all flex items-center gap-2",
-                !busy && hasNextGen
-                  ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:scale-[1.02] active:scale-[0.98]"
-                  : "bg-secondary/30 text-muted-foreground cursor-not-allowed")}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin"/> : <Zap className="h-4 w-4"/>}
-              {hasNextGen ? "Get Leads" : "Connect NextGen First"}
-            </button>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-white truncate">{lead.full_name || "—"}</p>
+            <p className="text-xs text-slate-500 truncate">{lead.lead_source || "manual"}</p>
           </div>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-400">
+        {[lead.city, lead.state].filter(Boolean).join(", ") || "—"}
+      </td>
+      <td className="px-4 py-3 text-sm text-slate-400">
+        {lead.phone || lead.email || "—"}
+      </td>
+      <td className="px-4 py-3">
+        <div className="w-28">
+          <div className="flex items-center gap-1.5">
+            <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div className={`h-full rounded-full ${
+                score >= 80 ? "bg-emerald-500" : score >= 60 ? "bg-yellow-500"
+                : score >= 40 ? "bg-orange-400" : "bg-slate-600"
+              }`} style={{ width: `${score}%` }} />
+            </div>
+            <span className={`text-xs font-bold ${scoreColor(score)}`}>{score}</span>
+          </div>
+          <p className={`text-xs mt-0.5 ${scoreColor(score)}`}>{scoreLabel(score)}</p>
+        </div>
+      </td>
+      <td className="px-4 py-3 text-xs text-slate-400 max-w-[180px]">
+        <span className="line-clamp-2">{(lead.score_reasons || [])[0] || "—"}</span>
+      </td>
+      <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+        <select value={lead.status || "new"} onChange={e => onStatusChange(e.target.value)}
+          className={`text-xs rounded-full px-2 py-1 border cursor-pointer focus:outline-none bg-transparent ${statusColors[lead.status || "new"]}`}>
+          {["new","contacted","qualified","converted","dead"].map(s =>
+            <option key={s} value={s}>{s}</option>
+          )}
+        </select>
+      </td>
+    </tr>
+  );
+}
+
+// ─── ImportPage ────────────────────────────────────────────────────────────────
+
+function ImportPage({ onImported }: { onImported: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [file, setFile]       = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult]   = useState<{ imported: number; skipped: number; errors: string[] } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const handleFile = (f: File) => { setFile(f); setResult(null); };
+
+  const doImport = async () => {
+    if (!file) return;
+    setImporting(true); setResult(null);
+    try {
+      const r = await importLeadsCSV(file);
+      setResult(r);
+      if (r.imported > 0) onImported();
+    } catch (e: any) { alert(e.message); }
+    finally { setImporting(false); }
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-white mb-1">Import Leads from CSV</h2>
+        <p className="text-sm text-slate-400">Upload a CSV file — every lead gets auto-scored on wealth probability signals instantly.</p>
+      </div>
+
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+        onClick={() => fileRef.current?.click()}
+        className={`border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all ${
+          dragging ? "border-indigo-500 bg-indigo-500/10" : "border-slate-600 hover:border-slate-500 hover:bg-slate-800/20"
+        }`}>
+        <p className="text-4xl mb-3">📂</p>
+        <p className="text-white font-medium">{file ? file.name : "Drop CSV here or click to browse"}</p>
+        <p className="text-xs text-slate-500 mt-1">{file ? `${(file.size / 1024).toFixed(1)} KB` : ".csv files only"}</p>
+        <input ref={fileRef} type="file" accept=".csv" className="hidden"
+          onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }} />
+      </div>
+
+      {/* Column reference */}
+      <div className="bg-slate-800/40 rounded-xl p-4 border border-slate-700/60">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Supported CSV Columns</p>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+          {[
+            ["full_name / name",          "Full name"],
+            ["first_name / last_name",    "Split name"],
+            ["phone",                     "Phone number"],
+            ["email",                     "Email address"],
+            ["city / state",              "Location"],
+            ["zip_code / zip",            "ZIP code"],
+            ["address",                   "Street address"],
+            ["estimated_home_value",      "Home value ($)"],
+            ["zip_median_income",         "Area median income ($)"],
+            ["homeowner_status",          "owner / renter / unknown"],
+            ["business_owner_flag",       "yes / no"],
+            ["lead_source",               "Where lead came from"],
+          ].map(([col, desc]) => (
+            <div key={col} className="flex gap-2">
+              <code className="text-indigo-400 flex-shrink-0">{col}</code>
+              <span className="text-slate-500">{desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {file && (
+        <button onClick={doImport} disabled={importing}
+          className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-medium transition-colors">
+          {importing ? "⟳ Importing…" : `Import "${file.name}"`}
+        </button>
+      )}
+
+      {result && (
+        <div className={`rounded-xl p-4 border ${
+          result.imported > 0 ? "bg-emerald-500/10 border-emerald-500/30" : "bg-slate-800 border-slate-700"
+        }`}>
+          <p className="font-semibold text-white mb-1">
+            {result.imported > 0 ? `✓ ${result.imported} leads imported and scored` : "Import complete"}
+            {result.skipped > 0 && <span className="text-slate-400 text-sm ml-2">({result.skipped} skipped)</span>}
+          </p>
+          {result.errors.map((e, i) => <p key={i} className="text-xs text-red-400 mt-1">{e}</p>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FiltersPanel ──────────────────────────────────────────────────────────────
+
+function FiltersPanel({ filters, onChange, onSearch, onSave, savedSearches, onLoadSearch, onDeleteSearch, total }: {
+  filters: LeadFilters;
+  onChange: (f: LeadFilters) => void;
+  onSearch: () => void;
+  onSave: () => void;
+  savedSearches: SavedSearch[];
+  onLoadSearch: (s: SavedSearch) => void;
+  onDeleteSearch: (id: number) => void;
+  total: number;
+}) {
+  const set = (k: keyof LeadFilters, v: any) => onChange({ ...filters, [k]: v });
+
+  return (
+    <div className="w-64 flex-shrink-0 bg-slate-900/40 border-r border-slate-800 flex flex-col overflow-y-auto">
+      <div className="p-4">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">Filter Leads</p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Name / Phone / Email</label>
+            <input value={filters.q || ""} onChange={e => set("q", e.target.value)}
+              placeholder="Search…"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">State</label>
+            <input value={filters.state || ""} maxLength={2}
+              onChange={e => set("state", e.target.value.toUpperCase())} placeholder="FL"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">City</label>
+            <input value={filters.city || ""} onChange={e => set("city", e.target.value)} placeholder="Miami"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">ZIP Code</label>
+            <input value={filters.zip_code || ""} onChange={e => set("zip_code", e.target.value)} placeholder="33101"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-xs text-slate-500">Min Score</label>
+              <span className="text-xs text-slate-300">{filters.min_score ?? 0}</span>
+            </div>
+            <input type="range" min={0} max={100} value={filters.min_score ?? 0}
+              onChange={e => set("min_score", Number(e.target.value))}
+              className="w-full accent-indigo-500" />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Homeowner</label>
+            <select value={filters.homeowner || "any"} onChange={e => set("homeowner", e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+              <option value="any">Any</option>
+              <option value="owner">Owner</option>
+              <option value="renter">Renter</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Business Owner</label>
+            <select value={filters.business_owner || "any"}
+              onChange={e => set("business_owner", e.target.value as any)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+              <option value="any">Any</option>
+              <option value="yes">Yes</option>
+              <option value="no">No</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Min Home Value ($)</label>
+            <input type="number" value={filters.min_home_value || ""}
+              onChange={e => set("min_home_value", e.target.value ? Number(e.target.value) : undefined)}
+              placeholder="e.g. 300000"
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Status</label>
+            <select value={filters.status || "all"}
+              onChange={e => set("status", e.target.value === "all" ? "" : e.target.value)}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500">
+              <option value="all">All Statuses</option>
+              {["new","contacted","qualified","converted","dead"].map(s =>
+                <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+              )}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex gap-2 mt-5">
+          <button onClick={onSearch}
+            className="flex-1 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors">
+            Find Leads
+          </button>
+          <button onClick={onSave} title="Save this search"
+            className="w-10 flex items-center justify-center rounded-lg border border-slate-600 hover:border-slate-400 text-slate-400 hover:text-white transition-colors">
+            🔖
+          </button>
+        </div>
+
+        {total > 0 && (
+          <p className="text-xs text-slate-500 text-center mt-2">{total.toLocaleString()} lead{total !== 1 ? "s" : ""} found</p>
         )}
       </div>
 
-      {/* ── Modals ── */}
-      {showKeys && keys && <KeysModal keys={keys} onSaved={setKeys} onClose={() => setShowKeys(false)}/>}
-      {outreachLead && <OutreachModal lead={outreachLead} onClose={() => setOutreachLead(null)}/>}
+      {/* Saved searches */}
+      {savedSearches.length > 0 && (
+        <div className="px-4 pb-4 border-t border-slate-800 pt-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Saved Searches</p>
+          <div className="space-y-1">
+            {savedSearches.map(s => (
+              <div key={s.id} className="flex items-center gap-1 group">
+                <button onClick={() => onLoadSearch(s)}
+                  className="flex-1 text-left text-xs text-slate-300 hover:text-white py-1.5 px-2 rounded-lg hover:bg-slate-800 transition-colors truncate">
+                  {s.name}
+                </button>
+                <button onClick={() => onDeleteSearch(s.id)}
+                  className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 text-xs px-1 transition-all">
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function LeadsAgent() {
+  const [tab, setTab]           = useState<"search"|"import">("search");
+  const [leads, setLeads]       = useState<ProspectLead[]>([]);
+  const [total, setTotal]       = useState(0);
+  const [filters, setFilters]   = useState<LeadFilters>({ min_score: 0 });
+  const [loading, setLoading]   = useState(false);
+  const [selectedLead, setSelectedLead] = useState<ProspectLead | null>(null);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [showAddModal, setShowAddModal]   = useState(false);
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState("");
+  const [searched, setSearched] = useState(false);
+
+  const fetchSaved = useCallback(async () => {
+    try { setSavedSearches(await getSavedSearches()); } catch {}
+  }, []);
+
+  // Load saved searches on mount (run once)
+  useState(() => { fetchSaved(); });
+
+  const doSearch = useCallback(async (f: LeadFilters = filters) => {
+    setLoading(true); setSearched(true);
+    try { const res = await searchLeads(f); setLeads(res.leads); setTotal(res.total); }
+    catch (e: any) { alert(e.message); }
+    finally { setLoading(false); }
+  }, [filters]);
+
+  const handleStatusChange = async (lead: ProspectLead, status: string) => {
+    if (!lead.id) return;
+    await updateLead(lead.id, { status: status as any });
+    setLeads(ls => ls.map(l => l.id === lead.id ? { ...l, status: status as any } : l));
+  };
+
+  const handleSaveSearch = async () => {
+    if (!saveNameInput.trim()) return;
+    await saveSearch(saveNameInput.trim(), filters, total);
+    setSaveNameInput(""); setShowSaveInput(false);
+    fetchSaved();
+  };
+
+  return (
+    <div className="h-screen flex flex-col bg-[#0e1117] text-white overflow-hidden">
+
+      {/* Top bar */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 flex-shrink-0">
+        <div>
+          <h1 className="text-lg font-bold text-white">Leads Intelligence</h1>
+          <p className="text-xs text-slate-500">Wealth-signal scoring for sales &amp; broker teams</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
+            {(["search","import"] as const).map(t => (
+              <button key={t} onClick={() => setTab(t)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  tab === t ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"
+                }`}>
+                {t === "search" ? "🔍 Search" : "📂 Import CSV"}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => setShowAddModal(true)}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
+            + Add Lead
+          </button>
+        </div>
+      </div>
+
+      {tab === "import" ? (
+        <div className="flex-1 overflow-y-auto">
+          <ImportPage onImported={() => doSearch(filters)} />
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+
+          {/* Sidebar */}
+          <FiltersPanel
+            filters={filters}
+            onChange={setFilters}
+            onSearch={() => doSearch(filters)}
+            onSave={() => setShowSaveInput(s => !s)}
+            savedSearches={savedSearches}
+            onLoadSearch={s => { setFilters(s.filters); doSearch(s.filters); }}
+            onDeleteSearch={async id => { await deleteSavedSearch(id); fetchSaved(); }}
+            total={total}
+          />
+
+          {/* Results area */}
+          <div className="flex-1 overflow-y-auto flex flex-col">
+
+            {/* Save search bar */}
+            {showSaveInput && (
+              <div className="flex items-center gap-2 px-4 py-3 bg-slate-800/40 border-b border-slate-800 flex-shrink-0">
+                <input value={saveNameInput} onChange={e => setSaveNameInput(e.target.value)}
+                  placeholder="Name this search…" autoFocus
+                  onKeyDown={e => { if (e.key === "Enter") handleSaveSearch(); if (e.key === "Escape") setShowSaveInput(false); }}
+                  className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+                <button onClick={handleSaveSearch}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white text-sm transition-colors">
+                  Save
+                </button>
+                <button onClick={() => setShowSaveInput(false)} className="text-slate-400 hover:text-white px-2 text-sm">✕</button>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-3">
+                <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <p className="text-sm text-slate-400">Searching leads…</p>
+              </div>
+
+            ) : !searched ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-4 text-center px-8">
+                <div className="text-5xl">🎯</div>
+                <div>
+                  <p className="text-white font-semibold mb-1">Find High-Probability Prospects</p>
+                  <p className="text-sm text-slate-400 max-w-sm">
+                    Use the filters on the left to search by location, score, homeowner status, and more.
+                    Or import a CSV to get started.
+                  </p>
+                </div>
+                <button onClick={() => doSearch({})}
+                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white text-sm font-medium transition-colors">
+                  Show All Leads
+                </button>
+              </div>
+
+            ) : leads.length === 0 ? (
+              <div className="flex flex-col items-center justify-center flex-1 gap-3 text-center px-8">
+                <div className="text-5xl">📭</div>
+                <p className="text-white font-semibold">No leads found</p>
+                <p className="text-sm text-slate-400">Try adjusting your filters, or import leads via the CSV tab.</p>
+              </div>
+
+            ) : (
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-700 bg-slate-900/60 sticky top-0">
+                    {["Name / Source","Location","Contact","Score","Top Reason","Status"].map(h => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {leads.map(l => (
+                    <LeadRow key={l.id} lead={l}
+                      onClick={() => setSelectedLead(l)}
+                      onStatusChange={s => handleStatusChange(l, s)} />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Lead detail drawer */}
+      {selectedLead && (
+        <LeadDetailDrawer
+          lead={selectedLead}
+          onClose={() => setSelectedLead(null)}
+          onUpdate={() => doSearch(filters)}
+        />
+      )}
+
+      {/* Add lead modal */}
+      {showAddModal && (
+        <AddLeadModal
+          onClose={() => setShowAddModal(false)}
+          onAdded={() => doSearch(filters)}
+        />
+      )}
     </div>
   );
 }

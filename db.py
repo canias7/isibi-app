@@ -993,61 +993,84 @@ def ensure_user_columns():
     )
     """)
 
-    # ── Leads Agent / Marketplace ────────────────────────────────────────────
-    add_column_if_missing(conn, 'users', 'apollo_api_key',  'TEXT')
-    add_column_if_missing(conn, 'users', 'nextgen_api_key', 'TEXT')
-    add_column_if_missing(conn, 'users', 'vibe_api_key',    'TEXT')
-
+    # ── Leads Intelligence ────────────────────────────────────────────────────
     cur.execute(f"""
-    CREATE TABLE IF NOT EXISTS leads_searches (
+    CREATE TABLE IF NOT EXISTS leads (
         id {ID},
         user_id INTEGER NOT NULL,
-        prompt TEXT NOT NULL,
-        filters_json TEXT,
-        results_count INTEGER DEFAULT 0,
-        results_json TEXT,
+        full_name VARCHAR(200),
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        phone VARCHAR(50),
+        email VARCHAR(200),
+        address TEXT,
+        city VARCHAR(100),
+        state VARCHAR(50),
+        zip_code VARCHAR(20),
+        homeowner_status VARCHAR(20) DEFAULT 'unknown',
+        estimated_home_value INTEGER,
+        zip_median_income INTEGER,
+        business_owner_flag BOOLEAN DEFAULT FALSE,
+        lead_source VARCHAR(100) DEFAULT 'manual',
+        tags TEXT DEFAULT '[]',
+        score INTEGER DEFAULT 0,
+        score_reasons TEXT DEFAULT '[]',
+        status VARCHAR(50) DEFAULT 'new',
+        ai_summary TEXT,
+        ai_outreach_angle TEXT,
+        ai_confidence VARCHAR(50),
+        ai_insurance_types TEXT DEFAULT '[]',
+        notes TEXT,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP,
+        updated_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS lead_notes (
+        id {ID},
+        lead_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        note TEXT NOT NULL,
         created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
-    # ── Lead Marketplace ──────────────────────────────────────────────────────
     cur.execute(f"""
-    CREATE TABLE IF NOT EXISTS marketplace_leads (
+    CREATE TABLE IF NOT EXISTS saved_searches (
         id {ID},
-        category    VARCHAR(50)  NOT NULL DEFAULT 'other',
-        lead_type   VARCHAR(100),
-        -- Public teaser (visible before purchase)
-        first_name        VARCHAR(100),
-        last_name_initial CHAR(1),
-        age               INTEGER,
-        gender            VARCHAR(20),
-        city              VARCHAR(100),
-        state             VARCHAR(50),
-        zip_code          VARCHAR(20),
-        interest          TEXT,
-        notes_public      TEXT,
-        -- Private (revealed after purchase)
-        last_name         VARCHAR(100),
-        email             VARCHAR(200),
-        phone             VARCHAR(50),
-        address           TEXT,
-        notes_private     TEXT,
-        -- Pricing & meta
-        credits_cost INTEGER     DEFAULT 5,
-        source       VARCHAR(50) DEFAULT 'manual',
-        is_active    BOOLEAN     DEFAULT TRUE,
-        created_at   {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+        user_id INTEGER NOT NULL,
+        name VARCHAR(200) NOT NULL,
+        filters TEXT NOT NULL DEFAULT '{{}}',
+        result_count INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
     """)
 
     cur.execute(f"""
-    CREATE TABLE IF NOT EXISTS marketplace_unlocks (
+    CREATE TABLE IF NOT EXISTS outreach_events (
+        id {ID},
+        lead_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        channel VARCHAR(50) NOT NULL,
+        direction VARCHAR(20) DEFAULT 'outbound',
+        content TEXT,
+        status VARCHAR(50) DEFAULT 'sent',
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
+    cur.execute(f"""
+    CREATE TABLE IF NOT EXISTS lead_campaigns (
         id {ID},
         user_id INTEGER NOT NULL,
-        lead_id INTEGER NOT NULL REFERENCES marketplace_leads(id),
-        credits_spent INTEGER NOT NULL DEFAULT 5,
-        unlocked_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(user_id, lead_id)
+        name VARCHAR(200) NOT NULL,
+        channel VARCHAR(50) NOT NULL,
+        status VARCHAR(50) DEFAULT 'draft',
+        message_template TEXT,
+        lead_ids TEXT DEFAULT '[]',
+        sent_count INTEGER DEFAULT 0,
+        created_at {TIMESTAMP} DEFAULT CURRENT_TIMESTAMP
     )
     """)
 

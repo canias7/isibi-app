@@ -6301,1158 +6301,492 @@ def submit_a2p_campaign(body: dict, user=Depends(verify_token)):
     return {"ok": True, "campaign_status": "pending"}
 
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# LEAD MARKETPLACE  (NextGen-style: admin uploads leads, users buy with credits)
+# LEADS INTELLIGENCE  (Insurance broker — wealth-signal scoring & outreach)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Browse ────────────────────────────────────────────────────────────────────
+import csv as _csv
+import io as _io
+import json as _json
 
-@router.get("/marketplace/leads")
-def list_marketplace_leads(
-    category: str = "all",
-    state: str = "",
-    lead_type: str = "",
-    page: int = 1,
-    per_page: int = 24,
-    user=Depends(verify_token),
-):
-    """Browse marketplace leads. Contact info hidden until purchased."""
-    conn = get_conn(); cur = conn.cursor()
+# ── Scoring engine ─────────────────────────────────────────────────────────────
 
-    where_clauses = ["ml.is_active = TRUE"]
-    params: list = []
-    if category and category != "all":
-        where_clauses.append(sql("ml.category = {PH}")); params.append(category)
-    if state:
-        where_clauses.append(sql("ml.state ILIKE {PH}")); params.append(state)
-    if lead_type:
-        where_clauses.append(sql("ml.lead_type ILIKE {PH}")); params.append(lead_type)
+def _score_lead(lead: dict):
+    """Rule-based wealth scoring. Returns (score 0-100, reasons list)."""
+    score = 0
+    reasons = []
 
-    where_sql = " AND ".join(where_clauses)
-    offset = (page - 1) * per_page
+    zip_income  = int(lead.get("zip_median_income") or 0)
+    home_value  = int(lead.get("estimated_home_value") or 0)
+    homeowner   = str(lead.get("homeowner_status") or "").lower()
+    biz_owner   = bool(lead.get("business_owner_flag", False))
+    has_phone   = bool(str(lead.get("phone") or "").strip())
+    has_email   = bool(str(lead.get("email") or "").strip())
 
-    cur.execute(f"SELECT COUNT(*) FROM marketplace_leads ml WHERE {where_sql}", params)
-    total_row = cur.fetchone()
-    total = (total_row["count"] if isinstance(total_row, dict) else total_row[0]) if total_row else 0
+    if zip_income >= 120_000:
+        score += 20; reasons.append(f"High-income ZIP — median ${zip_income:,}")
+    elif zip_income >= 85_000:
+        score += 13; reasons.append(f"Above-average income ZIP — median ${zip_income:,}")
+    elif zip_income >= 60_000:
+        score += 7;  reasons.append(f"Moderate-income ZIP — median ${zip_income:,}")
 
-    leads_sql = f"""
-        SELECT ml.id, ml.category, ml.lead_type,
-               ml.first_name, ml.last_name_initial,
-               ml.age, ml.gender, ml.city, ml.state, ml.zip_code,
-               ml.interest, ml.notes_public,
-               ml.credits_cost, ml.created_at,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.last_name       ELSE NULL END AS last_name,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.email           ELSE NULL END AS email,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.phone           ELSE NULL END AS phone,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.address         ELSE NULL END AS address,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.notes_private   ELSE NULL END AS notes_private,
-               CASE WHEN mu.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_purchased
-        FROM marketplace_leads ml
-        LEFT JOIN marketplace_unlocks mu
-               ON mu.lead_id = ml.id AND mu.user_id = {sql('{PH}')}
-        WHERE {where_sql}
-        ORDER BY ml.created_at DESC
-        LIMIT {sql('{PH}')} OFFSET {sql('{PH}')}
-    """
-    cur.execute(leads_sql, [user["id"]] + params + [per_page, offset])
-    rows = cur.fetchall(); conn.close()
+    if home_value >= 1_000_000:
+        score += 25; reasons.append(f"Luxury property — estimated ${home_value:,}")
+    elif home_value >= 750_000:
+        score += 22; reasons.append(f"High-value property — estimated ${home_value:,}")
+    elif home_value >= 500_000:
+        score += 17; reasons.append(f"Premium property — estimated ${home_value:,}")
+    elif home_value >= 300_000:
+        score += 11; reasons.append(f"Above-average home value — ${home_value:,}")
+    elif home_value >= 150_000:
+        score += 5;  reasons.append(f"Property value on file — ${home_value:,}")
 
-    def serialize(r):
-        d = dict(r) if isinstance(r, dict) else {
-            "id": r[0], "category": r[1], "lead_type": r[2],
-            "first_name": r[3], "last_name_initial": r[4],
-            "age": r[5], "gender": r[6], "city": r[7], "state": r[8], "zip_code": r[9],
-            "interest": r[10], "notes_public": r[11], "credits_cost": r[12],
-            "created_at": str(r[13]),
-            "last_name": r[14], "email": r[15], "phone": r[16],
-            "address": r[17], "notes_private": r[18], "is_purchased": r[19],
-        }
-        fn = d.get("first_name") or ""
-        ln = d.get("last_name") or ""
-        li = d.get("last_name_initial") or ""
-        d["display_name"] = f"{fn} {ln}".strip() if d.get("is_purchased") else f"{fn} {li}.".strip()
-        if d.get("created_at") and not isinstance(d["created_at"], str):
-            d["created_at"] = str(d["created_at"])
-        return d
+    if homeowner == "owner":
+        score += 15; reasons.append("Confirmed homeowner — asset stability signal")
 
-    return {"leads": [serialize(r) for r in rows], "total": total,
-            "page": page, "per_page": per_page, "pages": max(1, (total + per_page - 1) // per_page)}
+    if biz_owner:
+        score += 15; reasons.append("Business owner — high-income probability signal")
+
+    contact_pts = (5 if has_phone else 0) + (5 if has_email else 0)
+    if contact_pts == 10:
+        score += 10; reasons.append("Fully contactable — phone and email on file")
+    elif contact_pts > 0:
+        score += 5;  reasons.append("Partial contact info on file")
+
+    strong = sum([zip_income >= 85_000, home_value >= 500_000,
+                  homeowner == "owner", biz_owner])
+    if strong >= 3:
+        score += 10; reasons.append("Multiple strong wealth signals converge")
+
+    return min(score, 100), reasons
 
 
-@router.post("/marketplace/leads/{lead_id}/purchase")
-def purchase_marketplace_lead(lead_id: int, user=Depends(verify_token)):
-    """Spend credits to purchase a lead and reveal contact info."""
-    conn = get_conn(); cur = conn.cursor()
+def _ai_lead_summary(lead: dict, score: int, reasons: list) -> dict:
+    name     = lead.get("full_name") or (
+                   f"{lead.get('first_name','')} {lead.get('last_name','')}".strip()) or "This lead"
+    location = ", ".join(filter(None, [lead.get("city"), lead.get("state")]))
+    signals  = "\n".join(f"- {r}" for r in reasons) or "- Limited signals available"
 
-    cur.execute(sql("SELECT id, credits_cost FROM marketplace_leads WHERE id={PH} AND is_active=TRUE"), (lead_id,))
-    row = cur.fetchone()
-    if not row:
-        conn.close(); raise HTTPException(404, "Lead not found")
-    cost = (row["credits_cost"] if isinstance(row, dict) else row[1]) or 5
+    prompt = f"""You are an insurance sales intelligence system.
 
-    cur.execute(sql("SELECT id FROM marketplace_unlocks WHERE user_id={PH} AND lead_id={PH}"), (user["id"], lead_id))
-    if cur.fetchone():
-        conn.close(); raise HTTPException(400, "Already purchased")
+Lead: {name} | {location}
+Wealth Score: {score}/100
+Signals:
+{signals}
 
-    balance = get_user_credits(user["id"])
-    if balance < cost:
-        conn.close(); raise HTTPException(402, f"Not enough credits. You have {balance}, need {cost}.")
+Respond in JSON with exactly these keys:
+- summary: 1-2 sentences on prospect potential (use "high-income probability" language)
+- outreach_angle: specific actionable pitch for an insurance broker
+- confidence: "low" | "medium" | "medium-high" | "high"
+- insurance_types: array of 2-3 most relevant products (e.g. ["whole life","umbrella policy"])
 
-    deduct_credits(user["id"], cost, f"Purchased marketplace lead #{lead_id}")
-    cur.execute(sql("INSERT INTO marketplace_unlocks (user_id, lead_id, credits_spent) VALUES ({PH},{PH},{PH})"),
-                (user["id"], lead_id, cost))
-    conn.commit()
-
-    cur.execute(sql("SELECT * FROM marketplace_leads WHERE id={PH}"), (lead_id,))
-    lead_row = cur.fetchone(); conn.close()
-    lead = dict(lead_row) if isinstance(lead_row, dict) else {}
-    lead["is_purchased"] = True
-    lead["display_name"] = f"{lead.get('first_name','')} {lead.get('last_name','')}".strip()
-    for k in ("created_at",):
-        if lead.get(k) and not isinstance(lead[k], str): lead[k] = str(lead[k])
-    return {"ok": True, "lead": lead, "credits_remaining": get_user_credits(user["id"])}
-
-
-@router.get("/marketplace/stats")
-def get_marketplace_stats(user=Depends(verify_token)):
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute("SELECT category, COUNT(*) FROM marketplace_leads WHERE is_active=TRUE GROUP BY category")
-    cats = cur.fetchall()
-    cur.execute(sql("SELECT COUNT(*) FROM marketplace_unlocks WHERE user_id={PH}"), (user["id"],))
-    pur_row = cur.fetchone()
-    purchased = (pur_row["count"] if isinstance(pur_row, dict) else pur_row[0]) if pur_row else 0
-    conn.close()
-    counts = {}
-    for r in cats:
-        k = r["category"] if isinstance(r, dict) else r[0]
-        v = r["count"] if isinstance(r, dict) else r[1]
-        counts[k] = v
-    return {"category_counts": counts, "total": sum(counts.values()),
-            "purchased": purchased, "balance": get_user_credits(user["id"])}
-
-
-@router.get("/marketplace/purchased")
-def get_purchased_leads(user=Depends(verify_token)):
-    """All leads the user has purchased."""
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        SELECT ml.*, mu.unlocked_at
-        FROM marketplace_leads ml
-        JOIN marketplace_unlocks mu ON mu.lead_id = ml.id
-        WHERE mu.user_id = {PH} ORDER BY mu.unlocked_at DESC
-    """), (user["id"],))
-    rows = cur.fetchall(); conn.close()
-    result = []
-    for r in rows:
-        d = dict(r) if isinstance(r, dict) else {}
-        d["is_purchased"] = True
-        d["display_name"] = f"{d.get('first_name','')} {d.get('last_name','')}".strip()
-        for k in ("created_at", "unlocked_at"):
-            if d.get(k) and not isinstance(d[k], str): d[k] = str(d[k])
-        result.append(d)
-    return result
-
-
-# ── Admin: upload leads via CSV or single entry ───────────────────────────────
-
-@router.post("/marketplace/admin/upload-csv")
-async def admin_upload_leads_csv(
-    request: Request,
-    user=Depends(verify_token),
-):
-    """
-    Admin-only. Upload a CSV of leads.
-    Expected columns (case-insensitive): category, lead_type, first_name, last_name,
-    email, phone, age, gender, city, state, zip_code, interest, notes_public,
-    notes_private, credits_cost
-    """
-    from admin import is_admin
-    import csv, io
-    if not is_admin(user["id"]):
-        raise HTTPException(403, "Admin only")
-
-    body = await request.body()
-    text = body.decode("utf-8-sig", errors="replace")
-    reader = csv.DictReader(io.StringIO(text))
-
-    # Normalize headers
-    def norm(h): return h.strip().lower().replace(" ", "_")
-    conn = get_conn(); cur = conn.cursor()
-    inserted = skipped = 0
-
-    for row in reader:
-        row = {norm(k): (v or "").strip() for k, v in row.items()}
-        fn = row.get("first_name") or row.get("firstname") or ""
-        if not fn:
-            skipped += 1; continue
-        try:
-            cur.execute(sql("""
-                INSERT INTO marketplace_leads
-                    (category, lead_type, first_name, last_name, last_name_initial,
-                     email, phone, age, gender, city, state, zip_code,
-                     interest, notes_public, notes_private, credits_cost, source)
-                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
-            """), (
-                row.get("category","other"),
-                row.get("lead_type") or row.get("type",""),
-                fn,
-                row.get("last_name") or row.get("lastname",""),
-                (row.get("last_name") or row.get("lastname",""))[:1],
-                row.get("email",""), row.get("phone",""),
-                int(row["age"]) if row.get("age","").isdigit() else None,
-                row.get("gender",""),
-                row.get("city",""), row.get("state",""), row.get("zip_code") or row.get("zip",""),
-                row.get("interest",""), row.get("notes_public") or row.get("public_notes",""),
-                row.get("notes_private") or row.get("private_notes",""),
-                int(row["credits_cost"]) if row.get("credits_cost","").isdigit() else 5,
-                "csv_upload"
-            ))
-            inserted += 1
-        except Exception:
-            skipped += 1
-
-    conn.commit(); conn.close()
-    return {"ok": True, "inserted": inserted, "skipped": skipped}
-
-
-@router.post("/marketplace/admin/add-lead")
-def admin_add_single_lead(body: dict, user=Depends(verify_token)):
-    """Admin-only. Add a single lead manually."""
-    from admin import is_admin
-    if not is_admin(user["id"]):
-        raise HTTPException(403, "Admin only")
-    fn = (body.get("first_name") or "").strip()
-    if not fn:
-        raise HTTPException(400, "first_name required")
-    ln = (body.get("last_name") or "").strip()
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        INSERT INTO marketplace_leads
-            (category, lead_type, first_name, last_name, last_name_initial,
-             email, phone, age, gender, city, state, zip_code,
-             interest, notes_public, notes_private, credits_cost, source)
-        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
-        RETURNING id
-    """), (
-        body.get("category","other"),
-        body.get("lead_type",""),
-        fn, ln, ln[:1],
-        body.get("email",""), body.get("phone",""),
-        body.get("age"), body.get("gender",""),
-        body.get("city",""), body.get("state",""), body.get("zip_code",""),
-        body.get("interest",""), body.get("notes_public",""),
-        body.get("notes_private",""),
-        body.get("credits_cost", 5),
-        "manual"
-    ))
-    new_row = cur.fetchone()
-    new_id = (new_row["id"] if isinstance(new_row, dict) else new_row[0]) if new_row else None
-    conn.commit(); conn.close()
-    return {"ok": True, "id": new_id}
-
-
-@router.delete("/marketplace/admin/leads/{lead_id}")
-def admin_delete_lead(lead_id: int, user=Depends(verify_token)):
-    """Admin-only. Soft-delete a lead."""
-    from admin import is_admin
-    if not is_admin(user["id"]): raise HTTPException(403, "Admin only")
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("UPDATE marketplace_leads SET is_active=FALSE WHERE id={PH}"), (lead_id,))
-    conn.commit(); conn.close()
-    return {"ok": True}
-
-
-# ── Marketplace: API key settings & dual-source search ───────────────────────
-
-def _mask(key: str) -> str:
-    if not key: return ""
-    if len(key) <= 8: return "•" * len(key)
-    return key[:4] + "•" * (len(key) - 8) + key[-4:]
-
-
-@router.get("/marketplace/keys")
-def get_marketplace_keys(user=Depends(verify_token)):
-    """Return which API keys the user has connected (masked)."""
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT apollo_api_key, nextgen_api_key, vibe_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone(); conn.close()
-    ak = (row["apollo_api_key"]  if isinstance(row, dict) else (row[0] if row else "")) or ""
-    nk = (row["nextgen_api_key"] if isinstance(row, dict) else (row[1] if row else "")) or ""
-    vk = (row["vibe_api_key"]    if isinstance(row, dict) else (row[2] if row else "")) or ""
-    return {
-        "apollo":  {"connected": bool(ak), "masked": _mask(ak)},
-        "nextgen": {"connected": bool(nk), "masked": _mask(nk)},
-        "vibe":    {"connected": bool(vk), "masked": _mask(vk)},
-    }
-
-
-@router.post("/marketplace/keys")
-def save_marketplace_keys(body: dict, user=Depends(verify_token)):
-    """Save Apollo, NextGen and/or Vibe API keys for this user."""
-    conn = get_conn(); cur = conn.cursor()
-    updates = []
-    params = []
-    if "apollo_key" in body:
-        updates.append(sql("apollo_api_key = {PH}"))
-        params.append((body["apollo_key"] or "").strip())
-    if "nextgen_key" in body:
-        updates.append(sql("nextgen_api_key = {PH}"))
-        params.append((body["nextgen_key"] or "").strip())
-    if "vibe_key" in body:
-        updates.append(sql("vibe_api_key = {PH}"))
-        params.append((body["vibe_key"] or "").strip())
-    if not updates:
-        return {"ok": True}
-    params.append(user["id"])
-    cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", params)
-    conn.commit(); conn.close()
-    return {"ok": True}
-
-
-@router.post("/marketplace/search/apollo")
-def marketplace_apollo_search(body: dict, user=Depends(verify_token)):
-    """
-    Search Apollo.io using the user's own API key.
-    Body: { prompt: str }
-    Returns leads with full contact info (user is paying Apollo directly).
-    """
-    import json as _json
-
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone(); conn.close()
-    apollo_key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
-    if not apollo_key:
-        raise HTTPException(400, "Apollo.io API key not connected. Add it in Leads Settings.")
-
-    prompt = (body.get("prompt") or "").strip()
-    if not prompt:
-        raise HTTPException(400, "Prompt is required")
-
-    # GPT extracts filters
-    filter_system = """Extract Apollo.io search filters from the user's lead request.
-Return ONLY valid JSON:
-{
-  "job_titles": [],
-  "locations": [],
-  "company_size_ranges": [],
-  "industries": [],
-  "keywords": [],
-  "limit": 25
-}"""
-    gpt = _oai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": filter_system}, {"role": "user", "content": prompt}],
-        max_tokens=400, temperature=0.2, response_format={"type": "json_object"}
-    )
-    try:
-        filters = _json.loads(gpt.choices[0].message.content)
-    except Exception:
-        filters = {}
-
-    limit = min(int(filters.get("limit", 25)), 100)
-    payload = {"api_key": apollo_key, "page": 1, "per_page": limit}
-    if filters.get("job_titles"):       payload["person_titles"] = filters["job_titles"]
-    if filters.get("locations"):        payload["person_locations"] = filters["locations"]
-    if filters.get("company_size_ranges"): payload["organization_num_employees_ranges"] = filters["company_size_ranges"]
-    if filters.get("industries"):       payload["q_organization_keyword_tags"] = filters["industries"]
-    if filters.get("keywords"):         payload["q_keywords"] = " ".join(filters["keywords"])
+Be concise. Never claim exact income."""
 
     try:
-        resp = requests.post(
-            "https://api.apollo.io/api/v1/mixed_people/search",
-            json=payload,
-            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
-            timeout=30
-        )
-        data = resp.json()
-    except Exception as e:
-        raise HTTPException(502, f"Apollo request failed: {e}")
-
-    if resp.status_code == 401:
-        raise HTTPException(401, "Invalid Apollo API key. Check your key in Leads Settings.")
-    if resp.status_code != 200:
-        raise HTTPException(502, data.get("message", "Apollo error"))
-
-    people = data.get("people") or data.get("contacts") or []
-    leads = []
-    for p in people:
-        org = p.get("organization") or p.get("account") or {}
-        phones = p.get("phone_numbers") or []
-        phone = phones[0].get("sanitized_number", "") if phones else ""
-        leads.append({
-            "source": "apollo",
-            "name":        p.get("name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
-            "first_name":  p.get("first_name", ""),
-            "last_name":   p.get("last_name", ""),
-            "title":       p.get("title") or p.get("headline", ""),
-            "company":     org.get("name") or p.get("organization_name", ""),
-            "email":       p.get("email", ""),
-            "phone":       phone,
-            "city":        p.get("city", ""),
-            "state":       p.get("state", ""),
-            "country":     p.get("country", ""),
-            "linkedin_url": p.get("linkedin_url", ""),
-            "company_size": org.get("num_employees") or org.get("estimated_num_employees", ""),
-            "industry":    org.get("industry", ""),
-            "website":     org.get("website_url", ""),
-        })
-
-    return {"source": "apollo", "leads": leads, "total": len(leads), "filters": filters}
-
-
-@router.post("/marketplace/search/nextgen")
-def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
-    """
-    Query NextGen Leads using the user's own API key.
-    Body: { vertical: str, state: str, limit: int }
-    NextGen Leads API: https://api.nextgenleads.app
-    """
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT nextgen_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone(); conn.close()
-    ng_key = (row["nextgen_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
-    if not ng_key:
-        raise HTTPException(400, "NextGen Leads API key not connected. Add it in Leads Settings.")
-
-    vertical = body.get("vertical", "health_insurance")
-    state    = body.get("state", "")
-    limit    = min(int(body.get("limit", 25)), 100)
-
-    params: dict = {
-        "vertical": vertical,
-        "limit":    limit,
-    }
-    if state:
-        params["state"] = state
-
-    # NextGen Leads API — correct base domain is nextgenleads.app
-    NG_BASE = "https://api.nextgenleads.app"
-
-    try:
-        resp = requests.get(
-            f"{NG_BASE}/v1/leads",
-            params=params,
-            headers={"Authorization": f"Bearer {ng_key}", "Accept": "application/json"},
-            timeout=30
-        )
-        data = resp.json()
-    except Exception as e:
-        raise HTTPException(502, f"NextGen request failed: {e}")
-
-    if resp.status_code == 401:
-        raise HTTPException(401, "Invalid NextGen API key.")
-    if resp.status_code == 404:
-        # Try alternate endpoint path
-        try:
-            resp = requests.get(
-                f"{NG_BASE}/leads",
-                params=params,
-                headers={"Authorization": f"Bearer {ng_key}", "Accept": "application/json"},
-                timeout=30
-            )
-            data = resp.json()
-        except Exception as e:
-            raise HTTPException(502, f"NextGen request failed: {e}")
-    if resp.status_code not in (200, 201):
-        raise HTTPException(502, data.get("message", f"NextGen error {resp.status_code}"))
-
-    raw_leads = data.get("leads") or data.get("data") or []
-    leads = []
-    for l in raw_leads:
-        leads.append({
-            "source":      "nextgen",
-            "name":        f"{l.get('first_name','')} {l.get('last_name','')}".strip(),
-            "first_name":  l.get("first_name", ""),
-            "last_name":   l.get("last_name", ""),
-            "email":       l.get("email", ""),
-            "phone":       l.get("phone", "") or l.get("phone_number", ""),
-            "city":        l.get("city", ""),
-            "state":       l.get("state", ""),
-            "zip_code":    l.get("zip", "") or l.get("zip_code", ""),
-            "age":         l.get("age"),
-            "gender":      l.get("gender", ""),
-            "interest":    l.get("vertical", vertical),
-            "notes_public": l.get("notes", ""),
-        })
-
-    return {"source": "nextgen", "leads": leads, "total": len(leads)}
-
-
-# ── AI outreach message generator ─────────────────────────────────────────────
-
-
-
-@router.post("/marketplace/search/vibe")
-def marketplace_vibe_search(body: dict, user=Depends(verify_token)):
-    """
-    Search Explorium (Vibe Prospecting) using the user's own API key.
-    Body: { prompt: str, size: int }
-    API: POST https://api.explorium.ai/v1/prospects
-    Auth header: API_KEY: <key>
-    """
-    import json as _json
-
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT vibe_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone(); conn.close()
-    vibe_key = (row["vibe_api_key"] if isinstance(row, dict) else (row[0] if row else "")) or ""
-    if not vibe_key:
-        raise HTTPException(400, "Vibe Prospecting API key not connected. Add it in Leads Settings.")
-
-    prompt = (body.get("prompt") or "").strip()
-    if not prompt:
-        raise HTTPException(400, "Prompt is required")
-
-    size = min(int(body.get("size", 25)), 100)
-
-    # GPT extracts Explorium-compatible filters from natural language
-    filter_system = """Extract Explorium prospect search filters from the user's lead request.
-Return ONLY valid JSON with these optional fields:
-{
-  "job_levels": [],
-  "job_departments": [],
-  "country_codes": [],
-  "company_size_min": null,
-  "company_size_max": null,
-  "keywords": []
-}
-job_levels options: c_suite, vp, director, manager, individual_contributor
-job_departments options: sales, marketing, engineering, finance, hr, operations, it, legal, product
-country_codes: ISO 2-letter codes, e.g. ["US"]
-company_size: integers or null"""
-
-    try:
-        gpt = _oai.chat.completions.create(
+        import openai
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        res = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": filter_system}, {"role": "user", "content": prompt}],
-            max_tokens=300, temperature=0.2, response_format={"type": "json_object"}
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=350,
         )
-        filters = _json.loads(gpt.choices[0].message.content)
+        return _json.loads(res.choices[0].message.content)
     except Exception:
-        filters = {}
-
-    # Build Explorium filter payload
-    ef: dict = {"has_email": {"value": True}}
-    if filters.get("job_levels"):
-        ef["job_level"] = {"values": filters["job_levels"]}
-    if filters.get("job_departments"):
-        ef["job_department"] = {"values": filters["job_departments"]}
-    if filters.get("country_codes"):
-        ef["country_code"] = {"values": filters["country_codes"]}
-    if filters.get("company_size_min") or filters.get("company_size_max"):
-        cs: dict = {}
-        if filters.get("company_size_min"): cs["gte"] = filters["company_size_min"]
-        if filters.get("company_size_max"): cs["lte"] = filters["company_size_max"]
-        ef["company_size"] = cs
-
-    payload = {
-        "mode": "full",
-        "size": size,
-        "page_size": size,
-        "page": 1,
-        "filters": ef,
-    }
-
-    try:
-        resp = requests.post(
-            "https://api.explorium.ai/v1/prospects",
-            json=payload,
-            headers={"API_KEY": vibe_key, "Content-Type": "application/json"},
-            timeout=30
-        )
-        data = resp.json()
-    except Exception as e:
-        raise HTTPException(502, f"Vibe Prospecting request failed: {e}")
-
-    if resp.status_code == 401:
-        raise HTTPException(401, "Invalid Vibe Prospecting API key. Check your key in Leads Settings.")
-    if resp.status_code == 402:
-        raise HTTPException(402, "Insufficient Vibe Prospecting credits.")
-    if resp.status_code != 200:
-        msg = data.get("message") or data.get("error") or f"Vibe error {resp.status_code}"
-        raise HTTPException(502, msg)
-
-    raw = data.get("prospects") or data.get("data") or data.get("results") or []
-    leads = []
-    for p in raw:
-        org = p.get("organization") or p.get("company") or {}
-        phones = p.get("phone_numbers") or []
-        phone = phones[0] if phones and isinstance(phones[0], str) else (phones[0].get("number", "") if phones else "")
-        leads.append({
-            "source":       "vibe",
-            "name":         p.get("full_name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
-            "first_name":   p.get("first_name", ""),
-            "last_name":    p.get("last_name", ""),
-            "title":        p.get("job_title") or p.get("title", ""),
-            "company":      p.get("company_name") or (org.get("name") if isinstance(org, dict) else "") or "",
-            "email":        p.get("email") or p.get("work_email", ""),
-            "phone":        p.get("phone") or phone or "",
-            "city":         p.get("city", ""),
-            "state":        p.get("state") or p.get("region", ""),
-            "country":      p.get("country") or p.get("country_code", ""),
-            "linkedin_url": p.get("linkedin_url") or p.get("linkedin_profile_url", ""),
-            "company_size": p.get("company_size") or (org.get("size") if isinstance(org, dict) else "") or "",
-            "industry":     p.get("industry") or p.get("company_industry", ""),
-            "website":      p.get("company_website") or (org.get("website") if isinstance(org, dict) else "") or "",
-        })
-
-    return {"source": "vibe", "leads": leads, "total": len(leads), "filters": filters}
-
-
-@router.post("/marketplace/outreach/generate")
-def generate_outreach_message(body: dict, user=Depends(verify_token)):
-    """
-    AI generates a personalized SMS, email subject+body, or call script
-    based on a lead's info.
-    Body: { lead: {...}, channel: 'sms'|'email'|'call', context: str (optional) }
-    """
-    lead    = body.get("lead", {})
-    channel = body.get("channel", "sms")
-    context = body.get("context", "")   # e.g. "I sell health insurance"
-
-    name      = lead.get("name") or lead.get("first_name", "there")
-    title     = lead.get("title", "")
-    company   = lead.get("company", "")
-    interest  = lead.get("interest", "")
-    industry  = lead.get("industry", "")
-    location  = " ".join(filter(None, [lead.get("city",""), lead.get("state","")]))
-
-    about_lead = f"Name: {name}"
-    if title:    about_lead += f", Title: {title}"
-    if company:  about_lead += f", Company: {company}"
-    if interest: about_lead += f", Interest: {interest}"
-    if industry: about_lead += f", Industry: {industry}"
-    if location: about_lead += f", Location: {location}"
-
-    if channel == "sms":
-        system = "You write short, personalized, friendly SMS messages for sales outreach. Keep it under 160 characters. No spam language. Sound human."
-        user_prompt = f"""Write a single SMS to this lead:\n{about_lead}\n\nContext about the sender: {context or 'Sales professional'}\n\nSMS only, no quotes, no labels."""
-    elif channel == "email":
-        system = "You write personalized sales email subject lines and bodies. Professional but warm. Keep body under 150 words. No spam words."
-        user_prompt = f"""Write a sales email to this lead:\n{about_lead}\n\nSender context: {context or 'Sales professional'}\n\nRespond in JSON: {{"subject": "...", "body": "..."}}"""
-    else:  # call script
-        system = "You write short, natural call opening scripts for sales reps. 30-45 seconds when spoken aloud. Sound like a real person."
-        user_prompt = f"""Write a call opening script to this lead:\n{about_lead}\n\nSender context: {context or 'Sales professional'}\n\nScript only, no labels."""
-
-    resp = _oai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"system","content":system},{"role":"user","content":user_prompt}],
-        max_tokens=300,
-        temperature=0.7,
-        **({"response_format":{"type":"json_object"}} if channel == "email" else {})
-    )
-    content = resp.choices[0].message.content.strip()
-
-    if channel == "email":
-        import json as _json
-        try:
-            parsed = _json.loads(content)
-            return {"channel": "email", "subject": parsed.get("subject",""), "body": parsed.get("body","")}
-        except Exception:
-            return {"channel": "email", "subject": "Following up", "body": content}
-
-    return {"channel": channel, "message": content}
-
-
-# ── Keep old unused stub so old imports don't break ───────────────────────────
-@router.get("/leads/settings")
-def get_leads_settings(user=Depends(verify_token)):
-    """Return whether the user has an Apollo API key configured."""
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("SELECT apollo_api_key FROM users WHERE id={PH}"), (user["id"],))
-    row = cur.fetchone()
-    conn.close()
-    key = (row["apollo_api_key"] if isinstance(row, dict) else (row[0] if row else None)) or ""
-    # Return masked key
-    masked = (key[:4] + "•" * (len(key) - 8) + key[-4:]) if len(key) > 8 else ("•" * len(key) if key else "")
-    return {"has_key": bool(key), "masked_key": masked}
-
-
-@router.post("/leads/settings")
-def save_leads_settings(body: dict, user=Depends(verify_token)):
-    """Save the user's Apollo.io API key."""
-    api_key = (body.get("apollo_api_key") or "").strip()
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("UPDATE users SET apollo_api_key={PH} WHERE id={PH}"), (api_key, user["id"]))
-    conn.commit(); conn.close()
-    return {"ok": True}
-
-
-@router.get("/leads/history")
-def get_leads_history(user=Depends(verify_token)):
-    """Return the user's past lead searches."""
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        SELECT id, prompt, filters_json, results_count, created_at
-        FROM leads_searches WHERE user_id={PH}
-        ORDER BY created_at DESC LIMIT 20
-    """), (user["id"],))
-    rows = cur.fetchall() or []
-    conn.close()
-    return [
-        {
-            "id": r["id"] if isinstance(r, dict) else r[0],
-            "prompt": r["prompt"] if isinstance(r, dict) else r[1],
-            "filters_json": r["filters_json"] if isinstance(r, dict) else r[2],
-            "results_count": r["results_count"] if isinstance(r, dict) else r[3],
-            "created_at": str(r["created_at"] if isinstance(r, dict) else r[4]),
+        return {
+            "summary": "This lead shows wealth indicators based on available public signals.",
+            "outreach_angle": "Premium coverage and asset protection",
+            "confidence": "medium",
+            "insurance_types": ["life insurance", "umbrella policy"],
         }
-        for r in rows
-    ]
 
 
-@router.get("/leads/history/{search_id}/results")
-def get_leads_search_results(search_id: int, user=Depends(verify_token)):
-    """Return the cached results of a previous search."""
+# ── CSV field normalizer ────────────────────────────────────────────────────────
+
+_FIELD_MAP = {
+    "name": "full_name", "full name": "full_name", "fullname": "full_name",
+    "first name": "first_name", "firstname": "first_name",
+    "last name": "last_name", "lastname": "last_name",
+    "phone number": "phone", "mobile": "phone", "cell": "phone",
+    "email address": "email",
+    "street": "address", "street address": "address",
+    "zip": "zip_code", "postal code": "zip_code", "zipcode": "zip_code",
+    "home value": "estimated_home_value", "property value": "estimated_home_value",
+    "home owner": "homeowner_status", "homeowner": "homeowner_status",
+    "ownership": "homeowner_status",
+    "median income": "zip_median_income", "zip income": "zip_median_income",
+    "area income": "zip_median_income",
+    "business owner": "business_owner_flag", "biz owner": "business_owner_flag",
+    "source": "lead_source",
+}
+
+def _normalize_row(row: dict) -> dict:
+    out = {}
+    for k, v in row.items():
+        key   = k.strip().lower()
+        field = _FIELD_MAP.get(key, key.replace(" ", "_"))
+        out[field] = (v.strip() if v else None)
+
+    if not out.get("full_name"):
+        fn = out.get("first_name") or ""
+        ln = out.get("last_name")  or ""
+        if fn or ln:
+            out["full_name"] = f"{fn} {ln}".strip()
+
+    biz_raw = str(out.get("business_owner_flag") or "").lower()
+    out["business_owner_flag"] = biz_raw in ("yes", "true", "1", "y")
+
+    for f in ("estimated_home_value", "zip_median_income"):
+        raw = out.get(f)
+        if raw:
+            try:
+                out[f] = int(float(str(raw).replace("$", "").replace(",", "").strip()))
+            except Exception:
+                out[f] = None
+
+    return out
+
+
+def _serialize_lead(d: dict) -> dict:
+    for f in ("tags", "score_reasons", "ai_insurance_types"):
+        raw = d.get(f)
+        if isinstance(raw, str):
+            try:    d[f] = _json.loads(raw)
+            except: d[f] = []
+        elif raw is None:
+            d[f] = []
+    for f in ("created_at", "updated_at"):
+        if d.get(f):
+            d[f] = str(d[f])
+    return d
+
+
+# ── LIST / SEARCH ──────────────────────────────────────────────────────────────
+
+@router.get("/leads")
+def list_leads(
+    status: str = None, source: str = None,
+    min_score: int = 0, max_score: int = 100,
+    state: str = None, q: str = None,
+    limit: int = 100, offset: int = 0,
+    user=Depends(verify_token),
+):
     conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        SELECT results_json FROM leads_searches WHERE id={PH} AND user_id={PH}
-    """), (search_id, user["id"]))
+    where = [sql("user_id = {PH}"), sql("score >= {PH}"), sql("score <= {PH}")]
+    params = [user["id"], min_score, max_score]
+
+    if status: where.append(sql("status = {PH}")); params.append(status)
+    if source: where.append(sql("lead_source = {PH}")); params.append(source)
+    if state:  where.append(sql("UPPER(state) = UPPER({PH})")); params.append(state)
+    if q:
+        where.append(sql("(LOWER(full_name) LIKE {PH} OR LOWER(email) LIKE {PH} OR phone LIKE {PH})"))
+        qp = f"%{q.lower()}%"; params += [qp, qp, qp]
+
+    w = " AND ".join(where)
+    cur.execute(sql(f"SELECT COUNT(*) FROM leads WHERE {w}"), params)
     row = cur.fetchone()
+    total = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+
+    cur.execute(sql(f"SELECT * FROM leads WHERE {w} ORDER BY score DESC, created_at DESC LIMIT {{PH}} OFFSET {{PH}}"),
+                params + [min(limit, 500), offset])
+    leads = [_serialize_lead(dict(r)) for r in cur.fetchall()]
     conn.close()
-    if not row:
-        raise HTTPException(404, "Search not found")
-    raw = row["results_json"] if isinstance(row, dict) else row[0]
-    import json as _json
-    return {"leads": _json.loads(raw) if raw else []}
+    return {"leads": leads, "total": total}
 
 
 @router.post("/leads/search")
 def search_leads(body: dict, user=Depends(verify_token)):
-    """
-    AI-powered lead search using Apollo.io.
-    1. Use GPT to extract structured filters from the natural-language prompt.
-    2. Call Apollo.io People Search API with those filters.
-    3. Cache results and return leads.
-    """
-    import json as _json
-
-    prompt = (body.get("prompt") or "").strip()
-    if not prompt:
-        raise HTTPException(400, "Prompt is required")
-
-    # Always use platform Apollo key from env — users don't need their own
-    apollo_key = os.getenv("APOLLO_API_KEY", "")
-
-    if not apollo_key:
-        raise HTTPException(503, "Lead search is temporarily unavailable. Please contact support.")
-
-    # ── Step 1: GPT extracts structured filters ──────────────────────────────
-    filter_system = """You are a lead generation assistant. Extract Apollo.io search filters from the user's request.
-Return ONLY valid JSON with these keys (omit any that aren't mentioned):
-{
-  "job_titles": [],          // e.g. ["CEO", "Founder", "VP of Sales"]
-  "locations": [],           // e.g. ["Miami, Florida", "New York, NY", "United States"]
-  "company_size_ranges": [], // e.g. ["1,10", "11,50", "51,200", "201,500", "501,1000", "1001,5000"]
-  "industries": [],          // e.g. ["SaaS", "Healthcare", "Real Estate"]
-  "keywords": [],            // general keywords about the company/person
-  "limit": 25                // number of leads (max 100)
-}
-Only return the JSON object, no explanation."""
-
-    gpt_resp = _oai.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": filter_system},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=400,
-        temperature=0.2,
-        response_format={"type": "json_object"}
-    )
-    raw_filters = gpt_resp.choices[0].message.content.strip()
-    try:
-        filters = _json.loads(raw_filters)
-    except Exception:
-        filters = {}
-
-    limit = min(int(filters.get("limit", 25)), 100)
-
-    # ── Step 2: Call Apollo.io People Search ──────────────────────────────────
-    apollo_payload = {
-        "api_key": apollo_key,
-        "page": 1,
-        "per_page": limit,
-    }
-    if filters.get("job_titles"):
-        apollo_payload["person_titles"] = filters["job_titles"]
-    if filters.get("locations"):
-        apollo_payload["person_locations"] = filters["locations"]
-    if filters.get("company_size_ranges"):
-        apollo_payload["organization_num_employees_ranges"] = filters["company_size_ranges"]
-    if filters.get("industries"):
-        apollo_payload["q_organization_keyword_tags"] = filters["industries"]
-    if filters.get("keywords"):
-        apollo_payload["q_keywords"] = " ".join(filters["keywords"])
-
-    try:
-        apollo_resp = requests.post(
-            "https://api.apollo.io/api/v1/mixed_people/search",
-            json=apollo_payload,
-            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
-            timeout=30
-        )
-        apollo_data = apollo_resp.json()
-    except Exception as e:
-        raise HTTPException(502, f"Apollo.io request failed: {str(e)}")
-
-    if apollo_resp.status_code == 401:
-        raise HTTPException(401, "Invalid Apollo.io API key. Check your key in Leads Agent settings.")
-    if apollo_resp.status_code != 200:
-        raise HTTPException(502, f"Apollo.io error: {apollo_data.get('message', 'Unknown error')}")
-
-    # ── Step 3: Normalize results ─────────────────────────────────────────────
-    people = apollo_data.get("people") or apollo_data.get("contacts") or []
-    leads = []
-    for p in people:
-        org = p.get("organization") or p.get("account") or {}
-        phone_numbers = p.get("phone_numbers") or []
-        phone = phone_numbers[0].get("sanitized_number", "") if phone_numbers else ""
-        leads.append({
-            "name": p.get("name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
-            "first_name": p.get("first_name", ""),
-            "last_name": p.get("last_name", ""),
-            "title": p.get("title") or p.get("headline", ""),
-            "company": org.get("name") or p.get("organization_name", ""),
-            "email": p.get("email", ""),
-            "phone": phone,
-            "city": p.get("city", ""),
-            "state": p.get("state", ""),
-            "country": p.get("country", ""),
-            "linkedin_url": p.get("linkedin_url", ""),
-            "company_size": org.get("num_employees") or org.get("estimated_num_employees", ""),
-            "industry": org.get("industry", ""),
-            "website": org.get("website_url", ""),
-        })
-
-    # ── Step 4: Cache to DB ───────────────────────────────────────────────────
+    filters = body.get("filters", {})
     conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        INSERT INTO leads_searches (user_id, prompt, filters_json, results_count, results_json)
-        VALUES ({PH},{PH},{PH},{PH},{PH})
-        RETURNING id
-    """), (user["id"], prompt, raw_filters, len(leads), _json.dumps(leads)))
-    new_row = cur.fetchone()
-    search_id = (new_row["id"] if isinstance(new_row, dict) else new_row[0]) if new_row else None
-    conn.commit(); conn.close()
+    where = [sql("user_id = {PH}")]
+    params = [user["id"]]
 
-    return {
-        "search_id": search_id,
-        "leads": leads,
-        "total": len(leads),
-        "filters": filters,
-        "prompt": prompt,
-    }
+    def _add(field, op, val):
+        where.append(sql(f"{field} {op} {{PH}}")); params.append(val)
 
+    if filters.get("min_score") is not None: _add("score", ">=", filters["min_score"])
+    if filters.get("max_score") is not None: _add("score", "<=", filters["max_score"])
+    if filters.get("state"):   where.append(sql("UPPER(state) = UPPER({PH})")); params.append(filters["state"])
+    if filters.get("zip_code"): _add("zip_code", "=", filters["zip_code"])
+    if filters.get("city"):     where.append(sql("LOWER(city) LIKE {PH}")); params.append(f"%{filters['city'].lower()}%")
+    if filters.get("homeowner") and filters["homeowner"] != "any":
+        _add("homeowner_status", "=", filters["homeowner"])
+    if filters.get("business_owner") and filters["business_owner"] != "any":
+        _add("business_owner_flag", "=", filters["business_owner"] == "yes")
+    if filters.get("min_home_value"): _add("estimated_home_value", ">=", int(filters["min_home_value"]))
+    if filters.get("max_home_value"): _add("estimated_home_value", "<=", int(filters["max_home_value"]))
+    if filters.get("status") and filters["status"] != "all": _add("status", "=", filters["status"])
+    if filters.get("q"):
+        where.append(sql("(LOWER(full_name) LIKE {PH} OR LOWER(email) LIKE {PH} OR phone LIKE {PH})"))
+        qp = f"%{filters['q'].lower()}%"; params += [qp, qp, qp]
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# LEAD MARKETPLACE
-# ═══════════════════════════════════════════════════════════════════════════════
+    w = " AND ".join(where)
+    limit  = min(body.get("limit", 100), 500)
+    offset = body.get("offset", 0)
 
-_CATEGORY_QUERIES = {
-    "insurance": {
-        "label": "Health & Life Insurance",
-        "titles": ["Insurance Agent", "Insurance Broker", "Life Insurance Agent",
-                   "Health Insurance Agent", "Medicare Agent", "Benefits Manager"],
-        "industries": ["Insurance"],
-    },
-    "real_estate": {
-        "label": "Real Estate & Mortgage",
-        "titles": ["Real Estate Agent", "Real Estate Broker", "Loan Officer",
-                   "Mortgage Broker", "Realtor", "Real Estate Investor"],
-        "industries": ["Real Estate"],
-    },
-    "solar": {
-        "label": "Solar",
-        "titles": ["Solar Sales", "Solar Consultant", "Solar Advisor",
-                   "Energy Consultant", "Solar Sales Representative"],
-        "industries": ["Renewables & Environment", "Utilities"],
-    },
-    "business": {
-        "label": "Business / B2B",
-        "titles": ["CEO", "Founder", "Co-Founder", "Owner", "President",
-                   "Managing Director", "General Manager"],
-        "industries": [],
-    },
-}
+    cur.execute(sql(f"SELECT COUNT(*) FROM leads WHERE {w}"), params)
+    row = cur.fetchone()
+    total = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
 
-
-@router.get("/marketplace/leads")
-def list_marketplace_leads(
-    category: str = "all",
-    state: str = "",
-    page: int = 1,
-    per_page: int = 24,
-    user=Depends(verify_token),
-):
-    """Browse marketplace leads with teaser info. Marks which ones the user has unlocked."""
-    import json as _json
-    conn = get_conn(); cur = conn.cursor()
-
-    # Build filter
-    where_clauses = ["ml.is_active = TRUE"]
-    params = []
-    if category and category != "all":
-        where_clauses.append(sql("ml.category = {PH}"))
-        params.append(category)
-    if state:
-        where_clauses.append(sql("ml.state ILIKE {PH}"))
-        params.append(state)
-
-    where_sql = " AND ".join(where_clauses)
-    offset = (page - 1) * per_page
-
-    # Total count
-    count_sql = f"SELECT COUNT(*) FROM marketplace_leads ml WHERE {where_sql}"
-    cur.execute(count_sql, params)
-    total_row = cur.fetchone()
-    total = (total_row["count"] if isinstance(total_row, dict) else total_row[0]) if total_row else 0
-
-    # Leads with unlock status
-    leads_sql = f"""
-        SELECT ml.id, ml.category, ml.subcategory,
-               ml.first_name, ml.last_name_initial,
-               ml.title, ml.company, ml.city, ml.state,
-               ml.industry, ml.company_size, ml.credits_cost, ml.created_at,
-               -- unlocked columns (NULL if not unlocked)
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.last_name  ELSE NULL END AS last_name,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.email      ELSE NULL END AS email,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.phone      ELSE NULL END AS phone,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.linkedin_url ELSE NULL END AS linkedin_url,
-               CASE WHEN mu.user_id IS NOT NULL THEN ml.website    ELSE NULL END AS website,
-               CASE WHEN mu.user_id IS NOT NULL THEN TRUE ELSE FALSE END AS is_unlocked
-        FROM marketplace_leads ml
-        LEFT JOIN marketplace_unlocks mu ON mu.lead_id = ml.id AND mu.user_id = {sql('{PH}')}
-        WHERE {where_sql}
-        ORDER BY ml.created_at DESC
-        LIMIT {sql('{PH}')} OFFSET {sql('{PH}')}
-    """
-    cur.execute(leads_sql, [user["id"]] + params + [per_page, offset])
-    rows = cur.fetchall()
+    cur.execute(sql(f"SELECT * FROM leads WHERE {w} ORDER BY score DESC, created_at DESC LIMIT {{PH}} OFFSET {{PH}}"),
+                params + [limit, offset])
+    leads = [_serialize_lead(dict(r)) for r in cur.fetchall()]
     conn.close()
-
-    def row_to_dict(r):
-        d = dict(r) if isinstance(r, dict) else {
-            "id": r[0], "category": r[1], "subcategory": r[2],
-            "first_name": r[3], "last_name_initial": r[4],
-            "title": r[5], "company": r[6], "city": r[7], "state": r[8],
-            "industry": r[9], "company_size": r[10], "credits_cost": r[11],
-            "created_at": str(r[12]),
-            "last_name": r[13], "email": r[14], "phone": r[15],
-            "linkedin_url": r[16], "website": r[17], "is_unlocked": r[18],
-        }
-        # Build display name
-        fn = d.get("first_name") or ""
-        li = d.get("last_name_initial") or ""
-        ln = d.get("last_name") or ""
-        d["display_name"] = f"{fn} {ln}".strip() if d.get("is_unlocked") else f"{fn} {li}.".strip()
-        if isinstance(d.get("created_at"), object) and not isinstance(d.get("created_at"), str):
-            d["created_at"] = str(d["created_at"])
-        return d
-
-    return {
-        "leads": [row_to_dict(r) for r in rows],
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": (total + per_page - 1) // per_page,
-    }
+    return {"leads": leads, "total": total}
 
 
-@router.post("/marketplace/leads/{lead_id}/unlock")
-def unlock_marketplace_lead(lead_id: int, user=Depends(verify_token)):
-    """Spend credits to unlock a lead's contact info."""
+# ── IMPORT CSV ─────────────────────────────────────────────────────────────────
+
+from fastapi import UploadFile, File as FastAPIFile
+
+@router.post("/leads/import")
+async def import_leads(file: UploadFile = FastAPIFile(...), user=Depends(verify_token)):
+    content = await file.read()
+    text    = content.decode("utf-8-sig")
+    reader  = _csv.DictReader(_io.StringIO(text))
+
     conn = get_conn(); cur = conn.cursor()
+    imported = skipped = 0
+    errors = []
 
-    # Get lead cost
-    cur.execute(sql("SELECT id, credits_cost FROM marketplace_leads WHERE id={PH} AND is_active=TRUE"), (lead_id,))
+    for i, row in enumerate(reader):
+        try:
+            n = _normalize_row(row)
+            score, reasons = _score_lead(n)
+            cur.execute(sql("""
+                INSERT INTO leads
+                  (user_id,full_name,first_name,last_name,phone,email,address,
+                   city,state,zip_code,homeowner_status,estimated_home_value,
+                   zip_median_income,business_owner_flag,lead_source,
+                   score,score_reasons,tags,status)
+                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},'[]','new')
+            """), (user["id"],
+                   n.get("full_name"), n.get("first_name"), n.get("last_name"),
+                   n.get("phone"), n.get("email"), n.get("address"),
+                   n.get("city"), n.get("state"), n.get("zip_code"),
+                   n.get("homeowner_status", "unknown"),
+                   n.get("estimated_home_value"), n.get("zip_median_income"),
+                   n.get("business_owner_flag", False),
+                   n.get("lead_source", "csv_import"),
+                   score, _json.dumps(reasons)))
+            imported += 1
+        except Exception as e:
+            errors.append(f"Row {i+2}: {e}"); skipped += 1
+            if len(errors) > 20: break
+
+    conn.commit(); conn.close()
+    return {"imported": imported, "skipped": skipped, "errors": errors[:10]}
+
+
+# ── ADD / GET / UPDATE / DELETE ────────────────────────────────────────────────
+
+@router.post("/leads/add")
+def add_lead(body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    n = _normalize_row({k: (str(v) if v is not None else "") for k, v in body.items()})
+    score, reasons = _score_lead(n)
+    cur.execute(sql("""
+        INSERT INTO leads
+          (user_id,full_name,first_name,last_name,phone,email,address,
+           city,state,zip_code,homeowner_status,estimated_home_value,
+           zip_median_income,business_owner_flag,lead_source,
+           score,score_reasons,tags,status)
+        VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},'[]','new')
+    """), (user["id"],
+           n.get("full_name"), n.get("first_name"), n.get("last_name"),
+           n.get("phone"), n.get("email"), n.get("address"),
+           n.get("city"), n.get("state"), n.get("zip_code"),
+           n.get("homeowner_status", "unknown"),
+           n.get("estimated_home_value"), n.get("zip_median_income"),
+           n.get("business_owner_flag", False),
+           n.get("lead_source", "manual"),
+           score, _json.dumps(reasons)))
+    conn.commit()
+    lead_id = cur.lastrowid
+    conn.close()
+    return {"id": lead_id, "score": score, "score_reasons": reasons}
+
+
+@router.get("/leads/{lead_id}")
+def get_lead(lead_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM leads WHERE id={PH} AND user_id={PH}"), (lead_id, user["id"]))
     row = cur.fetchone()
     if not row:
-        conn.close()
-        raise HTTPException(404, "Lead not found")
-    cost = (row["credits_cost"] if isinstance(row, dict) else row[1]) or 5
+        conn.close(); raise HTTPException(404, "Lead not found")
+    lead = _serialize_lead(dict(row))
 
-    # Check if already unlocked
-    cur.execute(sql("SELECT id FROM marketplace_unlocks WHERE user_id={PH} AND lead_id={PH}"), (user["id"], lead_id))
-    if cur.fetchone():
-        conn.close()
-        raise HTTPException(400, "Already unlocked")
+    cur.execute(sql("SELECT * FROM lead_notes WHERE lead_id={PH} ORDER BY created_at DESC"), (lead_id,))
+    lead["notes_list"] = [dict(r) for r in cur.fetchall()]
 
-    # Check credit balance
-    balance = get_user_credits(user["id"])
-    if balance < cost:
-        conn.close()
-        raise HTTPException(402, f"Not enough credits. You have {balance}, need {cost}.")
+    cur.execute(sql("SELECT * FROM outreach_events WHERE lead_id={PH} ORDER BY created_at DESC LIMIT 20"), (lead_id,))
+    lead["outreach_history"] = [dict(r) for r in cur.fetchall()]
 
-    # Deduct and record
-    deduct_credits(user["id"], cost, f"Unlocked marketplace lead #{lead_id}")
-    cur.execute(
-        sql("INSERT INTO marketplace_unlocks (user_id, lead_id, credits_spent) VALUES ({PH},{PH},{PH})"),
-        (user["id"], lead_id, cost)
-    )
-    conn.commit()
-
-    # Return the full lead
-    cur.execute(sql("""
-        SELECT ml.*, TRUE AS is_unlocked
-        FROM marketplace_leads ml WHERE ml.id={PH}
-    """), (lead_id,))
-    lead_row = cur.fetchone()
     conn.close()
-
-    lead = dict(lead_row) if isinstance(lead_row, dict) else {}
-    lead["is_unlocked"] = True
-    lead["display_name"] = f"{lead.get('first_name','')} {lead.get('last_name','')}".strip()
-    return {"ok": True, "lead": lead, "credits_remaining": get_user_credits(user["id"])}
+    return lead
 
 
-@router.get("/marketplace/credits")
-def get_marketplace_credits(user=Depends(verify_token)):
-    """Get user's current credit balance."""
-    return {"balance": get_user_credits(user["id"])}
-
-
-@router.get("/marketplace/stats")
-def get_marketplace_stats(user=Depends(verify_token)):
-    """Stats for the marketplace header."""
+@router.put("/leads/{lead_id}")
+def update_lead(lead_id: int, body: dict, user=Depends(verify_token)):
     conn = get_conn(); cur = conn.cursor()
+    allowed = ["status","tags","notes","homeowner_status","business_owner_flag",
+               "estimated_home_value","zip_median_income","phone","email","city","state","zip_code"]
+    updates, params = [], []
+    for f in allowed:
+        if f not in body: continue
+        val = _json.dumps(body[f]) if f == "tags" else body[f]
+        updates.append(sql(f"{f} = {{PH}}")); params.append(val)
 
-    # Count per category
-    cur.execute("SELECT category, COUNT(*) FROM marketplace_leads WHERE is_active=TRUE GROUP BY category")
-    cats = cur.fetchall()
+    # Re-score if wealth signals changed
+    wealth_fields = {"homeowner_status","business_owner_flag","estimated_home_value","zip_median_income"}
+    if any(f in body for f in wealth_fields):
+        cur.execute(sql("SELECT * FROM leads WHERE id={PH} AND user_id={PH}"), (lead_id, user["id"]))
+        row = cur.fetchone()
+        if row:
+            merged = {**dict(row), **body}
+            score, reasons = _score_lead(merged)
+            updates += [sql("score = {PH}"), sql("score_reasons = {PH}")]
+            params  += [score, _json.dumps(reasons)]
 
-    # User's unlocked count
-    cur.execute(sql("SELECT COUNT(*) FROM marketplace_unlocks WHERE user_id={PH}"), (user["id"],))
-    unlocked_row = cur.fetchone()
-    unlocked = (unlocked_row["count"] if isinstance(unlocked_row, dict) else unlocked_row[0]) if unlocked_row else 0
-
+    if updates:
+        params += [lead_id, user["id"]]
+        cur.execute(sql(f"UPDATE leads SET {', '.join(updates)} WHERE id={{PH}} AND user_id={{PH}}"), params)
+        conn.commit()
     conn.close()
-    category_counts = {}
-    for r in cats:
-        k = r["category"] if isinstance(r, dict) else r[0]
-        v = r["count"] if isinstance(r, dict) else r[1]
-        category_counts[k] = v
-
-    return {
-        "category_counts": category_counts,
-        "total": sum(category_counts.values()),
-        "unlocked": unlocked,
-        "balance": get_user_credits(user["id"]),
-    }
+    return {"ok": True}
 
 
-@router.post("/marketplace/admin/populate")
-def populate_marketplace(body: dict, user=Depends(verify_token)):
-    """
-    Admin-only: Pull leads from Apollo.io and populate the marketplace.
-    Body: { category: str, state: str (optional), limit: int (default 50) }
-    """
-    import json as _json
+@router.delete("/leads/{lead_id}")
+def delete_lead(lead_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM leads WHERE id={PH} AND user_id={PH}"), (lead_id, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
 
-    # Verify admin
-    from admin import is_admin
-    if not is_admin(user["id"]):
-        raise HTTPException(403, "Admin only")
 
-    category = (body.get("category") or "").lower()
-    if category not in _CATEGORY_QUERIES:
-        raise HTTPException(400, f"Unknown category. Valid: {list(_CATEGORY_QUERIES.keys())}")
+# ── NOTES ──────────────────────────────────────────────────────────────────────
 
-    cat_cfg = _CATEGORY_QUERIES[category]
-    limit = min(int(body.get("limit", 50)), 100)
-    state_filter = body.get("state", "")
+@router.post("/leads/{lead_id}/note")
+def add_note(lead_id: int, body: dict, user=Depends(verify_token)):
+    note = (body.get("note") or "").strip()
+    if not note: raise HTTPException(400, "note required")
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO lead_notes (lead_id,user_id,note) VALUES ({PH},{PH},{PH})"),
+                (lead_id, user["id"], note))
+    conn.commit(); conn.close()
+    return {"ok": True}
 
-    apollo_key = os.getenv("APOLLO_API_KEY", "")
-    if not apollo_key:
-        raise HTTPException(503, "APOLLO_API_KEY not set")
 
-    apollo_payload = {
-        "api_key": apollo_key,
-        "page": 1,
-        "per_page": limit,
-        "person_titles": cat_cfg["titles"],
-    }
-    if cat_cfg.get("industries"):
-        apollo_payload["q_organization_keyword_tags"] = cat_cfg["industries"]
-    if state_filter:
-        apollo_payload["person_locations"] = [state_filter, f"{state_filter}, United States"]
+# ── AI SUMMARY ─────────────────────────────────────────────────────────────────
+
+@router.post("/leads/{lead_id}/ai-summary")
+def ai_summary(lead_id: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM leads WHERE id={PH} AND user_id={PH}"), (lead_id, user["id"]))
+    row = cur.fetchone()
+    if not row: conn.close(); raise HTTPException(404, "Lead not found")
+    lead    = dict(row)
+    score   = lead.get("score", 0)
+    reasons = _json.loads(lead.get("score_reasons") or "[]")
+    ai      = _ai_lead_summary(lead, score, reasons)
+    cur.execute(sql("""
+        UPDATE leads SET ai_summary={PH}, ai_outreach_angle={PH},
+            ai_confidence={PH}, ai_insurance_types={PH}
+        WHERE id={PH} AND user_id={PH}
+    """), (ai.get("summary"), ai.get("outreach_angle"), ai.get("confidence"),
+           _json.dumps(ai.get("insurance_types", [])), lead_id, user["id"]))
+    conn.commit(); conn.close()
+    return ai
+
+
+# ── OUTREACH ───────────────────────────────────────────────────────────────────
+
+@router.post("/leads/{lead_id}/outreach-event")
+def log_outreach(lead_id: int, body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("""
+        INSERT INTO outreach_events (lead_id,user_id,channel,content,status)
+        VALUES ({PH},{PH},{PH},{PH},{PH})
+    """), (lead_id, user["id"], body.get("channel"), body.get("content"), body.get("status","sent")))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.post("/leads/{lead_id}/generate-outreach")
+def generate_lead_outreach(lead_id: int, body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("SELECT * FROM leads WHERE id={PH} AND user_id={PH}"), (lead_id, user["id"]))
+    row = cur.fetchone()
+    if not row: conn.close(); raise HTTPException(404, "Lead not found")
+    lead    = dict(row)
+    channel = body.get("channel", "sms")
+    context = body.get("context", "")
+
+    name     = lead.get("full_name") or lead.get("first_name") or "there"
+    location = ", ".join(filter(None, [lead.get("city"), lead.get("state")]))
+    ai_angle = lead.get("ai_outreach_angle") or "premium coverage"
+
+    if channel == "sms":
+        sys_p = "You are an insurance broker's AI. Write a friendly, professional SMS (max 160 chars). Use first name. Do not include links."
+        user_p = f"Write an SMS to {name} in {location}. Angle: {ai_angle}. Context: {context or 'introduce yourself as their insurance advisor'}."
+    elif channel == "email":
+        sys_p = "You are an insurance broker's AI. Return JSON with keys 'subject' and 'body'. Body max 200 words, professional, personalized."
+        user_p = f"Write a prospecting email to {name} in {location}. Angle: {ai_angle}. Context: {context or 'introduce your services'}."
+    else:  # call
+        sys_p = "You are an insurance broker's AI. Write a natural 30-second cold call script. Include greeting, value prop, and ask."
+        user_p = f"Write a call script for {name} in {location}. Angle: {ai_angle}. Context: {context or 'introduce your brokerage'}."
 
     try:
-        resp = requests.post(
-            "https://api.apollo.io/api/v1/mixed_people/search",
-            json=apollo_payload,
-            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
-            timeout=30
+        import openai
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        kw = {"response_format": {"type": "json_object"}} if channel == "email" else {}
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": sys_p}, {"role": "user", "content": user_p}],
+            max_tokens=400, **kw,
         )
-        data = resp.json()
+        content = res.choices[0].message.content
+        if channel == "email":
+            parsed = _json.loads(content)
+            conn.close()
+            return {"channel": "email", "subject": parsed.get("subject",""), "body": parsed.get("body","")}
+        conn.close()
+        return {"channel": channel, "message": content}
     except Exception as e:
-        raise HTTPException(502, str(e))
+        conn.close()
+        raise HTTPException(500, f"AI error: {e}")
 
-    if resp.status_code != 200:
-        raise HTTPException(502, data.get("message", "Apollo error"))
 
-    people = data.get("people") or data.get("contacts") or []
+# ── SAVED SEARCHES ─────────────────────────────────────────────────────────────
 
+@router.get("/saved-searches")
+def get_saved_searches(user=Depends(verify_token)):
     conn = get_conn(); cur = conn.cursor()
-    inserted = 0
-    for p in people:
-        org = p.get("organization") or p.get("account") or {}
-        phones = p.get("phone_numbers") or []
-        phone = phones[0].get("sanitized_number", "") if phones else ""
-        fn = (p.get("first_name") or "").strip()
-        ln = (p.get("last_name") or "").strip()
-        if not fn:
-            continue
-        try:
-            cur.execute(sql("""
-                INSERT INTO marketplace_leads
-                    (category, first_name, last_name_initial, last_name,
-                     title, company, city, state, industry, company_size,
-                     email, phone, linkedin_url, website, source)
-                VALUES ({PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH},{PH})
-                ON CONFLICT DO NOTHING
-            """), (
-                category, fn, ln[:1] if ln else "",  ln,
-                p.get("title") or p.get("headline", ""),
-                org.get("name") or p.get("organization_name", ""),
-                p.get("city", ""), p.get("state", ""),
-                org.get("industry", ""),
-                org.get("num_employees") or org.get("estimated_num_employees"),
-                p.get("email", ""), phone,
-                p.get("linkedin_url", ""),
-                org.get("website_url", ""),
-                "apollo"
-            ))
-            inserted += 1
-        except Exception:
-            continue
-
-    conn.commit(); conn.close()
-    return {"ok": True, "inserted": inserted, "total_from_apollo": len(people)}
-
-
-@router.get("/marketplace/unlocked")
-def get_unlocked_leads(user=Depends(verify_token)):
-    """Return all leads the user has unlocked (for download)."""
-    conn = get_conn(); cur = conn.cursor()
-    cur.execute(sql("""
-        SELECT ml.*, mu.unlocked_at
-        FROM marketplace_leads ml
-        JOIN marketplace_unlocks mu ON mu.lead_id = ml.id
-        WHERE mu.user_id = {PH}
-        ORDER BY mu.unlocked_at DESC
-    """), (user["id"],))
-    rows = cur.fetchall()
+    cur.execute(sql("SELECT * FROM saved_searches WHERE user_id={PH} ORDER BY created_at DESC"), (user["id"],))
+    results = []
+    for r in cur.fetchall():
+        d = dict(r)
+        if isinstance(d.get("filters"), str):
+            try: d["filters"] = _json.loads(d["filters"])
+            except: d["filters"] = {}
+        results.append(d)
     conn.close()
-    result = []
-    for r in rows:
-        d = dict(r) if isinstance(r, dict) else {}
-        d["is_unlocked"] = True
-        d["display_name"] = f"{d.get('first_name','')} {d.get('last_name','')}".strip()
-        if d.get("created_at"):
-            d["created_at"] = str(d["created_at"])
-        if d.get("unlocked_at"):
-            d["unlocked_at"] = str(d["unlocked_at"])
-        result.append(d)
-    return result
+    return results
+
+
+@router.post("/saved-searches")
+def save_search(body: dict, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("INSERT INTO saved_searches (user_id,name,filters,result_count) VALUES ({PH},{PH},{PH},{PH})"),
+                (user["id"], body.get("name","My Search"), _json.dumps(body.get("filters",{})), body.get("result_count",0)))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+
+@router.delete("/saved-searches/{sid}")
+def delete_saved_search(sid: int, user=Depends(verify_token)):
+    conn = get_conn(); cur = conn.cursor()
+    cur.execute(sql("DELETE FROM saved_searches WHERE id={PH} AND user_id={PH}"), (sid, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True}
