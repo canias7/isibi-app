@@ -6817,7 +6817,7 @@ _STATE_FIPS = {
 }
 
 
-def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0) -> dict:
+def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0) -> dict:  # used by _attom_search for scoring enrichment
     """
     Query Census ACS5 and return a dict of {zip: {income, home_value, owner_rate, score}}
     used to enrich and score Apollo results.
@@ -6872,119 +6872,6 @@ def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0)
     return out
 
 
-def _apollo_search(city: str, state: str, filters: dict, targeting_type: str = "business") -> list:
-    """
-    Search Apollo.io for real people with name/email/phone.
-    Enriches results with Census ZIP scores when available.
-    """
-    import urllib.request
-    api_key = os.environ.get("APOLLO_API_KEY", "")
-    if not api_key:
-        return []
-
-    location_parts = [p for p in [city, state] if p]
-    location = ", ".join(location_parts) if location_parts else (state or "United States")
-
-    # Pick titles based on targeting
-    if targeting_type == "business":
-        titles = filters.get("titles") or ["owner","founder","ceo","president","managing director","broker","agent","partner"]
-    elif targeting_type == "homeowner":
-        titles = filters.get("titles") or ["homeowner","property owner","real estate investor","landlord","investor"]
-    elif targeting_type == "income":
-        titles = filters.get("titles") or ["vice president","director","managing director","partner","owner","ceo","president"]
-    else:
-        titles = filters.get("titles") or ["owner","director","manager","agent","broker"]
-
-    payload = _json.dumps({
-        "api_key": api_key,
-        "person_locations": [location],
-        "person_titles": titles,
-        "page": 1,
-        "per_page": 25,
-    }).encode()
-
-    try:
-        req = urllib.request.Request(
-            "https://api.apollo.io/api/v1/mixed_people/search",
-            data=payload,
-            headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = _json.loads(r.read())
-    except Exception:
-        return []
-
-    # Optionally enrich with Census zip scores
-    min_income    = int(filters.get("min_income", 0))
-    min_home_val  = int(filters.get("min_home_value", 0))
-    zip_scores = {}
-    if state and (min_income or min_home_val or targeting_type in ("income", "homeowner")):
-        zip_scores = _census_zip_scores(state, min_income, min_home_val)
-
-    leads = []
-    for p in (data.get("people") or []):
-        org  = p.get("organization") or {}
-        name = (p.get("name") or
-                f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "—")
-        email = p.get("email")
-        phone = p.get("sanitized_phone") or p.get("phone_numbers", [{}])[0].get("sanitized_number") if p.get("phone_numbers") else None
-        p_city  = p.get("city") or city or ""
-        p_state = p.get("state") or state or ""
-        p_zip   = p.get("postal_code") or None
-
-        # Base score by targeting
-        score = 50
-        reasons = []
-
-        if targeting_type == "business":
-            score = 60; reasons = ["Decision maker / business owner"]
-            emp = org.get("estimated_num_employees", 0) or 0
-            if emp > 100: score += 15; reasons.append(f"Company {emp}+ employees")
-            elif emp > 10: score += 8; reasons.append(f"Company {emp}+ employees")
-        elif targeting_type in ("income", "homeowner"):
-            reasons = [f"High-income area target in {p_state}"]
-
-        # Enrich with Census ZIP data
-        if p_zip and p_zip in zip_scores:
-            zd = zip_scores[p_zip]
-            score = max(score, 40) + zd["score"]
-            reasons += [
-                f"ZIP median income: ${zd['income']:,}",
-                f"ZIP median home value: ${zd['home_value']:,}",
-                f"Owner-occupied: {int(zd['owner_rate']*100)}%",
-            ]
-        elif zip_scores:
-            # Person has no ZIP or ZIP not in filtered set — lower priority
-            score -= 10
-
-        # Contact quality bonus
-        if email: score += 8; reasons.append("Email available")
-        if phone: score += 10; reasons.append("Phone available")
-
-        leads.append({
-            "full_name": name,
-            "first_name": p.get("first_name"),
-            "last_name": p.get("last_name"),
-            "email": email,
-            "phone": phone,
-            "city": p_city,
-            "state": p_state,
-            "zip_code": p_zip,
-            "zip_median_income": zip_scores.get(p_zip or "", {}).get("income"),
-            "estimated_home_value": zip_scores.get(p_zip or "", {}).get("home_value"),
-            "homeowner_status": "owner" if targeting_type == "homeowner" else "unknown",
-            "business_owner_flag": targeting_type == "business",
-            "lead_source": "apollo",
-            "score": min(max(score, 0), 98),
-            "score_reasons": reasons,
-            "status": "new",
-            "tags": [],
-            "ai_insurance_types": [],
-        })
-
-    leads.sort(key=lambda x: x["score"], reverse=True)
-    return leads
 
 
 def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
@@ -7227,13 +7114,11 @@ def _leads_rule_parser(message: str) -> dict:
             break
 
     # Determine targeting_type
-    targeting_type = "income"
-    if "business owner" in m or "business owners" in m or "founder" in m or "ceo" in m:
-        targeting_type = "business"
-    elif "homeowner" in m or "home owner" in m or "property owner" in m:
-        targeting_type = "homeowner"
-    elif "mover" in m or "recent mover" in m:
+    targeting_type = "homeowner"
+    if "mover" in m or "recent mover" in m or "new homeowner" in m:
         targeting_type = "movers"
+    elif "income" in m or "high income" in m or "wealthy" in m or "affluent" in m:
+        targeting_type = "income"
 
     # Detect location
     state = None
@@ -7269,20 +7154,19 @@ def _leads_rule_parser(message: str) -> dict:
 _LEADS_CHAT_SYSTEM = """You are a leads prospecting assistant. When users ask to find or search leads, extract their intent and respond with JSON.
 
 targeting_type options:
-- "income"      → high-income ZIP codes (Census data)
-- "homeowner"   → homeowners / property owners (Census data)
-- "business"    → business owners, founders, CEOs (Apollo data)
-- "movers"      → recent movers (Census data)
+- "homeowner"   → property owners / homeowners (uses ATTOM property records)
+- "income"      → high-income area property owners (ATTOM + Census income filter)
+- "movers"      → recent movers / new property owners (ATTOM recent sales)
 
 Respond with:
 {
   "action": "search",
-  "targeting_type": "income",
+  "targeting_type": "homeowner",
   "location": { "state": "FL", "city": "Miami" },
   "filters": {
-    "min_income": 100000,
     "min_home_value": 500000,
-    "titles": ["owner","broker"]
+    "min_income": 100000,
+    "zip_code": "33101"
   },
   "reply": "Short friendly sentence about what you're finding."
 }
@@ -7290,9 +7174,8 @@ Respond with:
 Rules:
 - state must be 2-letter abbreviation (FL, TX, CA, NY, etc.) or null
 - city is optional, null if not mentioned
-- For income targeting: set min_income (default 75000 if "high income" mentioned)
+- For income targeting: set min_income (e.g. "high income" → 100000)
 - For homeowner targeting: set min_home_value if mentioned (e.g. "over $500k" → 500000)
-- For business targeting: set titles based on what they asked (owners, brokers, agents, etc.)
 - Only include filters actually mentioned
 
 For non-search questions:
@@ -7361,35 +7244,22 @@ def leads_chat(body: dict, user=Depends(verify_token)):
     zip_code = filters.get("zip_code") or None
     leads    = []
 
-    # ── Homeowner / property targeting ──────────────────────────────────────────
-    if targeting_type in ("homeowner", "movers") and os.environ.get("ATTOM_API_KEY"):
-        leads = _attom_search(state or "", city or "", zip_code or "", filters)
-        if leads:
-            # Append contact info — prefer BatchData, fall back to Melissa
-            if os.environ.get("BATCHDATA_API_KEY"):
-                leads = _batchdata_append(leads)
-            elif os.environ.get("MELISSA_API_KEY"):
-                leads = _melissa_append(leads)
+    if not os.environ.get("ATTOM_API_KEY"):
+        return {
+            "action": "answer",
+            "reply": "Property search requires ATTOM_API_KEY in your environment. Contact data append needs BATCHDATA_API_KEY or MELISSA_API_KEY.",
+            "leads": [], "total": 0,
+        }
 
-    # ── Income / business / fallback → Apollo ───────────────────────────────────
-    if not leads:
-        if not os.environ.get("APOLLO_API_KEY"):
-            sources = []
-            if targeting_type in ("homeowner", "movers"):
-                sources.append("ATTOM_API_KEY (property records)")
-            sources += ["APOLLO_API_KEY (people search)", "BATCHDATA_API_KEY or MELISSA_API_KEY (contact append)"]
-            return {
-                "action": "answer",
-                "reply": f"No data source configured. Add one or more API keys to your environment: {', '.join(sources)}.",
-                "leads": [], "total": 0,
-            }
-        leads = _apollo_search(city or "", state or "", filters, targeting_type)
-        # Contact append on Apollo results too (fills gaps in phone/email)
-        if leads:
-            if os.environ.get("BATCHDATA_API_KEY"):
-                leads = _batchdata_append(leads)
-            elif os.environ.get("MELISSA_API_KEY"):
-                leads = _melissa_append(leads)
+    # ── ATTOM: property owner records ───────────────────────────────────────────
+    leads = _attom_search(state or "", city or "", zip_code or "", filters)
+
+    # ── Contact append: BatchData (preferred) or Melissa ────────────────────────
+    if leads:
+        if os.environ.get("BATCHDATA_API_KEY"):
+            leads = _batchdata_append(leads)
+        elif os.environ.get("MELISSA_API_KEY"):
+            leads = _melissa_append(leads)
 
     if not leads:
         return {
