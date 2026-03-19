@@ -18,4 +18,12 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  optimizeDeps: {
+    exclude: ["canvg", "html2canvas", "dompurify"],
+  },
+  build: {
+    rollupOptions: {
+      external: ["canvg", "html2canvas", "dompurify"],
+    },
+  },
 }));
