@@ -6950,7 +6950,12 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
         if not owner_name or corporate:
             continue
 
+        # Use market value; fall back to assessed total (CA uses assessed, not market)
         market_val = int((assessment.get("market") or {}).get("mktTtlValue") or 0)
+        if not market_val:
+            market_val = int((assessment.get("assessed") or {}).get("assdTtlValue") or 0)
+        if not market_val:
+            market_val = int((assessment.get("appraised") or {}).get("apprTtlValue") or 0)
         if min_value and market_val < min_value:
             continue
 
