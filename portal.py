@@ -6793,6 +6793,90 @@ def delete_saved_search(sid: int, user=Depends(verify_token)):
 
 # ── AI Chat for Leads ──────────────────────────────────────────────────────────
 
+_US_STATES = {
+    "alabama":"AL","alaska":"AK","arizona":"AZ","arkansas":"AR","california":"CA",
+    "colorado":"CO","connecticut":"CT","delaware":"DE","florida":"FL","georgia":"GA",
+    "hawaii":"HI","idaho":"ID","illinois":"IL","indiana":"IN","iowa":"IA","kansas":"KS",
+    "kentucky":"KY","louisiana":"LA","maine":"ME","maryland":"MD","massachusetts":"MA",
+    "michigan":"MI","minnesota":"MN","mississippi":"MS","missouri":"MO","montana":"MT",
+    "nebraska":"NE","nevada":"NV","new hampshire":"NH","new jersey":"NJ","new mexico":"NM",
+    "new york":"NY","north carolina":"NC","north dakota":"ND","ohio":"OH","oklahoma":"OK",
+    "oregon":"OR","pennsylvania":"PA","rhode island":"RI","south carolina":"SC",
+    "south dakota":"SD","tennessee":"TN","texas":"TX","utah":"UT","vermont":"VT",
+    "virginia":"VA","washington":"WA","west virginia":"WV","wisconsin":"WI","wyoming":"WY",
+}
+
+def _leads_rule_parser(message: str) -> dict:
+    """Keyword-based fallback when no AI key is available."""
+    import re
+    m = message.lower()
+    filters: dict = {}
+    search_intent = any(w in m for w in [
+        "find","show","get","search","list","display","give me","fetch",
+        "look for","who are","what leads","my leads","top leads","all leads"
+    ])
+
+    # State detection
+    for name, abbr in _US_STATES.items():
+        if name in m or f" {abbr.lower()} " in f" {m} " or f"in {abbr.lower()}" in m:
+            filters["state"] = abbr
+            break
+
+    # Score filters
+    score_match = re.search(r"score\s+(above|over|greater than|>)\s*(\d+)", m)
+    if score_match: filters["min_score"] = int(score_match.group(2))
+    score_match2 = re.search(r"score\s+(below|under|less than|<)\s*(\d+)", m)
+    if score_match2: filters["max_score"] = int(score_match2.group(2))
+    if any(w in m for w in ["high score","best leads","top leads","highest score"]):
+        filters["min_score"] = filters.get("min_score", 70)
+
+    # Homeowner
+    if "homeowner" in m or "home owner" in m or "owns home" in m:
+        filters["homeowner"] = "owner"
+    elif "renter" in m or "renting" in m:
+        filters["homeowner"] = "renter"
+
+    # Business owner
+    if "business owner" in m or "business owners" in m or "owns a business" in m:
+        filters["business_owner"] = "yes"
+
+    # Status
+    for st in ("new","contacted","qualified","converted","dead"):
+        if st in m and "leads" in m:
+            filters["status"] = st
+            break
+
+    # Home value
+    hv = re.search(r"home value\s+(above|over|>)\s*\$?([\d,]+)", m)
+    if hv: filters["min_home_value"] = int(hv.group(2).replace(",",""))
+
+    # Generic keyword search
+    for kw in ["named","name","called","email","phone"]:
+        kw_match = re.search(rf"{kw}\s+(\S+)", m)
+        if kw_match:
+            filters["q"] = kw_match.group(1).strip('",.')
+            break
+
+    if search_intent or filters:
+        parts = []
+        if filters.get("state"): parts.append(f"in {filters['state']}")
+        if filters.get("homeowner") == "owner": parts.append("homeowners")
+        if filters.get("business_owner") == "yes": parts.append("business owners")
+        if filters.get("min_score") is not None: parts.append(f"score ≥ {filters['min_score']}")
+        if filters.get("status"): parts.append(f"status: {filters['status']}")
+        desc = " · ".join(parts) if parts else "all leads"
+        return {
+            "action": "search",
+            "filters": filters,
+            "reply": f"Searching your leads — {desc}.",
+        }
+
+    return {
+        "action": "answer",
+        "reply": "I can help you find leads! Try: \"Show me all leads\", \"Find homeowners in Texas\", \"Business owners with score above 70\", or \"New leads I haven't contacted\".",
+    }
+
+
 _LEADS_CHAT_SYSTEM = """You are a leads intelligence assistant for sales and broker teams.
 You help users find high-probability prospects from their leads database using natural language.
 
@@ -6866,8 +6950,8 @@ def leads_chat(body: dict, user=Depends(verify_token)):
             if "```" in text:
                 text = text.split("```")[1].lstrip("json").strip()
             ai_response = _json.loads(text)
-        except Exception as e:
-            return {"action": "answer", "reply": "AI is temporarily unavailable. Please try again.", "leads": [], "total": 0}
+        except Exception:
+            ai_response = _leads_rule_parser(message)
 
     action  = ai_response.get("action", "answer")
     reply   = ai_response.get("reply", "")
