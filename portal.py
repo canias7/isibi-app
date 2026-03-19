@@ -6817,14 +6817,16 @@ _STATE_FIPS = {
 }
 
 
-def _census_search(state: str, city: str, filters: dict) -> list:
-    """Query US Census ACS5 for ZIP-level income + home value data."""
-    import urllib.request, urllib.parse
+def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0) -> dict:
+    """
+    Query Census ACS5 and return a dict of {zip: {income, home_value, owner_rate, score}}
+    used to enrich and score Apollo results.
+    """
+    import urllib.request
     fips = _STATE_FIPS.get((state or "").upper())
     if not fips:
-        return []
-    # Variables: median income, median home value, owner-occupied units, total population
-    vars_ = "NAME,B19013_001E,B25077_001E,B25003_002E,B01001_001E"
+        return {}
+    vars_ = "B19013_001E,B25077_001E,B25003_002E,B01001_001E"
     url = (
         f"https://api.census.gov/data/2022/acs/acs5"
         f"?get={vars_}&for=zip%20code%20tabulation%20area:*&in=state:{fips}"
@@ -6833,37 +6835,27 @@ def _census_search(state: str, city: str, filters: dict) -> list:
         with urllib.request.urlopen(url, timeout=12) as r:
             rows = _json.loads(r.read())
     except Exception:
-        return []
+        return {}
 
     header = rows[0]
-    idx_income   = header.index("B19013_001E")
-    idx_homeval  = header.index("B25077_001E")
-    idx_owners   = header.index("B25003_002E")
-    idx_pop      = header.index("B01001_001E")
-    idx_zip      = header.index("zip code tabulation area")
-    idx_name     = header.index("NAME")
+    try:
+        ii = header.index("B19013_001E")
+        ih = header.index("B25077_001E")
+        io = header.index("B25003_002E")
+        ip = header.index("B01001_001E")
+        iz = header.index("zip code tabulation area")
+    except ValueError:
+        return {}
 
-    min_income    = int(filters.get("min_income", 0))
-    min_home_val  = int(filters.get("min_home_value", 0))
-    targeting     = filters.get("targeting_type", "income")
-
-    leads = []
+    out = {}
     for row in rows[1:]:
         try:
-            income   = int(row[idx_income])
-            home_val = int(row[idx_homeval])
-            owners   = int(row[idx_owners])
-            pop      = int(row[idx_pop])
-            zip_code = row[idx_zip]
-            # Skip invalid rows
-            if income < 0 or home_val < 0 or pop < 100:
-                continue
-            # Apply filters
-            if income < min_income:
-                continue
-            if home_val < min_home_val:
-                continue
-            # Simple score
+            income   = int(row[ii]); home_val = int(row[ih])
+            owners   = int(row[io]); pop      = int(row[ip])
+            zip_code = row[iz]
+            if income < 0 or home_val < 0 or pop < 50: continue
+            if income < min_income or home_val < min_home_value: continue
+            owner_rate = owners / max(pop, 1)
             score = 0
             if income >= 150000: score += 30
             elif income >= 100000: score += 20
@@ -6871,58 +6863,46 @@ def _census_search(state: str, city: str, filters: dict) -> list:
             if home_val >= 750000: score += 30
             elif home_val >= 500000: score += 20
             elif home_val >= 300000: score += 10
-            if owners > 500: score += 15
-            owner_rate = owners / max(pop, 1)
-            if owner_rate > 0.7: score += 15
+            if owner_rate > 0.7: score += 20
             elif owner_rate > 0.5: score += 10
-            # City filter: Census name is like "ZCTA5 33101"
-            if city and city.lower() not in (row[idx_name] or "").lower():
-                continue
-            leads.append({
-                "full_name": f"ZIP {zip_code} Area",
-                "city": "",
-                "state": (state or "").upper(),
-                "zip_code": zip_code,
-                "zip_median_income": income,
-                "estimated_home_value": home_val,
-                "homeowner_status": "owner" if owner_rate >= 0.5 else "renter",
-                "business_owner_flag": False,
-                "lead_source": "census",
-                "score": min(score, 95),
-                "score_reasons": [
-                    f"Median income: ${income:,}",
-                    f"Median home value: ${home_val:,}",
-                    f"Owner-occupied: {int(owner_rate*100)}%",
-                ],
-                "status": "new",
-                "phone": None,
-                "email": None,
-                "tags": [],
-                "ai_insurance_types": [],
-            })
+            out[zip_code] = {"income": income, "home_value": home_val,
+                             "owner_rate": owner_rate, "score": score}
         except (ValueError, IndexError):
             continue
-
-    leads.sort(key=lambda x: x["score"], reverse=True)
-    return leads[:50]
+    return out
 
 
-def _apollo_search(city: str, state: str, filters: dict) -> list:
-    """Search Apollo.io for business owners / people."""
+def _apollo_search(city: str, state: str, filters: dict, targeting_type: str = "business") -> list:
+    """
+    Search Apollo.io for real people with name/email/phone.
+    Enriches results with Census ZIP scores when available.
+    """
     import urllib.request
     api_key = os.environ.get("APOLLO_API_KEY", "")
     if not api_key:
         return []
+
     location_parts = [p for p in [city, state] if p]
-    location = ", ".join(location_parts) if location_parts else "United States"
-    titles = filters.get("titles") or ["owner","founder","ceo","president","managing director","broker","agent"]
+    location = ", ".join(location_parts) if location_parts else (state or "United States")
+
+    # Pick titles based on targeting
+    if targeting_type == "business":
+        titles = filters.get("titles") or ["owner","founder","ceo","president","managing director","broker","agent","partner"]
+    elif targeting_type == "homeowner":
+        titles = filters.get("titles") or ["homeowner","property owner","real estate investor","landlord","investor"]
+    elif targeting_type == "income":
+        titles = filters.get("titles") or ["vice president","director","managing director","partner","owner","ceo","president"]
+    else:
+        titles = filters.get("titles") or ["owner","director","manager","agent","broker"]
+
     payload = _json.dumps({
         "api_key": api_key,
-        "q_organization_locations": [location],
+        "person_locations": [location],
         "person_titles": titles,
         "page": 1,
         "per_page": 25,
     }).encode()
+
     try:
         req = urllib.request.Request(
             "https://api.apollo.io/api/v1/mixed_people/search",
@@ -6930,39 +6910,80 @@ def _apollo_search(city: str, state: str, filters: dict) -> list:
             headers={"Content-Type": "application/json", "Cache-Control": "no-cache"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=12) as r:
+        with urllib.request.urlopen(req, timeout=15) as r:
             data = _json.loads(r.read())
     except Exception:
         return []
 
+    # Optionally enrich with Census zip scores
+    min_income    = int(filters.get("min_income", 0))
+    min_home_val  = int(filters.get("min_home_value", 0))
+    zip_scores = {}
+    if state and (min_income or min_home_val or targeting_type in ("income", "homeowner")):
+        zip_scores = _census_zip_scores(state, min_income, min_home_val)
+
     leads = []
     for p in (data.get("people") or []):
-        org = (p.get("organization") or {})
-        income_est = None
-        home_val_est = None
-        score, reasons = 55, ["Business owner / decision maker"]
-        if org.get("estimated_num_employees", 0) > 50:
-            score += 10; reasons.append("Company 50+ employees")
+        org  = p.get("organization") or {}
+        name = (p.get("name") or
+                f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "—")
+        email = p.get("email")
+        phone = p.get("sanitized_phone") or p.get("phone_numbers", [{}])[0].get("sanitized_number") if p.get("phone_numbers") else None
+        p_city  = p.get("city") or city or ""
+        p_state = p.get("state") or state or ""
+        p_zip   = p.get("postal_code") or None
+
+        # Base score by targeting
+        score = 50
+        reasons = []
+
+        if targeting_type == "business":
+            score = 60; reasons = ["Decision maker / business owner"]
+            emp = org.get("estimated_num_employees", 0) or 0
+            if emp > 100: score += 15; reasons.append(f"Company {emp}+ employees")
+            elif emp > 10: score += 8; reasons.append(f"Company {emp}+ employees")
+        elif targeting_type in ("income", "homeowner"):
+            reasons = [f"High-income area target in {p_state}"]
+
+        # Enrich with Census ZIP data
+        if p_zip and p_zip in zip_scores:
+            zd = zip_scores[p_zip]
+            score = max(score, 40) + zd["score"]
+            reasons += [
+                f"ZIP median income: ${zd['income']:,}",
+                f"ZIP median home value: ${zd['home_value']:,}",
+                f"Owner-occupied: {int(zd['owner_rate']*100)}%",
+            ]
+        elif zip_scores:
+            # Person has no ZIP or ZIP not in filtered set — lower priority
+            score -= 10
+
+        # Contact quality bonus
+        if email: score += 8; reasons.append("Email available")
+        if phone: score += 10; reasons.append("Phone available")
+
         leads.append({
-            "full_name": p.get("name") or f"{p.get('first_name','')} {p.get('last_name','')}".strip() or "—",
+            "full_name": name,
             "first_name": p.get("first_name"),
             "last_name": p.get("last_name"),
-            "email": p.get("email"),
-            "phone": p.get("sanitized_phone"),
-            "city": p.get("city") or city,
-            "state": p.get("state") or state,
-            "zip_code": None,
-            "zip_median_income": income_est,
-            "estimated_home_value": home_val_est,
-            "homeowner_status": "unknown",
-            "business_owner_flag": True,
+            "email": email,
+            "phone": phone,
+            "city": p_city,
+            "state": p_state,
+            "zip_code": p_zip,
+            "zip_median_income": zip_scores.get(p_zip or "", {}).get("income"),
+            "estimated_home_value": zip_scores.get(p_zip or "", {}).get("home_value"),
+            "homeowner_status": "owner" if targeting_type == "homeowner" else "unknown",
+            "business_owner_flag": targeting_type == "business",
             "lead_source": "apollo",
-            "score": min(score, 95),
+            "score": min(max(score, 0), 98),
             "score_reasons": reasons,
             "status": "new",
             "tags": [],
             "ai_insurance_types": [],
         })
+
+    leads.sort(key=lambda x: x["score"], reverse=True)
     return leads
 
 def _leads_rule_parser(message: str) -> dict:
@@ -7141,37 +7162,29 @@ def leads_chat(body: dict, user=Depends(verify_token)):
     if action != "search":
         return {"action": "answer", "reply": reply, "leads": [], "total": 0}
 
-    # Route to appropriate external data source
-    leads = []
+    # All searches go through Apollo for real names/emails/phones.
+    # Census data is used to enrich scores when state is provided.
+    apollo_key = os.environ.get("APOLLO_API_KEY", "")
+    if not apollo_key:
+        return {
+            "action": "answer",
+            "reply": "Lead search requires an Apollo API key. Add APOLLO_API_KEY to your environment to enable live prospect search.",
+            "leads": [], "total": 0,
+        }
 
-    if targeting_type == "business":
-        apollo_key = os.environ.get("APOLLO_API_KEY", "")
-        if not apollo_key:
-            return {
-                "action": "answer",
-                "reply": "Business owner search requires an Apollo API key. Add APOLLO_API_KEY to your environment variables to enable this.",
-                "leads": [], "total": 0,
-            }
-        leads = _apollo_search(city or "", state or "", filters)
+    if not state and not city:
+        return {
+            "action": "answer",
+            "reply": "Please specify a location — for example: \"High income homeowners in Florida\" or \"Business owners in Miami, TX\".",
+            "leads": [], "total": 0,
+        }
 
-    else:
-        # income, homeowner, movers → Census data
-        if not state:
-            return {
-                "action": "answer",
-                "reply": "Please specify a state — for example: \"High income homeowners in Florida\" or \"Business owners in Texas\".",
-                "leads": [], "total": 0,
-            }
-        # For homeowner targeting, set a default min_home_value if not set
-        if targeting_type == "homeowner" and not filters.get("min_home_value"):
-            filters["min_home_value"] = 0
-        filters["targeting_type"] = targeting_type
-        leads = _census_search(state, city, filters)
+    leads = _apollo_search(city or "", state or "", filters, targeting_type)
 
     if not leads:
         return {
             "action": "search",
-            "reply": reply or "No leads found for that search. Try a different state or targeting type.",
+            "reply": reply or "No leads found. Try a broader search — different state, city, or targeting type.",
             "leads": [], "total": 0,
         }
 
