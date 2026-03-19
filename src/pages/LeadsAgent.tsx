@@ -192,7 +192,7 @@ export default function LeadsAgent() {
 
                   {/* No results */}
                   {msg.role === "assistant" && msg.leads && msg.leads.length === 0 && (
-                    <p className="text-xs text-slate-500 px-1">No leads found. Use the <strong className="text-slate-400">Import CSV</strong> button above to upload your leads.</p>
+                    <p className="text-xs text-slate-500 px-1">No leads returned. Check that ATTOM_API_KEY and BATCHDATA_API_KEY are set in your Render environment variables.</p>
                   )}
                 </div>
 
