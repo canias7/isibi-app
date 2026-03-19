@@ -1852,3 +1852,11 @@ export const saveSearch = (name: string, filters: LeadFilters, result_count?: nu
 
 export const deleteSavedSearch = (id: number) =>
   leadFetch(`/saved-searches/${id}`, { method: "DELETE" });
+
+export const leadsChat = (message: string): Promise<{
+  action: "search" | "answer";
+  reply: string;
+  leads: ProspectLead[];
+  total: number;
+  filters?: LeadFilters;
+}> => leadFetch("/leads/chat", { method: "POST", body: JSON.stringify({ message }) });

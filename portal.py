@@ -6790,3 +6790,123 @@ def delete_saved_search(sid: int, user=Depends(verify_token)):
     cur.execute(sql("DELETE FROM saved_searches WHERE id={PH} AND user_id={PH}"), (sid, user["id"]))
     conn.commit(); conn.close()
     return {"ok": True}
+
+# ── AI Chat for Leads ──────────────────────────────────────────────────────────
+
+_LEADS_CHAT_SYSTEM = """You are a leads intelligence assistant for sales and broker teams.
+You help users find high-probability prospects from their leads database using natural language.
+
+When the user asks to find, search, show, or filter leads, extract search filters and respond with JSON:
+{
+  "action": "search",
+  "filters": {
+    "state": "FL",
+    "city": "Miami",
+    "zip_code": "33101",
+    "min_score": 70,
+    "max_score": 100,
+    "homeowner": "owner",
+    "business_owner": "yes",
+    "min_home_value": 500000,
+    "max_home_value": 2000000,
+    "status": "new",
+    "q": "keyword search"
+  },
+  "reply": "Short friendly sentence describing what you're searching for."
+}
+
+Only include filters that the user actually mentioned. Omit filters not relevant to the request.
+For homeowner use: "owner", "renter", or omit entirely.
+For business_owner use: "yes", "no", or omit entirely.
+For status use: "new", "contacted", "qualified", "converted", "dead", or omit.
+Score is 0-100. If user says "high score" or "best leads" use min_score: 70.
+
+For general questions, explanations, or non-search requests respond with:
+{
+  "action": "answer",
+  "reply": "Your helpful answer here."
+}
+
+Always respond in valid JSON. Be concise in reply."""
+
+
+@router.post("/leads/chat")
+def leads_chat(body: dict, user=Depends(verify_token)):
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(400, "message required")
+
+    # Try OpenAI first, fall back to Anthropic
+    ai_response = None
+    try:
+        import openai
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": _LEADS_CHAT_SYSTEM},
+                {"role": "user", "content": message},
+            ],
+            response_format={"type": "json_object"},
+            max_tokens=400,
+        )
+        ai_response = _json.loads(res.choices[0].message.content)
+    except Exception:
+        try:
+            from anthropic import Anthropic as _Anthropic
+            ac = _Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+            res = ac.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=400,
+                system=_LEADS_CHAT_SYSTEM + "\nIMPORTANT: respond ONLY with valid JSON, no other text.",
+                messages=[{"role": "user", "content": message}],
+            )
+            text = res.content[0].text.strip()
+            # extract JSON block if wrapped in markdown
+            if "```" in text:
+                text = text.split("```")[1].lstrip("json").strip()
+            ai_response = _json.loads(text)
+        except Exception as e:
+            return {"action": "answer", "reply": "AI is temporarily unavailable. Please try again.", "leads": [], "total": 0}
+
+    action  = ai_response.get("action", "answer")
+    reply   = ai_response.get("reply", "")
+    filters = ai_response.get("filters", {})
+
+    if action != "search":
+        return {"action": "answer", "reply": reply, "leads": [], "total": 0}
+
+    # Run the search
+    conn = get_conn(); cur = conn.cursor()
+    where  = [sql("user_id = {PH}")]
+    params = [user["id"]]
+
+    def _add(field, op, val):
+        where.append(sql(f"{field} {op} {{PH}}")); params.append(val)
+
+    if filters.get("min_score") is not None: _add("score", ">=", int(filters["min_score"]))
+    if filters.get("max_score") is not None: _add("score", "<=", int(filters["max_score"]))
+    if filters.get("state"):        where.append(sql("UPPER(state) = UPPER({PH})")); params.append(filters["state"])
+    if filters.get("city"):         where.append(sql("LOWER(city) LIKE {PH}")); params.append(f"%{filters['city'].lower()}%")
+    if filters.get("zip_code"):     _add("zip_code", "=", filters["zip_code"])
+    if filters.get("homeowner") and filters["homeowner"] != "any":
+        _add("homeowner_status", "=", filters["homeowner"])
+    if filters.get("business_owner") and filters["business_owner"] != "any":
+        _add("business_owner_flag", "=", filters["business_owner"] == "yes")
+    if filters.get("min_home_value"): _add("estimated_home_value", ">=", int(filters["min_home_value"]))
+    if filters.get("max_home_value"): _add("estimated_home_value", "<=", int(filters["max_home_value"]))
+    if filters.get("status") and filters["status"] != "all": _add("status", "=", filters["status"])
+    if filters.get("q"):
+        where.append(sql("(LOWER(full_name) LIKE {PH} OR LOWER(email) LIKE {PH} OR phone LIKE {PH})"))
+        qp = f"%{filters['q'].lower()}%"; params += [qp, qp, qp]
+
+    w = " AND ".join(where)
+    cur.execute(sql(f"SELECT COUNT(*) FROM leads WHERE {w}"), params)
+    row = cur.fetchone()
+    total = (list(row.values())[0] if isinstance(row, dict) else row[0]) if row else 0
+
+    cur.execute(sql(f"SELECT * FROM leads WHERE {w} ORDER BY score DESC, created_at DESC LIMIT 50"), params)
+    leads = [_serialize_lead(dict(r)) for r in cur.fetchall()]
+    conn.close()
+
+    return {"action": "search", "reply": reply, "leads": leads, "total": total, "filters": filters}
