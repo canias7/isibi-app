@@ -282,7 +282,7 @@ function KeysModal({ keys, onSaved, onClose }: {
           <div className="flex items-center gap-2">
             <input value={nextgenKey} onChange={e => setNextgenKey(e.target.value)} placeholder="NextGen API key…" type="password"
               className="flex-1 h-8 px-3 rounded-lg bg-secondary/30 border border-border/30 text-xs font-mono focus:outline-none focus:border-primary/50"/>
-            <a href="https://www.nextgenleads.com" target="_blank" rel="noopener noreferrer"
+            <a href="https://app.nextgenleads.app" target="_blank" rel="noopener noreferrer"
               className="text-xs text-primary hover:underline flex items-center gap-0.5 shrink-0">Get key <ExternalLink className="h-3 w-3"/></a>
           </div>
         </div>

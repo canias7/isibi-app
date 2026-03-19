@@ -6706,7 +6706,7 @@ def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
     """
     Query NextGen Leads using the user's own API key.
     Body: { vertical: str, state: str, limit: int }
-    NextGen Leads API: https://docs.nextgenleads.com
+    NextGen Leads API: https://api.nextgenleads.app
     """
     conn = get_conn(); cur = conn.cursor()
     cur.execute(sql("SELECT nextgen_api_key FROM users WHERE id={PH}"), (user["id"],))
@@ -6721,14 +6721,17 @@ def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
 
     params: dict = {
         "vertical": vertical,
-        "limit": limit,
+        "limit":    limit,
     }
     if state:
         params["state"] = state
 
+    # NextGen Leads API — correct base domain is nextgenleads.app
+    NG_BASE = "https://api.nextgenleads.app"
+
     try:
         resp = requests.get(
-            "https://api.nextgenleads.com/v1/leads",
+            f"{NG_BASE}/v1/leads",
             params=params,
             headers={"Authorization": f"Bearer {ng_key}", "Accept": "application/json"},
             timeout=30
@@ -6739,7 +6742,19 @@ def marketplace_nextgen_search(body: dict, user=Depends(verify_token)):
 
     if resp.status_code == 401:
         raise HTTPException(401, "Invalid NextGen API key.")
-    if resp.status_code != 200:
+    if resp.status_code == 404:
+        # Try alternate endpoint path
+        try:
+            resp = requests.get(
+                f"{NG_BASE}/leads",
+                params=params,
+                headers={"Authorization": f"Bearer {ng_key}", "Accept": "application/json"},
+                timeout=30
+            )
+            data = resp.json()
+        except Exception as e:
+            raise HTTPException(502, f"NextGen request failed: {e}")
+    if resp.status_code not in (200, 201):
         raise HTTPException(502, data.get("message", f"NextGen error {resp.status_code}"))
 
     raw_leads = data.get("leads") or data.get("data") or []
