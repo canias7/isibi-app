@@ -12,7 +12,7 @@ from db import get_conn, sql
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/voice-command", tags=["voice-command"])
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") or "placeholder")
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

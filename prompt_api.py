@@ -12,10 +12,7 @@ router = APIRouter(prefix="/api/prompt", tags=["Prompt Builder"])
 # OpenAI client
 from openai import OpenAI
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    raise RuntimeError("Missing OPENAI_API_KEY in .env")
-
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or "placeholder"
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 MODEL = os.getenv("PROMPT_MODEL", "gpt-4o-mini")

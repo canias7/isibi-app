@@ -5921,7 +5921,7 @@ def test_push(user=Depends(verify_token)):
 from db import get_conn, sql, ensure_user_columns
 import json as _json
 from openai import OpenAI as _OAI
-_oai = _OAI(api_key=os.getenv("OPENAI_API_KEY"))
+_oai = _OAI(api_key=os.getenv("OPENAI_API_KEY") or "placeholder")
 
 DEFAULT_ACCOUNTS = [
     # Assets
