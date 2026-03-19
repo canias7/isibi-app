@@ -6828,8 +6828,8 @@ def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0)
         return {}
     vars_ = "B19013_001E,B25077_001E,B25003_002E,B01001_001E"
     url = (
-        f"https://api.census.gov/data/2022/acs/acs5"
-        f"?get={vars_}&for=zip%20code%20tabulation%20area:*&in=state:{fips}"
+        f"https://api.census.gov/data/2023/acs/acs5"
+        f"?get={vars_}&for=zip+code+tabulation+area:*"
     )
     try:
         with urllib.request.urlopen(url, timeout=12) as r:
@@ -6894,17 +6894,26 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
     zips_to_search: list[str] = []
     if zip_code:
         zips_to_search = [zip_code]
+    elif city and state:
+        # zippopotam.us: free city → ZIP lookup
+        try:
+            city_slug = city.replace(" ", "%20").lower()
+            zp_url = f"https://api.zippopotam.us/us/{state.upper()}/{city_slug}"
+            with urllib.request.urlopen(zp_url, timeout=8) as r:
+                zp_data = _json.loads(r.read())
+            zips_to_search = [p["post code"] for p in (zp_data.get("places") or [])[:8]]
+        except Exception:
+            zips_to_search = []
+        # Fallback to Census top ZIPs if city lookup failed
+        if not zips_to_search and state:
+            zip_scores = _census_zip_scores(state, 0, 0)
+            sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
+            zips_to_search = sorted_zips[:8]
     elif state:
-        # Use Census to find high-value / high-income ZIPs for this state
-        zip_scores = _census_zip_scores(state, min_income, min_value)
-        if city:
-            # Can't filter Census by city directly — use top scoring ZIPs statewide
-            # (ATTOM will return properties whose locality matches anyway)
-            sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
-            zips_to_search = sorted_zips[:5]
-        else:
-            sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
-            zips_to_search = sorted_zips[:5]
+        # State-only: use Census top-scored ZIPs
+        zip_scores = _census_zip_scores(state, 0, 0)
+        sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
+        zips_to_search = sorted_zips[:8]
 
     if not zips_to_search:
         return []
@@ -6913,7 +6922,7 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
     all_props: list[dict] = []
     headers = {"apikey": api_key, "Accept": "application/json"}
     for zc in zips_to_search:
-        params = {"postalcode": zc, "page": "1", "pagesize": "10"}
+        params = {"postalcode": zc, "page": "1", "pagesize": "25"}
         url = f"https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/basicprofile?{urlencode(params)}"
         try:
             req = urllib.request.Request(url, headers=headers)
@@ -7340,9 +7349,10 @@ def leads_chat(body: dict, user=Depends(verify_token)):
             leads = _melissa_append(leads)
 
     if not leads:
+        loc = f"{city or ''} {state or ''}".strip()
         return {
             "action": "search",
-            "reply": reply or "No leads found. Try a broader search — different location or targeting type.",
+            "reply": f"No property owners found in {loc}. ATTOM may not have coverage for this area, or all results were filtered out. Try a different city or lower the property value threshold.",
             "leads": [], "total": 0,
         }
 
