@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { leadsChat, ProspectLead } from "../lib/api";
+import { leadsChat, importLeadsCSV, ProspectLead } from "../lib/api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -42,8 +42,11 @@ export default function LeadsAgent() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput]       = useState("");
   const [busy, setBusy]         = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef  = useRef<HTMLTextAreaElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  const inputRef   = useRef<HTMLTextAreaElement>(null);
+  const fileRef    = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -83,8 +86,49 @@ export default function LeadsAgent() {
     }
   };
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const res = await importLeadsCSV(file);
+      setImportMsg(`✓ Imported ${res.imported} leads${res.skipped ? ` (${res.skipped} skipped)` : ""}`);
+    } catch (err: any) {
+      setImportMsg(`Import failed: ${err.message}`);
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+      setTimeout(() => setImportMsg(null), 5000);
+    }
+  };
+
   return (
     <div className="flex flex-col h-screen bg-[#0d0f17] text-white">
+
+      {/* Top bar */}
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-800">
+        <span className="text-sm font-semibold text-slate-200">Leads Intelligence</span>
+        <div className="flex items-center gap-2">
+          {importMsg && (
+            <span className={`text-xs px-3 py-1 rounded-full ${importMsg.startsWith("✓") ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400"}`}>
+              {importMsg}
+            </span>
+          )}
+          <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleImport} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-500 rounded-lg text-slate-300 transition-all disabled:opacity-50">
+            {importing ? (
+              <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+            ) : (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            )}
+            Import CSV
+          </button>
+        </div>
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
@@ -148,7 +192,7 @@ export default function LeadsAgent() {
 
                   {/* No results */}
                   {msg.role === "assistant" && msg.leads && msg.leads.length === 0 && (
-                    <p className="text-xs text-slate-500 px-1">No leads matched. Try importing a CSV first.</p>
+                    <p className="text-xs text-slate-500 px-1">No leads found. Use the <strong className="text-slate-400">Import CSV</strong> button above to upload your leads.</p>
                   )}
                 </div>
 
