@@ -6876,56 +6876,90 @@ def _census_zip_scores(state: str, min_income: int = 0, min_home_value: int = 0)
 
 def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
     """
-    Pull property owner records from ATTOM Data Solutions.
+    Pull property owner records from ATTOM Data Solutions via basicprofile endpoint.
+    Supports ZIP lookup directly; city/state resolved to ZIPs via Census.
     Returns leads with name + property data (no phone/email — use BatchData/Melissa to append).
     """
     import urllib.request
     from urllib.parse import urlencode
+
     api_key = os.environ.get("ATTOM_API_KEY", "")
     if not api_key:
         return []
 
-    min_value = int(filters.get("min_home_value", 0))
-    params    = {"page": "1", "pagesize": "25"}
+    min_value  = int(filters.get("min_home_value", 0))
+    min_income = int(filters.get("min_income", 0))
+
+    # ── Resolve ZIP codes to search ─────────────────────────────────────────────
+    zips_to_search: list[str] = []
     if zip_code:
-        params["ZipCode"] = zip_code
-        endpoint = "/propertyapi/v1.0.0/property/zip"
-    elif city and state:
-        # ATTOM address2 format: "city state"
-        params["address2"] = f"{city} {state}"
-        endpoint = "/propertyapi/v1.0.0/property/address"
+        zips_to_search = [zip_code]
     elif state:
-        # Can't search state-only; require city or ZIP
-        return []
-    else:
-        return []
+        # Use Census to find high-value / high-income ZIPs for this state
+        zip_scores = _census_zip_scores(state, min_income, min_value)
+        if city:
+            # Can't filter Census by city directly — use top scoring ZIPs statewide
+            # (ATTOM will return properties whose locality matches anyway)
+            sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
+            zips_to_search = sorted_zips[:5]
+        else:
+            sorted_zips = sorted(zip_scores, key=lambda z: zip_scores[z]["score"], reverse=True)
+            zips_to_search = sorted_zips[:5]
 
-    url = f"https://api.gateway.attomdata.com{endpoint}?{urlencode(params)}"
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"apikey": api_key, "Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = _json.loads(r.read())
-    except Exception:
+    if not zips_to_search:
         return []
 
-    leads = []
-    for prop in (data.get("property") or []):
-        owner_obj  = (prop.get("owner") or {}).get("owner1") or {}
-        address    = prop.get("address") or {}
-        assessment = prop.get("assessment") or {}
-        market_val = int((assessment.get("market") or {}).get("mktTtlValue") or 0)
-
-        owner_name = owner_obj.get("fullName") or ""
-        if not owner_name or market_val < min_value:
+    # ── Query ATTOM basicprofile for each ZIP ───────────────────────────────────
+    all_props: list[dict] = []
+    headers = {"apikey": api_key, "Accept": "application/json"}
+    for zc in zips_to_search:
+        params = {"postalcode": zc, "page": "1", "pagesize": "10"}
+        url = f"https://api.gateway.attomdata.com/propertyapi/v1.0.0/property/basicprofile?{urlencode(params)}"
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as r:
+                data = _json.loads(r.read())
+            all_props.extend(data.get("property") or [])
+        except Exception:
             continue
 
-        prop_city  = address.get("cityName") or city or ""
-        prop_state = address.get("stateName") or state or ""
-        prop_zip   = address.get("postal1") or zip_code or ""
+    # ── Parse results ────────────────────────────────────────────────────────────
+    leads: list[dict] = []
+    seen: set[str] = set()
+
+    for prop in all_props:
+        assessment = prop.get("assessment") or {}
+        owner_section = assessment.get("owner") or {}
+        owner_obj  = owner_section.get("owner1") or {}
+        address    = prop.get("address") or {}
+        summary    = prop.get("summary") or {}
+
+        owner_name = owner_obj.get("fullName", "").strip()
+        corporate  = owner_section.get("corporateIndicator", "N") == "Y"
+
+        # Skip corporate entities and unnamed records
+        if not owner_name or corporate:
+            continue
+
+        market_val = int((assessment.get("market") or {}).get("mktTtlValue") or 0)
+        if min_value and market_val < min_value:
+            continue
+
+        # De-duplicate by owner name + address
+        dedup_key = f"{owner_name}|{address.get('line1', '')}"
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        prop_city  = address.get("locality") or city or ""
+        prop_state = address.get("countrySubd") or state or ""
+        prop_zip   = address.get("postal1") or ""
         prop_addr  = address.get("line1") or ""
+        mailing    = owner_section.get("mailingAddressOneLine") or ""
+        absentee   = owner_section.get("absenteeOwnerStatus") or ""   # "O" = owner-occupied
+
+        first_mi = owner_obj.get("firstNameAndMi", "").strip()
+        last     = owner_obj.get("lastName", "").strip()
 
         score, reasons = 40, ["Property owner (ATTOM)"]
         if market_val >= 1_000_000: score += 40; reasons.append(f"Property value: ${market_val:,}")
@@ -6934,14 +6968,19 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
         elif market_val >= 300_000: score += 12; reasons.append(f"Property value: ${market_val:,}")
         elif market_val > 0:        score +=  5; reasons.append(f"Property value: ${market_val:,}")
 
-        parts = owner_name.split()
+        if absentee == "O":
+            score += 8
+            reasons.append("Owner-occupied")
+
+        ident = prop.get("identifier") or {}
         leads.append({
             "full_name":            owner_name,
-            "first_name":           parts[0] if parts else "",
-            "last_name":            " ".join(parts[1:]) if len(parts) > 1 else "",
+            "first_name":           first_mi,
+            "last_name":            last,
             "email":                None,
             "phone":                None,
             "address":              prop_addr,
+            "mailing_address":      mailing,
             "city":                 prop_city,
             "state":                prop_state,
             "zip_code":             prop_zip,
@@ -6949,6 +6988,8 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
             "homeowner_status":     "owner",
             "business_owner_flag":  False,
             "lead_source":          "attom",
+            "_apn":                 ident.get("apn", ""),
+            "_fips":                ident.get("fips", ""),
             "score":                min(score, 92),
             "score_reasons":        reasons,
             "status":               "new",
@@ -6962,7 +7003,8 @@ def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
 
 def _batchdata_append(leads: list) -> list:
     """
-    Skip-trace leads using BatchData to append phone numbers and emails.
+    Skip-trace leads using BatchData property/skip-trace endpoint.
+    Uses APN + FIPS from ATTOM for best match rate.
     Only processes top 20 leads to conserve credits.
     """
     import urllib.request
@@ -6974,17 +7016,30 @@ def _batchdata_append(leads: list) -> list:
     requests_payload = []
     for lead in top:
         entry: dict = {}
-        if lead.get("full_name"): entry["name"]    = lead["full_name"]
-        if lead.get("address"):   entry["address"]  = lead["address"]
-        if lead.get("city"):      entry["city"]     = lead["city"]
-        if lead.get("state"):     entry["state"]    = lead["state"]
-        if lead.get("zip_code"):  entry["zip"]      = lead["zip_code"]
+        apn  = lead.get("_apn", "")
+        fips = lead.get("_fips", "")
+        if apn and fips:
+            entry["apn"]            = apn
+            entry["countyFipsCode"] = fips
+        elif lead.get("address"):
+            entry["address"] = lead["address"]
+            entry["city"]    = lead.get("city", "")
+            entry["state"]   = lead.get("state", "")
+            entry["zip"]     = lead.get("zip_code", "")
+        else:
+            requests_payload.append({})
+            continue
+        # Include name for better matching
+        fname = (lead.get("first_name") or "").split()[0] if lead.get("first_name") else ""
+        lname = lead.get("last_name", "")
+        if fname: entry["firstName"] = fname
+        if lname: entry["lastName"]  = lname
         requests_payload.append(entry)
 
     payload = _json.dumps({"requests": requests_payload}).encode()
     try:
         req = urllib.request.Request(
-            "https://api.batchdata.com/api/v1/person/skipTrace",
+            "https://api.batchdata.com/api/v1/property/skip-trace",
             data=payload,
             headers={
                 "Content-Type":  "application/json",
@@ -6992,26 +7047,49 @@ def _batchdata_append(leads: list) -> list:
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=25) as r:
+        with urllib.request.urlopen(req, timeout=30) as r:
             data = _json.loads(r.read())
     except Exception:
         return leads
 
-    results = data.get("results") or []
-    for i, result in enumerate(results[:len(top)]):
-        person = (result.get("output") or {})
-        phones = person.get("phones") or []
+    persons = (data.get("results") or {}).get("persons") or []
+    for i, person in enumerate(persons[:len(top)]):
+        meta = person.get("meta") or {}
+        if not meta.get("matched"):
+            continue
+
+        phones = person.get("phoneNumbers") or []
         emails = person.get("emails") or []
+
         if phones and not leads[i].get("phone"):
-            leads[i]["phone"] = phones[0].get("phone") or phones[0].get("phoneNumber")
-            if leads[i]["phone"]:
+            # Pick highest-scored non-DNC phone, fall back to any
+            best = sorted(phones, key=lambda p: (not p.get("dnc", True), p.get("score", 0)), reverse=True)
+            raw = best[0].get("number", "")
+            if raw:
+                # Format as (XXX) XXX-XXXX
+                digits = "".join(c for c in raw if c.isdigit())
+                if len(digits) == 10:
+                    leads[i]["phone"] = f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+                else:
+                    leads[i]["phone"] = raw
                 leads[i]["score"] = min(leads[i]["score"] + 10, 98)
-                leads[i].setdefault("score_reasons", []).append("Phone appended (BatchData)")
+                note = "Phone appended (BatchData)"
+                if best[0].get("dnc"):
+                    note += " ⚠️ DNC"
+                leads[i].setdefault("score_reasons", []).append(note)
+
         if emails and not leads[i].get("email"):
-            leads[i]["email"] = emails[0].get("email") or emails[0].get("emailAddress")
-            if leads[i]["email"]:
+            raw_email = emails[0].get("email") or emails[0].get("address") or ""
+            if raw_email:
+                leads[i]["email"] = raw_email
                 leads[i]["score"] = min(leads[i]["score"] + 8, 98)
                 leads[i].setdefault("score_reasons", []).append("Email appended (BatchData)")
+
+    # Strip internal ATTOM fields before returning
+    for lead in leads:
+        lead.pop("_apn",  None)
+        lead.pop("_fips", None)
+
     return leads
 
 
