@@ -6986,6 +6986,195 @@ def _apollo_search(city: str, state: str, filters: dict, targeting_type: str = "
     leads.sort(key=lambda x: x["score"], reverse=True)
     return leads
 
+
+def _attom_search(state: str, city: str, zip_code: str, filters: dict) -> list:
+    """
+    Pull property owner records from ATTOM Data Solutions.
+    Returns leads with name + property data (no phone/email — use BatchData/Melissa to append).
+    """
+    import urllib.request
+    from urllib.parse import urlencode
+    api_key = os.environ.get("ATTOM_API_KEY", "")
+    if not api_key:
+        return []
+
+    min_value = int(filters.get("min_home_value", 0))
+    params    = {"page": "1", "pagesize": "25"}
+    if zip_code:
+        params["ZipCode"] = zip_code
+        endpoint = "/propertyapi/v1.0.0/property/zip"
+    elif city and state:
+        # ATTOM address2 format: "city state"
+        params["address2"] = f"{city} {state}"
+        endpoint = "/propertyapi/v1.0.0/property/address"
+    elif state:
+        # Can't search state-only; require city or ZIP
+        return []
+    else:
+        return []
+
+    url = f"https://api.gateway.attomdata.com{endpoint}?{urlencode(params)}"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"apikey": api_key, "Accept": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = _json.loads(r.read())
+    except Exception:
+        return []
+
+    leads = []
+    for prop in (data.get("property") or []):
+        owner_obj  = (prop.get("owner") or {}).get("owner1") or {}
+        address    = prop.get("address") or {}
+        assessment = prop.get("assessment") or {}
+        market_val = int((assessment.get("market") or {}).get("mktTtlValue") or 0)
+
+        owner_name = owner_obj.get("fullName") or ""
+        if not owner_name or market_val < min_value:
+            continue
+
+        prop_city  = address.get("cityName") or city or ""
+        prop_state = address.get("stateName") or state or ""
+        prop_zip   = address.get("postal1") or zip_code or ""
+        prop_addr  = address.get("line1") or ""
+
+        score, reasons = 40, ["Property owner (ATTOM)"]
+        if market_val >= 1_000_000: score += 40; reasons.append(f"Property value: ${market_val:,}")
+        elif market_val >= 750_000: score += 32; reasons.append(f"Property value: ${market_val:,}")
+        elif market_val >= 500_000: score += 22; reasons.append(f"Property value: ${market_val:,}")
+        elif market_val >= 300_000: score += 12; reasons.append(f"Property value: ${market_val:,}")
+        elif market_val > 0:        score +=  5; reasons.append(f"Property value: ${market_val:,}")
+
+        parts = owner_name.split()
+        leads.append({
+            "full_name":            owner_name,
+            "first_name":           parts[0] if parts else "",
+            "last_name":            " ".join(parts[1:]) if len(parts) > 1 else "",
+            "email":                None,
+            "phone":                None,
+            "address":              prop_addr,
+            "city":                 prop_city,
+            "state":                prop_state,
+            "zip_code":             prop_zip,
+            "estimated_home_value": market_val,
+            "homeowner_status":     "owner",
+            "business_owner_flag":  False,
+            "lead_source":          "attom",
+            "score":                min(score, 92),
+            "score_reasons":        reasons,
+            "status":               "new",
+            "tags":                 [],
+            "ai_insurance_types":   [],
+        })
+
+    leads.sort(key=lambda x: x["score"], reverse=True)
+    return leads
+
+
+def _batchdata_append(leads: list) -> list:
+    """
+    Skip-trace leads using BatchData to append phone numbers and emails.
+    Only processes top 20 leads to conserve credits.
+    """
+    import urllib.request
+    api_key = os.environ.get("BATCHDATA_API_KEY", "")
+    if not api_key or not leads:
+        return leads
+
+    top = leads[:20]
+    requests_payload = []
+    for lead in top:
+        entry: dict = {}
+        if lead.get("full_name"): entry["name"]    = lead["full_name"]
+        if lead.get("address"):   entry["address"]  = lead["address"]
+        if lead.get("city"):      entry["city"]     = lead["city"]
+        if lead.get("state"):     entry["state"]    = lead["state"]
+        if lead.get("zip_code"):  entry["zip"]      = lead["zip_code"]
+        requests_payload.append(entry)
+
+    payload = _json.dumps({"requests": requests_payload}).encode()
+    try:
+        req = urllib.request.Request(
+            "https://api.batchdata.com/api/v1/person/skipTrace",
+            data=payload,
+            headers={
+                "Content-Type":  "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = _json.loads(r.read())
+    except Exception:
+        return leads
+
+    results = data.get("results") or []
+    for i, result in enumerate(results[:len(top)]):
+        person = (result.get("output") or {})
+        phones = person.get("phones") or []
+        emails = person.get("emails") or []
+        if phones and not leads[i].get("phone"):
+            leads[i]["phone"] = phones[0].get("phone") or phones[0].get("phoneNumber")
+            if leads[i]["phone"]:
+                leads[i]["score"] = min(leads[i]["score"] + 10, 98)
+                leads[i].setdefault("score_reasons", []).append("Phone appended (BatchData)")
+        if emails and not leads[i].get("email"):
+            leads[i]["email"] = emails[0].get("email") or emails[0].get("emailAddress")
+            if leads[i]["email"]:
+                leads[i]["score"] = min(leads[i]["score"] + 8, 98)
+                leads[i].setdefault("score_reasons", []).append("Email appended (BatchData)")
+    return leads
+
+
+def _melissa_append(leads: list) -> list:
+    """
+    Contact append and verification via Melissa Personator.
+    Fills in missing phone/email and verifies existing ones.
+    Only processes top 20 leads.
+    """
+    import urllib.request
+    from urllib.parse import urlencode
+    api_key = os.environ.get("MELISSA_API_KEY", "")
+    if not api_key or not leads:
+        return leads
+
+    for i, lead in enumerate(leads[:20]):
+        if not lead.get("full_name"):
+            continue
+        params = {
+            "id":     api_key,
+            "full":   lead["full_name"],
+            "city":   lead.get("city", ""),
+            "state":  lead.get("state", ""),
+            "postal": lead.get("zip_code", ""),
+            "cols":   "GrpPhone,GrpEmail",
+            "format": "json",
+        }
+        url = f"https://personator.melissadata.net/v3/WEB/ContactVerify/doContactVerify?{urlencode(params)}"
+        try:
+            with urllib.request.urlopen(url, timeout=10) as r:
+                data = _json.loads(r.read())
+            records = data.get("Records") or []
+            if not records:
+                continue
+            rec   = records[0]
+            phone = rec.get("PhoneNumber") or rec.get("Phone")
+            email = rec.get("EmailAddress") or rec.get("Email")
+            if phone and not leads[i].get("phone"):
+                leads[i]["phone"] = phone
+                leads[i]["score"] = min(leads[i]["score"] + 10, 98)
+                leads[i].setdefault("score_reasons", []).append("Phone verified (Melissa)")
+            if email and not leads[i].get("email"):
+                leads[i]["email"] = email
+                leads[i]["score"] = min(leads[i]["score"] + 8, 98)
+                leads[i].setdefault("score_reasons", []).append("Email verified (Melissa)")
+        except Exception:
+            continue
+    return leads
+
+
 def _leads_rule_parser(message: str) -> dict:
     """Keyword-based fallback when no AI key is available."""
     import re
@@ -7162,29 +7351,50 @@ def leads_chat(body: dict, user=Depends(verify_token)):
     if action != "search":
         return {"action": "answer", "reply": reply, "leads": [], "total": 0}
 
-    # All searches go through Apollo for real names/emails/phones.
-    # Census data is used to enrich scores when state is provided.
-    apollo_key = os.environ.get("APOLLO_API_KEY", "")
-    if not apollo_key:
-        return {
-            "action": "answer",
-            "reply": "Lead search requires an Apollo API key. Add APOLLO_API_KEY to your environment to enable live prospect search.",
-            "leads": [], "total": 0,
-        }
-
     if not state and not city:
         return {
             "action": "answer",
-            "reply": "Please specify a location — for example: \"High income homeowners in Florida\" or \"Business owners in Miami, TX\".",
+            "reply": "Please specify a location — e.g. \"Homeowners over $500k in Florida\" or \"Business owners in Miami, TX\".",
             "leads": [], "total": 0,
         }
 
-    leads = _apollo_search(city or "", state or "", filters, targeting_type)
+    zip_code = filters.get("zip_code") or None
+    leads    = []
+
+    # ── Homeowner / property targeting ──────────────────────────────────────────
+    if targeting_type in ("homeowner", "movers") and os.environ.get("ATTOM_API_KEY"):
+        leads = _attom_search(state or "", city or "", zip_code or "", filters)
+        if leads:
+            # Append contact info — prefer BatchData, fall back to Melissa
+            if os.environ.get("BATCHDATA_API_KEY"):
+                leads = _batchdata_append(leads)
+            elif os.environ.get("MELISSA_API_KEY"):
+                leads = _melissa_append(leads)
+
+    # ── Income / business / fallback → Apollo ───────────────────────────────────
+    if not leads:
+        if not os.environ.get("APOLLO_API_KEY"):
+            sources = []
+            if targeting_type in ("homeowner", "movers"):
+                sources.append("ATTOM_API_KEY (property records)")
+            sources += ["APOLLO_API_KEY (people search)", "BATCHDATA_API_KEY or MELISSA_API_KEY (contact append)"]
+            return {
+                "action": "answer",
+                "reply": f"No data source configured. Add one or more API keys to your environment: {', '.join(sources)}.",
+                "leads": [], "total": 0,
+            }
+        leads = _apollo_search(city or "", state or "", filters, targeting_type)
+        # Contact append on Apollo results too (fills gaps in phone/email)
+        if leads:
+            if os.environ.get("BATCHDATA_API_KEY"):
+                leads = _batchdata_append(leads)
+            elif os.environ.get("MELISSA_API_KEY"):
+                leads = _melissa_append(leads)
 
     if not leads:
         return {
             "action": "search",
-            "reply": reply or "No leads found. Try a broader search — different state, city, or targeting type.",
+            "reply": reply or "No leads found. Try a broader search — different location or targeting type.",
             "leads": [], "total": 0,
         }
 
