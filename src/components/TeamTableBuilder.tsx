@@ -1,6 +1,41 @@
 import { useState } from "react";
-import { Plus, Zap, BrainCircuit, Phone, BarChart3, Mail, Workflow, Bot } from "lucide-react";
+import { Plus, Zap, BrainCircuit, Phone, BarChart3, Mail, Workflow, Bot, Share2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT PICKER OPTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const AGENT_OPTIONS = [
+  {
+    id:          "leads",
+    label:       "Leads Agent",
+    description: "Qualify and capture leads automatically",
+    icon:        Zap,
+    color:       "#22c55e",
+    route:       "/leads-agent",
+    role:        "Lead Generation",
+  },
+  {
+    id:          "crm",
+    label:       "CRM Agent",
+    description: "Manage contacts, deals and follow-ups",
+    icon:        BrainCircuit,
+    color:       "#f59e0b",
+    route:       "/crm-agent",
+    role:        "CRM Manager",
+  },
+  {
+    id:          "social",
+    label:       "Social Media Manager",
+    description: "Create content and schedule posts with AI",
+    icon:        Share2,
+    color:       "#818cf8",
+    route:       "/social-media-manager",
+    role:        "Social Media",
+  },
+] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -338,12 +373,29 @@ interface TeamTableBuilderProps {
 }
 
 export default function TeamTableBuilder({ onSeatClick, onAddAgent, className }: TeamTableBuilderProps) {
-  const [seats]    = useState<Seat[]>(INITIAL_SEATS);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [seats, setSeats] = useState<Seat[]>(INITIAL_SEATS);
+  const [selected,   setSelected]   = useState<string | null>(null);
+  const [pickerSeat, setPickerSeat] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const handleOccupied = (seat: Seat) => {
     setSelected(prev => prev === seat.id ? null : seat.id);
     onSeatClick?.(seat);
+  };
+
+  const handleEmptySeat = (seat: Seat) => {
+    setPickerSeat(seat.id);
+  };
+
+  const handlePickAgent = (seat: Seat, option: typeof AGENT_OPTIONS[number]) => {
+    // Fill the seat with the chosen agent
+    setSeats(prev => prev.map(s =>
+      s.id === seat.id
+        ? { ...s, occupied: true, name: option.label, role: option.role, status: "online", icon: option.icon, color: option.color }
+        : s
+    ));
+    setPickerSeat(null);
+    navigate(option.route);
   };
 
   const onlineCount = seats.filter(s => s.occupied && s.status === "online").length;
@@ -433,9 +485,120 @@ export default function TeamTableBuilder({ onSeatClick, onAddAgent, className }:
             seat={seat}
             selected={selected === seat.id}
             onOccupied={() => handleOccupied(seat)}
-            onEmpty={() => onAddAgent?.(seat)}
+            onEmpty={() => handleEmptySeat(seat)}
           />
         ))}
+
+        {/* ── Agent Picker overlay ── */}
+        {pickerSeat && (() => {
+          const seat = seats.find(s => s.id === pickerSeat)!;
+          return (
+            <>
+              {/* Dim backdrop */}
+              <div
+                onClick={() => setPickerSeat(null)}
+                style={{
+                  position: "absolute", inset: 0,
+                  background: "rgba(0,0,0,0.55)",
+                  borderRadius: "inherit",
+                  zIndex: 40,
+                  backdropFilter: "blur(2px)",
+                }}
+              />
+
+              {/* Picker card — centered */}
+              <div
+                style={{
+                  position:   "absolute",
+                  top: "50%", left: "50%",
+                  transform:  "translate(-50%, -50%)",
+                  zIndex:     50,
+                  width:      "min(88%, 340px)",
+                  background: "#131313",
+                  border:     "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 20,
+                  padding:    "18px 16px 16px",
+                  boxShadow:  "0 24px 60px rgba(0,0,0,0.8)",
+                }}
+              >
+                {/* Header */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "rgba(255,255,255,0.9)" }}>
+                      Add AI Agent
+                    </p>
+                    <p style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", marginTop: 2 }}>
+                      Choose an agent for this seat
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setPickerSeat(null)}
+                    style={{
+                      width: 26, height: 26, borderRadius: 8,
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <X style={{ width: 12, height: 12, color: "rgba(255,255,255,0.4)" }} />
+                  </button>
+                </div>
+
+                {/* Options */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {AGENT_OPTIONS.map(option => {
+                    const Icon = option.icon;
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => handlePickAgent(seat, option)}
+                        style={{
+                          display:       "flex",
+                          alignItems:    "center",
+                          gap:           12,
+                          padding:       "11px 13px",
+                          borderRadius:  14,
+                          background:    "rgba(255,255,255,0.03)",
+                          border:        "1px solid rgba(255,255,255,0.07)",
+                          cursor:        "pointer",
+                          textAlign:     "left",
+                          transition:    "all 0.15s",
+                          width:         "100%",
+                        }}
+                        onMouseEnter={e => {
+                          (e.currentTarget as HTMLElement).style.background = `${option.color}12`;
+                          (e.currentTarget as HTMLElement).style.borderColor = `${option.color}40`;
+                        }}
+                        onMouseLeave={e => {
+                          (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.03)";
+                          (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.07)";
+                        }}
+                      >
+                        <div style={{
+                          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                          background: `${option.color}20`,
+                          border: `1px solid ${option.color}30`,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                          <Icon style={{ width: 16, height: 16, color: option.color }} />
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,0.88)" }}>
+                            {option.label}
+                          </p>
+                          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.38)", marginTop: 2 }}>
+                            {option.description}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* ── Selected agent panel ── */}
