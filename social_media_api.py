@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
-from auth import verify_token
+from auth_routes import verify_token
 
 load_dotenv()
 
