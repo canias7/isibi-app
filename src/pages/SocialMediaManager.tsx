@@ -209,7 +209,7 @@ export default function SocialMediaManager() {
   const [generatingImage, setGeneratingImage] = useState(false);
   const [generatedImageBase64, setGeneratedImageBase64] = useState<string | null>(null);
   const [generatedImageContentType, setGeneratedImageContentType] = useState("image/jpeg");
-  const [showImageSection, setShowImageSection] = useState(false);
+  const [showImageSection, setShowImageSection] = useState(true);
 
   // Brand Voice state
   const [brandName, setBrandName] = useState(() => localStorage.getItem("smm_brand_name") || "");
@@ -543,10 +543,13 @@ export default function SocialMediaManager() {
                   </div>
                 </div>
 
-                {/* Generate button */}
-                <div className="p-5 border-t border-border/30">
+                {/* Generate buttons */}
+                <div className="p-5 border-t border-border/30 space-y-2.5">
                   <Button onClick={handleGenerate} disabled={generating || !topic.trim()} className="w-full gap-2 bg-gradient-to-r from-violet-500 to-pink-500 hover:opacity-90 text-white border-0 h-11">
                     {generating ? <><RefreshCw className="h-4 w-4 animate-spin" />Generating...</> : <><Sparkles className="h-4 w-4" />Generate Content</>}
+                  </Button>
+                  <Button onClick={handleGenerateImage} disabled={generatingImage || (!topic.trim() && !imagePrompt.trim())} variant="outline" className="w-full gap-2 h-10 text-sm border-violet-500/30 text-violet-400 hover:bg-violet-500/10 hover:text-violet-300">
+                    {generatingImage ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Generating image...</> : <><Image className="h-3.5 w-3.5" />Generate Image</>}
                   </Button>
                 </div>
               </div>
