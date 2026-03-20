@@ -2,7 +2,6 @@ import os
 import base64
 import requests
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional
 from dotenv import load_dotenv
@@ -20,17 +19,6 @@ TEXT_MODEL = os.getenv("PROMPT_MODEL", "gpt-4o-mini")
 
 HF_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN", "")
 HF_BASE_URL = "https://api-inference.huggingface.co/models"
-
-security = HTTPBearer()
-
-
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    token = credentials.credentials
-    payload = verify_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    return payload
-
 
 # ── Text Generation ────────────────────────────────────────────────────────────
 
@@ -54,7 +42,7 @@ PLATFORM_INSTRUCTIONS = {
 
 
 @router.post("/generate")
-def generate_social_content(payload: SocialContentRequest, user=Depends(get_current_user)):
+def generate_social_content(payload: SocialContentRequest, user=Depends(verify_token)):
     if not payload.topic.strip():
         raise HTTPException(status_code=400, detail="Topic is required")
 
@@ -201,7 +189,7 @@ class SocialImageRequest(BaseModel):
 
 
 @router.post("/generate-image")
-def generate_social_image(payload: SocialImageRequest, user=Depends(get_current_user)):
+def generate_social_image(payload: SocialImageRequest, user=Depends(verify_token)):
     if not HF_API_TOKEN:
         raise HTTPException(
             status_code=503,
