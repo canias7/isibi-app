@@ -1860,3 +1860,55 @@ export const leadsChat = (message: string): Promise<{
   total: number;
   filters?: LeadFilters;
 }> => leadFetch("/leads/chat", { method: "POST", body: JSON.stringify({ message }) });
+
+// ── Social Media ──────────────────────────────────────────────────────────────
+
+export interface SocialContentRequest {
+  topic: string;
+  platforms: string[];
+  tone?: string;
+  brand_name?: string;
+  brand_description?: string;
+  include_hashtags?: boolean;
+  include_emoji?: boolean;
+}
+
+export async function generateSocialContent(data: SocialContentRequest): Promise<{ platforms: Record<string, string> }> {
+  const res = await fetch(`${API_BASE}/api/social/generate`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Failed to generate social content: ${res.status}`);
+  return res.json();
+}
+
+export interface SocialImageRequest {
+  topic: string;
+  model?: string;
+  style?: string;
+  aspect_ratio?: string;
+  custom_prompt?: string;
+  platform?: string;
+}
+
+export interface SocialImageResponse {
+  image_base64: string;
+  content_type: string;
+  model_used: string;
+  model_label: string;
+  prompt_used: string;
+}
+
+export async function generateSocialImage(data: SocialImageRequest): Promise<SocialImageResponse> {
+  const res = await fetch(`${API_BASE}/api/social/generate-image`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(err.detail || "Failed to generate image");
+  }
+  return res.json();
+}

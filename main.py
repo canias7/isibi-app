@@ -10,6 +10,7 @@ from pydub import AudioSegment
 from db import get_agent_prompt, init_db, get_agent_by_id, start_call_tracking, end_call_tracking, calculate_call_cost, calculate_call_revenue, get_user_credits, deduct_credits
 from prompt_api import router as prompt_router
 from voice_command import router as voice_command_router
+from social_media_api import router as social_media_router
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
@@ -601,6 +602,7 @@ app.include_router(prompt_router)
 app.include_router(auth_router)
 app.include_router(portal_router)
 app.include_router(voice_command_router)
+app.include_router(social_media_router)
 
 print("📋 Registered routes:")
 for route in app.routes:
