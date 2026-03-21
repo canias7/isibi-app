@@ -505,10 +505,17 @@ def download_session(session_id: str, user=Depends(verify_token)):
 @router.get("/sessions/{session_id}/download-app")
 def download_as_app(session_id: str, user=Depends(verify_token)):
     """
-    Packages the generated page as an Electron desktop app.
-    Returns a .zip that the user extracts, then runs:
-        npm install && npm start      (requires Node.js)
-        or double-clicks run.bat / run.sh
+    Packages the generated page as a self-installing Electron desktop app.
+    Returns a .zip containing install.bat (Windows) / install.sh (Mac/Linux).
+
+    Windows — double-click install.bat to:
+      1. Auto-install Node.js via winget if missing
+      2. Copy app to %LOCALAPPDATA%\\ISIBI\\<slug>
+      3. Run npm install (one-time)
+      4. Create Desktop shortcut + Start Menu entry
+      5. Launch the app silently (no cmd window)
+
+    Mac/Linux — run install.sh for equivalent behaviour.
     """
     user_id = user["user_id"]
     conn = get_db()
@@ -520,9 +527,9 @@ def download_as_app(session_id: str, user=Depends(verify_token)):
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    app_name   = (row["name"] or "My App").strip()
-    slug       = app_name.lower().replace(" ", "-")
-    html       = row["html"] or ""
+    app_name = (row["name"] or "My App").strip()
+    slug     = app_name.lower().replace(" ", "-")
+    html     = row["html"] or ""
 
     # ── Electron main.js ──────────────────────────────────────────────────────
     main_js = f"""\
@@ -569,22 +576,188 @@ app.on('window-all-closed', () => {{
         }
     }, indent=2)
 
-    # ── run.bat (Windows) ─────────────────────────────────────────────────────
-    run_bat = f"""\
+    # ── install.bat (Windows) ─────────────────────────────────────────────────
+    # Uses placeholder replacement instead of f-string to avoid backslash conflicts.
+    install_bat = """\
 @echo off
-echo Installing dependencies...
-call npm install
-echo Launching {app_name}...
-call npm start
-"""
+setlocal EnableDelayedExpansion
+title Installing __APP_NAME__
+color 0A
 
-    # ── run.sh (Mac / Linux) ──────────────────────────────────────────────────
-    run_sh = f"""\
+echo.
+echo  ============================================================
+echo   ISIBI AI Builder  ^|^|  __APP_NAME__
+echo  ============================================================
+echo.
+
+:: ─── Step 1: Check / auto-install Node.js ────────────────────────────────────
+echo  [1/4]  Checking for Node.js...
+where node >nul 2>&1
+if %errorlevel% equ 0 goto :COPY
+
+echo         Node.js not found.  Installing automatically...
+echo         ^(This is a one-time setup — takes ~1 min^)
+echo.
+where winget >nul 2>&1
+if %errorlevel% neq 0 (
+    echo         winget not available.
+    echo         Please install Node.js v18+ from https://nodejs.org then re-run this file.
+    start "" "https://nodejs.org/en/download/"
+    pause & exit /b 1
+)
+
+winget install OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
+set "PATH=%PATH%;%ProgramFiles%\nodejs;%APPDATA%\npm"
+timeout /t 4 >nul
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    if exist "%ProgramFiles%\nodejs\node.exe" (
+        set "PATH=%PATH%;%ProgramFiles%\nodejs"
+    )
+)
+where node >nul 2>&1
+if %errorlevel% neq 0 (
+    echo.
+    echo         Node.js was installed but PATH needs a refresh.
+    echo         Please close this window, restart your PC, then run install.bat again.
+    echo.
+    pause & exit /b 1
+)
+echo         Node.js installed successfully!
+
+:COPY
+:: ─── Step 2: Copy app files to local install directory ───────────────────────
+set "INSTALL_DIR=%LOCALAPPDATA%\ISIBI\__SLUG__"
+echo  [2/4]  Copying to: !INSTALL_DIR!
+if not exist "!INSTALL_DIR!" mkdir "!INSTALL_DIR!"
+xcopy /E /I /Y /Q "%~dp0" "!INSTALL_DIR!" >nul 2>&1
+
+:: ─── Step 3: Install npm dependencies ────────────────────────────────────────
+echo  [3/4]  Installing app modules ^(first run only^)...
+cd /d "!INSTALL_DIR!"
+call npm install --silent 2>nul
+if %errorlevel% neq 0 call npm install
+
+:: Create silent VBS launcher so app opens with no cmd window
+(
+echo Set ws = CreateObject^("WScript.Shell"^)
+echo ws.CurrentDirectory = "!INSTALL_DIR!"
+echo ws.Run "cmd /c npm start", 0, False
+) > "!INSTALL_DIR!\launch.vbs"
+
+:: Create uninstaller
+(
+echo @echo off
+echo echo Uninstalling __APP_NAME__...
+echo rmdir /S /Q "!INSTALL_DIR!" 2^>nul
+echo del /F /Q "%USERPROFILE%\Desktop\__APP_NAME__.lnk" 2^>nul
+echo rmdir /S /Q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\__APP_NAME__" 2^>nul
+echo echo Done. __APP_NAME__ has been uninstalled.
+echo pause
+) > "!INSTALL_DIR!\uninstall.bat"
+
+:: ─── Step 4: Shortcuts ───────────────────────────────────────────────────────
+echo  [4/4]  Creating shortcuts...
+set "LNC=!INSTALL_DIR!\launch.vbs"
+
+:: Desktop shortcut
+set "_V=%TEMP%\isibi_%RANDOM%.vbs"
+(
+echo Set oWS = WScript.CreateObject^("WScript.Shell"^)
+echo Set oLink = oWS.CreateShortcut^("%USERPROFILE%\Desktop\__APP_NAME__.lnk"^)
+echo oLink.TargetPath = "wscript.exe"
+echo oLink.Arguments = Chr^(34^) ^& "!LNC!" ^& Chr^(34^)
+echo oLink.WorkingDirectory = "!INSTALL_DIR!"
+echo oLink.Description = "__APP_NAME__ — built with ISIBI AI Builder"
+echo oLink.IconLocation = "shell32.dll,14"
+echo oLink.Save
+) > "!_V!"
+cscript //nologo "!_V!" & del "!_V!" >nul 2>&1
+
+:: Start Menu shortcut
+set "SMDIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\__APP_NAME__"
+if not exist "!SMDIR!" mkdir "!SMDIR!"
+set "_V2=%TEMP%\isibi_%RANDOM%.vbs"
+(
+echo Set oWS = WScript.CreateObject^("WScript.Shell"^)
+echo Set oLink = oWS.CreateShortcut^("!SMDIR!\__APP_NAME__.lnk"^)
+echo oLink.TargetPath = "wscript.exe"
+echo oLink.Arguments = Chr^(34^) ^& "!LNC!" ^& Chr^(34^)
+echo oLink.WorkingDirectory = "!INSTALL_DIR!"
+echo oLink.Description = "__APP_NAME__ — built with ISIBI AI Builder"
+echo oLink.IconLocation = "shell32.dll,14"
+echo oLink.Save
+) > "!_V2!"
+cscript //nologo "!_V2!" & del "!_V2!" >nul 2>&1
+
+echo.
+echo  ============================================================
+echo   __APP_NAME__ installed!
+echo.
+echo   ^> Desktop shortcut created
+echo   ^> Start Menu entry added
+echo   ^> To uninstall: !INSTALL_DIR!\uninstall.bat
+echo.
+echo   Launching __APP_NAME__ now...
+echo  ============================================================
+echo.
+start "" wscript.exe "!LNC!"
+timeout /t 2 >nul
+""".replace("__APP_NAME__", app_name).replace("__SLUG__", slug)
+
+    # ── install.sh (Mac / Linux) ──────────────────────────────────────────────
+    install_sh = f"""\
 #!/bin/bash
-echo "Installing dependencies..."
-npm install
-echo "Launching {app_name}..."
-npm start
+set -e
+
+APP_NAME="{app_name}"
+INSTALL_DIR="$HOME/Applications/ISIBI/{slug}"
+
+echo ""
+echo "=================================================="
+echo "  ISIBI AI Builder | Installing: $APP_NAME"
+echo "=================================================="
+echo ""
+
+# 1. Check Node.js
+echo "[1/4] Checking for Node.js..."
+if ! command -v node &>/dev/null; then
+    echo "      Node.js not found. Attempting install..."
+    if command -v brew &>/dev/null; then
+        brew install node
+    else
+        echo "      Please install Node.js v18+ from https://nodejs.org"
+        command -v open &>/dev/null && open "https://nodejs.org/en/download/"
+        exit 1
+    fi
+fi
+echo "      Found $(node --version)"
+
+# 2. Copy files
+echo "[2/4] Installing to $INSTALL_DIR..."
+mkdir -p "$INSTALL_DIR"
+SCRIPT_DIR="$(cd "$(dirname "$0")"; pwd)"
+cp -r "$SCRIPT_DIR/." "$INSTALL_DIR/"
+
+# 3. npm install
+echo "[3/4] Installing app modules (first run only)..."
+cd "$INSTALL_DIR"
+npm install --silent
+
+# 4. Create launcher on Desktop
+echo "[4/4] Creating launcher..."
+LAUNCHER="$HOME/Desktop/$APP_NAME.command"
+printf '#!/bin/bash\\ncd "%s" && npm start\\n' "$INSTALL_DIR" > "$LAUNCHER"
+chmod +x "$LAUNCHER"
+
+echo ""
+echo "=================================================="
+echo "  $APP_NAME installed!"
+echo "  Desktop launcher: $APP_NAME.command"
+echo "=================================================="
+echo ""
+echo "Launching $APP_NAME..."
+command -v open &>/dev/null && open "$LAUNCHER" || "$LAUNCHER"
 """
 
     # ── README.md ─────────────────────────────────────────────────────────────
@@ -593,23 +766,25 @@ npm start
 
 Built with **ISIBI AI Builder**.
 
-## How to run as a desktop app
+## Install as a desktop app
 
-### Requirements
-- [Node.js](https://nodejs.org) v18 or higher
+### Windows
+1. Extract this ZIP anywhere
+2. **Double-click `install.bat`**
+   - Automatically installs Node.js if it's not on your PC
+   - Copies the app to your local Programs folder
+   - Creates a **Desktop shortcut** and **Start Menu entry**
+   - Launches the app — done!
 
-### Steps
+### Mac / Linux
+1. Extract this ZIP
+2. Open Terminal in this folder
+3. Run: `chmod +x install.sh && ./install.sh`
+   - Installs Node.js via Homebrew if needed
+   - Creates a `.command` launcher on your Desktop
 
-**Windows:**
-1. Double-click `run.bat`
-   *(or open a terminal here and run `npm install && npm start`)*
-
-**Mac / Linux:**
-1. Open a terminal in this folder
-2. Run: `chmod +x run.sh && ./run.sh`
-   *(or: `npm install && npm start`)*
-
-The app will open in its own window — no browser needed.
+---
+*Powered by ISIBI · isibi.com*
 """
 
     # ── Build the ZIP in memory ───────────────────────────────────────────────
@@ -618,12 +793,12 @@ The app will open in its own window — no browser needed.
         zf.writestr(f"{slug}/index.html",    html)
         zf.writestr(f"{slug}/main.js",       main_js)
         zf.writestr(f"{slug}/package.json",  package_json)
-        zf.writestr(f"{slug}/run.bat",       run_bat)
-        zf.writestr(f"{slug}/run.sh",        run_sh)
+        zf.writestr(f"{slug}/install.bat",   install_bat)
+        zf.writestr(f"{slug}/install.sh",    install_sh)
         zf.writestr(f"{slug}/README.md",     readme)
 
     zip_bytes = buf.getvalue()
-    zip_filename = f"{slug}-app.zip"
+    zip_filename = f"{slug}-installer.zip"
 
     return Response(
         content=zip_bytes,

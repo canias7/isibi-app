@@ -196,12 +196,12 @@ export default function Builder() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${activeSession.name.replace(/\s+/g, "-").toLowerCase()}-app.zip`;
+      a.download = `${activeSession.name.replace(/\s+/g, "-").toLowerCase()}-installer.zip`;
       a.click();
       URL.revokeObjectURL(url);
       toast({
-        title: "App downloaded!",
-        description: "Extract the ZIP → run npm install → npm start to launch your desktop app.",
+        title: "Installer downloaded!",
+        description: "Extract the ZIP and double-click install.bat — it installs everything and adds a Desktop shortcut automatically.",
       });
     } catch {
       toast({ title: "Download failed", variant: "destructive" });
@@ -365,8 +365,8 @@ export default function Builder() {
                   <DropdownMenuItem onClick={handleDownloadApp} className="cursor-pointer gap-2">
                     <Monitor className="h-4 w-4 text-violet-400" />
                     <div>
-                      <p className="font-semibold text-sm">Download as App</p>
-                      <p className="text-xs text-muted-foreground">Electron desktop app (.zip)</p>
+                      <p className="font-semibold text-sm">Install as Desktop App</p>
+                      <p className="text-xs text-muted-foreground">Run install.bat → auto-installs everything</p>
                     </div>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
