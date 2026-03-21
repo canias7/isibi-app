@@ -1,7 +1,9 @@
 import os
+import io
 import json
 import uuid
 import sqlite3
+import zipfile
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -497,4 +499,134 @@ def download_session(session_id: str, user=Depends(verify_token)):
         content=row["html"] or "",
         media_type="text/html",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/sessions/{session_id}/download-app")
+def download_as_app(session_id: str, user=Depends(verify_token)):
+    """
+    Packages the generated page as an Electron desktop app.
+    Returns a .zip that the user extracts, then runs:
+        npm install && npm start      (requires Node.js)
+        or double-clicks run.bat / run.sh
+    """
+    user_id = user["user_id"]
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM builder_sessions WHERE id=? AND user_id=?",
+        (session_id, user_id)
+    ).fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    app_name   = (row["name"] or "My App").strip()
+    slug       = app_name.lower().replace(" ", "-")
+    html       = row["html"] or ""
+
+    # ── Electron main.js ──────────────────────────────────────────────────────
+    main_js = f"""\
+const {{ app, BrowserWindow }} = require('electron');
+const path = require('path');
+
+function createWindow() {{
+  const win = new BrowserWindow({{
+    width: 1280,
+    height: 820,
+    title: "{app_name}",
+    webPreferences: {{
+      nodeIntegration: false,
+      contextIsolation: true,
+    }},
+    autoHideMenuBar: true,
+  }});
+  win.loadFile('index.html');
+}}
+
+app.whenReady().then(() => {{
+  createWindow();
+  app.on('activate', () => {{
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  }});
+}});
+
+app.on('window-all-closed', () => {{
+  if (process.platform !== 'darwin') app.quit();
+}});
+"""
+
+    # ── package.json ──────────────────────────────────────────────────────────
+    package_json = json.dumps({
+        "name": slug,
+        "version": "1.0.0",
+        "description": f"{app_name} — built with ISIBI AI Builder",
+        "main": "main.js",
+        "scripts": {
+            "start": "electron ."
+        },
+        "devDependencies": {
+            "electron": "^28.0.0"
+        }
+    }, indent=2)
+
+    # ── run.bat (Windows) ─────────────────────────────────────────────────────
+    run_bat = f"""\
+@echo off
+echo Installing dependencies...
+call npm install
+echo Launching {app_name}...
+call npm start
+"""
+
+    # ── run.sh (Mac / Linux) ──────────────────────────────────────────────────
+    run_sh = f"""\
+#!/bin/bash
+echo "Installing dependencies..."
+npm install
+echo "Launching {app_name}..."
+npm start
+"""
+
+    # ── README.md ─────────────────────────────────────────────────────────────
+    readme = f"""\
+# {app_name}
+
+Built with **ISIBI AI Builder**.
+
+## How to run as a desktop app
+
+### Requirements
+- [Node.js](https://nodejs.org) v18 or higher
+
+### Steps
+
+**Windows:**
+1. Double-click `run.bat`
+   *(or open a terminal here and run `npm install && npm start`)*
+
+**Mac / Linux:**
+1. Open a terminal in this folder
+2. Run: `chmod +x run.sh && ./run.sh`
+   *(or: `npm install && npm start`)*
+
+The app will open in its own window — no browser needed.
+"""
+
+    # ── Build the ZIP in memory ───────────────────────────────────────────────
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(f"{slug}/index.html",    html)
+        zf.writestr(f"{slug}/main.js",       main_js)
+        zf.writestr(f"{slug}/package.json",  package_json)
+        zf.writestr(f"{slug}/run.bat",       run_bat)
+        zf.writestr(f"{slug}/run.sh",        run_sh)
+        zf.writestr(f"{slug}/README.md",     readme)
+
+    zip_bytes = buf.getvalue()
+    zip_filename = f"{slug}-app.zip"
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_filename}"'}
     )

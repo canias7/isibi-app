@@ -4,7 +4,15 @@ import {
   ArrowLeft, Send, Download, Code2, Eye, Trash2,
   Plus, Loader2, Pencil, Check, X, Sparkles, Copy,
   RefreshCw, PanelLeftClose, PanelLeftOpen, Wand2,
+  Monitor, FileCode2, ChevronDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,6 +25,7 @@ import {
   builderDeleteSession,
   builderRenameSession,
   builderDownload,
+  builderDownloadApp,
 } from "@/lib/api";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -173,11 +182,29 @@ export default function Builder() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      // fallback: data URI from current html
       const a = document.createElement("a");
       a.href = "data:text/html;charset=utf-8," + encodeURIComponent(activeSession.html);
       a.download = `${activeSession.name.replace(/\s+/g, "-").toLowerCase()}.html`;
       a.click();
+    }
+  };
+
+  const handleDownloadApp = async () => {
+    if (!activeSession) return;
+    try {
+      const blob = await builderDownloadApp(activeSession.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeSession.name.replace(/\s+/g, "-").toLowerCase()}-app.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "App downloaded!",
+        description: "Extract the ZIP → run npm install → npm start to launch your desktop app.",
+      });
+    } catch {
+      toast({ title: "Download failed", variant: "destructive" });
     }
   };
 
@@ -322,15 +349,36 @@ export default function Builder() {
           {/* Right actions */}
           {activeSession && (
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 h-8 text-xs border-white/10 text-white/60 hover:text-white hover:bg-white/10"
-                onClick={handleDownload}
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download HTML
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8 text-xs border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                  >
+                    <Download className="h-3.5 w-3.5" />
+                    Download
+                    <ChevronDown className="h-3 w-3 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={handleDownloadApp} className="cursor-pointer gap-2">
+                    <Monitor className="h-4 w-4 text-violet-400" />
+                    <div>
+                      <p className="font-semibold text-sm">Download as App</p>
+                      <p className="text-xs text-muted-foreground">Electron desktop app (.zip)</p>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleDownload} className="cursor-pointer gap-2">
+                    <FileCode2 className="h-4 w-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm">Download HTML</p>
+                      <p className="text-xs text-muted-foreground">Single file for browser</p>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
         </div>

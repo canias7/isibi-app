@@ -1961,3 +1961,11 @@ export async function builderDownload(id: string): Promise<Blob> {
   if (!res.ok) throw new Error("Download failed");
   return res.blob();
 }
+
+export async function builderDownloadApp(id: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/builder/sessions/${id}/download-app`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("App download failed");
+  return res.blob();
+}
