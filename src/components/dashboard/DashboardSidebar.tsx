@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing, BookUser, Users2, Globe } from "lucide-react";
+import { LayoutDashboard, PhoneCall, Phone, CreditCard, Bot, Settings, LogOut, ChevronDown, Workflow as WorkflowIcon, Headphones, Code2, PanelLeftClose, PanelLeftOpen, PhoneOutgoing, BookUser, Users2, Globe, Wand2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import logoImg from "@/assets/logo.png";
 import {
@@ -80,6 +80,10 @@ export default function DashboardSidebar({ activeTab, onTabChange, balance, lowB
                 <DropdownMenuItem onClick={() => navigate("/social-media-manager")} className="cursor-pointer">
                   <Globe className="h-4 w-4 mr-2" />
                   <span className="gradient-text font-semibold">Social Media</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/builder")} className="cursor-pointer">
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  <span className="gradient-text font-semibold">AI Builder</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

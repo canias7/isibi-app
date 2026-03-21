@@ -1912,3 +1912,52 @@ export async function generateSocialImage(data: SocialImageRequest): Promise<Soc
   }
   return res.json();
 }
+
+// ── AI Builder ─────────────────────────────────────────────────────────────────
+
+export interface BuilderGenerateRequest {
+  prompt: string;
+  session_id?: string;
+}
+
+export async function builderGenerate(data: BuilderGenerateRequest): Promise<unknown> {
+  const res = await fetch(`${API_BASE}/api/builder/generate`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+    throw new Error(err.detail || "Build failed");
+  }
+  return res.json();
+}
+
+export async function builderListSessions(): Promise<unknown[]> {
+  const res = await fetch(`${API_BASE}/api/builder/sessions`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load sessions");
+  return res.json();
+}
+
+export async function builderDeleteSession(id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/builder/sessions/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+}
+
+export async function builderRenameSession(id: string, name: string): Promise<void> {
+  await fetch(`${API_BASE}/api/builder/sessions/${id}/rename`, {
+    method: "PATCH",
+    headers: authHeaders(),
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function builderDownload(id: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/builder/sessions/${id}/download`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Download failed");
+  return res.blob();
+}

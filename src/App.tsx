@@ -24,6 +24,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import WebsiteAgent from "./pages/WebsiteAgent";
 import CRMAgent from "./pages/CRMAgent";
 import Workforce from "./pages/Workforce";
+import Builder from "./pages/Builder";
 import Accounting from "./pages/Accounting";
 import LeadsAgent from "./pages/LeadsAgent";
 import SocialMediaManager from "./pages/SocialMediaManager";
@@ -76,6 +77,7 @@ const App = () => (
           <Route path="/accounting" element={<P><Accounting /></P>} />
           <Route path="/leads-agent" element={<P><LeadsAgent /></P>} />
           <Route path="/social-media-manager" element={<P><SocialMediaManager /></P>} />
+          <Route path="/builder" element={<P><Builder /></P>} />
           <Route path="/calendar-connected" element={<P><CalendarConnected /></P>} />
           <Route path="/admin" element={<P><AdminDashboard /></P>} />
 
