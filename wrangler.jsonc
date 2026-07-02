@@ -1,8 +1,13 @@
 {
   "name": "isibi-app",
   "compatibility_date": "2026-07-02",
+  "main": "worker.js",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "ai": {
+    "binding": "AI"
   },
   "routes": [
     { "pattern": "isibi.ai", "custom_domain": true },
