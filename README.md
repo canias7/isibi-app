@@ -1,5 +1,7 @@
 # isibi-app
 
+[![Deploy to Cloudflare](https://github.com/canias7/isibi-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/canias7/isibi-app/actions/workflows/deploy.yml)
+
 Connected to the Supabase project **fifa-tournament-hub** (`ujrqdmmtcptvimazlhom`, eu-west-2).
 
 - API URL: https://ujrqdmmtcptvimazlhom.supabase.co
