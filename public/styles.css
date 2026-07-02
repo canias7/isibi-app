@@ -81,6 +81,8 @@
     .tile.nova { background: linear-gradient(135deg, #38bdf8, #818cf8); }
     .tile.zephyr { background: linear-gradient(135deg, #34d399, #fbbf24); }
     .tile.feed { background: linear-gradient(135deg, #f472b6, #fb7185); }
+    .tile.gallery { background: linear-gradient(135deg, #f472b6, #fb7185); }
+    .tile.persona { background: linear-gradient(135deg, #a78bfa, #6366f1); }
     .side-item .sub { display: block; font-size: .72rem; color: var(--muted); font-weight: 400; }
     .new-chat {
       margin-top: .35rem; display: flex; align-items: center; gap: .7rem;
