@@ -3,7 +3,14 @@ const PERSONAS = {
   Zephyr: "You are Zephyr, an AI agent on isibi.ai. You are calm, thoughtful and easygoing: warm, patient, and reflective. You take a breath, consider the question, and answer in a relaxed, reassuring tone.",
 };
 
-const MODEL = "@cf/meta/llama-3.1-8b-instruct";
+// Tried in order; if a model gets deprecated the next one takes over.
+const MODELS = [
+  "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+  "@cf/meta/llama-4-scout-17b-16e-instruct",
+  "@cf/meta/llama-3.2-3b-instruct",
+  "@cf/meta/llama-3.1-8b-instruct-fp8",
+];
+let modelIndex = 0;
 
 export default {
   async fetch(request, env) {
@@ -36,18 +43,23 @@ export default {
         return Response.json({ error: "no messages" }, { status: 400 });
       }
 
-      try {
-        const result = await env.AI.run(MODEL, {
-          messages: [{ role: "system", content: system }, ...history],
-          max_tokens: 512,
-        });
-        return Response.json({ reply: result.response });
-      } catch (err) {
-        return Response.json(
-          { error: "AI request failed", detail: String(err) },
-          { status: 502 }
-        );
+      let lastErr;
+      for (let i = modelIndex; i < MODELS.length; i++) {
+        try {
+          const result = await env.AI.run(MODELS[i], {
+            messages: [{ role: "system", content: system }, ...history],
+            max_tokens: 512,
+          });
+          modelIndex = i;
+          return Response.json({ reply: result.response });
+        } catch (err) {
+          lastErr = err;
+        }
       }
+      return Response.json(
+        { error: "AI request failed", detail: String(lastErr) },
+        { status: 502 }
+      );
     }
 
     return env.ASSETS.fetch(request);
