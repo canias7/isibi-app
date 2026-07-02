@@ -51,6 +51,14 @@ let quality = '720p';
 let model = DEFAULT_MODELS.video;
 let mode = 'video';
 
+// Advanced settings — aesthetic direction fed to the prompt, not fal params.
+const ADV_LISTS = {
+  genre: ['General', 'Cinematic', 'Anime', 'Documentary', 'Music Video', 'Product'],
+  style: ['Auto', 'Noir B&W', 'Dreamy Soft', 'Vibrant Pop', 'Vintage Film', 'Neon Cyberpunk', 'Hyperreal'],
+  camera: ['Auto', 'Handheld 35mm', 'Drone Aerial', 'Slow Dolly', 'Macro Close-up', 'Wide Cinematic'],
+};
+const advanced = { genre: 'General', style: 'Auto', camera: 'Auto' };
+
 const MODEL_LISTS = {
   video: [
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
@@ -236,6 +244,31 @@ function toggleOpt(e, which) {
   menu.classList.toggle('open');
 }
 
+function toggleAdvanced() {
+  document.getElementById('advToggle').classList.toggle('open');
+  document.getElementById('advPanel').classList.toggle('open');
+}
+
+function buildAdvancedMenus() {
+  ['genre', 'style', 'camera'].forEach((key) => {
+    const menu = document.getElementById(key + 'Menu');
+    if (!menu) return;
+    menu.innerHTML = '';
+    ADV_LISTS[key].forEach((opt) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (opt === advanced[key] ? ' selected' : '');
+      el.innerHTML = '<span>' + opt + '</span><span class="check">✓</span>';
+      el.onclick = () => {
+        advanced[key] = opt;
+        document.getElementById(key + 'Label').textContent = opt;
+        menu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        menu.classList.remove('open');
+      };
+      menu.appendChild(el);
+    });
+  });
+}
+
 function toggleModelMenu(e) {
   e.stopPropagation();
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== modelMenu) m.classList.remove('open'); });
@@ -327,6 +360,9 @@ async function generateMedia(text) {
         duration: kind === 'video' ? duration : undefined,
         ratio,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
+        genre: advanced.genre !== 'General' ? advanced.genre : undefined,
+        style: advanced.style !== 'Auto' ? advanced.style : undefined,
+        camera: advanced.camera !== 'Auto' ? advanced.camera : undefined,
       }),
     });
     const job = await res.json();
@@ -407,6 +443,7 @@ function send() {
 // Init
 buildMenu();
 buildOptMenus();
+buildAdvancedMenus();
 addMsg('agent', GREETINGS[AGENT]);
 history.push({ role: 'assistant', content: GREETINGS[AGENT] });
 
