@@ -13,7 +13,7 @@ const DEFAULT_MODELS = {
 const SEEDANCE_OPTS = { durations: [4, 5, 6, 8, 10, 12, 15], defDur: 5, ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9', resolutions: ['480p', '720p'], defRes: '720p' };
 const KLING_OPTS = { durations: [3, 5, 7, 10, 12, 14, 15], defDur: 5, ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9' };
 const MODEL_OPTS = {
-  'bytedance/seedance-2.0/text-to-video': SEEDANCE_OPTS,
+  'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
   'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
   'bytedance/seedance-2.0/mini/text-to-video': SEEDANCE_OPTS,
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,

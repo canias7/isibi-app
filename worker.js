@@ -141,7 +141,7 @@ export default {
               : duration;
         }
         if (ratio) input.aspect_ratio = ratio;
-        if (typeof body.quality === "string" && /^\d{3,4}p$/.test(body.quality)) {
+        if (typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)) {
           input.resolution = body.quality;
         }
       } else if (ratio) {
