@@ -120,6 +120,45 @@ export default {
 
       let endpoint = model;
       const input = { prompt };
+
+      const ratio =
+        typeof body.ratio === "string" && /^\d{1,2}:\d{1,2}$/.test(body.ratio)
+          ? body.ratio
+          : null;
+      const duration =
+        Number.isFinite(Number(body.duration)) &&
+        Number(body.duration) >= 1 &&
+        Number(body.duration) <= 20
+          ? Number(body.duration)
+          : null;
+
+      if (genKind === "video") {
+        if (duration) {
+          // Seedance and Kling take duration as a string enum; Grok and Gemini as an integer.
+          input.duration =
+            model.startsWith("bytedance/") || model.includes("kling-video")
+              ? String(duration)
+              : duration;
+        }
+        if (ratio) input.aspect_ratio = ratio;
+        if (typeof body.quality === "string" && /^\d{3,4}p$/.test(body.quality)) {
+          input.resolution = body.quality;
+        }
+      } else if (ratio) {
+        if (model.startsWith("fal-ai/flux/")) {
+          const sizes = {
+            "1:1": "square_hd",
+            "16:9": "landscape_16_9",
+            "9:16": "portrait_16_9",
+            "4:3": "landscape_4_3",
+            "3:4": "portrait_4_3",
+          };
+          if (sizes[ratio]) input.image_size = sizes[ratio];
+        } else {
+          input.aspect_ratio = ratio;
+        }
+      }
+
       if (genKind === "video") {
         if (image) {
           if (endpoint.includes("/text-to-video")) {

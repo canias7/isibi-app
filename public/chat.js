@@ -9,6 +9,23 @@ const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
   image: 'fal-ai/flux/schnell',
 };
+
+const SEEDANCE_OPTS = { durations: [4, 5, 6, 8, 10, 12, 15], defDur: 5, ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9', resolutions: ['480p', '720p'], defRes: '720p' };
+const KLING_OPTS = { durations: [3, 5, 7, 10, 12, 14, 15], defDur: 5, ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9' };
+const MODEL_OPTS = {
+  'bytedance/seedance-2.0/text-to-video': SEEDANCE_OPTS,
+  'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
+  'bytedance/seedance-2.0/mini/text-to-video': SEEDANCE_OPTS,
+  'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
+  'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
+  'xai/grok-imagine-video/text-to-video': { durations: [4, 6, 8, 10, 15], defDur: 6, ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'], defRatio: '16:9', resolutions: ['480p', '720p'], defRes: '720p' },
+  'google/gemini-omni-flash': { durations: [3, 5, 8, 10], defDur: 8, ratios: ['16:9', '9:16'], defRatio: '16:9' },
+};
+const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1' };
+
+let duration = 5;
+let ratio = '16:9';
+let quality = '720p';
 let model = DEFAULT_MODELS.video;
 let mode = 'video';
 
@@ -107,10 +124,87 @@ function setMode(m) {
     m === 'image' ? 'Describe your image…' : 'Describe your scene…';
   const endBtn = attachBtn('end');
   if (endBtn) endBtn.style.display = m === 'image' ? 'none' : '';
+  buildOptMenus();
+}
+
+function currentOpts() {
+  return mode === 'video' ? MODEL_OPTS[model] : IMAGE_OPTS;
+}
+
+function buildOptMenus() {
+  const durWrap = document.getElementById('durWrap');
+  if (!durWrap) return;
+  const opts = currentOpts();
+  durWrap.style.display = mode === 'video' ? '' : 'none';
+
+  if (mode === 'video') {
+    duration = opts.defDur;
+    document.getElementById('durLabel').textContent = duration + 's';
+    const durMenu = document.getElementById('durMenu');
+    durMenu.innerHTML = '';
+    opts.durations.forEach((d) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (d === duration ? ' selected' : '');
+      el.innerHTML = '<span>' + d + 's</span><span class="check">✓</span>';
+      el.onclick = () => {
+        duration = d;
+        document.getElementById('durLabel').textContent = d + 's';
+        durMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        durMenu.classList.remove('open');
+      };
+      durMenu.appendChild(el);
+    });
+  }
+
+  const qualWrap = document.getElementById('qualWrap');
+  qualWrap.style.display = mode === 'video' && opts.resolutions ? '' : 'none';
+  if (mode === 'video' && opts.resolutions) {
+    quality = opts.defRes;
+    document.getElementById('qualLabel').textContent = quality;
+    const qualMenu = document.getElementById('qualMenu');
+    qualMenu.innerHTML = '';
+    opts.resolutions.forEach((q) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (q === quality ? ' selected' : '');
+      el.innerHTML = '<span>' + q + '</span><span class="check">✓</span>';
+      el.onclick = () => {
+        quality = q;
+        document.getElementById('qualLabel').textContent = q;
+        qualMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        qualMenu.classList.remove('open');
+      };
+      qualMenu.appendChild(el);
+    });
+  }
+
+  ratio = opts.defRatio;
+  document.getElementById('ratioLabel').textContent = ratio;
+  const ratioMenu = document.getElementById('ratioMenu');
+  ratioMenu.innerHTML = '';
+  opts.ratios.forEach((r) => {
+    const el = document.createElement('div');
+    el.className = 'model-item' + (r === ratio ? ' selected' : '');
+    el.innerHTML = '<span>' + r + '</span><span class="check">✓</span>';
+    el.onclick = () => {
+      ratio = r;
+      document.getElementById('ratioLabel').textContent = r;
+      ratioMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+      ratioMenu.classList.remove('open');
+    };
+    ratioMenu.appendChild(el);
+  });
+}
+
+function toggleOpt(e, which) {
+  e.stopPropagation();
+  const menu = document.getElementById(which + 'Menu');
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
 }
 
 function toggleModelMenu(e) {
   e.stopPropagation();
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== modelMenu) m.classList.remove('open'); });
   modelMenu.classList.toggle('open');
 }
 
@@ -120,10 +214,12 @@ function pickModel(el) {
   document.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
   document.getElementById('modelLabel').textContent = el.dataset.label;
   modelMenu.classList.remove('open');
+  buildOptMenus();
 }
 
 if (modelMenu) {
-  document.addEventListener('click', () => modelMenu.classList.remove('open'));
+  document.addEventListener('click', () =>
+    document.querySelectorAll('.model-menu.open').forEach((m) => m.classList.remove('open')));
 }
 
 function newChat() {
@@ -194,6 +290,9 @@ async function generateMedia(text) {
         image: attachments.image || undefined,
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
+        duration: kind === 'video' ? duration : undefined,
+        ratio,
+        quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
       }),
     });
     const job = await res.json();
@@ -273,6 +372,7 @@ function send() {
 
 // Init
 buildMenu();
+buildOptMenus();
 addMsg('agent', GREETINGS[AGENT]);
 history.push({ role: 'assistant', content: GREETINGS[AGENT] });
 

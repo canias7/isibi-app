@@ -71,6 +71,18 @@
               <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
               <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
             </div>
+            <span class="opt-wrap" id="durWrap">
+              <button class="opt-btn" onclick="toggleOpt(event, 'dur')">⏱ <b id="durLabel">5s</b> ▾</button>
+              <div class="model-menu drop-up" id="durMenu"></div>
+            </span>
+            <span class="opt-wrap" id="ratioWrap">
+              <button class="opt-btn" onclick="toggleOpt(event, 'ratio')">▭ <b id="ratioLabel">16:9</b> ▾</button>
+              <div class="model-menu drop-up" id="ratioMenu"></div>
+            </span>
+            <span class="opt-wrap" id="qualWrap">
+              <button class="opt-btn" onclick="toggleOpt(event, 'qual')">◆ <b id="qualLabel">720p</b> ▾</button>
+              <div class="model-menu drop-up" id="qualMenu"></div>
+            </span>
             <button class="send" id="sendBtn" onclick="send()">SEND ✦</button>
           </div>
         </div>
