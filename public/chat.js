@@ -46,6 +46,19 @@ const MODEL_OPTS = {
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     caps: { image: false, end: false, avatar: false },
   },
+  // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
+  // duration comes from the audio. OmniHuman = portrait + voice; Kling
+  // LipSync = a source clip + voice.
+  'fal-ai/bytedance/omnihuman': {
+    noPrompt: true,
+    hint: 'Add a portrait image + an audio clip — I’ll lip-sync them',
+    caps: { image: true, end: false, avatar: false, audio: true },
+  },
+  'fal-ai/kling-video/lipsync/audio-to-video': {
+    noPrompt: true,
+    hint: 'Add a video clip + an audio clip — I’ll lip-sync them',
+    caps: { image: false, end: false, avatar: false, audio: true, clip: true },
+  },
 };
 const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
 // Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
@@ -69,6 +82,8 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard' },
     { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
+    { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
+    { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
   ],
   image: [
     { id: 'google/nano-banana-2', label: 'Nano Banana 2' },
@@ -88,11 +103,12 @@ const MODEL_LISTS = {
 
 const modelMenu = document.getElementById('modelMenu');
 
-const attachments = { image: null, avatar: null, end: null, audio: null };
+const attachments = { image: null, avatar: null, end: null, audio: null, clip: null };
 const ATTACH_LABELS = {
   image: '+ Image',
   avatar: '+ Avatar',
   audio: '+ Audio',
+  clip: '+ Video clip',
   end: '+ End frame',
 };
 
@@ -104,7 +120,7 @@ function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  const cap = kind === 'audio' ? 25 : 8;
+  const cap = kind === 'clip' ? 20 : kind === 'audio' ? 25 : 8;
   if (file.size > cap * 1024 * 1024) {
     alert('File too big — max ' + cap + ' MB.');
     return;
@@ -124,6 +140,8 @@ function renderAttach(kind) {
     btn.classList.add('has');
     const preview = kind === 'audio'
       ? '<span class="audio-chip">♪ audio</span>'
+      : kind === 'clip'
+      ? '<span class="audio-chip">🎬 clip</span>'
       : '<img src="' + attachments[kind] + '" alt="" />';
     btn.innerHTML = preview + '<span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
   } else {
@@ -141,8 +159,8 @@ function clearAttach(ev, kind) {
 // Show only the attachment pickers the current model actually supports,
 // and clear any attachment a model can't use so it isn't sent.
 function updateAttachVisibility() {
-  const caps = (currentOpts() && currentOpts().caps) || { image: false, end: false, avatar: false, audio: false };
-  [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['end', caps.end]].forEach(([kind, ok]) => {
+  const caps = (currentOpts() && currentOpts().caps) || {};
+  [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
     const btn = attachBtn(kind);
     if (!btn) return;
     btn.style.display = ok ? '' : 'none';
@@ -250,9 +268,9 @@ function buildOptMenus() {
   const durWrap = document.getElementById('durWrap');
   if (!durWrap) return;
   const opts = currentOpts();
-  durWrap.style.display = mode === 'video' ? '' : 'none';
+  durWrap.style.display = opts.durations ? '' : 'none';
 
-  if (mode === 'video') {
+  if (opts.durations) {
     duration = opts.defDur;
     document.getElementById('durLabel').textContent = duration + 's';
     const durMenu = document.getElementById('durMenu');
@@ -272,8 +290,8 @@ function buildOptMenus() {
   }
 
   const qualWrap = document.getElementById('qualWrap');
-  qualWrap.style.display = mode === 'video' && opts.resolutions ? '' : 'none';
-  if (mode === 'video' && opts.resolutions) {
+  qualWrap.style.display = opts.resolutions ? '' : 'none';
+  if (opts.resolutions) {
     quality = opts.defRes;
     document.getElementById('qualLabel').textContent = quality;
     const qualMenu = document.getElementById('qualMenu');
@@ -351,6 +369,12 @@ function buildOptMenus() {
       voiceMenu.appendChild(el);
     });
   }
+
+  // Placeholder: a per-model hint (e.g. lip-sync models) else the mode default.
+  document.getElementById('input').placeholder = opts.hint ||
+    (mode === 'image' ? 'Describe your image…' :
+     mode === 'audio' ? 'Type what you want the voice to say…' :
+     'Describe your scene…');
 
   updateAttachVisibility();
 }
@@ -437,7 +461,7 @@ async function deliver(text) {
 }
 
 async function generateMedia(text) {
-  addMsg('user', text);
+  addMsg('user', text || '🎬 Lip-sync from the attached media');
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
@@ -457,6 +481,7 @@ async function generateMedia(text) {
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
         audio: attachments.audio || undefined,
+        clip: attachments.clip || undefined,
         duration: kind === 'video' ? duration : undefined,
         ratio: kind === 'audio' ? undefined : ratio,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
@@ -535,7 +560,9 @@ async function generateMedia(text) {
 function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
-  if (!text) return;
+  // Lip-sync models are prompt-less — they run off the attachments, not text.
+  const promptless = AGENT === 'Zephyr' && mode === 'video' && currentOpts() && currentOpts().noPrompt;
+  if (!text && !promptless) return;
   input.value = '';
   if (AGENT === 'Zephyr') {
     generateMedia(text);
