@@ -10,18 +10,40 @@ const DEFAULT_MODELS = {
   image: 'fal-ai/flux/schnell',
 };
 
-const SEEDANCE_OPTS = { durations: [4, 5, 6, 8, 10, 12, 15], defDur: 5, ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9', resolutions: ['480p', '720p'], defRes: '720p' };
-const KLING_OPTS = { durations: [3, 5, 7, 10, 12, 14, 15], defDur: 5, ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9' };
+// Option ranges verified against fal's OpenAPI schemas.
+// caps: which attachments the model actually supports (image = start frame /
+// image-to-video, end = end/tail frame, avatar = reference-to-video).
+const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+const SEEDANCE_OPTS = {
+  durations: range(4, 15), defDur: 5,
+  ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
+  resolutions: ['480p', '720p'], defRes: '720p',
+  caps: { image: true, end: true, avatar: true },
+};
+const KLING_OPTS = {
+  durations: range(3, 15), defDur: 5,
+  ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
+  caps: { image: true, end: true, avatar: false },
+};
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
   'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
   'bytedance/seedance-2.0/mini/text-to-video': SEEDANCE_OPTS,
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
   'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
-  'xai/grok-imagine-video/text-to-video': { durations: [4, 6, 8, 10, 15], defDur: 6, ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'], defRatio: '16:9', resolutions: ['480p', '720p'], defRes: '720p' },
-  'google/gemini-omni-flash': { durations: [3, 5, 8, 10], defDur: 8, ratios: ['16:9', '9:16'], defRatio: '16:9' },
+  'xai/grok-imagine-video/text-to-video': {
+    durations: range(1, 15), defDur: 6,
+    ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'], defRatio: '16:9',
+    resolutions: ['480p', '720p'], defRes: '720p',
+    caps: { image: true, end: false, avatar: false },
+  },
+  'google/gemini-omni-flash': {
+    durations: range(3, 10), defDur: 8,
+    ratios: ['16:9', '9:16'], defRatio: '16:9',
+    caps: { image: false, end: false, avatar: false },
+  },
 };
-const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1' };
+const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
 
 let duration = 5;
 let ratio = '16:9';
@@ -97,6 +119,18 @@ function clearAttach(ev, kind) {
   renderAttach(kind);
 }
 
+// Show only the attachment pickers the current model actually supports,
+// and clear any attachment a model can't use so it isn't sent.
+function updateAttachVisibility() {
+  const caps = (currentOpts() && currentOpts().caps) || { image: false, end: false, avatar: false };
+  [['image', caps.image], ['avatar', caps.avatar], ['end', caps.end]].forEach(([kind, ok]) => {
+    const btn = attachBtn(kind);
+    if (!btn) return;
+    btn.style.display = ok ? '' : 'none';
+    if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
+  });
+}
+
 function buildMenu() {
   if (!modelMenu) return;
   modelMenu.innerHTML = '';
@@ -122,8 +156,6 @@ function setMode(m) {
   buildMenu();
   document.getElementById('input').placeholder =
     m === 'image' ? 'Describe your image…' : 'Describe your scene…';
-  const endBtn = attachBtn('end');
-  if (endBtn) endBtn.style.display = m === 'image' ? 'none' : '';
   buildOptMenus();
 }
 
@@ -193,6 +225,8 @@ function buildOptMenus() {
     };
     ratioMenu.appendChild(el);
   });
+
+  updateAttachVisibility();
 }
 
 function toggleOpt(e, which) {
