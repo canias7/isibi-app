@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>isibi — Chat</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="logo" onclick="location.href='/'" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
+    <nav class="nav">
+      <span>Agents</span>
+      <span>Voice<span class="new">New</span></span>
+      <span>Studio</span>
+      <span>Pricing</span>
+    </nav>
+    <div class="auth">
+      <button class="btn-ghost">Login</button>
+      <button class="btn-neon">Sign up</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="side-label">Workspace</div>
+      <div class="side-item" onclick="location.href='/'">
+        <span class="tile home">⌂</span><span>Home</span>
+      </div>
+      <div class="side-label">Agents</div>
+      <div class="side-item" id="sideNova" onclick="switchAgent('Nova')">
+        <span class="tile nova">N</span>
+        <span>Nova<span class="sub">fast &amp; to the point</span></span>
+      </div>
+      <div class="side-item" id="sideZephyr" onclick="switchAgent('Zephyr')">
+        <span class="tile zephyr">Z</span>
+        <span>Zephyr<span class="sub">calm &amp; thoughtful</span></span>
+      </div>
+      <div class="side-label">Chats</div>
+      <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
+    </aside>
+
+    <main class="main">
+
+      <section class="chat active">
+        <div class="chat-head">
+          <span class="tile nova" id="chatTile">N</span>
+          <div>
+            <div class="cname" id="chatName">Nova</div>
+            <div class="cstatus">● online</div>
+          </div>
+          <button class="btn-ghost" onclick="location.href='/'">← Change agent</button>
+        </div>
+        <div class="thread"><div class="thread-inner" id="messages"></div></div>
+      </section>
+
+      <div class="composer-wrap">
+        <div class="chips">
+          <div class="chip" onclick="toggleAgent()"><span class="dot nova" id="chipDot"></span>Agent: <b id="chipAgent">Nova</b></div>
+          <div class="chip">Model: <b>Auto</b></div>
+          <div class="chip">Memory: <b>On</b></div>
+        </div>
+        <div class="composer">
+          <input id="input" placeholder="Message Nova — say anything…" autocomplete="off"
+                 onkeydown="if(event.key==='Enter')send()" />
+          <button class="send" id="sendBtn" onclick="send()">SEND ✦</button>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <script>
+    const AGENTS = ['Nova', 'Zephyr'];
+    const GREETINGS = {
+      Nova: "Hey! Nova here. What do you need? Let's go.",
+      Zephyr: "Hello there… I'm Zephyr. No rush — what's on your mind?",
+    };
+
+    const params = new URLSearchParams(location.search);
+    const agent = params.get('agent');
+    if (!AGENTS.includes(agent)) location.replace('/');
+
+    let history = [];
+
+    function syncUI() {
+      document.getElementById('chipAgent').textContent = agent;
+      document.getElementById('chipDot').className = 'dot ' + agent.toLowerCase();
+      document.getElementById('chatName').textContent = agent;
+      document.getElementById('chatTile').className = 'tile ' + agent.toLowerCase();
+      document.getElementById('chatTile').textContent = agent[0];
+      document.getElementById('input').placeholder = 'Message ' + agent + ' — say anything…';
+      document.getElementById('sideNova').classList.toggle('active', agent === 'Nova');
+      document.getElementById('sideZephyr').classList.toggle('active', agent === 'Zephyr');
+      document.title = 'isibi — ' + agent;
+    }
+
+    function switchAgent(name) {
+      if (name !== agent) location.href = '/chat?agent=' + encodeURIComponent(name);
+    }
+
+    function toggleAgent() {
+      switchAgent(AGENTS[(AGENTS.indexOf(agent) + 1) % AGENTS.length]);
+    }
+
+    function newChat() {
+      location.href = '/chat?agent=' + encodeURIComponent(agent);
+    }
+
+    function addMsg(kind, text) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + kind;
+      if (kind.includes('typing')) {
+        div.innerHTML = text + ' <span class="dots"></span>';
+      } else {
+        div.textContent = text;
+      }
+      const box = document.getElementById('messages');
+      box.appendChild(div);
+      box.parentElement.scrollTop = box.parentElement.scrollHeight;
+      return div;
+    }
+
+    async function deliver(text) {
+      addMsg('user', text);
+      history.push({ role: 'user', content: text });
+
+      const btn = document.getElementById('sendBtn');
+      btn.disabled = true;
+      const typing = addMsg('agent typing', agent + ' is thinking');
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent, messages: history }),
+        });
+        const data = await res.json();
+        typing.remove();
+        if (data.reply) {
+          addMsg('agent', data.reply);
+          history.push({ role: 'assistant', content: data.reply });
+        } else {
+          addMsg('agent', '⚠️ ' + (data.error || 'Something went wrong.'));
+        }
+      } catch {
+        typing.remove();
+        addMsg('agent', '⚠️ Network error — try again.');
+      } finally {
+        btn.disabled = false;
+        document.getElementById('input').focus();
+      }
+    }
+
+    function send() {
+      const input = document.getElementById('input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      deliver(text);
+    }
+
+    // Init
+    syncUI();
+    addMsg('agent', GREETINGS[agent]);
+    history.push({ role: 'assistant', content: GREETINGS[agent] });
+
+    const firstMsg = params.get('q');
+    if (firstMsg) {
+      window.history.replaceState({}, '', '/chat?agent=' + encodeURIComponent(agent));
+      deliver(firstMsg);
+    }
+    document.getElementById('input').focus();
+  </script>
+</body>
+</html>
