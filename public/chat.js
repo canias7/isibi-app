@@ -8,6 +8,7 @@ let history = [];
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
   image: 'fal-ai/flux/schnell',
+  audio: 'fal-ai/elevenlabs/music',
 };
 
 // Option ranges verified against fal's OpenAPI schemas.
@@ -18,7 +19,7 @@ const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
-  caps: { image: true, end: true, avatar: true },
+  caps: { image: true, end: true, avatar: true, audio: true },
 };
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
@@ -44,6 +45,8 @@ const MODEL_OPTS = {
   },
 };
 const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
+// Audio generation: no frames, no aspect ratio, no resolution — just a prompt.
+const AUDIO_OPTS = { caps: { image: false, end: false, avatar: false } };
 
 let duration = 5;
 let ratio = '16:9';
@@ -71,14 +74,22 @@ const MODEL_LISTS = {
     { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo' },
     { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
   ],
+  audio: [
+    { id: 'fal-ai/elevenlabs/music', label: 'ElevenLabs Music', note: 'music' },
+    { id: 'fal-ai/minimax-music/v2.6', label: 'MiniMax Music', note: 'songs' },
+    { id: 'fal-ai/stable-audio', label: 'Stable Audio', note: 'sound fx' },
+    { id: 'fal-ai/elevenlabs/tts/eleven-v3', label: 'ElevenLabs Speech', note: 'speech' },
+    { id: 'fal-ai/elevenlabs/tts/turbo-v2.5', label: 'ElevenLabs Turbo', note: 'speech' },
+  ],
 };
 
 const modelMenu = document.getElementById('modelMenu');
 
-const attachments = { image: null, avatar: null, end: null };
+const attachments = { image: null, avatar: null, end: null, audio: null };
 const ATTACH_LABELS = {
   image: '+ Image',
   avatar: '+ Avatar',
+  audio: '+ Audio',
   end: '+ End frame',
 };
 
@@ -90,8 +101,9 @@ function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  if (file.size > 8 * 1024 * 1024) {
-    alert('Image too big — max 8 MB.');
+  const cap = kind === 'audio' ? 25 : 8;
+  if (file.size > cap * 1024 * 1024) {
+    alert('File too big — max ' + cap + ' MB.');
     return;
   }
   const reader = new FileReader();
@@ -107,7 +119,10 @@ function renderAttach(kind) {
   if (!btn) return;
   if (attachments[kind]) {
     btn.classList.add('has');
-    btn.innerHTML = '<img src="' + attachments[kind] + '" alt="" /><span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
+    const preview = kind === 'audio'
+      ? '<span class="audio-chip">♪ audio</span>'
+      : '<img src="' + attachments[kind] + '" alt="" />';
+    btn.innerHTML = preview + '<span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
   } else {
     btn.classList.remove('has');
     btn.innerHTML = ATTACH_LABELS[kind];
@@ -123,8 +138,8 @@ function clearAttach(ev, kind) {
 // Show only the attachment pickers the current model actually supports,
 // and clear any attachment a model can't use so it isn't sent.
 function updateAttachVisibility() {
-  const caps = (currentOpts() && currentOpts().caps) || { image: false, end: false, avatar: false };
-  [['image', caps.image], ['avatar', caps.avatar], ['end', caps.end]].forEach(([kind, ok]) => {
+  const caps = (currentOpts() && currentOpts().caps) || { image: false, end: false, avatar: false, audio: false };
+  [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['end', caps.end]].forEach(([kind, ok]) => {
     const btn = attachBtn(kind);
     if (!btn) return;
     btn.style.display = ok ? '' : 'none';
@@ -156,11 +171,14 @@ function setMode(m) {
     b.classList.toggle('active', b.dataset.mode === m));
   buildMenu();
   document.getElementById('input').placeholder =
-    m === 'image' ? 'Describe your image…' : 'Describe your scene…';
+    m === 'image' ? 'Describe your image…' :
+    m === 'audio' ? 'Describe the sound, song or speech…' :
+    'Describe your scene…';
   buildOptMenus();
 }
 
 function currentOpts() {
+  if (mode === 'audio') return AUDIO_OPTS;
   return mode === 'video' ? MODEL_OPTS[model] : IMAGE_OPTS;
 }
 
@@ -210,22 +228,27 @@ function buildOptMenus() {
     });
   }
 
-  ratio = opts.defRatio;
-  document.getElementById('ratioLabel').textContent = ratio;
-  const ratioMenu = document.getElementById('ratioMenu');
-  ratioMenu.innerHTML = '';
-  opts.ratios.forEach((r) => {
-    const el = document.createElement('div');
-    el.className = 'model-item' + (r === ratio ? ' selected' : '');
-    el.innerHTML = '<span>' + r + '</span><span class="check">✓</span>';
-    el.onclick = () => {
-      ratio = r;
-      document.getElementById('ratioLabel').textContent = r;
-      ratioMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-      ratioMenu.classList.remove('open');
-    };
-    ratioMenu.appendChild(el);
-  });
+  // Audio generation has no aspect ratio; hide the ratio picker entirely.
+  const ratioWrap = document.getElementById('ratioWrap');
+  ratioWrap.style.display = opts.ratios ? '' : 'none';
+  if (opts.ratios) {
+    ratio = opts.defRatio;
+    document.getElementById('ratioLabel').textContent = ratio;
+    const ratioMenu = document.getElementById('ratioMenu');
+    ratioMenu.innerHTML = '';
+    opts.ratios.forEach((r) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (r === ratio ? ' selected' : '');
+      el.innerHTML = '<span>' + r + '</span><span class="check">✓</span>';
+      el.onclick = () => {
+        ratio = r;
+        document.getElementById('ratioLabel').textContent = r;
+        ratioMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        ratioMenu.classList.remove('open');
+      };
+      ratioMenu.appendChild(el);
+    });
+  }
 
   updateAttachVisibility();
 }
@@ -320,8 +343,9 @@ async function generateMedia(text) {
   const label = document.getElementById('modelLabel').textContent;
   const status = addMsg('agent typing', 'Sending to ' + label);
 
+  const apiPath = kind === 'image' ? '/api/image' : kind === 'audio' ? '/api/audio' : '/api/video';
   try {
-    const res = await fetch(kind === 'image' ? '/api/image' : '/api/video', {
+    const res = await fetch(apiPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -330,8 +354,9 @@ async function generateMedia(text) {
         image: attachments.image || undefined,
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
+        audio: attachments.audio || undefined,
         duration: kind === 'video' ? duration : undefined,
-        ratio,
+        ratio: kind === 'audio' ? undefined : ratio,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
       }),
     });
@@ -368,6 +393,8 @@ async function generateMedia(text) {
     status.remove();
     const mediaUrl = kind === 'image'
       ? (out.images?.[0]?.url || out.image?.url || out.data?.images?.[0]?.url)
+      : kind === 'audio'
+      ? (out.audio?.url || out.audio_url || out.audio_file?.url || out.audio?.[0]?.url || out.data?.audio?.url)
       : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
     if (mediaUrl) {
       const div = document.createElement('div');
@@ -377,6 +404,10 @@ async function generateMedia(text) {
         el = document.createElement('img');
         el.src = mediaUrl;
         el.alt = text;
+      } else if (kind === 'audio') {
+        el = document.createElement('audio');
+        el.controls = true;
+        el.src = mediaUrl;
       } else {
         el = document.createElement('video');
         el.controls = true;

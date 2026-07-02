@@ -25,6 +25,15 @@ const IMAGE_MODELS = new Set([
 ]);
 const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
 
+const AUDIO_MODELS = new Set([
+  "fal-ai/elevenlabs/music",
+  "fal-ai/minimax-music/v2.6",
+  "fal-ai/stable-audio",
+  "fal-ai/elevenlabs/tts/eleven-v3",
+  "fal-ai/elevenlabs/tts/turbo-v2.5",
+]);
+const DEFAULT_AUDIO_MODEL = "fal-ai/elevenlabs/music";
+
 // Tried in order; if a model gets deprecated the next one takes over.
 const MODELS = [
   "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -86,7 +95,8 @@ export default {
 
     const genKind =
       url.pathname === "/api/video" ? "video" :
-      url.pathname === "/api/image" ? "image" : null;
+      url.pathname === "/api/image" ? "image" :
+      url.pathname === "/api/audio" ? "audio" : null;
     if (genKind && request.method === "POST") {
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
@@ -102,8 +112,12 @@ export default {
       if (!prompt) {
         return Response.json({ error: "no prompt" }, { status: 400 });
       }
-      const allowed = genKind === "video" ? VIDEO_MODELS : IMAGE_MODELS;
-      const fallback = genKind === "video" ? DEFAULT_VIDEO_MODEL : DEFAULT_IMAGE_MODEL;
+      const allowed =
+        genKind === "video" ? VIDEO_MODELS :
+        genKind === "audio" ? AUDIO_MODELS : IMAGE_MODELS;
+      const fallback =
+        genKind === "video" ? DEFAULT_VIDEO_MODEL :
+        genKind === "audio" ? DEFAULT_AUDIO_MODEL : DEFAULT_IMAGE_MODEL;
       const model = !body.model || body.model === "auto" ? fallback : body.model;
       if (!allowed.has(model)) {
         return Response.json({ error: "unknown model" }, { status: 400 });
@@ -114,9 +128,14 @@ export default {
         typeof v === "string" && v.startsWith("data:image/") && v.length < 12_000_000
           ? v
           : null;
+      const dataAudio = (v) =>
+        typeof v === "string" && v.startsWith("data:audio/") && v.length < 28_000_000
+          ? v
+          : null;
       const image = dataImage(body.image);
       const avatar = dataImage(body.avatar);
       const end = dataImage(body.end);
+      const audio = dataAudio(body.audio);
 
       let endpoint = model;
       const input = { prompt };
@@ -137,19 +156,30 @@ export default {
           ? body.quality
           : null;
 
-      if (genKind === "video") {
+      if (genKind === "audio") {
+        // Text-to-speech endpoints take `text`; music / sound-effect
+        // endpoints take `prompt`. Everything else uses model defaults.
+        if (endpoint.includes("/tts/")) {
+          delete input.prompt;
+          input.text = prompt;
+        }
+      } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
         const isGrok = model.includes("grok-imagine");
 
         // Route by attachment. Params below match each family's fal schema:
-        //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[]
+        //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[] + audio_urls[]
         //  Kling i2v: start_image_url + end_image_url (NO aspect_ratio/resolution)
         //  Grok i2v: image_url only (no end frame)
         //  Gemini: text-to-video only, no image input
-        if (avatar && isSeedance) {
+        // Audio input only exists on Seedance reference-to-video, so any audio
+        // attachment routes there (carrying along a reference image if present).
+        if ((avatar || audio) && isSeedance) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          input.image_urls = [image, avatar].filter(Boolean);
+          const refs = [image, avatar].filter(Boolean);
+          if (refs.length) input.image_urls = refs;
+          if (audio) input.audio_urls = [audio];
         } else if (image) {
           if (isSeedance) {
             endpoint = model.replace("/text-to-video", "/image-to-video");

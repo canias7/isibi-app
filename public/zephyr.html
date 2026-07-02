@@ -65,8 +65,10 @@
           <div class="composer-top">
             <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
             <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
+            <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
             <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
             <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
+            <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
             <input id="input" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    onkeydown="if(event.key==='Enter')send()" />
             <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
@@ -74,6 +76,7 @@
           </div>
           <div class="composer-row">
             <div class="mode-switch">
+              <button class="mode-btn" data-mode="audio" onclick="setMode('audio')">Audio</button>
               <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
               <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
             </div>

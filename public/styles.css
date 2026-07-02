@@ -217,20 +217,22 @@
 .msg.video { padding: .45rem; max-width: 68%; }
 .msg.video video { display: block; width: 460px; max-width: 100%; border-radius: 12px; }
 
-/* ── Image/Video mode switch ─────────────── */
+/* ── Audio / Image / Video mode switch ───── */
 .mode-switch {
-  display: flex; flex-shrink: 0; gap: 2px; padding: 3px;
+  display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
 }
 .mode-btn {
   background: none; border: none; color: var(--muted);
-  font-weight: 600; font-size: .85rem; padding: .5rem .9rem;
-  border-radius: 9px; cursor: pointer;
+  font-weight: 600; font-size: .85rem; padding: .45rem .9rem;
+  border-radius: 9px; cursor: pointer; text-align: center;
 }
 .mode-btn:hover { color: var(--text); }
 .mode-btn.active { background: var(--neon); color: #0a0a0b; }
 .msg.image { padding: .45rem; max-width: 68%; }
 .msg.image img { display: block; width: 380px; max-width: 100%; border-radius: 12px; }
+.msg.audio { max-width: 68%; }
+.msg.audio audio { display: block; width: 320px; max-width: 100%; }
 
 /* ── Attachment pickers ──────────────────── */
 .composer-top { display: flex; align-items: flex-start; gap: 1rem; }
@@ -245,6 +247,10 @@
 .attach-btn:hover { color: var(--text); border-color: #4a4a52; }
 .attach-btn.has { border-style: solid; border-color: var(--neon); color: var(--text); padding: .4rem .6rem; }
 .attach-btn.has img { width: 36px; height: 36px; object-fit: cover; border-radius: 8px; display: block; }
+.attach-btn .audio-chip {
+  display: inline-flex; align-items: center; gap: .35rem;
+  font-size: .85rem; color: var(--neon); font-weight: 600; padding: 0 .2rem;
+}
 .attach-btn .x { color: var(--muted); font-size: 1.15rem; padding: 0 .25rem; }
 .attach-btn .x:hover { color: var(--text); }
 
