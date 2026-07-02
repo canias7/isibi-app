@@ -58,11 +58,6 @@
       </section>
 
       <div class="composer-wrap">
-        <div class="chips">
-          <div class="chip" onclick="toggleAgent()"><span class="dot nova" id="chipDot"></span>Agent: <b id="chipAgent">Nova</b></div>
-          <div class="chip">Model: <b>Auto</b></div>
-          <div class="chip">Memory: <b>On</b></div>
-        </div>
         <div class="composer">
           <input id="input" placeholder="Message Nova — say anything…" autocomplete="off"
                  onkeydown="if(event.key==='Enter')send()" />
@@ -80,8 +75,6 @@
     function syncUI() {
       document.querySelectorAll('.agent-card').forEach(c =>
         c.classList.toggle('selected', c.dataset.agent === agent));
-      document.getElementById('chipAgent').textContent = agent;
-      document.getElementById('chipDot').className = 'dot ' + agent.toLowerCase();
       document.getElementById('input').placeholder = 'Message ' + agent + ' — say anything…';
     }
 
@@ -89,10 +82,6 @@
       agent = name;
       syncUI();
       document.getElementById('input').focus();
-    }
-
-    function toggleAgent() {
-      pick(AGENTS[(AGENTS.indexOf(agent) + 1) % AGENTS.length]);
     }
 
     function goChat() {
