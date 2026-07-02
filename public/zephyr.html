@@ -61,11 +61,11 @@
             <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
             <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
             <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
-            <button class="attach-btn" id="btnAvatar" onclick="document.getElementById('fileAvatar').click()">+ Avatar <small>optional</small></button>
+            <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
             <input id="input" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    onkeydown="if(event.key==='Enter')send()" />
             <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
-            <button class="attach-btn" id="btnEnd" onclick="document.getElementById('fileEnd').click()">+ End frame <small>optional</small></button>
+            <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
           </div>
           <div class="composer-row">
             <div class="mode-switch">

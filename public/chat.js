@@ -36,8 +36,8 @@ const modelMenu = document.getElementById('modelMenu');
 const attachments = { image: null, avatar: null, end: null };
 const ATTACH_LABELS = {
   image: '+ Image',
-  avatar: '+ Avatar <small>optional</small>',
-  end: '+ End frame <small>optional</small>',
+  avatar: '+ Avatar',
+  end: '+ End frame',
 };
 
 function attachBtn(kind) {
