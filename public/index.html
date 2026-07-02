@@ -32,11 +32,11 @@
         <span class="tile home">⌂</span><span>Home</span>
       </div>
       <div class="side-label">Agents</div>
-      <div class="side-item" onclick="location.href='/chat?agent=Nova'">
+      <div class="side-item" onclick="location.href='/nova'">
         <span class="tile nova">N</span>
         <span>Nova<span class="sub">fast &amp; to the point</span></span>
       </div>
-      <div class="side-item" onclick="location.href='/chat?agent=Zephyr'">
+      <div class="side-item" onclick="location.href='/zephyr'">
         <span class="tile zephyr">Z</span>
         <span>Zephyr<span class="sub">calm &amp; thoughtful</span></span>
       </div>
@@ -105,13 +105,13 @@
     }
 
     function goChat() {
-      location.href = '/chat?agent=' + encodeURIComponent(agent);
+      location.href = '/' + agent.toLowerCase();
     }
 
     function send() {
       const text = document.getElementById('input').value.trim();
-      const q = text ? '&q=' + encodeURIComponent(text) : '';
-      location.href = '/chat?agent=' + encodeURIComponent(agent) + q;
+      const q = text ? '?q=' + encodeURIComponent(text) : '';
+      location.href = '/' + agent.toLowerCase() + q;
     }
 
     syncUI();
