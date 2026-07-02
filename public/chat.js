@@ -5,6 +5,26 @@ const GREETINGS = {
 };
 
 let history = [];
+let model = 'auto';
+
+const modelMenu = document.getElementById('modelMenu');
+
+function toggleModelMenu(e) {
+  e.stopPropagation();
+  modelMenu.classList.toggle('open');
+}
+
+function pickModel(el) {
+  if (el.classList.contains('disabled')) return;
+  model = el.dataset.model;
+  document.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
+  document.getElementById('modelLabel').textContent = el.dataset.label;
+  modelMenu.classList.remove('open');
+}
+
+if (modelMenu) {
+  document.addEventListener('click', () => modelMenu.classList.remove('open'));
+}
 
 function newChat() {
   location.href = location.pathname;
@@ -36,7 +56,7 @@ async function deliver(text) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent: AGENT, messages: history }),
+      body: JSON.stringify({ agent: AGENT, messages: history, model }),
     });
     const data = await res.json();
     typing.remove();
