@@ -1,0 +1,11 @@
+{
+  "name": "isibi-app",
+  "compatibility_date": "2026-07-02",
+  "assets": {
+    "directory": "./public"
+  },
+  "routes": [
+    { "pattern": "isibi.ai", "custom_domain": true },
+    { "pattern": "www.isibi.ai", "custom_domain": true }
+  ]
+}
