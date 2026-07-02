@@ -48,8 +48,14 @@
             <span class="model-wrap">
               <button class="btn-ghost" onclick="toggleModelMenu(event)">Model: <b id="modelLabel">Auto</b> ▾</button>
               <div class="model-menu" id="modelMenu">
-                <div class="model-item selected" data-model="auto" data-label="Auto" onclick="pickModel(this)"><span>Auto</span><span class="check">✓</span></div>
-                <div class="model-item disabled">More models coming soon…</div>
+                <div class="model-item selected" data-model="auto" data-label="Auto" onclick="pickModel(this)"><span>Auto <small style="color:var(--muted)">· Seedance Fast</small></span><span class="check">✓</span></div>
+                <div class="model-item" data-model="bytedance/seedance-2.0/text-to-video" data-label="Seedance 2.0" onclick="pickModel(this)"><span>Seedance 2.0 <small style="color:var(--muted)">· audio</small></span><span class="check">✓</span></div>
+                <div class="model-item" data-model="bytedance/seedance-2.0/fast/text-to-video" data-label="Seedance 2.0 Fast" onclick="pickModel(this)"><span>Seedance 2.0 Fast</span><span class="check">✓</span></div>
+                <div class="model-item" data-model="bytedance/seedance-2.0/mini/text-to-video" data-label="Seedance 2.0 Mini" onclick="pickModel(this)"><span>Seedance 2.0 Mini <small style="color:var(--muted)">· cheapest</small></span><span class="check">✓</span></div>
+                <div class="model-item" data-model="fal-ai/kling-video/v3/pro/text-to-video" data-label="Kling 3.0 Pro" onclick="pickModel(this)"><span>Kling 3.0 Pro <small style="color:var(--muted)">· audio</small></span><span class="check">✓</span></div>
+                <div class="model-item" data-model="fal-ai/kling-video/v3/standard/text-to-video" data-label="Kling 3.0 Standard" onclick="pickModel(this)"><span>Kling 3.0 Standard</span><span class="check">✓</span></div>
+                <div class="model-item" data-model="xai/grok-imagine-video/text-to-video" data-label="Grok Imagine" onclick="pickModel(this)"><span>Grok Imagine <small style="color:var(--muted)">· audio</small></span><span class="check">✓</span></div>
+                <div class="model-item" data-model="google/gemini-omni-flash" data-label="Gemini Omni Flash" onclick="pickModel(this)"><span>Gemini Omni Flash <small style="color:var(--muted)">· audio</small></span><span class="check">✓</span></div>
               </div>
             </span>
             <button class="btn-ghost" onclick="location.href='/'">← Change agent</button>
