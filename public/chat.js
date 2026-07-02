@@ -1,16 +1,19 @@
 const AGENT = document.body.dataset.agent;
 const GREETINGS = {
   Nova: "Hey! Nova here — your website builder. Tell me the site you want. Let's go.",
-  Zephyr: "Hello there… I'm Zephyr, your video generator. Describe the scene you see in your head and I'll bring it to life. Pick a model top right, or leave it on Auto — no rush.",
+  Zephyr: "Hello there… I'm Zephyr, your video generator. Describe the scene you see in your head and I'll bring it to life. Pick a model top right — no rush.",
 };
 
 let history = [];
-let model = 'auto';
+const DEFAULT_MODELS = {
+  video: 'bytedance/seedance-2.0/fast/text-to-video',
+  image: 'fal-ai/flux/schnell',
+};
+let model = DEFAULT_MODELS.video;
 let mode = 'video';
 
 const MODEL_LISTS = {
   video: [
-    { id: 'auto', label: 'Auto', note: 'Seedance Fast' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest' },
@@ -20,7 +23,6 @@ const MODEL_LISTS = {
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
   ],
   image: [
-    { id: 'auto', label: 'Auto', note: 'FLUX Schnell' },
     { id: 'google/nano-banana-2', label: 'Nano Banana 2' },
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
     { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
@@ -83,7 +85,7 @@ function buildMenu() {
   modelMenu.innerHTML = '';
   MODEL_LISTS[mode].forEach((m) => {
     const d = document.createElement('div');
-    d.className = 'model-item' + (m.id === 'auto' ? ' selected' : '');
+    d.className = 'model-item' + (m.id === DEFAULT_MODELS[mode] ? ' selected' : '');
     d.dataset.model = m.id;
     d.dataset.label = m.label;
     const note = m.note ? ' <small style="color:var(--muted)">· ' + m.note + '</small>' : '';
@@ -91,8 +93,9 @@ function buildMenu() {
     d.onclick = () => pickModel(d);
     modelMenu.appendChild(d);
   });
-  model = 'auto';
-  document.getElementById('modelLabel').textContent = 'Auto';
+  model = DEFAULT_MODELS[mode];
+  const def = MODEL_LISTS[mode].find((m) => m.id === model);
+  document.getElementById('modelLabel').textContent = def.label;
 }
 
 function setMode(m) {
