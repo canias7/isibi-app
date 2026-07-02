@@ -629,68 +629,66 @@ function startDirector(text) {
   addMsg('user', text);
   const questions = directorAsk(text);
   if (!questions.length) { reviewPrompt(directorCompose(text, [])); return; }
-  directorState = { text, answers: new Array(questions.length).fill(null) };
-  renderQuestions(questions);
+  directorState = { text, questions, answers: new Array(questions.length).fill(null) };
+  renderQuestion(0);
 }
 
-function renderQuestions(questions) {
+// One question per card; answering it reveals the next, then the review.
+function renderQuestion(qi) {
   const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const q = directorState.questions[qi];
+  const total = directorState.questions.length;
+
   const card = document.createElement('div');
   card.className = 'q-card';
-  const intro = document.createElement('div');
-  intro.className = 'q-intro';
-  intro.textContent = "Quick — pick one for each and I'll build the shot:";
-  card.appendChild(intro);
 
-  questions.forEach((q, qi) => {
-    const block = document.createElement('div'); block.className = 'q-block';
-    const title = document.createElement('div'); title.className = 'q-title'; title.textContent = q.title;
-    block.appendChild(title);
-    const opts = document.createElement('div'); opts.className = 'opts';
+  const step = document.createElement('div');
+  step.className = 'q-intro';
+  step.textContent = 'Question ' + (qi + 1) + ' of ' + total;
+  card.appendChild(step);
 
-    q.options.forEach((o, oi) => {
-      const opt = document.createElement('div'); opt.className = 'opt';
-      opt.innerHTML = '<span class="key">' + LETTERS[oi] + '</span><span class="txt"><b>' +
-        esc(o.label) + '</b>' + (o.desc ? '<small>' + esc(o.desc) + '</small>' : '') + '</span>';
-      opt.onclick = () => {
-        opts.querySelectorAll('.opt').forEach((x) => x.classList.remove('sel'));
-        opt.classList.add('sel');
-        directorState.answers[qi] = o.label;
-      };
-      opts.appendChild(opt);
-    });
+  const title = document.createElement('div');
+  title.className = 'q-title'; title.textContent = q.title;
+  card.appendChild(title);
 
-    // Other… — reveals a text field to type a custom answer.
-    const other = document.createElement('div'); other.className = 'opt';
-    other.innerHTML = '<span class="key">' + LETTERS[q.options.length] + '</span><span class="txt"><b>Other…</b></span>';
-    const inp = document.createElement('input');
-    inp.className = 'other-input'; inp.placeholder = 'Type your own…'; inp.style.display = 'none';
-    other.querySelector('.txt').appendChild(inp);
-    other.onclick = (e) => {
-      if (e.target === inp) return;
-      opts.querySelectorAll('.opt').forEach((x) => x.classList.remove('sel'));
-      other.classList.add('sel');
-      inp.style.display = ''; inp.focus();
-      directorState.answers[qi] = inp.value.trim() || null;
-    };
-    inp.onclick = (e) => e.stopPropagation();
-    inp.oninput = () => { directorState.answers[qi] = inp.value.trim() || null; };
-    opts.appendChild(other);
-
-    block.appendChild(opts);
-    card.appendChild(block);
+  const opts = document.createElement('div'); opts.className = 'opts';
+  q.options.forEach((o, oi) => {
+    const opt = document.createElement('div'); opt.className = 'opt';
+    opt.innerHTML = '<span class="key">' + LETTERS[oi] + '</span><span class="txt"><b>' +
+      esc(o.label) + '</b>' + (o.desc ? '<small>' + esc(o.desc) + '</small>' : '') + '</span>';
+    opt.onclick = () => chooseAnswer(card, opt, qi, o.label);
+    opts.appendChild(opt);
   });
 
-  const go = document.createElement('button');
-  go.className = 'q-go'; go.textContent = 'Continue →';
-  go.onclick = () => {
-    card.querySelectorAll('.opt').forEach((o) => { o.style.pointerEvents = 'none'; });
-    card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
-    go.remove();
-    reviewPrompt(directorCompose(directorState.text, directorState.answers));
+  // Other… — tap to reveal a text field; Enter (or tapping it again) confirms.
+  const other = document.createElement('div'); other.className = 'opt';
+  other.innerHTML = '<span class="key">' + LETTERS[q.options.length] + '</span><span class="txt"><b>Other…</b></span>';
+  const inp = document.createElement('input');
+  inp.className = 'other-input'; inp.placeholder = 'Type & press Enter…'; inp.style.display = 'none';
+  other.querySelector('.txt').appendChild(inp);
+  other.onclick = (e) => {
+    if (e.target === inp) return;
+    if (inp.style.display === 'none') { other.classList.add('sel'); inp.style.display = ''; inp.focus(); }
+    else if (inp.value.trim()) chooseAnswer(card, other, qi, inp.value.trim());
   };
-  card.appendChild(go);
+  inp.onclick = (e) => e.stopPropagation();
+  inp.onkeydown = (e) => {
+    if (e.key === 'Enter' && inp.value.trim()) { e.preventDefault(); chooseAnswer(card, other, qi, inp.value.trim()); }
+  };
+  opts.appendChild(other);
+
+  card.appendChild(opts);
   threadAppend(card);
+}
+
+function chooseAnswer(card, optEl, qi, value) {
+  directorState.answers[qi] = value;
+  card.querySelectorAll('.opt').forEach((o) => { o.classList.remove('sel'); o.style.pointerEvents = 'none'; });
+  optEl.classList.add('sel');
+  card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
+  const next = qi + 1;
+  if (next < directorState.questions.length) renderQuestion(next);
+  else reviewPrompt(directorCompose(directorState.text, directorState.answers));
 }
 
 function reviewPrompt(prompt) {
