@@ -132,18 +132,58 @@ export default {
           ? Number(body.duration)
           : null;
 
+      const quality =
+        typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)
+          ? body.quality
+          : null;
+
       if (genKind === "video") {
+        const isSeedance = model.startsWith("bytedance/");
+        const isKling = model.includes("kling-video");
+        const isGrok = model.includes("grok-imagine");
+
+        // Route by attachment. Params below match each family's fal schema:
+        //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[]
+        //  Kling i2v: start_image_url + end_image_url (NO aspect_ratio/resolution)
+        //  Grok i2v: image_url only (no end frame)
+        //  Gemini: text-to-video only, no image input
+        if (avatar && isSeedance) {
+          endpoint = model.replace("/text-to-video", "/reference-to-video");
+          input.image_urls = [image, avatar].filter(Boolean);
+        } else if (image) {
+          if (isSeedance) {
+            endpoint = model.replace("/text-to-video", "/image-to-video");
+            input.image_url = image;
+            if (end) input.end_image_url = end;
+          } else if (isKling) {
+            endpoint = model.replace("/text-to-video", "/image-to-video");
+            input.start_image_url = image;
+            if (end) input.end_image_url = end;
+          } else if (isGrok) {
+            endpoint = model.replace("/text-to-video", "/image-to-video");
+            input.image_url = image;
+          }
+          // Gemini has no image-to-video endpoint: the image is ignored.
+        }
+
         if (duration) {
           // Seedance and Kling take duration as a string enum; Grok and Gemini as an integer.
-          input.duration =
-            model.startsWith("bytedance/") || model.includes("kling-video")
-              ? String(duration)
-              : duration;
+          input.duration = isSeedance || isKling ? String(duration) : duration;
         }
-        if (ratio) input.aspect_ratio = ratio;
-        if (typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)) {
-          input.resolution = body.quality;
-        }
+
+        // Kling image-to-video is the only video endpoint without aspect_ratio.
+        const isKlingI2V = isKling && endpoint.includes("/image-to-video");
+        if (ratio && !isKlingI2V) input.aspect_ratio = ratio;
+
+        // Only Seedance and Grok video endpoints accept a resolution.
+        if (quality && (isSeedance || isGrok)) input.resolution = quality;
+      } else if (image || avatar) {
+        if (endpoint === "google/nano-banana-2") endpoint = "fal-ai/nano-banana-2/edit";
+        else if (endpoint === "fal-ai/nano-banana-pro") endpoint = "fal-ai/nano-banana-pro/edit";
+        const urls = [image, avatar].filter(Boolean);
+        input.image_urls = urls;
+        input.image_url = urls[0];
+        if (ratio && !model.startsWith("fal-ai/flux/")) input.aspect_ratio = ratio;
       } else if (ratio) {
         if (model.startsWith("fal-ai/flux/")) {
           const sizes = {
@@ -157,27 +197,6 @@ export default {
         } else {
           input.aspect_ratio = ratio;
         }
-      }
-
-      if (genKind === "video") {
-        if (image) {
-          if (endpoint.includes("/text-to-video")) {
-            endpoint = endpoint.replace("/text-to-video", "/image-to-video");
-          }
-          input.image_url = image;
-          if (end) {
-            if (endpoint.startsWith("bytedance/")) input.end_image_url = end;
-            else if (endpoint.includes("kling-video")) input.tail_image_url = end;
-            else input.end_image_url = end;
-          }
-        }
-        if (avatar) input.reference_image_urls = [avatar];
-      } else if (image || avatar) {
-        if (endpoint === "google/nano-banana-2") endpoint = "fal-ai/nano-banana-2/edit";
-        else if (endpoint === "fal-ai/nano-banana-pro") endpoint = "fal-ai/nano-banana-pro/edit";
-        const urls = [image, avatar].filter(Boolean);
-        input.image_urls = urls;
-        input.image_url = urls[0];
       }
 
       const r = await fetch(`https://queue.fal.run/${endpoint}`, {
