@@ -184,6 +184,67 @@ function currentOpts() {
   return mode === 'video' ? MODEL_OPTS[model] : IMAGE_OPTS;
 }
 
+// Voice preview: generate a short line in the chosen voice once, then cache
+// it (keyed by model+voice) so replays and re-tests are instant and free.
+const voicePreviewCache = {};
+let previewAudio = null;
+
+function stopPreview() {
+  if (previewAudio) { previewAudio.pause(); previewAudio.currentTime = 0; }
+  document.querySelectorAll('.voice-test.playing').forEach((b) => {
+    b.classList.remove('playing'); b.textContent = '▶';
+  });
+}
+
+async function previewVoice(name, btn) {
+  stopPreview();
+  const key = model + '|' + name;
+  if (voicePreviewCache[key]) { playPreview(voicePreviewCache[key], btn); return; }
+
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const res = await fetch('/api/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name }),
+    });
+    const job = await res.json();
+    if (!res.ok || !job.status_url) throw new Error('start');
+
+    const started = Date.now();
+    let out = null;
+    while (Date.now() - started < 90 * 1000) {
+      const sr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+      const st = await sr.json();
+      if (st.status === 'COMPLETED') {
+        const rr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+        out = await rr.json();
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const url = out && (out.audio?.url || out.audio_url || out.audio_file?.url || out.data?.audio?.url);
+    if (!url) throw new Error('no audio');
+    voicePreviewCache[key] = url;
+    playPreview(url, btn);
+  } catch {
+    btn.textContent = '⚠';
+    setTimeout(() => { btn.textContent = '▶'; }, 1600);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function playPreview(url, btn) {
+  if (!previewAudio) previewAudio = new Audio();
+  previewAudio.src = url;
+  btn.classList.add('playing');
+  btn.textContent = '♪';
+  previewAudio.onended = () => { btn.classList.remove('playing'); btn.textContent = '▶'; };
+  previewAudio.play().catch(() => { btn.classList.remove('playing'); btn.textContent = '▶'; });
+}
+
 function buildOptMenus() {
   const durWrap = document.getElementById('durWrap');
   if (!durWrap) return;
@@ -263,7 +324,23 @@ function buildOptMenus() {
     opts.voices.forEach((v) => {
       const el = document.createElement('div');
       el.className = 'model-item' + (v === voice ? ' selected' : '');
-      el.innerHTML = '<span>' + v + '</span><span class="check">✓</span>';
+      const nameEl = document.createElement('span');
+      nameEl.textContent = v;
+      const right = document.createElement('span');
+      right.className = 'voice-right';
+      const test = document.createElement('button');
+      test.className = 'voice-test';
+      test.type = 'button';
+      test.textContent = '▶';
+      test.title = 'Hear ' + v;
+      test.onclick = (e) => { e.stopPropagation(); previewVoice(v, test); };
+      const check = document.createElement('span');
+      check.className = 'check';
+      check.textContent = '✓';
+      right.appendChild(test);
+      right.appendChild(check);
+      el.appendChild(nameEl);
+      el.appendChild(right);
       el.onclick = () => {
         voice = v;
         document.getElementById('voiceLabel').textContent = v;

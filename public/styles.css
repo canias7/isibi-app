@@ -264,6 +264,19 @@
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
 .model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
+#voiceMenu { min-width: 168px; max-height: 340px; overflow-y: auto; }
+
+/* Per-voice preview (play) button in the voice menu */
+.voice-right { display: inline-flex; align-items: center; gap: .5rem; }
+.voice-test {
+  background: none; border: 1px solid var(--line-2); color: var(--muted);
+  width: 24px; height: 24px; border-radius: 7px; font-size: .7rem; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.voice-test:hover { border-color: var(--neon); color: var(--neon); }
+.voice-test.playing { border-color: var(--neon); color: var(--neon); }
+.voice-test:disabled { opacity: .55; cursor: default; }
 
 /* ── Advanced settings bar ───────────────── */
 .advanced { width: 100%; max-width: 1120px; margin: 0 auto .7rem; }
