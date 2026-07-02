@@ -231,15 +231,17 @@
 .msg.image img { display: block; width: 380px; max-width: 100%; border-radius: 12px; }
 
 /* ── Attachment pickers ──────────────────── */
-.attach-group { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.composer-top { display: flex; align-items: flex-start; gap: 1rem; }
+.composer-top input { padding-top: .55rem; }
+.attach-group { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .attach-btn {
   background: none; border: 1px dashed var(--line-2); color: var(--muted);
-  border-radius: 10px; padding: .55rem .85rem; font-size: .85rem;
-  cursor: pointer; display: flex; align-items: center; gap: .45rem;
+  border-radius: 12px; padding: .75rem 1.15rem; font-size: .95rem;
+  cursor: pointer; display: flex; align-items: center; gap: .5rem; flex-shrink: 0;
 }
-.attach-btn small { color: #5c5c66; font-size: .68rem; }
+.attach-btn small { color: #5c5c66; font-size: .75rem; }
 .attach-btn:hover { color: var(--text); border-color: #4a4a52; }
-.attach-btn.has { border-style: solid; border-color: var(--neon); color: var(--text); padding: .3rem .5rem; }
-.attach-btn.has img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; display: block; }
-.attach-btn .x { color: var(--muted); font-size: 1.05rem; padding: 0 .2rem; }
+.attach-btn.has { border-style: solid; border-color: var(--neon); color: var(--text); padding: .4rem .6rem; }
+.attach-btn.has img { width: 36px; height: 36px; object-fit: cover; border-radius: 8px; display: block; }
+.attach-btn .x { color: var(--muted); font-size: 1.15rem; padding: 0 .25rem; }
 .attach-btn .x:hover { color: var(--text); }
