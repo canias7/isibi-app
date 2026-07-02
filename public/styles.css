@@ -258,3 +258,29 @@
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
 .model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
+
+/* ── Advanced settings bar ───────────────── */
+.advanced { width: 100%; max-width: 1120px; margin: 0 auto .7rem; }
+.advanced-toggle {
+  display: inline-flex; align-items: center; gap: .5rem;
+  background: none; border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: .5rem 1rem; font-size: .85rem; font-weight: 600;
+  cursor: pointer;
+}
+.advanced-toggle:hover { color: var(--text); border-color: var(--line-2); }
+.advanced-toggle .gear { font-size: .95rem; }
+.advanced-toggle .chev { transition: transform .18s ease; }
+.advanced-toggle.open .chev { transform: rotate(180deg); }
+.advanced-toggle.open { color: var(--text); border-color: var(--neon); }
+.advanced-panel {
+  display: none; gap: .6rem; margin-top: .7rem; flex-wrap: wrap; align-items: center;
+}
+.advanced-panel.open { display: flex; }
+.adv-pill {
+  display: flex; align-items: center; gap: .5rem;
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--text);
+  border-radius: 12px; padding: .6rem .95rem; font-size: .9rem; cursor: pointer;
+}
+.adv-pill small { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+.adv-pill b { font-weight: 600; }
+.adv-pill:hover { border-color: #4a4a52; }
