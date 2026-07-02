@@ -1,7 +1,7 @@
 const AGENT = document.body.dataset.agent;
 const GREETINGS = {
-  Nova: "Hey! Nova here. What do you need? Let's go.",
-  Zephyr: "Hello there… I'm Zephyr. No rush — what's on your mind?",
+  Nova: "Hey! Nova here — your website builder. Tell me the site you want. Let's go.",
+  Zephyr: "Hello there… I'm Zephyr, your video generator. Describe what you see in your head — no rush.",
 };
 
 let history = [];
