@@ -25,14 +25,13 @@ const IMAGE_MODELS = new Set([
 ]);
 const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
 
+// Audio mode is voice generation (text-to-speech).
 const AUDIO_MODELS = new Set([
-  "fal-ai/elevenlabs/music",
-  "fal-ai/minimax-music/v2.6",
-  "fal-ai/stable-audio",
   "fal-ai/elevenlabs/tts/eleven-v3",
   "fal-ai/elevenlabs/tts/turbo-v2.5",
+  "fal-ai/elevenlabs/tts/multilingual-v2",
 ]);
-const DEFAULT_AUDIO_MODEL = "fal-ai/elevenlabs/music";
+const DEFAULT_AUDIO_MODEL = "fal-ai/elevenlabs/tts/eleven-v3";
 
 // Tried in order; if a model gets deprecated the next one takes over.
 const MODELS = [
@@ -157,12 +156,16 @@ export default {
           : null;
 
       if (genKind === "audio") {
-        // Text-to-speech endpoints take `text`; music / sound-effect
-        // endpoints take `prompt`. Everything else uses model defaults.
-        if (endpoint.includes("/tts/")) {
-          delete input.prompt;
-          input.text = prompt;
-        }
+        // Voice generation: the prompt is the words to speak, and `voice`
+        // selects an ElevenLabs preset (defaults to Rachel server-side).
+        delete input.prompt;
+        input.text = prompt;
+        const voice =
+          typeof body.voice === "string" &&
+          /^[A-Za-z][A-Za-z0-9 _-]{0,39}$/.test(body.voice)
+            ? body.voice
+            : null;
+        if (voice) input.voice = voice;
       } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");

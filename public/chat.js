@@ -8,8 +8,11 @@ let history = [];
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
   image: 'fal-ai/flux/schnell',
-  audio: 'fal-ai/elevenlabs/music',
+  audio: 'fal-ai/elevenlabs/tts/eleven-v3',
 };
+
+// ElevenLabs preset voices (accepted by name on fal).
+const VOICES = ['Rachel', 'Aria', 'Sarah', 'Laura', 'Charlotte', 'Alice', 'Matilda', 'Jessica', 'Lily', 'Roger', 'George', 'Callum', 'Liam', 'Will', 'Brian', 'Daniel'];
 
 // Option ranges verified against fal's OpenAPI schemas.
 // caps: which attachments the model actually supports (image = start frame /
@@ -45,12 +48,13 @@ const MODEL_OPTS = {
   },
 };
 const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
-// Audio generation: no frames, no aspect ratio, no resolution — just a prompt.
-const AUDIO_OPTS = { caps: { image: false, end: false, avatar: false } };
+// Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
+const AUDIO_OPTS = { voices: VOICES, defVoice: 'Rachel', caps: { image: false, end: false, avatar: false } };
 
 let duration = 5;
 let ratio = '16:9';
 let quality = '720p';
+let voice = 'Rachel';
 let model = DEFAULT_MODELS.video;
 let mode = 'video';
 
@@ -75,11 +79,9 @@ const MODEL_LISTS = {
     { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
   ],
   audio: [
-    { id: 'fal-ai/elevenlabs/music', label: 'ElevenLabs Music', note: 'music' },
-    { id: 'fal-ai/minimax-music/v2.6', label: 'MiniMax Music', note: 'songs' },
-    { id: 'fal-ai/stable-audio', label: 'Stable Audio', note: 'sound fx' },
-    { id: 'fal-ai/elevenlabs/tts/eleven-v3', label: 'ElevenLabs Speech', note: 'speech' },
-    { id: 'fal-ai/elevenlabs/tts/turbo-v2.5', label: 'ElevenLabs Turbo', note: 'speech' },
+    { id: 'fal-ai/elevenlabs/tts/eleven-v3', label: 'ElevenLabs v3', note: 'expressive' },
+    { id: 'fal-ai/elevenlabs/tts/turbo-v2.5', label: 'ElevenLabs Turbo', note: 'fast' },
+    { id: 'fal-ai/elevenlabs/tts/multilingual-v2', label: 'ElevenLabs Multilingual', note: '29 langs' },
   ],
 };
 
@@ -172,7 +174,7 @@ function setMode(m) {
   buildMenu();
   document.getElementById('input').placeholder =
     m === 'image' ? 'Describe your image…' :
-    m === 'audio' ? 'Describe the sound, song or speech…' :
+    m === 'audio' ? 'Type what you want the voice to say…' :
     'Describe your scene…';
   buildOptMenus();
 }
@@ -247,6 +249,28 @@ function buildOptMenus() {
         ratioMenu.classList.remove('open');
       };
       ratioMenu.appendChild(el);
+    });
+  }
+
+  // Voice picker — only shown in audio (voice) mode.
+  const voiceWrap = document.getElementById('voiceWrap');
+  voiceWrap.style.display = opts.voices ? '' : 'none';
+  if (opts.voices) {
+    voice = opts.defVoice;
+    document.getElementById('voiceLabel').textContent = voice;
+    const voiceMenu = document.getElementById('voiceMenu');
+    voiceMenu.innerHTML = '';
+    opts.voices.forEach((v) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (v === voice ? ' selected' : '');
+      el.innerHTML = '<span>' + v + '</span><span class="check">✓</span>';
+      el.onclick = () => {
+        voice = v;
+        document.getElementById('voiceLabel').textContent = v;
+        voiceMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        voiceMenu.classList.remove('open');
+      };
+      voiceMenu.appendChild(el);
     });
   }
 
@@ -358,6 +382,7 @@ async function generateMedia(text) {
         duration: kind === 'video' ? duration : undefined,
         ratio: kind === 'audio' ? undefined : ratio,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
+        voice: kind === 'audio' ? voice : undefined,
       }),
     });
     const job = await res.json();
