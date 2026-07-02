@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>isibi — Nova · Website Builder</title>
+  <title>isibi — Avatar</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body data-agent="Nova">
+<body>
 
   <header class="topbar">
     <div class="logo" onclick="location.href='/'" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
@@ -28,39 +28,22 @@
       <div class="side-item" onclick="location.href='/gallery'">
         <span class="tile gallery">▦</span><span>Gallery</span>
       </div>
-      <div class="side-item" onclick="location.href='/avatar'">
+      <div class="side-item active" onclick="location.href='/avatar'">
         <span class="tile persona">◉</span><span>Avatar</span>
       </div>
       <div class="side-label">Chats</div>
-      <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
+      <button class="new-chat" onclick="location.href='/'"><span class="plus">+</span> New chat</button>
     </aside>
 
     <main class="main">
-
-      <section class="chat active">
-        <div class="chat-head">
-          <span class="tile nova">N</span>
-          <div>
-            <div class="cname">Nova</div>
-            <div class="cstatus">● online · website builder</div>
-          </div>
+      <section class="home-view">
+        <div class="hero">
+          <h1>Your avatars.<span class="accent">One face, every scene.</span></h1>
+          <p style="color:var(--muted); margin-top:1.2rem; font-size:1.05rem;">Create and manage avatars to reuse across your generations — coming soon.</p>
         </div>
-        <div class="thread"><div class="thread-inner" id="messages"></div></div>
       </section>
-
-      <div class="composer-wrap">
-        <div class="composer">
-          <input id="input" placeholder="Message Nova — say anything…" autocomplete="off"
-                 onkeydown="if(event.key==='Enter')send()" />
-          <div class="composer-row">
-            <button class="send" id="sendBtn" onclick="send()">SEND ✦</button>
-          </div>
-        </div>
-      </div>
-
     </main>
   </div>
 
-  <script src="/chat.js"></script>
 </body>
 </html>
