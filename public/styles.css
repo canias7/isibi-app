@@ -234,6 +234,52 @@
 .msg.audio { max-width: 68%; }
 .msg.audio audio { display: block; width: 320px; max-width: 100%; }
 
+/* ── Director: A–D question card + prompt review ── */
+.q-card, .review-card {
+  align-self: flex-start; max-width: 82%;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 16px; border-bottom-left-radius: 5px;
+  padding: 1.05rem 1.15rem; display: flex; flex-direction: column; gap: 1.1rem;
+}
+.q-intro, .review-label { color: var(--muted); font-size: .88rem; }
+.q-block .q-title { font-weight: 600; margin-bottom: .6rem; }
+.opts { display: flex; flex-direction: column; gap: .45rem; }
+.opt {
+  display: flex; align-items: center; gap: .7rem; cursor: pointer;
+  border: 1px solid var(--line-2); background: var(--panel);
+  border-radius: 11px; padding: .6rem .7rem;
+}
+.opt:hover { border-color: var(--neon); }
+.opt .key {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: 7px;
+  display: grid; place-items: center; font-weight: 700; font-size: .8rem;
+  background: var(--line); color: var(--muted);
+}
+.opt .txt { flex: 1; min-width: 0; }
+.opt .txt b { font-weight: 600; }
+.opt .txt small { display: block; color: var(--muted); font-size: .8rem; margin-top: .1rem; }
+.opt.sel { border-color: var(--neon); background: rgba(217, 255, 53, .08); }
+.opt.sel .key { background: var(--neon); color: #0a0a0b; }
+.other-input {
+  width: 100%; background: transparent; border: none; outline: none;
+  color: var(--text); font-family: inherit; font-size: .95rem;
+  border-bottom: 1px solid var(--neon); padding: .15rem 0; margin-top: .15rem;
+}
+.other-input::placeholder { color: var(--muted); }
+.review-prompt {
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px;
+  padding: .8rem .9rem; line-height: 1.5; font-size: .95rem; white-space: pre-wrap;
+}
+.review-actions { display: flex; gap: .6rem; }
+.q-go, .review-allow, .review-deny {
+  border-radius: 12px; padding: .65rem 1.35rem; font-weight: 700;
+  cursor: pointer; font-size: .92rem; font-family: inherit; border: none;
+}
+.q-go, .review-allow { align-self: flex-start; background: var(--neon); color: #0a0a0b; }
+.q-go:hover, .review-allow:hover { background: var(--neon-dim); }
+.review-deny { background: none; border: 1px solid var(--line-2); color: var(--muted); }
+.review-deny:hover { border-color: #6b4a4a; color: #e88; }
+
 /* ── Attachment pickers ──────────────────── */
 .composer-top { display: flex; align-items: flex-start; gap: 1rem; }
 .composer-top input { padding-top: .55rem; }

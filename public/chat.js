@@ -487,8 +487,8 @@ async function deliver(text) {
   }
 }
 
-async function generateMedia(text) {
-  addMsg('user', text || '🎬 Lip-sync from the attached media');
+async function generateMedia(text, opts = {}) {
+  if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
@@ -584,6 +584,133 @@ async function generateMedia(text) {
   }
 }
 
+// ── Director flow (Zephyr) ───────────────────────────────────────────────
+// Sonnet 5 will drive this once ANTHROPIC_API_KEY is set. For now the two
+// "brain" functions below (directorAsk / directorCompose) are local
+// placeholders; the question card + review UI and wiring are the real,
+// final implementation and won't change when Sonnet is plugged in.
+let directorState = null;
+
+function directorAsk(text) {
+  // Voice, or an already-detailed request → skip questions, go straight to review.
+  if (mode === 'audio' || text.trim().split(/\s+/).length >= 12) return [];
+  const look = mode === 'image'
+    ? { title: 'What style?', options: [
+        { label: 'Photoreal', desc: 'Lifelike detail' },
+        { label: 'Illustration', desc: 'Drawn / painted' },
+        { label: '3D render', desc: 'CGI look' }] }
+    : { title: 'What look?', options: [
+        { label: 'Realistic', desc: 'Photoreal footage' },
+        { label: 'Cinematic', desc: 'Filmic, color-graded' },
+        { label: 'Animated', desc: '3D / anime' }] };
+  const mood = { title: 'Mood?', options: [
+    { label: 'Bright & lively', desc: '' },
+    { label: 'Moody & dramatic', desc: '' },
+    { label: 'Dreamy & soft', desc: '' }] };
+  return [look, mood];
+}
+
+function directorCompose(text, answers) {
+  const extra = answers.filter(Boolean).join(', ');
+  return extra ? text + ' — ' + extra + '; highly detailed, professional quality.' : text;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function threadAppend(el) {
+  const box = document.getElementById('messages');
+  box.appendChild(el);
+  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+}
+
+function startDirector(text) {
+  addMsg('user', text);
+  const questions = directorAsk(text);
+  if (!questions.length) { reviewPrompt(directorCompose(text, [])); return; }
+  directorState = { text, answers: new Array(questions.length).fill(null) };
+  renderQuestions(questions);
+}
+
+function renderQuestions(questions) {
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const card = document.createElement('div');
+  card.className = 'q-card';
+  const intro = document.createElement('div');
+  intro.className = 'q-intro';
+  intro.textContent = "Quick — pick one for each and I'll build the shot:";
+  card.appendChild(intro);
+
+  questions.forEach((q, qi) => {
+    const block = document.createElement('div'); block.className = 'q-block';
+    const title = document.createElement('div'); title.className = 'q-title'; title.textContent = q.title;
+    block.appendChild(title);
+    const opts = document.createElement('div'); opts.className = 'opts';
+
+    q.options.forEach((o, oi) => {
+      const opt = document.createElement('div'); opt.className = 'opt';
+      opt.innerHTML = '<span class="key">' + LETTERS[oi] + '</span><span class="txt"><b>' +
+        esc(o.label) + '</b>' + (o.desc ? '<small>' + esc(o.desc) + '</small>' : '') + '</span>';
+      opt.onclick = () => {
+        opts.querySelectorAll('.opt').forEach((x) => x.classList.remove('sel'));
+        opt.classList.add('sel');
+        directorState.answers[qi] = o.label;
+      };
+      opts.appendChild(opt);
+    });
+
+    // Other… — reveals a text field to type a custom answer.
+    const other = document.createElement('div'); other.className = 'opt';
+    other.innerHTML = '<span class="key">' + LETTERS[q.options.length] + '</span><span class="txt"><b>Other…</b></span>';
+    const inp = document.createElement('input');
+    inp.className = 'other-input'; inp.placeholder = 'Type your own…'; inp.style.display = 'none';
+    other.querySelector('.txt').appendChild(inp);
+    other.onclick = (e) => {
+      if (e.target === inp) return;
+      opts.querySelectorAll('.opt').forEach((x) => x.classList.remove('sel'));
+      other.classList.add('sel');
+      inp.style.display = ''; inp.focus();
+      directorState.answers[qi] = inp.value.trim() || null;
+    };
+    inp.onclick = (e) => e.stopPropagation();
+    inp.oninput = () => { directorState.answers[qi] = inp.value.trim() || null; };
+    opts.appendChild(other);
+
+    block.appendChild(opts);
+    card.appendChild(block);
+  });
+
+  const go = document.createElement('button');
+  go.className = 'q-go'; go.textContent = 'Continue →';
+  go.onclick = () => {
+    card.querySelectorAll('.opt').forEach((o) => { o.style.pointerEvents = 'none'; });
+    card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
+    go.remove();
+    reviewPrompt(directorCompose(directorState.text, directorState.answers));
+  };
+  card.appendChild(go);
+  threadAppend(card);
+}
+
+function reviewPrompt(prompt) {
+  const box = document.createElement('div');
+  box.className = 'review-card';
+  const label = document.createElement('div');
+  label.className = 'review-label';
+  label.textContent = "Here's the prompt I'll generate — approve to run it:";
+  const body = document.createElement('div');
+  body.className = 'review-prompt'; body.textContent = prompt;
+  const actions = document.createElement('div'); actions.className = 'review-actions';
+  const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
+  const allow = document.createElement('button'); allow.className = 'review-allow'; allow.textContent = 'Allow & Generate ✦';
+  deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
+  allow.onclick = () => { actions.remove(); label.textContent = 'Approved ✦'; generateMedia(prompt, { announce: false }); };
+  actions.appendChild(deny); actions.appendChild(allow);
+  box.appendChild(label); box.appendChild(body); box.appendChild(actions);
+  threadAppend(box);
+}
+
 function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
@@ -591,11 +718,9 @@ function send() {
   const promptless = AGENT === 'Zephyr' && mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
   input.value = '';
-  if (AGENT === 'Zephyr') {
-    generateMedia(text);
-  } else {
-    deliver(text);
-  }
+  if (AGENT !== 'Zephyr') { deliver(text); return; }
+  if (promptless) { generateMedia(text); return; }
+  startDirector(text);
 }
 
 // Init
@@ -609,7 +734,7 @@ const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
   if (AGENT === 'Zephyr') {
-    generateMedia(firstMsg);
+    startDirector(firstMsg);
   } else {
     deliver(firstMsg);
   }
