@@ -49,7 +49,8 @@ const MODEL_OPTS = {
 };
 const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
 // Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
-const AUDIO_OPTS = { voices: VOICES, defVoice: 'Rachel', caps: { image: false, end: false, avatar: false } };
+// audio:true surfaces the "+ Audio" upload picker (e.g. a clip to clone from later).
+const AUDIO_OPTS = { voices: VOICES, defVoice: 'Rachel', caps: { image: false, end: false, avatar: false, audio: true } };
 
 let duration = 5;
 let ratio = '16:9';
