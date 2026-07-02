@@ -3,17 +3,83 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>isibi-app</title>
+  <title>isibi — Select an Agent</title>
   <style>
-    body { font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0; }
-    main { text-align: center; }
-    p { color: #94a3b8; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      display: grid; place-items: center;
+      min-height: 100vh; margin: 0;
+      background: radial-gradient(1200px 800px at 50% -10%, #1e293b, #0f172a);
+      color: #e2e8f0;
+    }
+    main { text-align: center; padding: 2rem; width: 100%; max-width: 720px; }
+    h1 { margin: 0 0 .35rem; font-size: 1.9rem; letter-spacing: -0.02em; }
+    .sub { color: #94a3b8; margin: 0 0 2.25rem; }
+    .agents { display: flex; gap: 1.25rem; justify-content: center; flex-wrap: wrap; }
+    .agent {
+      flex: 1 1 240px; max-width: 280px;
+      background: rgba(30, 41, 59, .65);
+      border: 1px solid #334155; border-radius: 16px;
+      padding: 2rem 1.5rem; cursor: pointer;
+      transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+      text-align: center;
+    }
+    .agent:hover { transform: translateY(-3px); border-color: #64748b; }
+    .agent.selected { border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, .35); }
+    .avatar {
+      width: 72px; height: 72px; margin: 0 auto 1rem;
+      border-radius: 50%; display: grid; place-items: center;
+      font-size: 1.7rem; font-weight: 700; color: #0f172a;
+    }
+    .agent:nth-child(1) .avatar { background: linear-gradient(135deg, #38bdf8, #818cf8); }
+    .agent:nth-child(2) .avatar { background: linear-gradient(135deg, #34d399, #fbbf24); }
+    .name { font-size: 1.25rem; font-weight: 600; margin: 0 0 .3rem; }
+    .desc { color: #94a3b8; font-size: .9rem; margin: 0; }
+    .cta {
+      margin-top: 2.25rem; padding: .8rem 2.4rem;
+      font-size: 1rem; font-weight: 600;
+      color: #0f172a; background: #38bdf8;
+      border: none; border-radius: 10px; cursor: pointer;
+      opacity: .4; pointer-events: none; transition: opacity .15s ease;
+    }
+    .cta.ready { opacity: 1; pointer-events: auto; }
+    .cta.ready:hover { background: #7dd3fc; }
   </style>
 </head>
 <body>
   <main>
-    <h1>isibi-app</h1>
-    <p>Deployed on Cloudflare · Backed by Supabase (fifa-tournament-hub)</p>
+    <h1>Select an agent</h1>
+    <p class="sub">Pick who you want to talk to</p>
+
+    <div class="agents">
+      <div class="agent" data-agent="Nova" onclick="pick(this)">
+        <div class="avatar">N</div>
+        <p class="name">Nova</p>
+        <p class="desc">Bright, fast and to the point.</p>
+      </div>
+      <div class="agent" data-agent="Zephyr" onclick="pick(this)">
+        <div class="avatar">Z</div>
+        <p class="name">Zephyr</p>
+        <p class="desc">Calm, thoughtful and easygoing.</p>
+      </div>
+    </div>
+
+    <button class="cta" id="continueBtn" onclick="go()">Continue</button>
   </main>
+
+  <script>
+    let selected = null;
+    function pick(el) {
+      document.querySelectorAll('.agent').forEach(a => a.classList.remove('selected'));
+      el.classList.add('selected');
+      selected = el.dataset.agent;
+      document.getElementById('continueBtn').classList.add('ready');
+    }
+    function go() {
+      if (!selected) return;
+      alert('Agent "' + selected + '" selected — chat coming soon.');
+    }
+  </script>
 </body>
 </html>
