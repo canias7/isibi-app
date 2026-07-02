@@ -66,9 +66,11 @@
             <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
             <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
             <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
+            <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
             <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
             <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
             <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
+            <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
             <input id="input" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    onkeydown="if(event.key==='Enter')send()" />
             <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />

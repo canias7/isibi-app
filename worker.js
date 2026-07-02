@@ -11,8 +11,15 @@ const VIDEO_MODELS = new Set([
   "fal-ai/kling-video/v3/standard/text-to-video",
   "xai/grok-imagine-video/text-to-video",
   "google/gemini-omni-flash",
+  "fal-ai/bytedance/omnihuman",
+  "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
 const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0/fast/text-to-video";
+// Audio-driven lip-sync models take no text prompt — they run off attachments.
+const PROMPTLESS_VIDEO = new Set([
+  "fal-ai/bytedance/omnihuman",
+  "fal-ai/kling-video/lipsync/audio-to-video",
+]);
 
 const IMAGE_MODELS = new Set([
   "google/nano-banana-2",
@@ -108,9 +115,6 @@ export default {
       }
       const prompt =
         typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
-      if (!prompt) {
-        return Response.json({ error: "no prompt" }, { status: 400 });
-      }
       const allowed =
         genKind === "video" ? VIDEO_MODELS :
         genKind === "audio" ? AUDIO_MODELS : IMAGE_MODELS;
@@ -120,6 +124,11 @@ export default {
       const model = !body.model || body.model === "auto" ? fallback : body.model;
       if (!allowed.has(model)) {
         return Response.json({ error: "unknown model" }, { status: 400 });
+      }
+      // Lip-sync models drive off attachments, not text; everything else needs a prompt.
+      const promptless = genKind === "video" && PROMPTLESS_VIDEO.has(model);
+      if (!prompt && !promptless) {
+        return Response.json({ error: "no prompt" }, { status: 400 });
       }
 
       // Optional attachments as data URIs (image = start frame / edit source)
@@ -131,10 +140,15 @@ export default {
         typeof v === "string" && v.startsWith("data:audio/") && v.length < 28_000_000
           ? v
           : null;
+      const dataVideo = (v) =>
+        typeof v === "string" && v.startsWith("data:video/") && v.length < 30_000_000
+          ? v
+          : null;
       const image = dataImage(body.image);
       const avatar = dataImage(body.avatar);
       const end = dataImage(body.end);
       const audio = dataAudio(body.audio);
+      const clip = dataVideo(body.clip);
 
       let endpoint = model;
       const input = { prompt };
@@ -166,6 +180,22 @@ export default {
             ? body.voice
             : null;
         if (voice) input.voice = voice;
+      } else if (genKind === "video" && model === "fal-ai/bytedance/omnihuman") {
+        // Audio-driven talking avatar: a portrait image + a voice clip.
+        if (!image || !audio) {
+          return Response.json({ error: "OmniHuman needs an image and an audio clip" }, { status: 400 });
+        }
+        delete input.prompt;
+        input.image_url = image;
+        input.audio_url = audio;
+      } else if (genKind === "video" && model === "fal-ai/kling-video/lipsync/audio-to-video") {
+        // Lip-sync an existing clip to a voice track.
+        if (!clip || !audio) {
+          return Response.json({ error: "Kling LipSync needs a video clip and an audio clip" }, { status: 400 });
+        }
+        delete input.prompt;
+        input.video_url = clip;
+        input.audio_url = audio;
       } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
