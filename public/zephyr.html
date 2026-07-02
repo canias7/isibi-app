@@ -57,13 +57,15 @@
 
       <div class="composer-wrap">
         <div class="composer">
-          <div class="mode-switch">
-            <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
-            <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
-          </div>
           <input id="input" placeholder="Message Zephyr — say anything…" autocomplete="off"
                  onkeydown="if(event.key==='Enter')send()" />
-          <button class="send" id="sendBtn" onclick="send()">SEND ✦</button>
+          <div class="composer-row">
+            <div class="mode-switch">
+              <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
+              <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
+            </div>
+            <button class="send" id="sendBtn" onclick="send()">SEND ✦</button>
+          </div>
         </div>
       </div>
 
