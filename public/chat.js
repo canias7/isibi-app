@@ -6,8 +6,58 @@ const GREETINGS = {
 
 let history = [];
 let model = 'auto';
+let mode = 'video';
+
+const MODEL_LISTS = {
+  video: [
+    { id: 'auto', label: 'Auto', note: 'Seedance Fast' },
+    { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
+    { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast' },
+    { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest' },
+    { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
+    { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard' },
+    { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
+    { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
+  ],
+  image: [
+    { id: 'auto', label: 'Auto', note: 'FLUX Schnell' },
+    { id: 'google/nano-banana-2', label: 'Nano Banana 2' },
+    { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
+    { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
+    { id: 'fal-ai/flux/dev', label: 'FLUX.1 Dev' },
+    { id: 'fal-ai/flux/schnell', label: 'FLUX.1 Schnell', note: 'fastest' },
+    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo' },
+    { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
+  ],
+};
 
 const modelMenu = document.getElementById('modelMenu');
+
+function buildMenu() {
+  if (!modelMenu) return;
+  modelMenu.innerHTML = '';
+  MODEL_LISTS[mode].forEach((m) => {
+    const d = document.createElement('div');
+    d.className = 'model-item' + (m.id === 'auto' ? ' selected' : '');
+    d.dataset.model = m.id;
+    d.dataset.label = m.label;
+    const note = m.note ? ' <small style="color:var(--muted)">· ' + m.note + '</small>' : '';
+    d.innerHTML = '<span>' + m.label + note + '</span><span class="check">✓</span>';
+    d.onclick = () => pickModel(d);
+    modelMenu.appendChild(d);
+  });
+  model = 'auto';
+  document.getElementById('modelLabel').textContent = 'Auto';
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.mode-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.mode === m));
+  buildMenu();
+  document.getElementById('input').placeholder =
+    m === 'image' ? 'Describe your image…' : 'Describe your scene…';
+}
 
 function toggleModelMenu(e) {
   e.stopPropagation();
@@ -75,16 +125,17 @@ async function deliver(text) {
   }
 }
 
-async function generateVideo(text) {
+async function generateMedia(text) {
   addMsg('user', text);
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
+  const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
   const status = addMsg('agent typing', 'Sending to ' + label);
 
   try {
-    const res = await fetch('/api/video', {
+    const res = await fetch(kind === 'image' ? '/api/image' : '/api/video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, prompt: text }),
@@ -106,7 +157,7 @@ async function generateVideo(text) {
       if (state === 'COMPLETED') break;
       status.textContent =
         state === 'IN_PROGRESS'
-          ? label + ' is generating your video…'
+          ? label + ' is generating your ' + kind + '…'
           : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…';
       await new Promise((r) => setTimeout(r, 4000));
     }
@@ -120,20 +171,28 @@ async function generateVideo(text) {
     const rr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json();
     status.remove();
-    const vurl =
-      out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url;
-    if (vurl) {
+    const mediaUrl = kind === 'image'
+      ? (out.images?.[0]?.url || out.image?.url || out.data?.images?.[0]?.url)
+      : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
+    if (mediaUrl) {
       const div = document.createElement('div');
-      div.className = 'msg agent video';
-      const vid = document.createElement('video');
-      vid.controls = true;
-      vid.src = vurl;
-      div.appendChild(vid);
+      div.className = 'msg agent ' + kind;
+      let el;
+      if (kind === 'image') {
+        el = document.createElement('img');
+        el.src = mediaUrl;
+        el.alt = text;
+      } else {
+        el = document.createElement('video');
+        el.controls = true;
+        el.src = mediaUrl;
+      }
+      div.appendChild(el);
       const box = document.getElementById('messages');
       box.appendChild(div);
       box.parentElement.scrollTop = box.parentElement.scrollHeight;
     } else {
-      addMsg('agent', '⚠️ Finished but no video in the response: ' + JSON.stringify(out).slice(0, 300));
+      addMsg('agent', '⚠️ Finished but no ' + kind + ' in the response: ' + JSON.stringify(out).slice(0, 300));
     }
   } catch {
     addMsg('agent', '⚠️ Network error — try again.');
@@ -150,13 +209,14 @@ function send() {
   if (!text) return;
   input.value = '';
   if (AGENT === 'Zephyr') {
-    generateVideo(text);
+    generateMedia(text);
   } else {
     deliver(text);
   }
 }
 
 // Init
+buildMenu();
 addMsg('agent', GREETINGS[AGENT]);
 history.push({ role: 'assistant', content: GREETINGS[AGENT] });
 
@@ -165,7 +225,7 @@ const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
   if (AGENT === 'Zephyr') {
-    generateVideo(firstMsg);
+    generateMedia(firstMsg);
   } else {
     deliver(firstMsg);
   }

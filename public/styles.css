@@ -222,3 +222,18 @@
 
 .msg.video { padding: .45rem; max-width: 68%; }
 .msg.video video { display: block; width: 460px; max-width: 100%; border-radius: 12px; }
+
+/* ── Image/Video mode switch ─────────────── */
+.mode-switch {
+  display: flex; flex-shrink: 0; gap: 2px; padding: 3px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
+}
+.mode-btn {
+  background: none; border: none; color: var(--muted);
+  font-weight: 600; font-size: .85rem; padding: .5rem .9rem;
+  border-radius: 9px; cursor: pointer;
+}
+.mode-btn:hover { color: var(--text); }
+.mode-btn.active { background: var(--neon); color: #0a0a0b; }
+.msg.image { padding: .45rem; max-width: 68%; }
+.msg.image img { display: block; width: 380px; max-width: 100%; border-radius: 12px; }

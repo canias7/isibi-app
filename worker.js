@@ -14,6 +14,17 @@ const VIDEO_MODELS = new Set([
 ]);
 const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0/fast/text-to-video";
 
+const IMAGE_MODELS = new Set([
+  "google/nano-banana-2",
+  "fal-ai/nano-banana-pro",
+  "openai/gpt-image-2",
+  "fal-ai/flux/dev",
+  "fal-ai/flux/schnell",
+  "fal-ai/krea-2/turbo",
+  "xai/grok-imagine-image",
+]);
+const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
+
 // Tried in order; if a model gets deprecated the next one takes over.
 const MODELS = [
   "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
@@ -73,9 +84,12 @@ export default {
       );
     }
 
-    if (url.pathname === "/api/video" && request.method === "POST") {
+    const genKind =
+      url.pathname === "/api/video" ? "video" :
+      url.pathname === "/api/image" ? "image" : null;
+    if (genKind && request.method === "POST") {
       if (!env.FAL_KEY) {
-        return Response.json({ error: "video generation not configured" }, { status: 500 });
+        return Response.json({ error: "generation not configured" }, { status: 500 });
       }
       let body;
       try {
@@ -88,9 +102,10 @@ export default {
       if (!prompt) {
         return Response.json({ error: "no prompt" }, { status: 400 });
       }
-      const model =
-        !body.model || body.model === "auto" ? DEFAULT_VIDEO_MODEL : body.model;
-      if (!VIDEO_MODELS.has(model)) {
+      const allowed = genKind === "video" ? VIDEO_MODELS : IMAGE_MODELS;
+      const fallback = genKind === "video" ? DEFAULT_VIDEO_MODEL : DEFAULT_IMAGE_MODEL;
+      const model = !body.model || body.model === "auto" ? fallback : body.model;
+      if (!allowed.has(model)) {
         return Response.json({ error: "unknown model" }, { status: 400 });
       }
       const r = await fetch(`https://queue.fal.run/${model}`, {
