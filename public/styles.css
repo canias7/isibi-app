@@ -247,3 +247,14 @@
 .attach-btn.has img { width: 36px; height: 36px; object-fit: cover; border-radius: 8px; display: block; }
 .attach-btn .x { color: var(--muted); font-size: 1.15rem; padding: 0 .25rem; }
 .attach-btn .x:hover { color: var(--text); }
+
+/* ── Duration / ratio pickers ────────────── */
+.opt-wrap { position: relative; }
+.opt-btn {
+  background: none; border: 1px solid var(--line-2); color: var(--muted);
+  border-radius: 12px; padding: .7rem 1rem; font-size: .9rem;
+  cursor: pointer; display: flex; align-items: center; gap: .4rem;
+}
+.opt-btn b { color: var(--text); font-weight: 600; }
+.opt-btn:hover { border-color: #4a4a52; color: var(--text); }
+.model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
