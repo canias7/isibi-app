@@ -84,7 +84,7 @@
     .side-item:hover { background: var(--panel-2); }
     .side-item.active { background: var(--panel-2); border-color: var(--line); }
     .tile {
-      width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+      width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px;
       display: grid; place-items: center; font-size: .95rem; font-weight: 800; color: #0a0a0b;
     }
     .tile.home { background: linear-gradient(135deg, #e2e8f0, #94a3b8); }
@@ -115,7 +115,7 @@
     }
 
     /* ── Home / select view ──────────────────── */
-    .home {
+    .home-view {
       flex: 1; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 2.4rem;
       padding: 2rem 1.5rem; overflow-y: auto;
@@ -230,7 +230,7 @@
     <aside class="sidebar">
       <div class="side-label">Workspace</div>
       <div class="side-item active" id="navHome" onclick="goHome()">
-        <span class="tile home">⌂</span> Home
+        <span class="tile home">⌂</span><span>Home</span>
       </div>
       <div class="side-label">Agents</div>
       <div class="side-item" onclick="startChat('Nova')">
@@ -248,7 +248,7 @@
     <main class="main">
 
       <!-- Home / agent select -->
-      <section class="home" id="homeView">
+      <section class="home-view" id="homeView">
         <div class="hero">
           <h1>Pick your agent.<span class="accent">Say anything.</span></h1>
         </div>
