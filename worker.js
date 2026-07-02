@@ -108,13 +108,46 @@ export default {
       if (!allowed.has(model)) {
         return Response.json({ error: "unknown model" }, { status: 400 });
       }
-      const r = await fetch(`https://queue.fal.run/${model}`, {
+
+      // Optional attachments as data URIs (image = start frame / edit source)
+      const dataImage = (v) =>
+        typeof v === "string" && v.startsWith("data:image/") && v.length < 12_000_000
+          ? v
+          : null;
+      const image = dataImage(body.image);
+      const avatar = dataImage(body.avatar);
+      const end = dataImage(body.end);
+
+      let endpoint = model;
+      const input = { prompt };
+      if (genKind === "video") {
+        if (image) {
+          if (endpoint.includes("/text-to-video")) {
+            endpoint = endpoint.replace("/text-to-video", "/image-to-video");
+          }
+          input.image_url = image;
+          if (end) {
+            if (endpoint.startsWith("bytedance/")) input.end_image_url = end;
+            else if (endpoint.includes("kling-video")) input.tail_image_url = end;
+            else input.end_image_url = end;
+          }
+        }
+        if (avatar) input.reference_image_urls = [avatar];
+      } else if (image || avatar) {
+        if (endpoint === "google/nano-banana-2") endpoint = "fal-ai/nano-banana-2/edit";
+        else if (endpoint === "fal-ai/nano-banana-pro") endpoint = "fal-ai/nano-banana-pro/edit";
+        const urls = [image, avatar].filter(Boolean);
+        input.image_urls = urls;
+        input.image_url = urls[0];
+      }
+
+      const r = await fetch(`https://queue.fal.run/${endpoint}`, {
         method: "POST",
         headers: {
           Authorization: `Key ${env.FAL_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(input),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.request_id) {

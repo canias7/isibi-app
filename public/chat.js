@@ -33,6 +33,51 @@ const MODEL_LISTS = {
 
 const modelMenu = document.getElementById('modelMenu');
 
+const attachments = { image: null, avatar: null, end: null };
+const ATTACH_LABELS = {
+  image: '+ Image',
+  avatar: '+ Avatar <small>optional</small>',
+  end: '+ End frame <small>optional</small>',
+};
+
+function attachBtn(kind) {
+  return document.getElementById('btn' + kind[0].toUpperCase() + kind.slice(1));
+}
+
+function onAttach(kind, inputEl) {
+  const file = inputEl.files[0];
+  inputEl.value = '';
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) {
+    alert('Image too big — max 8 MB.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    attachments[kind] = reader.result;
+    renderAttach(kind);
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderAttach(kind) {
+  const btn = attachBtn(kind);
+  if (!btn) return;
+  if (attachments[kind]) {
+    btn.classList.add('has');
+    btn.innerHTML = '<img src="' + attachments[kind] + '" alt="" /><span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
+  } else {
+    btn.classList.remove('has');
+    btn.innerHTML = ATTACH_LABELS[kind];
+  }
+}
+
+function clearAttach(ev, kind) {
+  ev.stopPropagation();
+  attachments[kind] = null;
+  renderAttach(kind);
+}
+
 function buildMenu() {
   if (!modelMenu) return;
   modelMenu.innerHTML = '';
@@ -57,6 +102,8 @@ function setMode(m) {
   buildMenu();
   document.getElementById('input').placeholder =
     m === 'image' ? 'Describe your image…' : 'Describe your scene…';
+  const endBtn = attachBtn('end');
+  if (endBtn) endBtn.style.display = m === 'image' ? 'none' : '';
 }
 
 function toggleModelMenu(e) {
@@ -138,7 +185,13 @@ async function generateMedia(text) {
     const res = await fetch(kind === 'image' ? '/api/image' : '/api/video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: text }),
+      body: JSON.stringify({
+        model,
+        prompt: text,
+        image: attachments.image || undefined,
+        avatar: attachments.avatar || undefined,
+        end: attachments.end || undefined,
+      }),
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) {
