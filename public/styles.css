@@ -198,3 +198,24 @@
       .sidebar { display: none; }
       .nav { display: none; }
     }
+
+/* ── Model picker (chat header) ──────────── */
+.head-actions { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+.head-actions .btn-ghost { margin-left: 0; }
+.model-wrap { position: relative; }
+.model-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; min-width: 250px;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px;
+  padding: .4rem; display: none; z-index: 50;
+  box-shadow: 0 20px 60px rgba(0,0,0,.55);
+}
+.model-menu.open { display: block; }
+.model-item {
+  padding: .55rem .8rem; border-radius: 10px; font-size: .9rem;
+  cursor: pointer; display: flex; justify-content: space-between; gap: 1rem;
+}
+.model-item:hover { background: var(--panel-2); }
+.model-item .check { color: transparent; }
+.model-item.selected .check { color: var(--neon); }
+.model-item.disabled { color: var(--muted); cursor: default; font-size: .8rem; }
+.model-item.disabled:hover { background: none; }
