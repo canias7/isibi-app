@@ -46,6 +46,25 @@ const MODEL_OPTS = {
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     caps: { image: false, end: false, avatar: false },
   },
+  'fal-ai/veo3.1': {
+    durations: [4, 6, 8], defDur: 8,
+    ratios: ['16:9', '9:16'], defRatio: '16:9',
+    resolutions: ['720p', '1080p', '4k'], defRes: '720p',
+    caps: {},
+  },
+  'fal-ai/sora-2/text-to-video/pro': {
+    durations: [4, 8, 12, 16, 20], defDur: 4,
+    ratios: ['16:9', '9:16'], defRatio: '16:9',
+    resolutions: ['720p', '1080p'], defRes: '1080p',
+    caps: {},
+  },
+  'fal-ai/kling-video/o3/pro/text-to-video': {
+    durations: range(3, 15), defDur: 5,
+    ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
+    caps: {},
+  },
+  // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
+  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: {} },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
   // LipSync = a source clip + voice.
@@ -75,17 +94,25 @@ let mode = 'video';
 
 const MODEL_LISTS = {
   video: [
+    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio' },
+    { id: 'fal-ai/sora-2/text-to-video/pro', label: 'Sora 2 Pro', note: 'OpenAI' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest' },
+    { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest' },
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard' },
+    { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
     { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
   ],
   image: [
+    { id: 'fal-ai/flux-2-pro', label: 'FLUX 2 Pro', note: 'flagship' },
+    { id: 'fal-ai/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image', note: 'Google' },
+    { id: 'fal-ai/bytedance/seedream/v4/text-to-image', label: 'Seedream v4', note: 'ByteDance' },
+    { id: 'fal-ai/recraft/v3/text-to-image', label: 'Recraft v3', note: 'design' },
     { id: 'google/nano-banana-2', label: 'Nano Banana 2' },
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
     { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
@@ -482,8 +509,8 @@ async function generateMedia(text) {
         end: attachments.end || undefined,
         audio: attachments.audio || undefined,
         clip: attachments.clip || undefined,
-        duration: kind === 'video' ? duration : undefined,
-        ratio: kind === 'audio' ? undefined : ratio,
+        duration: kind === 'video' && currentOpts().durations ? duration : undefined,
+        ratio: currentOpts().ratios ? ratio : undefined,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
         voice: kind === 'audio' ? voice : undefined,
       }),

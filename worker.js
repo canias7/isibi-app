@@ -11,6 +11,10 @@ const VIDEO_MODELS = new Set([
   "fal-ai/kling-video/v3/standard/text-to-video",
   "xai/grok-imagine-video/text-to-video",
   "google/gemini-omni-flash",
+  "fal-ai/veo3.1",
+  "fal-ai/sora-2/text-to-video/pro",
+  "fal-ai/kling-video/o3/pro/text-to-video",
+  "fal-ai/minimax/hailuo-2.3/pro/text-to-video",
   "fal-ai/bytedance/omnihuman",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
@@ -22,6 +26,10 @@ const PROMPTLESS_VIDEO = new Set([
 ]);
 
 const IMAGE_MODELS = new Set([
+  "fal-ai/flux-2-pro",
+  "fal-ai/gemini-3-pro-image-preview",
+  "fal-ai/bytedance/seedream/v4/text-to-image",
+  "fal-ai/recraft/v3/text-to-image",
   "google/nano-banana-2",
   "fal-ai/nano-banana-pro",
   "openai/gpt-image-2",
@@ -200,6 +208,8 @@ export default {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
         const isGrok = model.includes("grok-imagine");
+        const isVeo = model.includes("veo");
+        const isSora = model.includes("sora");
 
         // Route by attachment. Params below match each family's fal schema:
         //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[] + audio_urls[]
@@ -230,16 +240,18 @@ export default {
         }
 
         if (duration) {
-          // Seedance and Kling take duration as a string enum; Grok and Gemini as an integer.
-          input.duration = isSeedance || isKling ? String(duration) : duration;
+          // Veo wants "8s"; Seedance/Kling want a string enum; the rest an integer.
+          if (isVeo) input.duration = duration + "s";
+          else if (isSeedance || isKling) input.duration = String(duration);
+          else input.duration = duration;
         }
 
         // Kling image-to-video is the only video endpoint without aspect_ratio.
         const isKlingI2V = isKling && endpoint.includes("/image-to-video");
         if (ratio && !isKlingI2V) input.aspect_ratio = ratio;
 
-        // Only Seedance and Grok video endpoints accept a resolution.
-        if (quality && (isSeedance || isGrok)) input.resolution = quality;
+        // Video endpoints that accept a resolution.
+        if (quality && (isSeedance || isGrok || isVeo || isSora)) input.resolution = quality;
       } else if (image || avatar) {
         if (endpoint === "google/nano-banana-2") endpoint = "fal-ai/nano-banana-2/edit";
         else if (endpoint === "fal-ai/nano-banana-pro") endpoint = "fal-ai/nano-banana-pro/edit";
@@ -248,7 +260,13 @@ export default {
         input.image_url = urls[0];
         if (ratio && !model.startsWith("fal-ai/flux/")) input.aspect_ratio = ratio;
       } else if (ratio) {
-        if (model.startsWith("fal-ai/flux/")) {
+        // These families size output via an image_size enum; the rest take aspect_ratio.
+        const usesImageSize =
+          model.startsWith("fal-ai/flux/") ||
+          model.startsWith("fal-ai/flux-2") ||
+          model.includes("seedream") ||
+          model.includes("recraft");
+        if (usesImageSize) {
           const sizes = {
             "1:1": "square_hd",
             "16:9": "landscape_16_9",
