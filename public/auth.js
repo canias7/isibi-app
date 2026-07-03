@@ -78,7 +78,7 @@ const Auth = (() => {
     return true;
   }
 
-  // Verify the 6-digit code → a full session. type: 'email' (sign-in OTP),
+  // Verify the emailed code → a full session. type: 'email' (sign-in OTP),
   // 'signup' (confirm a new account), or 'recovery' (password reset).
   async function verifyCode(email, token, type) {
     return adopt(await gotrue('verify', { type: type || 'email', email, token }));
