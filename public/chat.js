@@ -700,7 +700,7 @@ let directorState = null;
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
 async function directorAsk(text) {
-  if (mode === 'audio') return []; // voice: the words are literal, no questions
+  if (mode === 'audio') return { reply: '', ready: true, questions: [] }; // voice: words are literal
   try {
     const res = await fetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -708,8 +708,11 @@ async function directorAsk(text) {
     });
     if (!res.ok) throw 0;
     const data = await res.json();
-    if (Array.isArray(data.questions)) return data.questions;
-    throw 0;
+    return {
+      reply: data.reply || '',
+      ready: !!data.ready,
+      questions: Array.isArray(data.questions) ? data.questions : [],
+    };
   } catch { return localAsk(text); }
 }
 
@@ -728,7 +731,14 @@ async function directorCompose(text, answers) {
 }
 
 function localAsk(text) {
-  if (text.trim().split(/\s+/).length >= 12) return [];
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  // Greeting / small talk — just chat, no question card.
+  if (words < 3) {
+    return { reply: "Hey! Tell me what you'd like to create and I'll help you shape it.", ready: false, questions: [] };
+  }
+  // Already detailed — go straight to composing.
+  if (words >= 12) return { reply: '', ready: true, questions: [] };
+  // Vague creative request — ask a couple of natural questions.
   const look = mode === 'image'
     ? { title: 'What style?', options: [
         { label: 'Photoreal', desc: 'Lifelike detail' },
@@ -742,7 +752,7 @@ function localAsk(text) {
     { label: 'Bright & lively', desc: '' },
     { label: 'Moody & dramatic', desc: '' },
     { label: 'Dreamy & soft', desc: '' }] };
-  return [look, mood];
+  return { reply: '', ready: true, questions: [look, mood] };
 }
 
 function localCompose(text, answers) {
@@ -763,11 +773,19 @@ function threadAppend(el) {
 async function startDirector(text) {
   addMsg('user', text);
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
-  let questions;
-  try { questions = await directorAsk(text); } finally { thinking.remove(); }
-  if (!questions.length) { composeAndReview(text, []); return; }
-  directorState = { text, questions, answers: new Array(questions.length).fill(null) };
-  renderQuestion(0);
+  let res;
+  try { res = await directorAsk(text); } finally { thinking.remove(); }
+  // Zephyr's conversational reply (greetings, small talk, or a lead-in to questions).
+  if (res.reply) addMsg('agent', res.reply);
+  // A vague creative request — walk through the tappable questions.
+  if (res.questions && res.questions.length) {
+    directorState = { text, questions: res.questions, answers: new Array(res.questions.length).fill(null) };
+    renderQuestion(0);
+    return;
+  }
+  // A ready, detailed request — compose the prompt for review.
+  if (res.ready) composeAndReview(text, []);
+  // Otherwise (greeting / small talk): the reply alone is the whole turn.
 }
 
 async function composeAndReview(text, answers) {

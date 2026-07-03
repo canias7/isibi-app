@@ -278,7 +278,11 @@ export default {
         : [];
 
       const system = step === "ask"
-        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, chatting with the user. Read their request. If it's already detailed enough to make something great, return an empty questions list. Otherwise ask up to 3 natural, conversational questions — phrased the way a friendly collaborator actually talks out loud (e.g. "How do you want it to feel?", "Where's this happening?", "Who's in it?"), NEVER terse category labels like "Setting", "Camera style" or "Dog breed". Tailor every question to what THIS user is trying to make. Give each question exactly 3 options, each a short label plus a few-word description.`
+        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
+- If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
+- If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
+- If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
+Tailor everything to what THIS user is trying to make.`
         : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."}`;
 
       const userMsg = step === "ask"
@@ -288,11 +292,13 @@ export default {
       // Force a tool call so Sonnet returns validated structured output.
       const tool = step === "ask"
         ? {
-            name: "ask_questions",
-            description: "Return the clarifying questions to show the user.",
+            name: "respond",
+            description: "Reply to the user and, when it's a creative request, ask clarifying questions.",
             input_schema: {
               type: "object",
               properties: {
+                reply: { type: "string", description: "a short, friendly conversational message in Zephyr's voice" },
+                ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 questions: {
                   type: "array",
                   items: {
@@ -312,7 +318,7 @@ export default {
                   },
                 },
               },
-              required: ["questions"],
+              required: ["reply", "ready"],
             },
           }
         : {
@@ -363,7 +369,11 @@ export default {
               .filter((o) => o.label),
           }))
           .filter((q) => q.title && q.options.length);
-        return Response.json({ questions });
+        return Response.json({
+          reply: String(parsed.reply || "").slice(0, 500),
+          ready: !!parsed.ready,
+          questions,
+        });
       }
       return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
     }
