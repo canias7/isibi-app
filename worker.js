@@ -260,6 +260,76 @@ export default {
       });
     }
 
+    // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.
+    if (url.pathname === "/api/direct" && request.method === "POST") {
+      if (!env.ANTHROPIC_API_KEY) {
+        return Response.json({ error: "director not configured" }, { status: 501 });
+      }
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const step = body.step === "compose" ? "compose" : "ask";
+      const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
+      if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
+      const answers = Array.isArray(body.answers)
+        ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
+        : [];
+
+      const system = step === "ask"
+        ? `You are the shot director for Zephyr, an AI ${kind} generator. Read the user's request. If it is already specific enough to produce a great ${kind}, reply with {"questions":[]}. Otherwise reply with up to 3 short multiple-choice questions whose answers would most improve the result — each with EXACTLY 3 concise options. Respond with ONLY JSON of the form {"questions":[{"title":"...","options":[{"label":"...","desc":"..."}]}]}. Labels are 1-3 words; desc is at most 5 words. No prose, no markdown.`
+        : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."} Respond with ONLY JSON {"prompt":"..."}. No prose, no markdown.`;
+
+      const userMsg = step === "ask"
+        ? `Request: ${prompt}`
+        : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
+
+      let r;
+      try {
+        r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": env.ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-5",
+            max_tokens: step === "ask" ? 700 : 500,
+            system,
+            messages: [{ role: "user", content: userMsg }],
+          }),
+        });
+      } catch (e) {
+        return Response.json({ error: "director request failed", detail: String(e) }, { status: 502 });
+      }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
+
+      let txt = (data.content?.[0]?.text || "").trim()
+        .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      let parsed;
+      try { parsed = JSON.parse(txt); } catch {
+        return Response.json({ error: "director parse failed" }, { status: 502 });
+      }
+
+      if (step === "ask") {
+        const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
+          .slice(0, 3)
+          .map((q) => ({
+            title: String(q.title || "").slice(0, 80),
+            options: (Array.isArray(q.options) ? q.options : [])
+              .slice(0, 3)
+              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
+              .filter((o) => o.label),
+          }))
+          .filter((q) => q.title && q.options.length);
+        return Response.json({ questions });
+      }
+      return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
+    }
+
     // Proxies fal queue status/result URLs so the key stays server-side.
     if (url.pathname === "/api/video/poll" && request.method === "GET") {
       const target = url.searchParams.get("url") || "";

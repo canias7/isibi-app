@@ -696,9 +696,39 @@ async function generateMedia(text, opts = {}) {
 // final implementation and won't change when Sonnet is plugged in.
 let directorState = null;
 
-function directorAsk(text) {
-  // Voice, or an already-detailed request → skip questions, go straight to review.
-  if (mode === 'audio' || text.trim().split(/\s+/).length >= 12) return [];
+// Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
+// or the call fails, we fall back to these local placeholders so the flow
+// still works.
+async function directorAsk(text) {
+  if (mode === 'audio') return []; // voice: the words are literal, no questions
+  try {
+    const res = await fetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (Array.isArray(data.questions)) return data.questions;
+    throw 0;
+  } catch { return localAsk(text); }
+}
+
+async function directorCompose(text, answers) {
+  if (mode === 'audio') return text; // voice: speak the words as given
+  try {
+    const res = await fetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean) }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (data.prompt) return data.prompt;
+    throw 0;
+  } catch { return localCompose(text, answers); }
+}
+
+function localAsk(text) {
+  if (text.trim().split(/\s+/).length >= 12) return [];
   const look = mode === 'image'
     ? { title: 'What style?', options: [
         { label: 'Photoreal', desc: 'Lifelike detail' },
@@ -715,7 +745,7 @@ function directorAsk(text) {
   return [look, mood];
 }
 
-function directorCompose(text, answers) {
+function localCompose(text, answers) {
   const extra = answers.filter(Boolean).join(', ');
   return extra ? text + ' — ' + extra + '; highly detailed, professional quality.' : text;
 }
@@ -730,12 +760,21 @@ function threadAppend(el) {
   box.parentElement.scrollTop = box.parentElement.scrollHeight;
 }
 
-function startDirector(text) {
+async function startDirector(text) {
   addMsg('user', text);
-  const questions = directorAsk(text);
-  if (!questions.length) { reviewPrompt(directorCompose(text, [])); return; }
+  const thinking = addMsg('agent typing', 'Zephyr is thinking');
+  let questions;
+  try { questions = await directorAsk(text); } finally { thinking.remove(); }
+  if (!questions.length) { composeAndReview(text, []); return; }
   directorState = { text, questions, answers: new Array(questions.length).fill(null) };
   renderQuestion(0);
+}
+
+async function composeAndReview(text, answers) {
+  const thinking = addMsg('agent typing', 'Writing the prompt');
+  let prompt;
+  try { prompt = await directorCompose(text, answers); } finally { thinking.remove(); }
+  reviewPrompt(prompt);
 }
 
 // One question per card; answering it reveals the next, then the review.
@@ -793,7 +832,7 @@ function chooseAnswer(card, optEl, qi, value) {
   card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
   const next = qi + 1;
   if (next < directorState.questions.length) renderQuestion(next);
-  else reviewPrompt(directorCompose(directorState.text, directorState.answers));
+  else composeAndReview(directorState.text, directorState.answers);
 }
 
 function reviewPrompt(prompt) {
