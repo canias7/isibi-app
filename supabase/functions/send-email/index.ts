@@ -3,9 +3,10 @@
 // Links point at isibi.ai/confirm (verifies token_hash directly), so
 // they work regardless of the project's Site URL setting.
 //
-// Deployed to the fifa-tournament-hub Supabase project as `send-email`
-// (verify_jwt OFF — the webhook signature is the auth). Secrets used:
-// GO_FARTHER_API_KEY, SEND_EMAIL_HOOK_SECRET, optional EMAIL_FROM.
+// The Go Farther round-trip is ~3.5-4s and GoTrue aborts this hook after 5s,
+// so we send in the BACKGROUND (EdgeRuntime.waitUntil) and return 200 right
+// away. Otherwise a cold start or a slow moment tips past 5s and the whole
+// signup/sign-in fails with "Failed to reach hook within maximum time".
 import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 
 const GF_ENDPOINT = "https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer";
@@ -51,7 +52,8 @@ Deno.serve(async (req) => {
   </div>`;
   const text = `${SUBJECTS[kind] || "Your code"}: ${token}\n\nExpires in 1 hour. Or open: ${link}`;
 
-  const r = await fetch(GF_ENDPOINT, {
+  // Fire the email in the background so this hook returns immediately.
+  const send = fetch(GF_ENDPOINT, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -63,12 +65,16 @@ Deno.serve(async (req) => {
       text,
       idempotency_key: email_data.token_hash || undefined,
     }),
-  });
-  if (!r.ok) {
-    const detail = await r.text().catch(() => "");
-    console.error("Go Farther send failed:", r.status, detail);
-    return json({ error: "send failed", detail: detail.slice(0, 300) }, 500);
-  }
+  })
+    .then(async (r) => {
+      if (!r.ok) console.error("Go Farther send failed:", r.status, (await r.text().catch(() => "")).slice(0, 300));
+    })
+    .catch((e) => console.error("Go Farther send threw:", String(e)));
+
+  // Keep the worker alive to finish the background send after we respond.
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt && typeof rt.waitUntil === "function") rt.waitUntil(send);
+
   return json({}, 200);
 });
 
