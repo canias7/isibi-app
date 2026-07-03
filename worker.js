@@ -278,7 +278,7 @@ export default {
         : [];
 
       const system = step === "ask"
-        ? `You are the shot director for Zephyr, an AI ${kind} generator. Read the user's request. If it is already specific enough to produce a great ${kind}, reply with {"questions":[]}. Otherwise reply with up to 3 short multiple-choice questions whose answers would most improve the result — each with EXACTLY 3 concise options. Respond with ONLY JSON of the form {"questions":[{"title":"...","options":[{"label":"...","desc":"..."}]}]}. Labels are 1-3 words; desc is at most 5 words. No prose, no markdown.`
+        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, chatting with the user. Read their request. If it's already detailed enough to make something great, reply with {"questions":[]}. Otherwise ask up to 3 natural, conversational questions — phrased the way a friendly collaborator actually talks out loud (e.g. "How do you want it to feel?", "Where's this happening?", "Who's in it?"), NEVER terse category labels like "Setting", "Camera style" or "Dog breed". Tailor every question to what THIS user is trying to make. Each question has exactly 3 options; each option is a short label plus a few-word description. Respond with ONLY JSON of the form {"questions":[{"title":"<the natural question>","options":[{"label":"<short choice>","desc":"<few words>"}]}]}. No prose, no markdown.`
         : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."} Respond with ONLY JSON {"prompt":"..."}. No prose, no markdown.`;
 
       const userMsg = step === "ask"
@@ -318,7 +318,7 @@ export default {
         const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
           .slice(0, 3)
           .map((q) => ({
-            title: String(q.title || "").slice(0, 80),
+            title: String(q.title || "").slice(0, 120),
             options: (Array.isArray(q.options) ? q.options : [])
               .slice(0, 3)
               .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
