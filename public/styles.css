@@ -234,6 +234,34 @@
 .msg.audio { max-width: 68%; }
 .msg.audio audio { display: block; width: 320px; max-width: 100%; }
 
+/* ── Generation loading (animated) ──────── */
+.gen-loading {
+  align-self: flex-start; max-width: 70%;
+  display: flex; flex-direction: column; gap: .65rem;
+  background: none; border: none; padding: 0;
+}
+.gen-shimmer {
+  width: 420px; max-width: 100%; border-radius: 12px; border: 1px solid var(--line);
+  background: linear-gradient(100deg,
+    var(--panel-2) 20%, var(--line-2) 40%, #40404a 50%, var(--line-2) 60%, var(--panel-2) 80%);
+  background-size: 220% 100%;
+  animation: shimmer 1.25s linear infinite;
+}
+@keyframes shimmer { from { background-position: 220% 0; } to { background-position: -120% 0; } }
+.gen-bars { display: flex; align-items: center; gap: 4px; height: 46px; padding: 0 .2rem; }
+.gen-bars span {
+  width: 5px; height: 22%; border-radius: 3px; background: var(--neon);
+  animation: eq .9s ease-in-out infinite;
+}
+@keyframes eq { 0%, 100% { height: 18%; opacity: .55; } 50% { height: 92%; opacity: 1; } }
+.gen-status { display: flex; align-items: center; gap: .55rem; color: var(--muted); font-size: .9rem; }
+.gen-spinner {
+  width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
+  border: 2px solid var(--line-2); border-top-color: var(--neon);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 /* ── Director: A–D question card + prompt review ── */
 .q-card, .review-card {
   align-self: flex-start; max-width: 82%;
