@@ -26,7 +26,7 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 
 ## Rate limits
 
-Per-user daily quotas enforced in Postgres: `public.use_quota(kind, limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table). Worker gates: generation (`gen`, 60/day) and director (`director`, 300/day) → 429 `daily limit reached`; the frontend shows a friendly limit message. Quota check fails open if Supabase is unreachable.
+**Currently disabled** (user's call, 2026-07-03). The Postgres side stays dormant and ready: `public.use_quota(kind, limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table). To re-enable, add back the two Worker gates (`useQuota(request, "gen", 60)` on generation, `useQuota(request, "director", 300)` on /api/direct → 429 `daily limit reached`); the frontend already shows a friendly message for that error.
 
 ## Open (not yet scheduled)
 
