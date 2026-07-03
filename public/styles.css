@@ -27,8 +27,8 @@
     body::after {
       content: ''; position: fixed; inset: -25%; z-index: -1; pointer-events: none;
       background:
-        radial-gradient(38% 34% at 24% 16%, rgba(255, 214, 10, .11), transparent 62%),
-        radial-gradient(42% 40% at 78% 84%, rgba(168, 85, 247, .16), transparent 62%);
+        radial-gradient(38% 34% at 24% 16%, rgba(255, 214, 10, .10), transparent 62%),
+        radial-gradient(34% 30% at 86% 96%, rgba(168, 85, 247, .09), transparent 58%);
       animation: ambient-drift 26s ease-in-out infinite alternate;
       will-change: transform;
     }
@@ -159,7 +159,8 @@
     .chat-head {
       display: flex; align-items: center; gap: .75rem;
       padding: .8rem 1.4rem; border-bottom: 1px solid var(--line);
-      background: rgba(10,10,11,.7); backdrop-filter: blur(8px);
+      background: rgba(255, 255, 255, .035);
+      backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
     }
     .chat-head .tile { width: 38px; height: 38px; }
     .chat-head .cname { font-weight: 700; }
@@ -463,7 +464,7 @@
 .auth-title { font-size: 1.5rem; font-weight: 800; margin: 1.4rem 0 .35rem; }
 .auth-sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.3rem; }
 .auth-tabs {
-  display: flex; gap: .3rem; background: var(--bg); border: 1px solid var(--line-2);
+  display: flex; gap: .3rem; background: rgba(0, 0, 0, .32); border: 1px solid var(--line);
   border-radius: 12px; padding: .3rem; margin-bottom: 1.15rem;
 }
 .auth-tab {
@@ -475,7 +476,7 @@
 .auth-form { display: flex; flex-direction: column; gap: .7rem; }
 #codeInput { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
 .auth-form input {
-  background: var(--bg); border: 1px solid var(--line-2); color: var(--text);
+  background: rgba(0, 0, 0, .30); border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
 }
 .auth-form input:focus { border-color: var(--neon); }
@@ -525,8 +526,8 @@
 .send svg { transition: transform .18s ease; }
 .send:hover svg { transform: translateY(-2px); }
 @keyframes send-breathe {
-  0%, 100% { box-shadow: 0 6px 24px rgba(168, 85, 247, .28); }
-  50% { box-shadow: 0 6px 30px rgba(168, 85, 247, .48), 0 2px 14px rgba(255, 214, 10, .18); }
+  0%, 100% { box-shadow: 0 6px 22px rgba(168, 85, 247, .22); }
+  50% { box-shadow: 0 6px 28px rgba(168, 85, 247, .38), 0 2px 14px rgba(255, 214, 10, .16); }
 }
 
 /* Pills, chips and ghost buttons lift slightly. */
@@ -571,7 +572,7 @@
 .composer:focus-within {
   border-color: rgba(255, 255, 255, .26);
   box-shadow: 0 20px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .10),
-    0 0 0 1px rgba(255, 214, 10, .16), 0 0 34px rgba(168, 85, 247, .14);
+    0 0 0 1px rgba(255, 214, 10, .15), 0 0 24px rgba(168, 85, 247, .07);
 }
 
 /* Brand mark shimmers slowly. */
