@@ -11,6 +11,24 @@
 </head>
 <body data-agent="Zephyr">
 
+  <div id="authGate" class="auth-gate">
+    <div class="auth-card">
+      <div class="auth-brand"><span class="logo-mark">i</span> isibi</div>
+      <h1 id="authTitle" class="auth-title">Sign in to Zephyr</h1>
+      <p class="auth-sub">Create AI video, images, and voice.</p>
+      <form id="authForm" class="auth-form">
+        <input id="authEmail" type="email" placeholder="Email" autocomplete="email" required />
+        <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" required />
+        <div id="authError" class="auth-error" style="display:none"></div>
+        <button id="authSubmit" class="auth-submit" type="submit">Sign in</button>
+      </form>
+      <div class="auth-switch">
+        <span id="authSwitchText">New here?</span>
+        <button id="authToggle" class="auth-link" type="button">Create an account</button>
+      </div>
+    </div>
+  </div>
+
   <header class="topbar">
     <div class="logo" onclick="location.href='/'" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
   </header>
@@ -23,6 +41,10 @@
       </div>
       <div class="side-label">Chats</div>
       <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
+      <div class="side-foot" id="signOutRow" style="display:none">
+        <div class="side-email" id="authEmailBadge"></div>
+        <button class="side-signout" onclick="doSignOut()">Sign out</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -93,6 +115,7 @@
     </main>
   </div>
 
+  <script src="/auth.js"></script>
   <script src="/chat.js"></script>
 </body>
 </html>

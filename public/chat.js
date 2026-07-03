@@ -265,7 +265,7 @@ async function previewVoice(name, btn) {
   btn.disabled = true;
   btn.textContent = '…';
   try {
-    const res = await fetch('/api/audio', {
+    const res = await apiFetch('/api/audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name }),
@@ -276,10 +276,10 @@ async function previewVoice(name, btn) {
     const started = Date.now();
     let out = null;
     while (Date.now() - started < 90 * 1000) {
-      const sr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
       const st = await sr.json();
       if (st.status === 'COMPLETED') {
-        const rr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+        const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
         out = await rr.json();
         break;
       }
@@ -621,7 +621,7 @@ async function generateMedia(text, opts = {}) {
 
   const apiPath = kind === 'image' ? '/api/image' : kind === 'audio' ? '/api/audio' : '/api/video';
   try {
-    const res = await fetch(apiPath, {
+    const res = await apiFetch(apiPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -649,7 +649,7 @@ async function generateMedia(text, opts = {}) {
     const started = Date.now();
     let state = '';
     while (Date.now() - started < 10 * 60 * 1000) {
-      const sr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
       const st = await sr.json();
       state = st.status;
       if (state === 'COMPLETED') break;
@@ -666,7 +666,7 @@ async function generateMedia(text, opts = {}) {
       return;
     }
 
-    const rr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+    const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json();
     loader.el.remove();
     const mediaUrl = kind === 'image'
@@ -702,7 +702,7 @@ let directorState = null;
 async function directorAsk(text) {
   if (mode === 'audio') return { reply: '', ready: true, questions: [] }; // voice: words are literal
   try {
-    const res = await fetch('/api/direct', {
+    const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ step: 'ask', kind: mode, prompt: text }),
     });
@@ -719,7 +719,7 @@ async function directorAsk(text) {
 async function directorCompose(text, answers) {
   if (mode === 'audio') return text; // voice: speak the words as given
   try {
-    const res = await fetch('/api/direct', {
+    const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean) }),
     });
@@ -889,6 +889,96 @@ function send() {
   startDirector(text);
 }
 
+// ── Auth gate ────────────────────────────────────────
+// Every /api/* call carries the Supabase access token; a 401 sends the user
+// back to the sign-in screen.
+async function apiFetch(path, opts = {}) {
+  const token = window.Auth ? await Auth.accessToken() : null;
+  const headers = Object.assign({}, opts.headers || {});
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(path, Object.assign({}, opts, { headers }));
+  if (res.status === 401) showAuthGate();
+  return res;
+}
+
+function showAuthGate() {
+  const gate = document.getElementById('authGate');
+  if (!gate) return;
+  gate.style.display = 'flex';
+  const email = document.getElementById('authEmail');
+  if (email) email.focus();
+}
+function hideAuthGate() {
+  const gate = document.getElementById('authGate');
+  if (gate) gate.style.display = 'none';
+}
+
+let authMode = 'in'; // 'in' = sign in, 'up' = create account
+function setAuthMode(m) {
+  authMode = m;
+  document.getElementById('authTitle').textContent = m === 'in' ? 'Sign in to Zephyr' : 'Create your account';
+  document.getElementById('authSubmit').textContent = m === 'in' ? 'Sign in' : 'Create account';
+  document.getElementById('authSwitchText').textContent = m === 'in' ? 'New here?' : 'Already have an account?';
+  document.getElementById('authToggle').textContent = m === 'in' ? 'Create an account' : 'Sign in';
+  document.getElementById('authPass').setAttribute('autocomplete', m === 'in' ? 'current-password' : 'new-password');
+  showAuthError('');
+}
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  if (el) { el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+}
+
+async function submitAuth() {
+  const email = document.getElementById('authEmail').value.trim();
+  const pass = document.getElementById('authPass').value;
+  const btn = document.getElementById('authSubmit');
+  if (!email || !pass) { showAuthError('Enter your email and password.'); return; }
+  if (authMode === 'up' && pass.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '…'; showAuthError('');
+  try {
+    if (authMode === 'in') {
+      await Auth.signIn(email, pass);
+      enterApp();
+    } else {
+      const r = await Auth.signUp(email, pass);
+      if (r.needsConfirm) {
+        showAuthError('Check your email to confirm your account, then sign in.');
+        setAuthMode('in');
+      } else {
+        enterApp();
+      }
+    }
+  } catch (e) {
+    showAuthError((e && e.message) || 'Something went wrong.');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+function enterApp() {
+  hideAuthGate();
+  const badge = document.getElementById('authEmailBadge');
+  if (badge) badge.textContent = Auth.email();
+  const so = document.getElementById('signOutRow');
+  if (so) so.style.display = '';
+  document.getElementById('input').focus();
+}
+
+async function doSignOut() {
+  await Auth.signOut();
+  location.reload();
+}
+
+function initAuthGate() {
+  const form = document.getElementById('authForm');
+  if (form) form.addEventListener('submit', (e) => { e.preventDefault(); submitAuth(); });
+  const toggle = document.getElementById('authToggle');
+  if (toggle) toggle.addEventListener('click', () => setAuthMode(authMode === 'in' ? 'up' : 'in'));
+  if (window.Auth && Auth.isSignedIn()) enterApp();
+  else showAuthGate();
+}
+
 // Init
 buildMenu();
 buildOptMenus();
@@ -896,10 +986,11 @@ const restored = loadSaved();
 if (restored.length) { saved = restored; restored.forEach(renderSaved); }
 else { addMsg('agent', GREETINGS[AGENT]); }
 
+initAuthGate();
+
 const params = new URLSearchParams(location.search);
 const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
-  startDirector(firstMsg);
+  if (window.Auth && Auth.isSignedIn()) startDirector(firstMsg);
 }
-document.getElementById('input').focus();
