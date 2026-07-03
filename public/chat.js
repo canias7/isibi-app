@@ -89,6 +89,12 @@ const IMAGE_MULTI_MODELS = new Set([
   'google/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
   'fal-ai/flux-2-pro', 'fal-ai/gemini-3-pro-image-preview', 'fal-ai/bytedance/seedream/v4/text-to-image',
 ]);
+// Models whose fal schema accepts num_images (verified against the OpenAPI docs).
+const IMAGE_NUM_MODELS = new Set([
+  'fal-ai/flux/schnell', 'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
+  'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/krea-2/turbo',
+  'xai/grok-imagine-image', 'fal-ai/gemini-3-pro-image-preview',
+]);
 // Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
 // audio:true surfaces the "+ Audio" upload picker (e.g. a clip to clone from later).
 const AUDIO_OPTS = { voices: VOICES, defVoice: 'Rachel', caps: { image: false, end: false, avatar: false, audio: true } };
@@ -97,6 +103,7 @@ let duration = 5;
 let ratio = '16:9';
 let quality = '720p';
 let voice = 'Rachel';
+let numImages = 1; // per-image billing — always defaults back to 1
 // Each mode remembers its own model, so switching modes doesn't reset the pick.
 const selectedModels = { ...DEFAULT_MODELS };
 let model = selectedModels.video;
@@ -242,6 +249,7 @@ function currentOpts() {
   if (mode === 'image') {
     return {
       ratios: IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
+      nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: { image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model) },
     };
   }
@@ -363,6 +371,28 @@ function buildOptMenus() {
         qualMenu.classList.remove('open');
       };
       qualMenu.appendChild(el);
+    });
+  }
+
+  // How many images per prompt (billing is per image, so always reset to 1).
+  const numWrap = document.getElementById('numWrap');
+  numWrap.style.display = opts.nums ? '' : 'none';
+  if (opts.nums) {
+    numImages = 1;
+    document.getElementById('numLabel').textContent = '1';
+    const numMenu = document.getElementById('numMenu');
+    numMenu.innerHTML = '';
+    opts.nums.forEach((n) => {
+      const el = document.createElement('div');
+      el.className = 'model-item' + (n === numImages ? ' selected' : '');
+      el.innerHTML = '<span>' + n + (n === 1 ? ' image' : ' images') + '</span><span class="check">✓</span>';
+      el.onclick = () => {
+        numImages = n;
+        document.getElementById('numLabel').textContent = String(n);
+        numMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
+        numMenu.classList.remove('open');
+      };
+      numMenu.appendChild(el);
     });
   }
 
@@ -803,8 +833,31 @@ function endGen(chatId) {
   }
   updateSendLock();
 }
+
+// While the active chat is generating, the send arrow becomes a stop square.
+const ARROW_SVG = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+const STOP_SVG = '<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>';
 function updateSendLock() {
-  document.getElementById('sendBtn').disabled = activeGens.has(chatStore.active);
+  const btn = document.getElementById('sendBtn');
+  const busy = activeGens.has(chatStore.active);
+  btn.disabled = false;
+  btn.title = busy ? 'Stop generating' : 'Send';
+  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG;
+}
+
+// Stop a chat's generation: kill the fal job too (queued jobs never bill),
+// drop the loader, and free the chat.
+function cancelGen(chatId) {
+  const gen = activeGens.get(chatId);
+  if (!gen) return;
+  if (gen.statusUrl) {
+    apiFetch('/api/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: gen.statusUrl.replace(/\/status\b.*$/, '/cancel') }),
+    }).catch(() => {});
+  }
+  endGen(chatId);
+  deliverAgent(chatId, '⏹ Cancelled.');
 }
 
 // Turn fal/worker failures into human messages; the raw detail goes to the console.
@@ -828,7 +881,11 @@ async function generateMedia(text, opts = {}) {
 
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
-  activeGens.set(origin, { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label });
+  // Identity token: cancel deletes it, and a fresh generation in this chat
+  // replaces it — either way this run notices and quietly stops.
+  const myGen = { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label, statusUrl: null };
+  const alive = () => activeGens.get(origin) === myGen;
+  activeGens.set(origin, myGen);
   updateSendLock();
   mountGenLoader();
 
@@ -849,20 +906,24 @@ async function generateMedia(text, opts = {}) {
         ratio: currentOpts().ratios ? ratio : undefined,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
         voice: kind === 'audio' ? voice : undefined,
+        num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
       }),
     });
     const job = await res.json();
+    if (!alive()) return; // cancelled while submitting
     if (!res.ok || !job.status_url) {
       endGen(origin);
       deliverAgent(origin, friendlyFail(job));
       return;
     }
+    myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
     const started = Date.now();
     let state = '';
     while (Date.now() - started < 10 * 60 * 1000) {
       const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
       const st = await sr.json();
+      if (!alive()) return; // cancelled while polling
       state = st.status;
       if (state === 'COMPLETED') break;
       setGenText(origin,
@@ -870,6 +931,7 @@ async function generateMedia(text, opts = {}) {
           ? label + ' is generating your ' + kind + '…'
           : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…');
       await new Promise((r) => setTimeout(r, 4000));
+      if (!alive()) return;
     }
 
     if (state !== 'COMPLETED') {
@@ -880,24 +942,36 @@ async function generateMedia(text, opts = {}) {
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json();
-    const mediaUrl = kind === 'image'
-      ? (out.images?.[0]?.url || out.image?.url || out.data?.images?.[0]?.url)
-      : kind === 'audio'
-      ? (out.audio?.url || out.audio_url || out.audio_file?.url || out.audio?.[0]?.url || out.data?.audio?.url)
-      : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
-    if (mediaUrl) {
+    if (!alive()) return;
+    // Images may come back as several variations; video/audio is a single URL.
+    let urls = [];
+    if (kind === 'image') {
+      urls = (out.images || out.data?.images || []).map((i) => i && i.url).filter(Boolean);
+      if (!urls.length && out.image?.url) urls = [out.image.url];
+    } else {
+      const single = kind === 'audio'
+        ? (out.audio?.url || out.audio_url || out.audio_file?.url || out.audio?.[0]?.url || out.data?.audio?.url)
+        : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
+      if (single) urls = [single];
+    }
+    if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
-      setGenText(origin, 'Saving to your gallery…');
-      let finalUrl = mediaUrl;
-      try {
-        const sv = await apiFetch('/api/save', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: mediaUrl, kind }),
-        });
-        if (sv.ok) { const d = await sv.json(); if (d.url) finalUrl = d.url; }
-      } catch {}
+      setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
+      const finals = [];
+      for (const u of urls) {
+        let finalUrl = u;
+        try {
+          const sv = await apiFetch('/api/save', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: u, kind }),
+          });
+          if (sv.ok) { const d = await sv.json(); if (d.url) finalUrl = d.url; }
+        } catch {}
+        finals.push(finalUrl);
+      }
+      if (!alive()) return;
       endGen(origin);
-      deliverMedia(origin, kind, finalUrl);
+      finals.forEach((f) => deliverMedia(origin, kind, f));
       // The inputs were consumed — don't let them ride along on the next prompt.
       Object.keys(attachments).forEach((k) => {
         if (attachments[k]) { attachments[k] = null; renderAttach(k); }
@@ -908,9 +982,9 @@ async function generateMedia(text, opts = {}) {
       deliverAgent(origin, '⚠️ The model finished but returned no ' + kind + ' — try again.');
     }
   } catch {
-    deliverAgent(origin, '⚠️ Network hiccup — try again.');
+    if (alive()) deliverAgent(origin, '⚠️ Network hiccup — try again.');
   } finally {
-    endGen(origin);
+    if (alive()) endGen(origin);
     if (chatStore.active === origin) document.getElementById('input').focus();
   }
 }
@@ -1122,6 +1196,8 @@ function autoGrow(el) {
 }
 
 function send() {
+  // While this chat is generating, the send button is a stop button.
+  if (activeGens.has(chatStore.active)) { cancelGen(chatStore.active); return; }
   const input = document.getElementById('input');
   const text = input.value.trim();
   // Lip-sync models are prompt-less — they run off the attachments, not text.
