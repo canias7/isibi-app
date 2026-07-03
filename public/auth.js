@@ -91,6 +91,24 @@ const Auth = (() => {
     return session ? session.access_token : null;
   }
 
+  // Set a new password for the signed-in user.
+  async function updatePassword(newPassword) {
+    const token = await accessToken();
+    if (!token) throw new Error('Not signed in');
+    const res = await fetch(SUPABASE_URL + '/auth/v1/user', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + token,
+      },
+      body: JSON.stringify({ password: newPassword }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error_description || data.msg || data.error || 'Could not change the password');
+    return true;
+  }
+
   // Delete an object from the media bucket (RLS only allows your own folder).
   async function storageDelete(path) {
     const token = await accessToken();
@@ -117,7 +135,7 @@ const Auth = (() => {
 
   loadSession();
   return {
-    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut, storageDelete,
+    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut, storageDelete, updatePassword,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
   };

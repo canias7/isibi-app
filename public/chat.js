@@ -909,6 +909,7 @@ function cancelGen(chatId) {
 function friendlyFail(job) {
   console.error('generation failed:', job);
   const raw = JSON.stringify(job || {});
+  if (/daily limit/i.test(raw)) return "⚠️ You've hit today's generation limit — it resets within 24 hours.";
   if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
   if (/content|safety|nsfw|moderation/i.test(raw)) return '⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.';
   if (/validation|invalid|must be|unprocessable/i.test(raw)) return '⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.';
@@ -969,8 +970,10 @@ async function generateMedia(text, opts = {}) {
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
     const started = Date.now();
+    // 4K renders can legitimately outrun ten minutes — give them twenty.
+    const maxWaitMin = kind === 'video' && quality === '4k' ? 20 : 10;
     let state = '';
-    while (Date.now() - started < 10 * 60 * 1000) {
+    while (Date.now() - started < maxWaitMin * 60 * 1000) {
       const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
       if (sr.status === 401) {
         if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
@@ -990,7 +993,7 @@ async function generateMedia(text, opts = {}) {
 
     if (state !== 'COMPLETED') {
       endGen(origin);
-      deliverAgent(origin, '⚠️ Timed out after 10 minutes — the job may still finish on fal.ai.');
+      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai.');
       return;
     }
 
@@ -1427,6 +1430,18 @@ function enterApp() {
 async function doSignOut() {
   await Auth.signOut();
   location.reload();
+}
+
+async function changePassword() {
+  const np = prompt('New password (at least 6 characters):');
+  if (np === null) return;
+  if (np.length < 6) { alert('Password must be at least 6 characters.'); return; }
+  try {
+    await Auth.updatePassword(np);
+    alert('Password updated ✓');
+  } catch (e) {
+    alert((e && e.message) || 'Could not change the password.');
+  }
 }
 
 function initAuthGate() {
