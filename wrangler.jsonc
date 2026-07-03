@@ -4,7 +4,11 @@
   "main": "worker.js",
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
+    // Run the Worker for every request (including static assets) so the
+    // harden() wrapper can attach security headers to HTML/JS/CSS too — by
+    // default Cloudflare serves matching assets directly and skips the Worker.
+    "run_worker_first": true
   },
   "routes": [
     { "pattern": "isibi.ai", "custom_domain": true },
