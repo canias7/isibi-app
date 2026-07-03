@@ -16,16 +16,34 @@
       <div class="auth-brand"><span class="logo-mark">i</span> isibi</div>
       <h1 id="authTitle" class="auth-title">Sign in to Zephyr</h1>
       <p class="auth-sub">Create AI video, images, and voice.</p>
+
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" id="tabPassword" onclick="setAuthMethod('password')">Password</button>
+        <button type="button" class="auth-tab" id="tabCode" onclick="setAuthMethod('code')">Email code</button>
+      </div>
+
       <form id="authForm" class="auth-form">
         <input id="authEmail" type="email" placeholder="Email" autocomplete="email" required />
         <input id="authPass" type="password" placeholder="Password" autocomplete="current-password" required />
         <div id="authError" class="auth-error" style="display:none"></div>
         <button id="authSubmit" class="auth-submit" type="submit">Sign in</button>
       </form>
-      <div class="auth-switch">
+      <div class="auth-switch" id="authSwitch">
         <span id="authSwitchText">New here?</span>
         <button id="authToggle" class="auth-link" type="button">Create an account</button>
       </div>
+
+      <form id="codeForm" class="auth-form" style="display:none">
+        <input id="codeEmail" type="email" placeholder="Email" autocomplete="email" />
+        <input id="codeInput" type="text" inputmode="numeric" autocomplete="one-time-code"
+               placeholder="6-digit code" maxlength="6" style="display:none" />
+        <div id="codeError" class="auth-error" style="display:none"></div>
+        <button id="codeSubmit" class="auth-submit" type="submit">Send code</button>
+        <div class="auth-switch" id="codeHint" style="display:none">
+          <span id="codeHintText">Code sent — check your email.</span>
+          <button id="codeResend" class="auth-link" type="button">Resend</button>
+        </div>
+      </form>
     </div>
   </div>
 

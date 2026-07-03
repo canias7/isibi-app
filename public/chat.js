@@ -913,6 +913,28 @@ function hideAuthGate() {
   if (gate) gate.style.display = 'none';
 }
 
+let authMethod = 'password'; // 'password' | 'code'
+function setAuthMethod(m) {
+  authMethod = m;
+  const isPw = m === 'password';
+  document.getElementById('tabPassword').classList.toggle('active', isPw);
+  document.getElementById('tabCode').classList.toggle('active', !isPw);
+  document.getElementById('authForm').style.display = isPw ? '' : 'none';
+  document.getElementById('authSwitch').style.display = isPw ? '' : 'none';
+  document.getElementById('codeForm').style.display = isPw ? 'none' : '';
+  showAuthError(''); showCodeError('');
+  if (isPw) {
+    setAuthMode(authMode);
+    document.getElementById('authEmail').focus();
+  } else {
+    document.getElementById('authTitle').textContent = 'Sign in to Zephyr';
+    resetCodeFlow();
+    const typed = document.getElementById('authEmail').value.trim();
+    if (typed) document.getElementById('codeEmail').value = typed;
+    document.getElementById('codeEmail').focus();
+  }
+}
+
 let authMode = 'in'; // 'in' = sign in, 'up' = create account
 function setAuthMode(m) {
   authMode = m;
@@ -926,6 +948,65 @@ function setAuthMode(m) {
 function showAuthError(msg) {
   const el = document.getElementById('authError');
   if (el) { el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+}
+function showCodeError(msg) {
+  const el = document.getElementById('codeError');
+  if (el) { el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+}
+
+// Email-code flow: 'request' shows the email field, 'verify' shows the code field.
+let codeStep = 'request';
+function resetCodeFlow() {
+  codeStep = 'request';
+  document.getElementById('codeEmail').disabled = false;
+  const codeInput = document.getElementById('codeInput');
+  codeInput.style.display = 'none'; codeInput.value = '';
+  document.getElementById('codeSubmit').textContent = 'Send code';
+  document.getElementById('codeHint').style.display = 'none';
+  showCodeError('');
+}
+
+async function submitCode() {
+  const btn = document.getElementById('codeSubmit');
+  const emailEl = document.getElementById('codeEmail');
+  const email = emailEl.value.trim();
+  if (codeStep === 'request') {
+    if (!email) { showCodeError('Enter your email.'); return; }
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = '…'; showCodeError('');
+    try {
+      await Auth.sendCode(email);
+      codeStep = 'verify';
+      emailEl.disabled = true;
+      const codeInput = document.getElementById('codeInput');
+      codeInput.style.display = ''; codeInput.focus();
+      btn.textContent = 'Verify & sign in';
+      document.getElementById('codeHint').style.display = '';
+    } catch (e) {
+      showCodeError((e && e.message) || 'Could not send the code.');
+    } finally { btn.disabled = false; if (btn.textContent === '…') btn.textContent = orig; }
+  } else {
+    const token = document.getElementById('codeInput').value.trim();
+    if (!/^\d{6}$/.test(token)) { showCodeError('Enter the 6-digit code from your email.'); return; }
+    const orig = btn.textContent; btn.disabled = true; btn.textContent = '…'; showCodeError('');
+    try {
+      await Auth.verifyCode(email, token);
+      enterApp();
+    } catch (e) {
+      showCodeError((e && e.message) || "That code didn't work — try again.");
+    } finally { btn.disabled = false; if (btn.textContent === '…') btn.textContent = orig; }
+  }
+}
+
+async function resendCode() {
+  const email = document.getElementById('codeEmail').value.trim();
+  if (!email) return;
+  showCodeError('');
+  try {
+    await Auth.sendCode(email);
+    document.getElementById('codeHintText').textContent = 'New code sent — check your email.';
+  } catch (e) {
+    showCodeError((e && e.message) || 'Could not resend the code.');
+  }
 }
 
 async function submitAuth() {
@@ -975,6 +1056,10 @@ function initAuthGate() {
   if (form) form.addEventListener('submit', (e) => { e.preventDefault(); submitAuth(); });
   const toggle = document.getElementById('authToggle');
   if (toggle) toggle.addEventListener('click', () => setAuthMode(authMode === 'in' ? 'up' : 'in'));
+  const codeForm = document.getElementById('codeForm');
+  if (codeForm) codeForm.addEventListener('submit', (e) => { e.preventDefault(); submitCode(); });
+  const resend = document.getElementById('codeResend');
+  if (resend) resend.addEventListener('click', resendCode);
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showAuthGate();
 }

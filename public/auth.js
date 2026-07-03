@@ -61,6 +61,18 @@ const Auth = (() => {
     return { session: null, needsConfirm: true };
   }
 
+  // Passwordless: email a one-time code (GoTrue sends it per the OTP template).
+  // create_user lets first-time emails sign up in the same step.
+  async function sendCode(email) {
+    await gotrue('otp', { email, create_user: true });
+    return true;
+  }
+
+  // Verify the 6-digit code the user typed → a full session.
+  async function verifyCode(email, token) {
+    return adopt(await gotrue('verify', { type: 'email', email, token }));
+  }
+
   async function refresh() {
     if (!session || !session.refresh_token) return null;
     try {
@@ -94,7 +106,7 @@ const Auth = (() => {
 
   loadSession();
   return {
-    signIn, signUp, refresh, accessToken, signOut,
+    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
   };
