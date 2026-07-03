@@ -168,16 +168,18 @@
       border-radius: 24px; padding: 1.35rem 1.35rem 1.1rem 1.5rem;
       box-shadow: 0 20px 60px rgba(0,0,0,.45);
     }
-    .composer input {
+    .composer #input {
       flex: 1; background: none; border: none; outline: none;
       color: var(--text); font-size: 1.1rem; font-family: inherit; min-width: 0;
-      padding: .3rem 0 1.2rem;
+      padding: .45rem 0 1.2rem;
+      resize: none; line-height: 1.5; max-height: 38vh; overflow-y: auto;
+      display: block;
     }
     .composer-row {
       display: flex; align-items: center; gap: 1rem;
     }
     .composer-row .send { margin-left: auto; }
-    .composer input::placeholder { color: #5c5c66; }
+    .composer #input::placeholder { color: #5c5c66; }
     .send {
       flex-shrink: 0; background: var(--neon); color: #0a0a0b;
       border: none; border-radius: 50%; width: 48px; height: 48px;
