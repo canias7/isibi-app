@@ -84,29 +84,6 @@ async function authUser(request) {
 
 const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
 
-// Per-user daily quotas, enforced atomically in Postgres (public.use_quota,
-// SECURITY DEFINER over a client-locked table). Fails open if the quota
-// service itself is unreachable so an outage can't take generation down.
-async function useQuota(request, kind, limit) {
-  const token = (request.headers.get("Authorization") || "").slice(7).trim();
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_quota`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        apikey: SUPABASE_ANON_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ p_kind: kind, p_limit: limit }),
-    });
-    if (!r.ok) return true;
-    return (await r.json()) === true;
-  } catch {
-    return true;
-  }
-}
-const QUOTA_EXCEEDED = () => Response.json({ error: "daily limit reached" }, { status: 429 });
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -117,7 +94,6 @@ export default {
       url.pathname === "/api/audio" ? "audio" : null;
     if (genKind && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
-      if (!(await useQuota(request, "gen", 60))) return QUOTA_EXCEEDED();
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
       }
@@ -321,7 +297,6 @@ export default {
     // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.
     if (url.pathname === "/api/direct" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
-      if (!(await useQuota(request, "director", 300))) return QUOTA_EXCEEDED();
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
