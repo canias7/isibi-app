@@ -305,6 +305,13 @@ export default {
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
+      // Recent conversation so the director remembers what was said.
+      const history = Array.isArray(body.history)
+        ? body.history
+            .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string")
+            .slice(-8)
+            .map((h) => ({ role: h.role, content: h.text.slice(0, 400) }))
+        : [];
 
       const system = step === "ask"
         ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
@@ -317,6 +324,19 @@ Tailor everything to what THIS user is trying to make.`
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
+
+      // Build the message list: prior turns (merged so roles alternate and the
+      // list starts with a user turn), then the current request.
+      const turns = [];
+      for (const h of history) {
+        const last = turns[turns.length - 1];
+        if (last && last.role === h.role) last.content += "\n" + h.content;
+        else turns.push({ ...h });
+      }
+      while (turns.length && turns[0].role !== "user") turns.shift();
+      const lastTurn = turns[turns.length - 1];
+      if (lastTurn && lastTurn.role === "user") lastTurn.content += "\n" + userMsg;
+      else turns.push({ role: "user", content: userMsg });
 
       // Force a tool call so Sonnet returns validated structured output.
       const tool = step === "ask"
@@ -375,7 +395,7 @@ Tailor everything to what THIS user is trying to make.`
             system,
             tools: [tool],
             tool_choice: { type: "tool", name: tool.name },
-            messages: [{ role: "user", content: userMsg }],
+            messages: step === "ask" ? turns : [{ role: "user", content: userMsg }],
           }),
         });
       } catch (e) {
@@ -405,6 +425,42 @@ Tailor everything to what THIS user is trying to make.`
         });
       }
       return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
+    }
+
+    // Copies a finished fal output into Supabase Storage so chats keep a
+    // permanent URL (fal links expire). Uploads with the caller's own JWT,
+    // so storage RLS applies and no extra server secret is needed.
+    if (url.pathname === "/api/save" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const src = typeof body.url === "string" ? body.url : "";
+      if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
+        return Response.json({ error: "invalid url" }, { status: 400 });
+      }
+      const media = await fetch(src);
+      if (!media.ok || !media.body) {
+        return Response.json({ error: "fetch failed" }, { status: 502 });
+      }
+      const ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
+      const EXT = {
+        "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
+        "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
+        "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/wav": "wav", "audio/x-wav": "wav", "audio/ogg": "ogg",
+      };
+      const kindExt = body.kind === "image" ? "png" : body.kind === "audio" ? "mp3" : "mp4";
+      const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${EXT[ct] || kindExt}`;
+      const token = (request.headers.get("Authorization") || "").slice(7);
+      const up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
+        body: media.body,
+      });
+      if (!up.ok) return Response.json({ error: "store failed" }, { status: 502 });
+      return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${path}` });
     }
 
     // Proxies fal queue status/result URLs so the key stays server-side.
