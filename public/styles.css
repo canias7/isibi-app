@@ -16,15 +16,25 @@
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
+    html { background: var(--bg); }
     body {
       font-family: Inter, system-ui, sans-serif;
       color: var(--text);
-      background:
-        radial-gradient(65% 55% at 10% -8%, rgba(255, 214, 10, .10), transparent 55%),
-        radial-gradient(60% 60% at 108% 112%, rgba(168, 85, 247, .14), transparent 55%),
-        var(--bg);
-      background-attachment: fixed;
+      background: transparent;
       display: flex; flex-direction: column; overflow: hidden;
+    }
+    /* Slow-drifting yellow/purple glow that the glass panels catch. */
+    body::after {
+      content: ''; position: fixed; inset: -25%; z-index: -1; pointer-events: none;
+      background:
+        radial-gradient(38% 34% at 24% 16%, rgba(255, 214, 10, .11), transparent 62%),
+        radial-gradient(42% 40% at 78% 84%, rgba(168, 85, 247, .16), transparent 62%);
+      animation: ambient-drift 26s ease-in-out infinite alternate;
+      will-change: transform;
+    }
+    @keyframes ambient-drift {
+      from { transform: translate3d(-1.5%, -1%, 0) scale(1); }
+      to { transform: translate3d(1.5%, 2%, 0) scale(1.07); }
     }
     button { font-family: inherit; }
 
@@ -486,3 +496,105 @@
   font-family: inherit; font-size: .9rem; padding: 0 .2rem;
 }
 .auth-link:hover { text-decoration: underline; }
+
+/* ── Motion & micro-interactions ───────────── */
+/* Split-gradient buttons keep the full yellow→purple wash at rest; on hover
+   the gradient zooms and slides so the colors flow toward purple. */
+.btn-neon, .q-go, .review-allow, .auth-submit {
+  transition: background-size .4s ease, background-position .4s ease, transform .16s ease, box-shadow .25s ease, filter .2s ease;
+}
+.btn-neon:hover, .q-go:hover, .review-allow:hover, .auth-submit:hover {
+  background-image: var(--split); background-size: 145% 100%; background-position: 100% 50%;
+  transform: translateY(-1px); filter: saturate(112%);
+  box-shadow: 0 8px 26px rgba(168, 85, 247, .35);
+}
+.btn-neon:active, .q-go:active, .review-allow:active, .auth-submit:active, .btn-ghost:active,
+.send:active, .mode-btn:active, .attach-btn:active, .opt-btn:active { transform: scale(.96); }
+
+/* Send button: breathing glow at rest, gradient slide + arrow nudge on hover. */
+.send {
+  transition: background-size .4s ease, background-position .4s ease, transform .16s ease, box-shadow .25s ease;
+  animation: send-breathe 3.6s ease-in-out infinite;
+}
+.send:hover {
+  animation: none;
+  background-image: var(--split); background-size: 145% 100%; background-position: 100% 50%;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 34px rgba(168, 85, 247, .5), 0 4px 18px rgba(255, 214, 10, .25);
+}
+.send svg { transition: transform .18s ease; }
+.send:hover svg { transform: translateY(-2px); }
+@keyframes send-breathe {
+  0%, 100% { box-shadow: 0 6px 24px rgba(168, 85, 247, .28); }
+  50% { box-shadow: 0 6px 30px rgba(168, 85, 247, .48), 0 2px 14px rgba(255, 214, 10, .18); }
+}
+
+/* Pills, chips and ghost buttons lift slightly. */
+.btn-ghost, .attach-btn, .opt-btn, .mode-btn, .new-chat, .side-signout, .review-deny, .auth-tab, .voice-test {
+  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .16s ease, box-shadow .2s ease;
+}
+.btn-ghost:hover, .attach-btn:hover, .opt-btn:hover, .new-chat:hover, .side-signout:hover { transform: translateY(-1px); }
+.attach-btn.has { animation: pick-pop .3s cubic-bezier(.34, 1.56, .64, 1); }
+
+/* Messages and director cards rise in. */
+.msg, .q-card, .review-card { animation: rise-in .32s cubic-bezier(.21, .9, .35, 1) both; }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(12px) scale(.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* A–D options stagger in, glide on hover, pop when picked. */
+.opt {
+  transition: border-color .18s ease, background .18s ease, transform .16s ease;
+  animation: rise-in .3s cubic-bezier(.21, .9, .35, 1) both;
+}
+.opts .opt:nth-child(1) { animation-delay: .03s; }
+.opts .opt:nth-child(2) { animation-delay: .09s; }
+.opts .opt:nth-child(3) { animation-delay: .15s; }
+.opts .opt:nth-child(4) { animation-delay: .21s; }
+.opt:hover { transform: translateX(4px); }
+.opt.sel { animation: pick-pop .28s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes pick-pop { 0% { transform: scale(.97); } 60% { transform: scale(1.015); } 100% { transform: scale(1); } }
+
+/* Menus pop open; items glide. */
+.model-menu.open { animation: menu-pop .18s ease; }
+@keyframes menu-pop { from { opacity: 0; transform: translateY(-6px) scale(.97); } }
+.model-menu.drop-up.open { animation-name: menu-pop-up; }
+@keyframes menu-pop-up { from { opacity: 0; transform: translateY(6px) scale(.97); } }
+.model-item { transition: background .15s ease, transform .15s ease; }
+.model-item:hover { transform: translateX(3px); }
+.side-item { transition: background .18s ease, transform .16s ease; }
+.side-item:hover { transform: translateX(2px); }
+
+/* Chatbox glows softly while you're typing in it. */
+.composer { transition: border-color .25s ease, box-shadow .25s ease; }
+.composer:focus-within {
+  border-color: rgba(255, 255, 255, .26);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .10),
+    0 0 0 1px rgba(255, 214, 10, .16), 0 0 34px rgba(168, 85, 247, .14);
+}
+
+/* Brand mark shimmers slowly. */
+.logo-mark { background-size: 200% 200%; animation: logo-sheen 6s ease-in-out infinite alternate; }
+@keyframes logo-sheen { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
+
+/* Auth card entrance + input focus glow. */
+.auth-card { animation: card-in .45s cubic-bezier(.21, .9, .35, 1) both; }
+@keyframes card-in { from { opacity: 0; transform: translateY(16px) scale(.97); } }
+.auth-form input { transition: border-color .2s ease, box-shadow .2s ease; }
+.auth-form input:focus { box-shadow: 0 0 0 3px rgba(255, 214, 10, .14); }
+.auth-tab.active { animation: pick-pop .25s ease; }
+
+/* Voice preview pulses while playing; lightbox fades in. */
+.voice-test.playing { animation: play-pulse 1s ease-in-out infinite; }
+@keyframes play-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+.lightbox { animation: fade-in .22s ease; }
+@keyframes fade-in { from { opacity: 0; } }
+
+/* Accessibility: switch motion off for users who ask for it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
