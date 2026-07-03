@@ -91,6 +91,17 @@ const Auth = (() => {
     return session ? session.access_token : null;
   }
 
+  // Delete an object from the media bucket (RLS only allows your own folder).
+  async function storageDelete(path) {
+    const token = await accessToken();
+    if (!token) return false;
+    const res = await fetch(SUPABASE_URL + '/storage/v1/object/media/' + path, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + token, apikey: SUPABASE_ANON_KEY },
+    });
+    return res.ok;
+  }
+
   async function signOut() {
     const token = session && session.access_token;
     saveSession(null);
@@ -106,7 +117,7 @@ const Auth = (() => {
 
   loadSession();
   return {
-    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut,
+    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut, storageDelete,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
   };
