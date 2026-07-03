@@ -1066,7 +1066,8 @@ function directorHistory() {
 }
 
 async function directorAsk(text, history) {
-  if (mode === 'audio') return { reply: '', ready: true, questions: [] }; // voice: words are literal
+  // Voice mode goes through the director too — it decides whether this is
+  // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1100,10 +1101,15 @@ function localAsk(text) {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   // Greeting / small talk — just chat, no question card.
   if (words < 3) {
-    return { reply: "Hey! Tell me what you'd like to create and I'll help you shape it.", ready: false, questions: [] };
+    return {
+      reply: mode === 'audio'
+        ? 'Hey! Type the words you want the voice to say and I’ll voice them.'
+        : "Hey! Tell me what you'd like to create and I'll help you shape it.",
+      ready: false, questions: [],
+    };
   }
-  // Already detailed — go straight to composing.
-  if (words >= 12) return { reply: '', ready: true, questions: [] };
+  // Voice scripts are literal; long requests are detailed enough — compose.
+  if (mode === 'audio' || words >= 12) return { reply: '', ready: true, questions: [] };
   // Vague creative request — ask a couple of natural questions.
   const look = mode === 'image'
     ? { title: 'What style?', options: [
@@ -1233,7 +1239,9 @@ function reviewPrompt(prompt) {
   box.className = 'review-card';
   const label = document.createElement('div');
   label.className = 'review-label';
-  label.textContent = "Here's the prompt I'll generate — approve to run it:";
+  label.textContent = mode === 'audio'
+    ? "I'll voice exactly these words — approve to hear it:"
+    : "Here's the prompt I'll generate — approve to run it:";
   const body = document.createElement('div');
   body.className = 'review-prompt'; body.textContent = prompt;
   const actions = document.createElement('div'); actions.className = 'review-actions';

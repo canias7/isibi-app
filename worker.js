@@ -320,11 +320,16 @@ export default {
         : [];
 
       const system = step === "ask"
-        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
+        ? (kind === "audio"
+          ? `You are Zephyr, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
+- Greeting, small talk, or a question aimed at you ("hey", "how are you", "why are you running"): set ready=false and use your reply to chat back and invite them to type the words they want voiced.
+- Words meant to be spoken aloud (a script, a line, a message, a caption): set ready=true. Their text will be voiced EXACTLY as written — never rewrite it and never ask clarifying questions.
+Leave questions empty either way. When genuinely unsure, set ready=true.`
+          : `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.`
+Tailor everything to what THIS user is trying to make.`)
         : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."}`;
 
       const userMsg = step === "ask"
@@ -414,8 +419,9 @@ Tailor everything to what THIS user is trying to make.`
       if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
 
       if (step === "ask") {
+        // Voice mode never asks clarifying questions — the words are literal.
         const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, 3)
+          .slice(0, kind === "audio" ? 0 : 3)
           .map((q) => ({
             title: String(q.title || "").slice(0, 120),
             options: (Array.isArray(q.options) ? q.options : [])
