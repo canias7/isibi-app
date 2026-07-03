@@ -48,18 +48,18 @@ const MODEL_OPTS = {
     durations: [4, 6, 8], defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     resolutions: ['720p', '1080p', '4k'], defRes: '720p',
-    caps: {},
+    caps: { image: true, end: false, avatar: false },
   },
   'fal-ai/sora-2/text-to-video/pro': {
     durations: [4, 8, 12, 16, 20], defDur: 4,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     resolutions: ['720p', '1080p'], defRes: '1080p',
-    caps: {},
+    caps: { image: true, end: false, avatar: false },
   },
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    caps: {},
+    caps: { image: true, end: true, avatar: false },
   },
   // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
   'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: {} },
