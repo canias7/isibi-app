@@ -1,10 +1,8 @@
 const AGENT = document.body.dataset.agent;
 const GREETINGS = {
-  Nova: "Hey! Nova here — your website builder. Tell me the site you want. Let's go.",
   Zephyr: "Hello there… I'm Zephyr, your video generator. Describe the scene you see in your head and I'll bring it to life. Pick a model top right — no rush.",
 };
 
-let history = [];
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
   image: 'fal-ai/flux/schnell',
@@ -413,11 +411,6 @@ function toggleOpt(e, which) {
   menu.classList.toggle('open');
 }
 
-function toggleAdvanced() {
-  document.getElementById('advToggle').classList.toggle('open');
-  document.getElementById('advPanel').classList.toggle('open');
-}
-
 function toggleModelMenu(e) {
   e.stopPropagation();
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== modelMenu) m.classList.remove('open'); });
@@ -454,37 +447,6 @@ function addMsg(kind, text) {
   box.appendChild(div);
   box.parentElement.scrollTop = box.parentElement.scrollHeight;
   return div;
-}
-
-async function deliver(text) {
-  addMsg('user', text);
-  history.push({ role: 'user', content: text });
-
-  const btn = document.getElementById('sendBtn');
-  btn.disabled = true;
-  const typing = addMsg('agent typing', AGENT + ' is thinking');
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent: AGENT, messages: history, model }),
-    });
-    const data = await res.json();
-    typing.remove();
-    if (data.reply) {
-      addMsg('agent', data.reply);
-      history.push({ role: 'assistant', content: data.reply });
-    } else {
-      addMsg('agent', '⚠️ ' + (data.error || 'Something went wrong.'));
-    }
-  } catch {
-    typing.remove();
-    addMsg('agent', '⚠️ Network error — try again.');
-  } finally {
-    btn.disabled = false;
-    document.getElementById('input').focus();
-  }
 }
 
 function ratioAspect(r) {
@@ -752,10 +714,9 @@ function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
   // Lip-sync models are prompt-less — they run off the attachments, not text.
-  const promptless = AGENT === 'Zephyr' && mode === 'video' && currentOpts() && currentOpts().noPrompt;
+  const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
   input.value = '';
-  if (AGENT !== 'Zephyr') { deliver(text); return; }
   if (promptless) { generateMedia(text); return; }
   startDirector(text);
 }
@@ -764,16 +725,11 @@ function send() {
 buildMenu();
 buildOptMenus();
 addMsg('agent', GREETINGS[AGENT]);
-history.push({ role: 'assistant', content: GREETINGS[AGENT] });
 
 const params = new URLSearchParams(location.search);
 const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
-  if (AGENT === 'Zephyr') {
-    startDirector(firstMsg);
-  } else {
-    deliver(firstMsg);
-  }
+  startDirector(firstMsg);
 }
 document.getElementById('input').focus();
