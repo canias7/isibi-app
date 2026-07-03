@@ -517,8 +517,32 @@ function addMsg(kind, text) {
   const box = document.getElementById('messages');
   box.appendChild(div);
   box.parentElement.scrollTop = box.parentElement.scrollHeight;
-  if (kind === 'user' || kind === 'agent') pushSaved({ t: kind, text });
+  if (kind === 'user' || kind === 'agent') {
+    addCopyBtn(div, text);
+    pushSaved({ t: kind, text });
+  }
   return div;
+}
+
+// Hover chip that copies a message's text to the clipboard.
+function addCopyBtn(div, text) {
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn'; btn.type = 'button'; btn.title = 'Copy';
+  btn.textContent = '⧉';
+  btn.onclick = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = '✓';
+    } catch {
+      const ta = document.createElement('textarea'); // older-browser fallback
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); btn.textContent = '✓'; } catch { btn.textContent = '✗'; }
+      ta.remove();
+    }
+    setTimeout(() => { btn.textContent = '⧉'; }, 1200);
+  };
+  div.appendChild(btn);
 }
 
 function ratioAspect(r) {
@@ -587,6 +611,7 @@ function renderSaved(item) {
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
+  addCopyBtn(div, item.text);
   threadAppend(div);
 }
 
@@ -1207,9 +1232,13 @@ function autoGrow(el) {
   el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.38)) + 'px';
 }
 
-function send() {
-  // While this chat is generating, the send button is a stop button.
-  if (activeGens.has(chatStore.active)) { cancelGen(chatStore.active); return; }
+function send(fromButton) {
+  // While this chat is generating, the BUTTON doubles as Stop — but Enter
+  // must never cancel a run mid-typing.
+  if (activeGens.has(chatStore.active)) {
+    if (fromButton) cancelGen(chatStore.active);
+    return;
+  }
   const input = document.getElementById('input');
   const text = input.value.trim();
   // Lip-sync models are prompt-less — they run off the attachments, not text.
