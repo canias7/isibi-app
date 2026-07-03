@@ -57,6 +57,33 @@ const AUDIO_MODELS = new Set([
 ]);
 const DEFAULT_AUDIO_MODEL = "fal-ai/elevenlabs/tts/eleven-v3";
 
+// ── Auth ─────────────────────────────────────────────
+// The paid endpoints (generation + director) require a signed-in Supabase
+// user. The anon key is public by design; token verification is delegated to
+// Supabase GoTrue so no JWT secret needs to live in the Worker.
+const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
+
+// Resolve the caller's Supabase access token to a user, or null if missing/invalid.
+async function authUser(request) {
+  const header = request.headers.get("Authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+    });
+    if (!r.ok) return null;
+    const user = await r.json();
+    return user && user.id ? user : null;
+  } catch {
+    return null;
+  }
+}
+
+const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -66,6 +93,7 @@ export default {
       url.pathname === "/api/image" ? "image" :
       url.pathname === "/api/audio" ? "audio" : null;
     if (genKind && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
       }
@@ -262,6 +290,7 @@ export default {
 
     // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.
     if (url.pathname === "/api/direct" && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
@@ -380,6 +409,7 @@ Tailor everything to what THIS user is trying to make.`
 
     // Proxies fal queue status/result URLs so the key stays server-side.
     if (url.pathname === "/api/video/poll" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
       const target = url.searchParams.get("url") || "";
       if (!target.startsWith("https://queue.fal.run/")) {
         return Response.json({ error: "invalid url" }, { status: 400 });
