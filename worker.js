@@ -307,8 +307,10 @@ export default {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
 
-      let txt = (data.content?.[0]?.text || "").trim()
-        .replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      // Extract the JSON object even if Sonnet wraps it in prose or code fences.
+      let txt = (data.content?.[0]?.text || "").trim();
+      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
+      if (s >= 0 && e > s) txt = txt.slice(s, e + 1);
       let parsed;
       try { parsed = JSON.parse(txt); } catch {
         return Response.json({ error: "director parse failed" }, { status: 502 });
