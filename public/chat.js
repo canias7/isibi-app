@@ -1,8 +1,3 @@
-const AGENT = document.body.dataset.agent;
-const GREETINGS = {
-  Zephyr: "Hello there… I'm Zephyr, your video generator. Describe the scene you see in your head and I'll bring it to life. Pick a model top right — no rush.",
-};
-
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
   image: 'fal-ai/flux/schnell',
@@ -619,20 +614,11 @@ function renderSaved(item) {
   threadAppend(div);
 }
 
-// Greeting is display-only — never saved, so empty chats stay empty.
-function showGreeting() {
-  const div = document.createElement('div');
-  div.className = 'msg agent';
-  div.textContent = GREETINGS[AGENT];
-  threadAppend(div);
-}
-
 function renderThread() {
   const box = document.getElementById('messages');
   box.innerHTML = '';
   const chat = activeChat();
   if (chat && chat.msgs.length) chat.msgs.forEach(renderSaved);
-  else showGreeting();
   // If this chat has a generation in flight, bring its loader back and keep
   // its send button locked; other chats stay free to send.
   mountGenLoader();
