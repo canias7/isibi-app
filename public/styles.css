@@ -434,8 +434,19 @@
   color: var(--bg); font-weight: 800; background: linear-gradient(135deg, var(--neon), #58d68d);
 }
 .auth-title { font-size: 1.5rem; font-weight: 800; margin: 1.4rem 0 .35rem; }
-.auth-sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.5rem; }
+.auth-sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.3rem; }
+.auth-tabs {
+  display: flex; gap: .3rem; background: var(--bg); border: 1px solid var(--line-2);
+  border-radius: 12px; padding: .3rem; margin-bottom: 1.15rem;
+}
+.auth-tab {
+  flex: 1; background: none; border: none; color: var(--muted); font-family: inherit;
+  font-size: .9rem; font-weight: 600; padding: .55rem; border-radius: 9px; cursor: pointer;
+}
+.auth-tab.active { background: var(--panel-2); color: var(--text); }
+.auth-tab:not(.active):hover { color: var(--text); }
 .auth-form { display: flex; flex-direction: column; gap: .7rem; }
+#codeInput { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
 .auth-form input {
   background: var(--bg); border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
