@@ -296,9 +296,13 @@ export default {
           },
           body: JSON.stringify({
             model: "claude-sonnet-5",
-            max_tokens: step === "ask" ? 700 : 500,
+            max_tokens: step === "ask" ? 1400 : 900,
             system,
-            messages: [{ role: "user", content: userMsg }],
+            // Prefill the reply with "{" so Sonnet emits pure JSON (no preamble).
+            messages: [
+              { role: "user", content: userMsg },
+              { role: "assistant", content: "{" },
+            ],
           }),
         });
       } catch (e) {
@@ -307,13 +311,13 @@ export default {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
 
-      // Extract the JSON object even if Sonnet wraps it in prose or code fences.
-      let txt = (data.content?.[0]?.text || "").trim();
+      // Response continues the prefilled "{"; trim to the outer JSON object.
+      let txt = "{" + (data.content?.[0]?.text || "");
       const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
       if (s >= 0 && e > s) txt = txt.slice(s, e + 1);
       let parsed;
       try { parsed = JSON.parse(txt); } catch {
-        return Response.json({ error: "director parse failed" }, { status: 502 });
+        return Response.json({ error: "director parse failed", detail: txt.slice(0, 160) }, { status: 502 });
       }
 
       if (step === "ask") {
