@@ -487,6 +487,44 @@ async function deliver(text) {
   }
 }
 
+function ratioAspect(r) {
+  const m = typeof r === 'string' && r.match(/^(\d{1,2}):(\d{1,2})$/);
+  return m ? m[1] + ' / ' + m[2] : '16 / 9';
+}
+
+// Animated placeholder shown while a generation runs: a shimmering skeleton
+// (or bouncing bars for audio) + a spinning ring and the live status text.
+function makeLoader(kind) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg agent gen-loading';
+
+  let visual;
+  if (kind === 'audio') {
+    visual = document.createElement('div');
+    visual.className = 'gen-bars';
+    for (let i = 0; i < 13; i++) {
+      const b = document.createElement('span');
+      b.style.animationDelay = (i * 0.07) + 's';
+      visual.appendChild(b);
+    }
+  } else {
+    visual = document.createElement('div');
+    visual.className = 'gen-shimmer';
+    visual.style.aspectRatio = ratioAspect(ratio);
+  }
+
+  const status = document.createElement('div');
+  status.className = 'gen-status';
+  status.innerHTML = '<span class="gen-spinner"></span><span class="gen-status-text"></span>';
+
+  wrap.appendChild(visual);
+  wrap.appendChild(status);
+  const box = document.getElementById('messages');
+  box.appendChild(wrap);
+  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  return { el: wrap, setText: (t) => { wrap.querySelector('.gen-status-text').textContent = t; } };
+}
+
 async function generateMedia(text, opts = {}) {
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
 
@@ -494,7 +532,8 @@ async function generateMedia(text, opts = {}) {
   btn.disabled = true;
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
-  const status = addMsg('agent typing', 'Sending to ' + label);
+  const loader = makeLoader(kind);
+  loader.setText('Sending to ' + label);
 
   const apiPath = kind === 'image' ? '/api/image' : kind === 'audio' ? '/api/audio' : '/api/video';
   try {
@@ -517,7 +556,7 @@ async function generateMedia(text, opts = {}) {
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) {
-      status.remove();
+      loader.el.remove();
       addMsg('agent', '⚠️ ' + (job.error || 'Could not start the generation.') +
         (job.detail ? ' — ' + JSON.stringify(job.detail).slice(0, 300) : ''));
       return;
@@ -530,22 +569,22 @@ async function generateMedia(text, opts = {}) {
       const st = await sr.json();
       state = st.status;
       if (state === 'COMPLETED') break;
-      status.textContent =
+      loader.setText(
         state === 'IN_PROGRESS'
           ? label + ' is generating your ' + kind + '…'
-          : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…';
+          : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…');
       await new Promise((r) => setTimeout(r, 4000));
     }
 
     if (state !== 'COMPLETED') {
-      status.remove();
+      loader.el.remove();
       addMsg('agent', '⚠️ Timed out after 10 minutes — the job may still finish on fal.ai.');
       return;
     }
 
     const rr = await fetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json();
-    status.remove();
+    loader.el.remove();
     const mediaUrl = kind === 'image'
       ? (out.images?.[0]?.url || out.image?.url || out.data?.images?.[0]?.url)
       : kind === 'audio'
@@ -578,7 +617,7 @@ async function generateMedia(text, opts = {}) {
   } catch {
     addMsg('agent', '⚠️ Network error — try again.');
   } finally {
-    status.remove();
+    loader.el.remove();
     btn.disabled = false;
     document.getElementById('input').focus();
   }
