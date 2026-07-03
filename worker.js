@@ -159,6 +159,10 @@ export default {
           ? body.quality
           : null;
 
+      // Image mode: how many variations to generate (per-image billing, so
+      // only forwarded when explicitly above 1; the UI defaults to 1).
+      const num = Number.isInteger(body.num) && body.num >= 1 && body.num <= 4 ? body.num : null;
+
       if (genKind === "audio") {
         // Voice generation: the prompt is the words to speak, and `voice`
         // selects an ElevenLabs preset (defaults to Rachel server-side).
@@ -264,6 +268,8 @@ export default {
           input.aspect_ratio = ratio;
         }
       }
+
+      if (genKind === "image" && num && num > 1) input.num_images = num;
 
       const r = await fetch(`https://queue.fal.run/${endpoint}`, {
         method: "POST",
@@ -425,6 +431,23 @@ Tailor everything to what THIS user is trying to make.`
         });
       }
       return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
+    }
+
+    // Cancels a queued/running fal job with the server-side key, so stopping
+    // a generation can also stop the spend (queued jobs never bill).
+    if (url.pathname === "/api/cancel" && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const target = typeof body.url === "string" ? body.url : "";
+      if (!/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/[^/?#]+\/cancel$/.test(target)) {
+        return Response.json({ error: "invalid url" }, { status: 400 });
+      }
+      const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+      const data = await r.text();
+      return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
     }
 
     // Copies a finished fal output into Supabase Storage so chats keep a
