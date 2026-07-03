@@ -278,12 +278,52 @@ export default {
         : [];
 
       const system = step === "ask"
-        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, chatting with the user. Read their request. If it's already detailed enough to make something great, reply with {"questions":[]}. Otherwise ask up to 3 natural, conversational questions — phrased the way a friendly collaborator actually talks out loud (e.g. "How do you want it to feel?", "Where's this happening?", "Who's in it?"), NEVER terse category labels like "Setting", "Camera style" or "Dog breed". Tailor every question to what THIS user is trying to make. Each question has exactly 3 options; each option is a short label plus a few-word description. Respond with ONLY JSON of the form {"questions":[{"title":"<the natural question>","options":[{"label":"<short choice>","desc":"<few words>"}]}]}. No prose, no markdown.`
-        : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."} Respond with ONLY JSON {"prompt":"..."}. No prose, no markdown.`;
+        ? `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, chatting with the user. Read their request. If it's already detailed enough to make something great, return an empty questions list. Otherwise ask up to 3 natural, conversational questions — phrased the way a friendly collaborator actually talks out loud (e.g. "How do you want it to feel?", "Where's this happening?", "Who's in it?"), NEVER terse category labels like "Setting", "Camera style" or "Dog breed". Tailor every question to what THIS user is trying to make. Give each question exactly 3 options, each a short label plus a few-word description.`
+        : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."}`;
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
+
+      // Force a tool call so Sonnet returns validated structured output.
+      const tool = step === "ask"
+        ? {
+            name: "ask_questions",
+            description: "Return the clarifying questions to show the user.",
+            input_schema: {
+              type: "object",
+              properties: {
+                questions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      title: { type: "string", description: "the natural, conversational question" },
+                      options: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: { label: { type: "string" }, desc: { type: "string" } },
+                          required: ["label"],
+                        },
+                      },
+                    },
+                    required: ["title", "options"],
+                  },
+                },
+              },
+              required: ["questions"],
+            },
+          }
+        : {
+            name: "write_prompt",
+            description: "Return the final generation prompt.",
+            input_schema: {
+              type: "object",
+              properties: { prompt: { type: "string" } },
+              required: ["prompt"],
+            },
+          };
 
       let r;
       try {
@@ -296,13 +336,11 @@ export default {
           },
           body: JSON.stringify({
             model: "claude-sonnet-5",
-            max_tokens: step === "ask" ? 1400 : 900,
+            max_tokens: 1500,
             system,
-            // Prefill the reply with "{" so Sonnet emits pure JSON (no preamble).
-            messages: [
-              { role: "user", content: userMsg },
-              { role: "assistant", content: "{" },
-            ],
+            tools: [tool],
+            tool_choice: { type: "tool", name: tool.name },
+            messages: [{ role: "user", content: userMsg }],
           }),
         });
       } catch (e) {
@@ -311,14 +349,8 @@ export default {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
 
-      // Response continues the prefilled "{"; trim to the outer JSON object.
-      let txt = "{" + (data.content?.[0]?.text || "");
-      const s = txt.indexOf("{"), e = txt.lastIndexOf("}");
-      if (s >= 0 && e > s) txt = txt.slice(s, e + 1);
-      let parsed;
-      try { parsed = JSON.parse(txt); } catch {
-        return Response.json({ error: "director parse failed", detail: txt.slice(0, 160) }, { status: 502 });
-      }
+      const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
+      if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
 
       if (step === "ask") {
         const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
