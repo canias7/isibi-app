@@ -28,10 +28,14 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 
 **Currently disabled** (user's call, 2026-07-03). The Postgres side stays dormant and ready: `public.use_quota(kind, limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table). To re-enable, add back the two Worker gates (`useQuota(request, "gen", 60)` on generation, `useQuota(request, "director", 300)` on /api/direct → 429 `daily limit reached`); the frontend already shows a friendly message for that error.
 
+## Auth emails (live)
+
+All auth emails (sign-in codes, confirmations, resets) go through Go Farther via the `send-email` Edge Function, wired as Supabase's Send Email hook (HTTPS, standard-webhooks signature). Secrets in Edge Functions: `GO_FARTHER_API_KEY` (gf_live_…), `SEND_EMAIL_HOOK_SECRET` (from the hook config), optional `EMAIL_FROM` (default `isibi <login@isibi.ai>`; isibi.ai is the verified sending domain). Go Farther API: POST https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer, Bearer key, `{action:"send", from, to, subject, html}`; errors 401 bad key / 404 domain / 429 daily cap. SMTP fallback exists: smtp.gofarther.dev:465, user `gofarther`, pass = API key.
+
 ## Open (not yet scheduled)
 
 - fal balance top-up → then run the live model sweep (one cheap job per family across the 13 video + 11 image models)
-- Go Farther email provider: key saved as `GO_FARTHER_API_KEY` in Edge Function secrets; blocked on their API docs URL, then deploy a Send-Email Auth Hook so sign-in codes actually deliver
+- Supabase email rate limit is 2/hour (default) — raise it in Authentication → Rate Limits now that delivery is on Go Farther
 - Supabase Site URL is likely still `localhost:3000` (Authentication → URL Configuration → set to `https://isibi.ai`)
 - User should change their password via the sidebar "Change password" button (the temp one appeared in a chat log)
 - Mobile layout (sidebar/chat history hidden below 900px)
