@@ -185,7 +185,12 @@
   padding: .4rem; display: none; z-index: 50;
   box-shadow: 0 20px 60px rgba(0,0,0,.55);
   backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
+  /* Long lists (15 durations, 16 voices) must never run off-screen. */
+  max-height: min(48vh, 430px); overflow-y: auto;
 }
+.model-menu::-webkit-scrollbar { width: 8px; }
+.model-menu::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.model-menu::-webkit-scrollbar-track { background: transparent; }
 .model-menu.open { display: block; }
 .model-item {
   padding: .55rem .8rem; border-radius: 10px; font-size: .9rem;
