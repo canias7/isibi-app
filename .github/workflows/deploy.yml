@@ -18,5 +18,7 @@ jobs:
           wranglerVersion: "4.107.0"
           secrets: |
             FAL_KEY
+            ANTHROPIC_API_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
