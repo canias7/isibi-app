@@ -178,19 +178,21 @@ export default {
           if (refs.length) input.image_urls = refs;
           if (audio) input.audio_urls = [audio];
         } else if (image) {
-          if (isSeedance) {
-            endpoint = model.replace("/text-to-video", "/image-to-video");
-            input.image_url = image;
-            if (end) input.end_image_url = end;
-          } else if (isKling) {
-            endpoint = model.replace("/text-to-video", "/image-to-video");
+          const isKlingO3 = model.includes("kling-video/o3");
+          // Veo's base id has no "/text-to-video" to swap, so append the suffix.
+          endpoint = isVeo
+            ? model + "/image-to-video"
+            : model.replace("/text-to-video", "/image-to-video");
+          if (isKling && !isKlingO3) {
+            // Kling v3 image-to-video uses start_image_url.
             input.start_image_url = image;
             if (end) input.end_image_url = end;
-          } else if (isGrok) {
-            endpoint = model.replace("/text-to-video", "/image-to-video");
+          } else {
+            // Seedance / Grok / Veo / Sora / Kling o3 all use image_url.
             input.image_url = image;
+            // End frame only exists on Seedance and Kling o3.
+            if (end && (isSeedance || isKlingO3)) input.end_image_url = end;
           }
-          // Gemini has no image-to-video endpoint: the image is ignored.
         }
 
         if (duration) {
