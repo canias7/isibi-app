@@ -84,8 +84,42 @@ async function authUser(request) {
 
 const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
 
+// Baseline security headers on every response (audit item). script/style keep
+// 'unsafe-inline' because the UI relies on inline on* handlers and style=""
+// attributes; img/media/connect allow Supabase Storage + fal.media (generated
+// media) plus data:/blob: (attachment thumbnails and blob downloads).
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com",
+  "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
+  "media-src 'self' blob: https://*.supabase.co https://fal.media https://*.fal.media",
+  "connect-src 'self' https://*.supabase.co https://fal.media https://*.fal.media",
+].join("; ");
+
+function harden(res) {
+  const h = new Headers(res.headers);
+  h.set("Content-Security-Policy", CSP);
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Frame-Options", "DENY");
+  h.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 export default {
   async fetch(request, env) {
+    return harden(await handleRequest(request, env));
+  },
+};
+
+async function handleRequest(request, env) {
     const url = new URL(request.url);
 
     const genKind =
@@ -509,5 +543,4 @@ Tailor everything to what THIS user is trying to make.`)
     }
 
     return env.ASSETS.fetch(request);
-  },
-};
+}
