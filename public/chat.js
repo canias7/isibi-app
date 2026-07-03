@@ -1359,7 +1359,7 @@ function renderAuthStep() {
   authEl('authTitle').textContent = AUTH_TITLES[authMode][authStep];
   authEl('authSubmit').textContent = authSubmitLabel();
   authEl('authSub').textContent =
-    authStep === 'code' ? 'Enter the 6-digit code we emailed to ' + pendingEmail + '.' :
+    authStep === 'code' ? 'Enter the code we emailed to ' + pendingEmail + '.' :
     authStep === 'newpass' ? 'Choose a new password for ' + pendingEmail + '.' :
     authMode === 'reset' ? 'We’ll email you a reset code.' :
     'Create AI video, images, and voice.';
@@ -1401,7 +1401,7 @@ async function submitAuth() {
     // Enter the emailed code.
     if (authStep === 'code') {
       const code = authEl('authCode').value.trim();
-      if (!/^\d{6}$/.test(code)) { showAuthError('Enter the 6-digit code from your email.'); return; }
+      if (!/^\d{6,10}$/.test(code)) { showAuthError('Enter the code from your email.'); return; }
       await Auth.verifyCode(pendingEmail, code, pendingType);
       if (authMode === 'reset') { authStep = 'newpass'; renderAuthStep(); authEl('authNewPass').focus(); }
       else enterApp();
