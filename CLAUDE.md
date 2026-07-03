@@ -21,14 +21,8 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 
 ## Backlog (user-triaged, do later)
 
-- Auto-clear attachments after a successful generation (they silently ride along on the next prompt)
-- Make the compose→review step origin-aware (review card can pop into the wrong chat if the user switches while "Writing the prompt")
-- Restore the generation loader when switching back to a chat with a job in flight
-- Per-chat send lock instead of the global one (can't send anywhere while any generation runs)
-- Storage lifecycle: DELETE policy on the `media` bucket + gallery/cleanup UI (currently INSERT-only, grows forever, 1GB free tier)
-- Lightbox loading state (fullscreen video is black while buffering)
-- Perf: drop per-bubble `backdrop-filter` on `.msg.agent` (long chats stack dozens of blur layers); keep blur on big surfaces only
 - Static voice previews — **user adds the files**: drop MP3s at `public/voices/<name>.mp3`, lowercase (rachel.mp3, aria.mp3, sarah.mp3, laura.mp3, charlotte.mp3, alice.mp3, matilda.mp3, jessica.mp3, lily.mp3, roger.mp3, george.mp3, callum.mp3, liam.mp3, will.mp3, brian.mp3, daniel.mp3). The preview button already checks these before spending a TTS call.
+- Gallery page proper (browse/manage all saved media; per-message 🗑 delete exists already)
 
 ## Open (not yet scheduled)
 

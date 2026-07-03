@@ -574,6 +574,10 @@ function renderThread() {
   const chat = activeChat();
   if (chat && chat.msgs.length) chat.msgs.forEach(renderSaved);
   else showGreeting();
+  // If this chat has a generation in flight, bring its loader back and keep
+  // its send button locked; other chats stay free to send.
+  mountGenLoader();
+  updateSendLock();
 }
 
 function renderChatList() {
@@ -660,8 +664,26 @@ function buildMedia(kind, url) {
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
+  const del = document.createElement('button');
+  del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
+  del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
+  actions.appendChild(del);
   div.appendChild(actions);
   return div;
+}
+
+// Remove a generation from the chat and (if it lives in our storage) from
+// the gallery bucket too — RLS only lets users delete their own files.
+async function deleteMedia(el, url) {
+  if (!confirm('Delete this from your chat and gallery?')) return;
+  el.remove();
+  const chat = activeChat();
+  if (chat) {
+    const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
+    if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); }
+  }
+  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+  if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
 }
 
 async function downloadMedia(url, kind) {
@@ -697,9 +719,19 @@ function openLightbox(kind, url) {
   }
   const stage = lightboxEl.querySelector('.lb-stage');
   stage.innerHTML = '';
+  // Spinner until the media has actually loaded (big videos buffer slowly).
+  const spin = document.createElement('div');
+  spin.className = 'lb-loading';
+  stage.appendChild(spin);
+  const ready = () => spin.remove();
   let el;
-  if (kind === 'image') { el = document.createElement('img'); el.src = url; }
-  else { el = document.createElement('video'); el.src = url; el.controls = true; el.autoplay = true; el.playsInline = true; }
+  if (kind === 'image') { el = document.createElement('img'); el.onload = ready; el.onerror = ready; el.src = url; }
+  else {
+    el = document.createElement('video');
+    el.controls = true; el.autoplay = true; el.playsInline = true;
+    el.onloadeddata = ready; el.onerror = ready;
+    el.src = url;
+  }
   stage.appendChild(el);
   lightboxEl.querySelector('.lb-dl').onclick = () => downloadMedia(url, kind);
   lightboxEl.classList.add('open');
@@ -713,7 +745,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLight
 
 // Animated placeholder shown while a generation runs: a shimmering skeleton
 // (or bouncing bars for audio) + a spinning ring and the live status text.
-function makeLoader(kind) {
+function makeLoader(kind, aspect) {
   const wrap = document.createElement('div');
   wrap.className = 'msg agent gen-loading';
 
@@ -729,7 +761,7 @@ function makeLoader(kind) {
   } else {
     visual = document.createElement('div');
     visual.className = 'gen-shimmer';
-    visual.style.aspectRatio = ratioAspect(ratio);
+    visual.style.aspectRatio = aspect || ratioAspect(ratio);
   }
 
   const status = document.createElement('div');
@@ -744,6 +776,37 @@ function makeLoader(kind) {
   return { el: wrap, setText: (t) => { wrap.querySelector('.gen-status-text').textContent = t; } };
 }
 
+// One generation may run per chat; each chat locks its own send button and
+// shows its own loader, which is re-mounted when you switch back to it.
+const activeGens = new Map(); // chatId → { kind, aspect, text }
+
+function mountGenLoader() {
+  const gen = activeGens.get(chatStore.active);
+  if (!gen || document.getElementById('genLoader')) return;
+  const l = makeLoader(gen.kind, gen.aspect);
+  l.el.id = 'genLoader';
+  l.setText(gen.text);
+}
+function setGenText(chatId, t) {
+  const gen = activeGens.get(chatId);
+  if (gen) gen.text = t;
+  if (chatStore.active === chatId) {
+    const el = document.querySelector('#genLoader .gen-status-text');
+    if (el) el.textContent = t;
+  }
+}
+function endGen(chatId) {
+  activeGens.delete(chatId);
+  if (chatStore.active === chatId) {
+    const el = document.getElementById('genLoader');
+    if (el) el.remove();
+  }
+  updateSendLock();
+}
+function updateSendLock() {
+  document.getElementById('sendBtn').disabled = activeGens.has(chatStore.active);
+}
+
 // Turn fal/worker failures into human messages; the raw detail goes to the console.
 function friendlyFail(job) {
   console.error('generation failed:', job);
@@ -756,15 +819,18 @@ function friendlyFail(job) {
 }
 
 async function generateMedia(text, opts = {}) {
+  const origin = chatStore.active; // deliver results here even if the user switches chats
+  if (activeGens.has(origin)) {
+    addMsg('agent', '⚠️ Hold on — this chat is already generating. Start a new chat to run another.');
+    return;
+  }
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
 
-  const origin = chatStore.active; // deliver results here even if the user switches chats
-  const btn = document.getElementById('sendBtn');
-  btn.disabled = true;
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
-  const loader = makeLoader(kind);
-  loader.setText('Sending to ' + label);
+  activeGens.set(origin, { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label });
+  updateSendLock();
+  mountGenLoader();
 
   const apiPath = kind === 'image' ? '/api/image' : kind === 'audio' ? '/api/audio' : '/api/video';
   try {
@@ -787,7 +853,7 @@ async function generateMedia(text, opts = {}) {
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) {
-      loader.el.remove();
+      endGen(origin);
       deliverAgent(origin, friendlyFail(job));
       return;
     }
@@ -799,7 +865,7 @@ async function generateMedia(text, opts = {}) {
       const st = await sr.json();
       state = st.status;
       if (state === 'COMPLETED') break;
-      loader.setText(
+      setGenText(origin,
         state === 'IN_PROGRESS'
           ? label + ' is generating your ' + kind + '…'
           : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…');
@@ -807,7 +873,7 @@ async function generateMedia(text, opts = {}) {
     }
 
     if (state !== 'COMPLETED') {
-      loader.el.remove();
+      endGen(origin);
       deliverAgent(origin, '⚠️ Timed out after 10 minutes — the job may still finish on fal.ai.');
       return;
     }
@@ -821,7 +887,7 @@ async function generateMedia(text, opts = {}) {
       : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
     if (mediaUrl) {
       // Copy to permanent storage — fal URLs expire after a few days.
-      loader.setText('Saving to your gallery…');
+      setGenText(origin, 'Saving to your gallery…');
       let finalUrl = mediaUrl;
       try {
         const sv = await apiFetch('/api/save', {
@@ -830,19 +896,22 @@ async function generateMedia(text, opts = {}) {
         });
         if (sv.ok) { const d = await sv.json(); if (d.url) finalUrl = d.url; }
       } catch {}
-      loader.el.remove();
+      endGen(origin);
       deliverMedia(origin, kind, finalUrl);
+      // The inputs were consumed — don't let them ride along on the next prompt.
+      Object.keys(attachments).forEach((k) => {
+        if (attachments[k]) { attachments[k] = null; renderAttach(k); }
+      });
     } else {
-      loader.el.remove();
+      endGen(origin);
       console.error('generation finished without media:', out);
       deliverAgent(origin, '⚠️ The model finished but returned no ' + kind + ' — try again.');
     }
   } catch {
     deliverAgent(origin, '⚠️ Network hiccup — try again.');
   } finally {
-    loader.el.remove();
-    btn.disabled = false;
-    document.getElementById('input').focus();
+    endGen(origin);
+    if (chatStore.active === origin) document.getElementById('input').focus();
   }
 }
 
@@ -960,9 +1029,13 @@ async function startDirector(text) {
 }
 
 async function composeAndReview(text, answers) {
+  const origin = chatStore.active;
   const thinking = addMsg('agent typing', 'Writing the prompt');
   let prompt;
   try { prompt = await directorCompose(text, answers); } finally { thinking.remove(); }
+  // The user moved to another chat while the prompt was being written —
+  // don't pop the review card into the wrong thread.
+  if (chatStore.active !== origin) return;
   reviewPrompt(prompt);
 }
 
