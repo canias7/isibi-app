@@ -449,8 +449,16 @@ if (modelMenu) {
 }
 
 function newChat() {
-  clearSaved();
-  location.href = location.pathname;
+  // Keep the current chat in the sidebar; just start a fresh one.
+  const current = activeChat();
+  if (current && !current.msgs.length) { document.getElementById('input').focus(); return; }
+  const fresh = newChatEntry();
+  chatStore.chats.unshift(fresh);
+  chatStore.active = fresh.id;
+  persistStore();
+  renderChatList();
+  renderThread();
+  document.getElementById('input').focus();
 }
 
 function addMsg(kind, text) {
@@ -473,26 +481,121 @@ function ratioAspect(r) {
   return m ? m[1] + ' / ' + m[2] : '16 / 9';
 }
 
-// ── Persistence: keep the thread across reloads / app switches ──
-const STORE_KEY = 'zephyr_thread_v1';
-let saved = [];
+// ── Persistence: every chat is kept; New chat starts another ──
+const STORE_KEY = 'zephyr_chats_v1';
+const OLD_STORE_KEY = 'zephyr_thread_v1';
+let chatStore = { active: null, chats: [] };
+
+function newChatEntry() {
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: 'New chat', msgs: [] };
+}
+
+function loadStore() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+    if (s && Array.isArray(s.chats)) { chatStore = s; }
+  } catch {}
+  // Migrate the old single-thread format into chat #1.
+  if (!chatStore.chats.length) {
+    let old = [];
+    try { old = JSON.parse(localStorage.getItem(OLD_STORE_KEY) || '[]'); } catch {}
+    const first = newChatEntry();
+    if (old.length) {
+      first.msgs = old;
+      const firstUser = old.find((m) => m.t === 'user');
+      if (firstUser) first.title = firstUser.text.slice(0, 30);
+    }
+    chatStore = { active: first.id, chats: [first] };
+    try { localStorage.removeItem(OLD_STORE_KEY); } catch {}
+    persistStore();
+  }
+  if (!chatStore.chats.some((c) => c.id === chatStore.active)) chatStore.active = chatStore.chats[0].id;
+}
+
+function persistStore() {
+  try {
+    const slim = {
+      active: chatStore.active,
+      chats: chatStore.chats.slice(0, 30).map((c) => ({ ...c, msgs: c.msgs.slice(-80) })),
+    };
+    localStorage.setItem(STORE_KEY, JSON.stringify(slim));
+  } catch {}
+}
+
+function activeChat() {
+  return chatStore.chats.find((c) => c.id === chatStore.active);
+}
+
 function pushSaved(item) {
-  saved.push(item);
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(saved.slice(-80))); } catch {}
+  const chat = activeChat();
+  if (!chat) return;
+  chat.msgs.push(item);
+  if (chat.title === 'New chat' && item.t === 'user') {
+    chat.title = item.text.slice(0, 30);
+    renderChatList();
+  }
+  persistStore();
 }
-function clearSaved() {
-  saved = [];
-  try { localStorage.removeItem(STORE_KEY); } catch {}
-}
-function loadSaved() {
-  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
-}
+
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
   threadAppend(div);
+}
+
+// Greeting is display-only — never saved, so empty chats stay empty.
+function showGreeting() {
+  const div = document.createElement('div');
+  div.className = 'msg agent';
+  div.textContent = GREETINGS[AGENT];
+  threadAppend(div);
+}
+
+function renderThread() {
+  const box = document.getElementById('messages');
+  box.innerHTML = '';
+  const chat = activeChat();
+  if (chat && chat.msgs.length) chat.msgs.forEach(renderSaved);
+  else showGreeting();
+}
+
+function renderChatList() {
+  const list = document.getElementById('chatList');
+  if (!list) return;
+  list.innerHTML = '';
+  chatStore.chats.forEach((c) => {
+    const item = document.createElement('div');
+    item.className = 'chat-item' + (c.id === chatStore.active ? ' active' : '');
+    const title = document.createElement('span');
+    title.className = 'chat-title';
+    title.textContent = c.title;
+    const del = document.createElement('button');
+    del.className = 'chat-del'; del.type = 'button'; del.title = 'Delete chat'; del.textContent = '✕';
+    del.onclick = (e) => { e.stopPropagation(); deleteChat(c.id); };
+    item.onclick = () => switchChat(c.id);
+    item.appendChild(title); item.appendChild(del);
+    list.appendChild(item);
+  });
+}
+
+function switchChat(id) {
+  if (id === chatStore.active) return;
+  chatStore.active = id;
+  persistStore();
+  renderChatList();
+  renderThread();
+  document.getElementById('input').focus();
+}
+
+function deleteChat(id) {
+  chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
+  if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
+  if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
+  persistStore();
+  renderChatList();
+  renderThread();
 }
 
 // ── Generated media: element + download + full-screen actions ──
@@ -1067,9 +1170,9 @@ function initAuthGate() {
 // Init
 buildMenu();
 buildOptMenus();
-const restored = loadSaved();
-if (restored.length) { saved = restored; restored.forEach(renderSaved); }
-else { addMsg('agent', GREETINGS[AGENT]); }
+loadStore();
+renderChatList();
+renderThread();
 
 initAuthGate();
 
