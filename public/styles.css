@@ -1,7 +1,7 @@
 :root {
       --bg: #0a0a0b;
-      --panel: #131315;
-      --panel-2: #17171a;
+      --panel: rgba(40, 41, 48, 0.42);    /* translucent glass, slight grey */
+      --panel-2: rgba(54, 56, 64, 0.5);   /* slightly brighter glass (raised/active) */
       --line: #232326;
       --line-2: #2e2e33;
       --text: #f4f4f5;
@@ -63,7 +63,8 @@
       width: 264px; flex-shrink: 0; padding: 1rem .85rem;
       border-right: 1px solid var(--line);
       display: flex; flex-direction: column; gap: .25rem;
-      background: rgba(19,19,21,.5);
+      background: rgba(30, 31, 37, 0.4);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
     .side-label {
       font-size: .7rem; font-weight: 700; letter-spacing: .12em;
@@ -159,7 +160,7 @@
       font-size: .95rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
     .msg.user { align-self: flex-end; background: var(--neon); color: #0a0a0b; border-bottom-right-radius: 5px; font-weight: 500; }
-    .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+    .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 5px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
     .msg.typing { color: var(--muted); }
     .msg.typing .dots::after { content: '·'; animation: dots 1.2s steps(3, end) infinite; letter-spacing: 2px; }
     @keyframes dots { 33% { content: '··'; } 66% { content: '···'; } }
@@ -172,6 +173,7 @@
       background: var(--panel); border: 1px solid var(--line-2);
       border-radius: 24px; padding: 1.35rem 1.35rem 1.1rem 1.5rem;
       box-shadow: 0 20px 60px rgba(0,0,0,.45);
+      backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
     }
     .composer #input {
       flex: 1; background: none; border: none; outline: none;
@@ -210,6 +212,7 @@
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px;
   padding: .4rem; display: none; z-index: 50;
   box-shadow: 0 20px 60px rgba(0,0,0,.55);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
 }
 .model-menu.open { display: block; }
 .model-item {
@@ -306,6 +309,7 @@
   background: var(--panel-2); border: 1px solid var(--line);
   border-radius: 16px; border-bottom-left-radius: 5px;
   padding: 1.05rem 1.15rem; display: flex; flex-direction: column; gap: 1.1rem;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 .q-intro, .review-label { color: var(--muted); font-size: .88rem; }
 .q-block .q-title { font-weight: 600; margin-bottom: .6rem; }
@@ -432,6 +436,7 @@
 .auth-card {
   width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line-2);
   border-radius: 22px; padding: 2.1rem 1.9rem; box-shadow: 0 30px 80px rgba(0,0,0,.5);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
 }
 .auth-brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; font-size: 1.15rem; }
 .auth-brand .logo-mark {
