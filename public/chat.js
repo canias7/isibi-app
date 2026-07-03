@@ -494,9 +494,13 @@ if (modelMenu) {
 }
 
 function newChat() {
+  // A fresh chat wouldn't match an active search filter and would be
+  // invisible in the list — clear the filter first.
+  const search = document.getElementById('chatSearch');
+  if (search) search.value = '';
   // Keep the current chat in the sidebar; just start a fresh one.
   const current = activeChat();
-  if (current && !current.msgs.length) { document.getElementById('input').focus(); return; }
+  if (current && !current.msgs.length) { document.getElementById('input').focus(); renderChatList(); return; }
   const fresh = newChatEntry();
   chatStore.chats.unshift(fresh);
   chatStore.active = fresh.id;
@@ -894,7 +898,11 @@ function cancelGen(chatId) {
     }).catch(() => {});
   }
   endGen(chatId);
-  deliverAgent(chatId, '⏹ Cancelled.');
+  // Queued jobs die free on fal; anything already rendering may still bill.
+  const wasRendering = /generating/i.test(gen.text || '');
+  deliverAgent(chatId, wasRendering
+    ? '⏹ Cancelled — it was already rendering, so fal may still charge for this one.'
+    : '⏹ Cancelled before it started — no charge.');
 }
 
 // Turn fal/worker failures into human messages; the raw detail goes to the console.
@@ -946,6 +954,11 @@ async function generateMedia(text, opts = {}) {
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
       }),
     });
+    if (res.status === 401) { // session died — stop cleanly, the gate is up
+      endGen(origin);
+      deliverAgent(origin, '⚠️ Your session expired — sign in and try again.');
+      return;
+    }
     const job = await res.json();
     if (!alive()) return; // cancelled while submitting
     if (!res.ok || !job.status_url) {
@@ -959,6 +972,10 @@ async function generateMedia(text, opts = {}) {
     let state = '';
     while (Date.now() - started < 10 * 60 * 1000) {
       const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+      if (sr.status === 401) {
+        if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
+        return;
+      }
       const st = await sr.json();
       if (!alive()) return; // cancelled while polling
       state = st.status;
