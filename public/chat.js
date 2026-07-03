@@ -97,7 +97,9 @@ let duration = 5;
 let ratio = '16:9';
 let quality = '720p';
 let voice = 'Rachel';
-let model = DEFAULT_MODELS.video;
+// Each mode remembers its own model, so switching modes doesn't reset the pick.
+const selectedModels = { ...DEFAULT_MODELS };
+let model = selectedModels.video;
 let mode = 'video';
 
 
@@ -156,7 +158,8 @@ function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  const cap = kind === 'clip' ? 20 : kind === 'audio' ? 25 : 8;
+  // Caps must stay under the Worker's base64 ceilings (data URI ≈ size × 1.34).
+  const cap = kind === 'clip' ? 20 : kind === 'audio' ? 20 : 8;
   if (file.size > cap * 1024 * 1024) {
     alert('File too big — max ' + cap + ' MB.');
     return;
@@ -207,9 +210,10 @@ function updateAttachVisibility() {
 function buildMenu() {
   if (!modelMenu) return;
   modelMenu.innerHTML = '';
+  model = selectedModels[mode] || DEFAULT_MODELS[mode];
   MODEL_LISTS[mode].forEach((m) => {
     const d = document.createElement('div');
-    d.className = 'model-item' + (m.id === DEFAULT_MODELS[mode] ? ' selected' : '');
+    d.className = 'model-item' + (m.id === model ? ' selected' : '');
     d.dataset.model = m.id;
     d.dataset.label = m.label;
     const note = m.note ? ' <small style="color:var(--muted)">· ' + m.note + '</small>' : '';
@@ -217,9 +221,8 @@ function buildMenu() {
     d.onclick = () => pickModel(d);
     modelMenu.appendChild(d);
   });
-  model = DEFAULT_MODELS[mode];
-  const def = MODEL_LISTS[mode].find((m) => m.id === model);
-  document.getElementById('modelLabel').textContent = def.label;
+  const cur = MODEL_LISTS[mode].find((m) => m.id === model);
+  document.getElementById('modelLabel').textContent = cur.label;
 }
 
 function setMode(m) {
@@ -265,6 +268,17 @@ async function previewVoice(name, btn) {
   btn.disabled = true;
   btn.textContent = '…';
   try {
+    // Committed static previews (/voices/<name>.mp3) are free — prefer them
+    // over spending a live TTS call.
+    try {
+      const staticUrl = '/voices/' + name.toLowerCase() + '.mp3';
+      const head = await fetch(staticUrl, { method: 'HEAD' });
+      if (head.ok && (head.headers.get('content-type') || '').startsWith('audio')) {
+        voicePreviewCache[key] = staticUrl;
+        playPreview(staticUrl, btn);
+        return;
+      }
+    } catch {}
     const res = await apiFetch('/api/audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -437,6 +451,7 @@ function toggleModelMenu(e) {
 function pickModel(el) {
   if (el.classList.contains('disabled')) return;
   model = el.dataset.model;
+  selectedModels[mode] = model;
   document.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
   document.getElementById('modelLabel').textContent = el.dataset.label;
   modelMenu.classList.remove('open');
@@ -598,6 +613,23 @@ function deleteChat(id) {
   renderThread();
 }
 
+// A generation can finish after the user has moved to another chat — deliver
+// its output to the chat that started it, and only render if still there.
+function saveToChat(chatId, item) {
+  const chat = chatStore.chats.find((c) => c.id === chatId);
+  if (!chat) return;
+  chat.msgs.push(item);
+  persistStore();
+}
+function deliverAgent(chatId, text) {
+  if (chatStore.active === chatId) addMsg('agent', text);
+  else saveToChat(chatId, { t: 'agent', text });
+}
+function deliverMedia(chatId, kind, url) {
+  saveToChat(chatId, { t: 'media', kind, url });
+  if (chatStore.active === chatId) threadAppend(buildMedia(kind, url));
+}
+
 // ── Generated media: element + download + full-screen actions ──
 function buildMedia(kind, url) {
   const div = document.createElement('div');
@@ -712,9 +744,21 @@ function makeLoader(kind) {
   return { el: wrap, setText: (t) => { wrap.querySelector('.gen-status-text').textContent = t; } };
 }
 
+// Turn fal/worker failures into human messages; the raw detail goes to the console.
+function friendlyFail(job) {
+  console.error('generation failed:', job);
+  const raw = JSON.stringify(job || {});
+  if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
+  if (/content|safety|nsfw|moderation/i.test(raw)) return '⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.';
+  if (/validation|invalid|must be|unprocessable/i.test(raw)) return '⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.';
+  if (job && job.error === 'unknown model') return '⚠️ That model isn’t available right now — pick another from the menu.';
+  return '⚠️ Couldn’t start the generation — give it another try in a moment.';
+}
+
 async function generateMedia(text, opts = {}) {
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
 
+  const origin = chatStore.active; // deliver results here even if the user switches chats
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
   const kind = mode;
@@ -744,8 +788,7 @@ async function generateMedia(text, opts = {}) {
     const job = await res.json();
     if (!res.ok || !job.status_url) {
       loader.el.remove();
-      addMsg('agent', '⚠️ ' + (job.error || 'Could not start the generation.') +
-        (job.detail ? ' — ' + JSON.stringify(job.detail).slice(0, 300) : ''));
+      deliverAgent(origin, friendlyFail(job));
       return;
     }
 
@@ -765,26 +808,37 @@ async function generateMedia(text, opts = {}) {
 
     if (state !== 'COMPLETED') {
       loader.el.remove();
-      addMsg('agent', '⚠️ Timed out after 10 minutes — the job may still finish on fal.ai.');
+      deliverAgent(origin, '⚠️ Timed out after 10 minutes — the job may still finish on fal.ai.');
       return;
     }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json();
-    loader.el.remove();
     const mediaUrl = kind === 'image'
       ? (out.images?.[0]?.url || out.image?.url || out.data?.images?.[0]?.url)
       : kind === 'audio'
       ? (out.audio?.url || out.audio_url || out.audio_file?.url || out.audio?.[0]?.url || out.data?.audio?.url)
       : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
     if (mediaUrl) {
-      threadAppend(buildMedia(kind, mediaUrl));
-      pushSaved({ t: 'media', kind, url: mediaUrl });
+      // Copy to permanent storage — fal URLs expire after a few days.
+      loader.setText('Saving to your gallery…');
+      let finalUrl = mediaUrl;
+      try {
+        const sv = await apiFetch('/api/save', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: mediaUrl, kind }),
+        });
+        if (sv.ok) { const d = await sv.json(); if (d.url) finalUrl = d.url; }
+      } catch {}
+      loader.el.remove();
+      deliverMedia(origin, kind, finalUrl);
     } else {
-      addMsg('agent', '⚠️ Finished but no ' + kind + ' in the response: ' + JSON.stringify(out).slice(0, 300));
+      loader.el.remove();
+      console.error('generation finished without media:', out);
+      deliverAgent(origin, '⚠️ The model finished but returned no ' + kind + ' — try again.');
     }
   } catch {
-    addMsg('agent', '⚠️ Network error — try again.');
+    deliverAgent(origin, '⚠️ Network hiccup — try again.');
   } finally {
     loader.el.remove();
     btn.disabled = false;
@@ -802,12 +856,21 @@ let directorState = null;
 // Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
-async function directorAsk(text) {
+// The last few chat turns, so the director remembers the conversation.
+function directorHistory() {
+  const chat = activeChat();
+  return (chat ? chat.msgs : [])
+    .filter((m) => m.t === 'user' || m.t === 'agent')
+    .slice(-8)
+    .map((m) => ({ role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) }));
+}
+
+async function directorAsk(text, history) {
   if (mode === 'audio') return { reply: '', ready: true, questions: [] }; // voice: words are literal
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text }),
+      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [] }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
@@ -874,12 +937,17 @@ function threadAppend(el) {
 }
 
 async function startDirector(text) {
+  const origin = chatStore.active;
+  const history = directorHistory(); // prior turns only — capture before adding this one
   addMsg('user', text);
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
   let res;
-  try { res = await directorAsk(text); } finally { thinking.remove(); }
+  try { res = await directorAsk(text, history); } finally { thinking.remove(); }
   // Zephyr's conversational reply (greetings, small talk, or a lead-in to questions).
-  if (res.reply) addMsg('agent', res.reply);
+  if (res.reply) deliverAgent(origin, res.reply);
+  // If the user moved to another chat while Zephyr was thinking, stop here —
+  // don't pop question cards into the wrong thread.
+  if (chatStore.active !== origin) return;
   // A vague creative request — walk through the tappable questions.
   if (res.questions && res.questions.length) {
     directorState = { text, questions: res.questions, answers: new Array(res.questions.length).fill(null) };
