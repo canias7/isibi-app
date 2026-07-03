@@ -449,6 +449,7 @@ if (modelMenu) {
 }
 
 function newChat() {
+  clearSaved();
   location.href = location.pathname;
 }
 
@@ -463,6 +464,7 @@ function addMsg(kind, text) {
   const box = document.getElementById('messages');
   box.appendChild(div);
   box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  if (kind === 'user' || kind === 'agent') pushSaved({ t: kind, text });
   return div;
 }
 
@@ -470,6 +472,109 @@ function ratioAspect(r) {
   const m = typeof r === 'string' && r.match(/^(\d{1,2}):(\d{1,2})$/);
   return m ? m[1] + ' / ' + m[2] : '16 / 9';
 }
+
+// ── Persistence: keep the thread across reloads / app switches ──
+const STORE_KEY = 'zephyr_thread_v1';
+let saved = [];
+function pushSaved(item) {
+  saved.push(item);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(saved.slice(-80))); } catch {}
+}
+function clearSaved() {
+  saved = [];
+  try { localStorage.removeItem(STORE_KEY); } catch {}
+}
+function loadSaved() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { return []; }
+}
+function renderSaved(item) {
+  if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url)); return; }
+  const div = document.createElement('div');
+  div.className = 'msg ' + item.t;
+  div.textContent = item.text;
+  threadAppend(div);
+}
+
+// ── Generated media: element + download + full-screen actions ──
+function buildMedia(kind, url) {
+  const div = document.createElement('div');
+  div.className = 'msg agent ' + kind;
+  let el;
+  if (kind === 'image') {
+    el = document.createElement('img');
+    el.src = url; el.alt = '';
+    el.addEventListener('click', () => openLightbox('image', url));
+  } else if (kind === 'audio') {
+    el = document.createElement('audio');
+    el.controls = true; el.src = url;
+  } else {
+    el = document.createElement('video');
+    el.controls = true; el.src = url; el.playsInline = true;
+  }
+  div.appendChild(el);
+
+  const actions = document.createElement('div');
+  actions.className = 'media-actions';
+  if (kind !== 'audio') {
+    const exp = document.createElement('button');
+    exp.className = 'media-btn'; exp.type = 'button'; exp.title = 'Full screen'; exp.textContent = '⛶';
+    exp.onclick = (e) => { e.stopPropagation(); openLightbox(kind, url); };
+    actions.appendChild(exp);
+  }
+  const dl = document.createElement('button');
+  dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
+  dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
+  actions.appendChild(dl);
+  div.appendChild(actions);
+  return div;
+}
+
+async function downloadMedia(url, kind) {
+  const known = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|ogg|m4a)$/i);
+  const ext = known ? known[1].toLowerCase() : (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4');
+  const name = 'zephyr-' + Date.now() + '.' + ext;
+  try {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const obj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = obj; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(obj), 5000);
+  } catch {
+    window.open(url, '_blank', 'noopener'); // cross-origin fallback
+  }
+}
+
+// ── Full-screen lightbox (images & videos) ──
+let lightboxEl = null;
+function openLightbox(kind, url) {
+  if (!lightboxEl) {
+    lightboxEl = document.createElement('div');
+    lightboxEl.className = 'lightbox';
+    lightboxEl.innerHTML =
+      '<button class="lb-dl" type="button" title="Download">⤓</button>' +
+      '<button class="lb-close" type="button" title="Close" aria-label="Close">×</button>' +
+      '<div class="lb-stage"></div>';
+    lightboxEl.addEventListener('click', (e) => { if (e.target === lightboxEl) closeLightbox(); });
+    lightboxEl.querySelector('.lb-close').onclick = closeLightbox;
+    document.body.appendChild(lightboxEl);
+  }
+  const stage = lightboxEl.querySelector('.lb-stage');
+  stage.innerHTML = '';
+  let el;
+  if (kind === 'image') { el = document.createElement('img'); el.src = url; }
+  else { el = document.createElement('video'); el.src = url; el.controls = true; el.autoplay = true; el.playsInline = true; }
+  stage.appendChild(el);
+  lightboxEl.querySelector('.lb-dl').onclick = () => downloadMedia(url, kind);
+  lightboxEl.classList.add('open');
+}
+function closeLightbox() {
+  if (!lightboxEl) return;
+  lightboxEl.classList.remove('open');
+  lightboxEl.querySelector('.lb-stage').innerHTML = ''; // stop playback
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
 
 // Animated placeholder shown while a generation runs: a shimmering skeleton
 // (or bouncing bars for audio) + a spinning ring and the live status text.
@@ -570,26 +675,8 @@ async function generateMedia(text, opts = {}) {
       ? (out.audio?.url || out.audio_url || out.audio_file?.url || out.audio?.[0]?.url || out.data?.audio?.url)
       : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
     if (mediaUrl) {
-      const div = document.createElement('div');
-      div.className = 'msg agent ' + kind;
-      let el;
-      if (kind === 'image') {
-        el = document.createElement('img');
-        el.src = mediaUrl;
-        el.alt = text;
-      } else if (kind === 'audio') {
-        el = document.createElement('audio');
-        el.controls = true;
-        el.src = mediaUrl;
-      } else {
-        el = document.createElement('video');
-        el.controls = true;
-        el.src = mediaUrl;
-      }
-      div.appendChild(el);
-      const box = document.getElementById('messages');
-      box.appendChild(div);
-      box.parentElement.scrollTop = box.parentElement.scrollHeight;
+      threadAppend(buildMedia(kind, mediaUrl));
+      pushSaved({ t: 'media', kind, url: mediaUrl });
     } else {
       addMsg('agent', '⚠️ Finished but no ' + kind + ' in the response: ' + JSON.stringify(out).slice(0, 300));
     }
@@ -741,7 +828,9 @@ function send() {
 // Init
 buildMenu();
 buildOptMenus();
-addMsg('agent', GREETINGS[AGENT]);
+const restored = loadSaved();
+if (restored.length) { saved = restored; restored.forEach(renderSaved); }
+else { addMsg('agent', GREETINGS[AGENT]); }
 
 const params = new URLSearchParams(location.search);
 const firstMsg = params.get('q');
