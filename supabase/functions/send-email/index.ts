@@ -1,6 +1,6 @@
 // Supabase Auth "Send Email" hook → Go Farther mailer.
 // Auth: standard-webhooks signature (SEND_EMAIL_HOOK_SECRET), not JWT.
-// Links point at isibi.ai/confirm.html (verifies token_hash directly), so
+// Links point at isibi.ai/confirm (verifies token_hash directly), so
 // they work regardless of the project's Site URL setting.
 //
 // Deployed to the fifa-tournament-hub Supabase project as `send-email`
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
 
   const kind = email_data.email_action_type || "email";
   const token = email_data.token || "";
-  const link = `https://isibi.ai/confirm.html?token_hash=${encodeURIComponent(email_data.token_hash || "")}&type=${encodeURIComponent(kind)}`;
+  const link = `https://isibi.ai/confirm?token_hash=${encodeURIComponent(email_data.token_hash || "")}&type=${encodeURIComponent(kind)}`;
 
   const html = `
   <div style="font-family:Inter,system-ui,sans-serif;background:#0a0a0b;color:#f4f4f5;padding:36px;border-radius:16px;max-width:480px;margin:0 auto">
