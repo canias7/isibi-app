@@ -77,7 +77,18 @@ const MODEL_OPTS = {
     caps: { image: false, end: false, avatar: false, audio: true, clip: true },
   },
 };
-const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1', caps: { image: true, end: false, avatar: true } };
+const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1' };
+// Image models that support editing (attach an image). MULTI ones take more
+// than one image (so they also get the +Avatar reference picker).
+const IMAGE_EDIT_MODELS = new Set([
+  'google/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
+  'fal-ai/flux-2-pro', 'fal-ai/gemini-3-pro-image-preview',
+  'fal-ai/bytedance/seedream/v4/text-to-image', 'fal-ai/flux/dev', 'fal-ai/recraft/v3/text-to-image',
+]);
+const IMAGE_MULTI_MODELS = new Set([
+  'google/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
+  'fal-ai/flux-2-pro', 'fal-ai/gemini-3-pro-image-preview', 'fal-ai/bytedance/seedream/v4/text-to-image',
+]);
 // Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
 // audio:true surfaces the "+ Audio" upload picker (e.g. a clip to clone from later).
 const AUDIO_OPTS = { voices: VOICES, defVoice: 'Rachel', caps: { image: false, end: false, avatar: false, audio: true } };
@@ -225,7 +236,13 @@ function setMode(m) {
 
 function currentOpts() {
   if (mode === 'audio') return AUDIO_OPTS;
-  return mode === 'video' ? MODEL_OPTS[model] : IMAGE_OPTS;
+  if (mode === 'image') {
+    return {
+      ratios: IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
+      caps: { image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model) },
+    };
+  }
+  return MODEL_OPTS[model];
 }
 
 // Voice preview: generate a short line in the chosen voice once, then cache
