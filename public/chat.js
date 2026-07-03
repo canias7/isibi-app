@@ -871,6 +871,12 @@ function reviewPrompt(prompt) {
   threadAppend(box);
 }
 
+// Grow the message box downward as the user types; cap it, then scroll.
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.38)) + 'px';
+}
+
 function send() {
   const input = document.getElementById('input');
   const text = input.value.trim();
@@ -878,6 +884,7 @@ function send() {
   const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
   input.value = '';
+  input.style.height = 'auto'; // collapse back to one line after sending
   if (promptless) { generateMedia(text); return; }
   startDirector(text);
 }

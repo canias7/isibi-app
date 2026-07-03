@@ -55,8 +55,9 @@
             <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
             <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
             <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
-            <input id="input" placeholder="Message Zephyr — say anything…" autocomplete="off"
-                   onkeydown="if(event.key==='Enter')send()" />
+            <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
+                   oninput="autoGrow(this)"
+                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
             <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
             <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
           </div>
