@@ -35,6 +35,20 @@ const IMAGE_MODELS = new Set([
 ]);
 const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
 
+// Image editing: attaching an image in Image mode routes to the model's
+// edit / image-to-image endpoint. `multi` → image_urls[] vs a single image_url.
+// Models not listed here don't offer editing (the picker is hidden for them).
+const IMAGE_EDIT = {
+  "google/nano-banana-2":                        { endpoint: "fal-ai/nano-banana-2/edit",              multi: true },
+  "fal-ai/nano-banana-pro":                      { endpoint: "fal-ai/nano-banana-pro/edit",            multi: true },
+  "openai/gpt-image-2":                          { endpoint: "openai/gpt-image-2/edit",                multi: true },
+  "fal-ai/flux-2-pro":                           { endpoint: "fal-ai/flux-2-pro/edit",                 multi: true },
+  "fal-ai/gemini-3-pro-image-preview":           { endpoint: "fal-ai/gemini-3-pro-image-preview/edit", multi: true },
+  "fal-ai/bytedance/seedream/v4/text-to-image":  { endpoint: "fal-ai/bytedance/seedream/v4/edit",      multi: true },
+  "fal-ai/flux/dev":                             { endpoint: "fal-ai/flux/dev/image-to-image",         multi: false },
+  "fal-ai/recraft/v3/text-to-image":             { endpoint: "fal-ai/recraft/v3/image-to-image",       multi: false },
+};
+
 // Audio mode is voice generation (text-to-speech).
 const AUDIO_MODELS = new Set([
   "fal-ai/elevenlabs/tts/eleven-v3",
@@ -192,13 +206,14 @@ export default {
 
         // Video endpoints that accept a resolution.
         if (quality && (isSeedance || isGrok || isVeo || isSora)) input.resolution = quality;
-      } else if (image || avatar) {
-        if (endpoint === "google/nano-banana-2") endpoint = "fal-ai/nano-banana-2/edit";
-        else if (endpoint === "fal-ai/nano-banana-pro") endpoint = "fal-ai/nano-banana-pro/edit";
+      } else if ((image || avatar) && IMAGE_EDIT[model]) {
+        // Image editing: route to the model's edit / image-to-image endpoint.
+        // Size comes from the source image, so no aspect_ratio here.
+        const edit = IMAGE_EDIT[model];
+        endpoint = edit.endpoint;
         const urls = [image, avatar].filter(Boolean);
-        input.image_urls = urls;
-        input.image_url = urls[0];
-        if (ratio && !model.startsWith("fal-ai/flux/")) input.aspect_ratio = ratio;
+        if (edit.multi) input.image_urls = urls;
+        else input.image_url = urls[0];
       } else if (ratio) {
         // These families size output via an image_size enum; the rest take aspect_ratio.
         const usesImageSize =
