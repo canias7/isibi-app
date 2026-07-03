@@ -24,11 +24,14 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 - Static voice previews — **user adds the files**: drop MP3s at `public/voices/<name>.mp3`, lowercase (rachel.mp3, aria.mp3, sarah.mp3, laura.mp3, charlotte.mp3, alice.mp3, matilda.mp3, jessica.mp3, lily.mp3, roger.mp3, george.mp3, callum.mp3, liam.mp3, will.mp3, brian.mp3, daniel.mp3). The preview button already checks these before spending a TTS call.
 - Gallery page proper (browse/manage all saved media; per-message 🗑 delete exists already)
 
+## Rate limits
+
+Per-user daily quotas enforced in Postgres: `public.use_quota(kind, limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table). Worker gates: generation (`gen`, 60/day) and director (`director`, 300/day) → 429 `daily limit reached`; the frontend shows a friendly limit message. Quota check fails open if Supabase is unreachable.
+
 ## Open (not yet scheduled)
 
-- Per-user rate limits on `/api/*` (top financial exposure once fal has balance — signups are open)
 - fal balance top-up → then run the live model sweep (one cheap job per family across the 13 video + 11 image models)
 - Go Farther email provider: key saved as `GO_FARTHER_API_KEY` in Edge Function secrets; blocked on their API docs URL, then deploy a Send-Email Auth Hook so sign-in codes actually deliver
 - Supabase Site URL is likely still `localhost:3000` (Authentication → URL Configuration → set to `https://isibi.ai`)
-- Rotate the temp password set for aniascapital@gmail.com (it appeared in a chat log); no change-password UI exists yet
+- User should change their password via the sidebar "Change password" button (the temp one appeared in a chat log)
 - Mobile layout (sidebar/chat history hidden below 900px)
