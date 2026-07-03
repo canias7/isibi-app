@@ -553,3 +553,14 @@
 }
 .chat-item:hover .chat-del { opacity: .8; }
 .chat-del:hover { color: #e88; }
+
+/* ── Sidebar chat search ───────────────────── */
+.chat-search {
+  margin: .45rem 0 .1rem; width: 100%;
+  background: rgba(0, 0, 0, .25); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: .5rem .65rem; font-size: .88rem; font-family: inherit;
+  outline: none; transition: border-color .2s ease;
+}
+.chat-search::placeholder { color: #5c5c66; }
+.chat-search:focus { border-color: var(--line-2); }
+.chat-empty { color: var(--muted); font-size: .85rem; padding: .6rem .55rem; }
