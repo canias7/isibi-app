@@ -614,7 +614,19 @@ function renderChatList() {
   const list = document.getElementById('chatList');
   if (!list) return;
   list.innerHTML = '';
-  chatStore.chats.forEach((c) => {
+  // Filter by the sidebar search box — matches titles and message text.
+  const q = (document.getElementById('chatSearch')?.value || '').trim().toLowerCase();
+  const shown = !q ? chatStore.chats : chatStore.chats.filter((c) =>
+    c.title.toLowerCase().includes(q) ||
+    c.msgs.some((m) => (m.t === 'user' || m.t === 'agent') && String(m.text || '').toLowerCase().includes(q)));
+  if (q && !shown.length) {
+    const none = document.createElement('div');
+    none.className = 'chat-empty';
+    none.textContent = 'No chats found';
+    list.appendChild(none);
+    return;
+  }
+  shown.forEach((c) => {
     const item = document.createElement('div');
     item.className = 'chat-item' + (c.id === chatStore.active ? ' active' : '');
     const title = document.createElement('span');
