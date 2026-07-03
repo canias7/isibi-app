@@ -234,6 +234,36 @@
 .msg.image img { display: block; width: 380px; max-width: 100%; border-radius: 12px; }
 .msg.audio { max-width: 68%; }
 .msg.audio audio { display: block; width: 320px; max-width: 100%; }
+.msg.image img { cursor: zoom-in; }
+
+/* ── Generated-media actions (download / full screen) ── */
+.msg.image, .msg.video, .msg.audio { position: relative; }
+.media-actions { position: absolute; top: .7rem; right: .7rem; display: flex; gap: .4rem; }
+.media-btn {
+  width: 34px; height: 34px; border-radius: 9px; border: none;
+  background: rgba(10, 10, 11, .72); color: var(--text); cursor: pointer;
+  display: grid; place-items: center; font-size: 1.05rem; line-height: 1;
+  backdrop-filter: blur(4px); opacity: .9; transition: background .12s, opacity .12s;
+}
+.media-btn:hover { background: var(--neon); color: #0a0a0b; opacity: 1; }
+
+/* ── Full-screen lightbox ── */
+.lightbox {
+  position: fixed; inset: 0; z-index: 200; display: none;
+  align-items: center; justify-content: center; padding: 2.5rem;
+  background: rgba(0, 0, 0, .92);
+}
+.lightbox.open { display: flex; }
+.lb-stage { display: flex; max-width: 94vw; max-height: 90vh; }
+.lb-stage img, .lb-stage video { max-width: 94vw; max-height: 90vh; border-radius: 12px; display: block; }
+.lb-close, .lb-dl {
+  position: fixed; top: 1.1rem; width: 44px; height: 44px; border-radius: 12px;
+  border: none; background: rgba(255, 255, 255, .12); color: #fff; cursor: pointer;
+  display: grid; place-items: center; line-height: 1;
+}
+.lb-close { right: 1.1rem; font-size: 1.6rem; }
+.lb-dl { right: 4.2rem; font-size: 1.25rem; }
+.lb-close:hover, .lb-dl:hover { background: var(--neon); color: #0a0a0b; }
 
 /* ── Generation loading (animated) ──────── */
 .gen-loading {
