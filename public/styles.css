@@ -564,3 +564,16 @@
 .chat-search::placeholder { color: #5c5c66; }
 .chat-search:focus { border-color: var(--line-2); }
 .chat-empty { color: var(--muted); font-size: .85rem; padding: .6rem .55rem; }
+
+/* ── Copy chip on text bubbles ─────────────── */
+.msg { position: relative; }
+.copy-btn {
+  position: absolute; top: .25rem; right: .3rem;
+  width: 24px; height: 24px; border-radius: 7px; border: none;
+  background: rgba(0, 0, 0, .4); color: #fff; font-size: .8rem; line-height: 1;
+  cursor: pointer; opacity: 0; transition: opacity .15s ease;
+  display: grid; place-items: center;
+}
+.msg:hover .copy-btn { opacity: .85; }
+.copy-btn:hover { opacity: 1; }
+.msg.user .copy-btn { background: rgba(0, 0, 0, .22); color: #0a0a0b; }
