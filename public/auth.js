@@ -49,8 +49,11 @@ const Auth = (() => {
     return session;
   }
 
-  async function signIn(email, password) {
-    return adopt(await gotrue('token?grant_type=password', { email, password }));
+  // Validate a password WITHOUT persisting a session — so the emailed-code
+  // step can't be skipped (throws on bad credentials / unconfirmed email).
+  async function checkPassword(email, password) {
+    await gotrue('token?grant_type=password', { email, password });
+    return true;
   }
 
   async function signUp(email, password) {
@@ -61,16 +64,24 @@ const Auth = (() => {
     return { session: null, needsConfirm: true };
   }
 
-  // Passwordless: email a one-time code (GoTrue sends it per the OTP template).
-  // create_user lets first-time emails sign up in the same step.
-  async function sendCode(email) {
-    await gotrue('otp', { email, create_user: true });
+  // Email a one-time code (GoTrue sends it per the OTP template).
+  // createUser only for sign-up-style flows; false on sign-in so a typo'd
+  // email can't silently mint an account.
+  async function sendCode(email, createUser) {
+    await gotrue('otp', { email, create_user: !!createUser });
     return true;
   }
 
-  // Verify the 6-digit code the user typed → a full session.
-  async function verifyCode(email, token) {
-    return adopt(await gotrue('verify', { type: 'email', email, token }));
+  // Send a password-reset (recovery) code.
+  async function recover(email) {
+    await gotrue('recover', { email });
+    return true;
+  }
+
+  // Verify the 6-digit code → a full session. type: 'email' (sign-in OTP),
+  // 'signup' (confirm a new account), or 'recovery' (password reset).
+  async function verifyCode(email, token, type) {
+    return adopt(await gotrue('verify', { type: type || 'email', email, token }));
   }
 
   async function refresh() {
@@ -135,7 +146,8 @@ const Auth = (() => {
 
   loadSession();
   return {
-    signIn, signUp, sendCode, verifyCode, refresh, accessToken, signOut, storageDelete, updatePassword,
+    checkPassword, signUp, sendCode, recover, verifyCode, refresh, accessToken,
+    signOut, storageDelete, updatePassword,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
   };

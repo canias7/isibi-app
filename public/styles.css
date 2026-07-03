@@ -403,18 +403,8 @@
 }
 .auth-title { font-size: 1.5rem; font-weight: 800; margin: 1.4rem 0 .35rem; }
 .auth-sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.3rem; }
-.auth-tabs {
-  display: flex; gap: .3rem; background: rgba(0, 0, 0, .32); border: 1px solid var(--line);
-  border-radius: 12px; padding: .3rem; margin-bottom: 1.15rem;
-}
-.auth-tab {
-  flex: 1; background: none; border: none; color: var(--muted); font-family: inherit;
-  font-size: .9rem; font-weight: 600; padding: .55rem; border-radius: 9px; cursor: pointer;
-}
-.auth-tab.active { background: var(--panel-2); color: var(--text); }
-.auth-tab:not(.active):hover { color: var(--text); }
 .auth-form { display: flex; flex-direction: column; gap: .7rem; }
-#codeInput { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
+#authCode { letter-spacing: .35em; text-align: center; font-size: 1.15rem; font-weight: 600; }
 .auth-form input {
   background: rgba(0, 0, 0, .30); border: 1px solid var(--line-2); color: var(--text);
   border-radius: 12px; padding: .85rem 1rem; font-size: 1rem; font-family: inherit; outline: none;
@@ -431,7 +421,12 @@
 }
 .auth-submit:hover { background: var(--split-dim); }
 .auth-submit:disabled { opacity: .6; cursor: default; }
-.auth-switch { margin-top: 1.3rem; text-align: center; font-size: .9rem; color: var(--muted); }
+.auth-links {
+  margin-top: 1.2rem; display: flex; align-items: center; justify-content: space-between;
+  gap: .5rem; flex-wrap: wrap; font-size: .9rem; color: var(--muted);
+}
+.auth-switch { text-align: right; }
+#authResend { align-self: center; margin-top: .2rem; }
 .auth-link {
   background: none; border: none; color: var(--neon); font-weight: 600; cursor: pointer;
   font-family: inherit; font-size: .9rem; padding: 0 .2rem;
@@ -471,7 +466,7 @@
 }
 
 /* Pills, chips and ghost buttons lift slightly. */
-.btn-ghost, .attach-btn, .opt-btn, .mode-btn, .new-chat, .side-signout, .review-deny, .auth-tab, .voice-test {
+.btn-ghost, .attach-btn, .opt-btn, .mode-btn, .new-chat, .side-signout, .review-deny, .voice-test {
   transition: color .18s ease, border-color .18s ease, background .18s ease, transform .16s ease, box-shadow .2s ease;
 }
 .btn-ghost:hover, .attach-btn:hover, .opt-btn:hover, .new-chat:hover, .side-signout:hover { transform: translateY(-1px); }
@@ -524,7 +519,6 @@
 @keyframes card-in { from { opacity: 0; transform: translateY(16px) scale(.97); } }
 .auth-form input { transition: border-color .2s ease, box-shadow .2s ease; }
 .auth-form input:focus { box-shadow: 0 0 0 3px rgba(255, 214, 10, .14); }
-.auth-tab.active { animation: pick-pop .25s ease; }
 
 /* Voice preview pulses while playing; lightbox fades in. */
 .voice-test.playing { animation: play-pulse 1s ease-in-out infinite; }

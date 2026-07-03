@@ -1302,128 +1302,165 @@ function hideAuthGate() {
   if (gate) gate.style.display = 'none';
 }
 
-let authMethod = 'password'; // 'password' | 'code'
-function setAuthMethod(m) {
-  authMethod = m;
-  const isPw = m === 'password';
-  document.getElementById('tabPassword').classList.toggle('active', isPw);
-  document.getElementById('tabCode').classList.toggle('active', !isPw);
-  document.getElementById('authForm').style.display = isPw ? '' : 'none';
-  document.getElementById('authSwitch').style.display = isPw ? '' : 'none';
-  document.getElementById('codeForm').style.display = isPw ? 'none' : '';
-  showAuthError(''); showCodeError('');
-  if (isPw) {
-    setAuthMode(authMode);
-    document.getElementById('authEmail').focus();
-  } else {
-    document.getElementById('authTitle').textContent = 'Sign in to Zephyr';
-    resetCodeFlow();
-    const typed = document.getElementById('authEmail').value.trim();
-    if (typed) document.getElementById('codeEmail').value = typed;
-    document.getElementById('codeEmail').focus();
-  }
-}
+// One flow: email + password → emailed code → in.
+// Modes: 'in' (sign in) · 'up' (create account) · 'reset' (forgot password).
+// Steps: 'creds' → 'code' → ('newpass' for reset).
+function authEl(id) { return document.getElementById(id); }
+let authMode = 'in';
+let authStep = 'creds';
+let pendingEmail = '';
+let pendingType = 'email'; // verify type for the code step
 
-let authMode = 'in'; // 'in' = sign in, 'up' = create account
-function setAuthMode(m) {
-  authMode = m;
-  document.getElementById('authTitle').textContent = m === 'in' ? 'Sign in to Zephyr' : 'Create your account';
-  document.getElementById('authSubmit').textContent = m === 'in' ? 'Sign in' : 'Create account';
-  document.getElementById('authSwitchText').textContent = m === 'in' ? 'New here?' : 'Already have an account?';
-  document.getElementById('authToggle').textContent = m === 'in' ? 'Create an account' : 'Sign in';
-  document.getElementById('authPass').setAttribute('autocomplete', m === 'in' ? 'current-password' : 'new-password');
-  showAuthError('');
-}
 function showAuthError(msg) {
-  const el = document.getElementById('authError');
-  if (el) { el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
-}
-function showCodeError(msg) {
-  const el = document.getElementById('codeError');
-  if (el) { el.textContent = msg || ''; el.style.display = msg ? 'block' : 'none'; }
+  const e = authEl('authError');
+  if (e) { e.textContent = msg || ''; e.style.display = msg ? 'block' : 'none'; }
 }
 
-// Email-code flow: 'request' shows the email field, 'verify' shows the code field.
-let codeStep = 'request';
-function resetCodeFlow() {
-  codeStep = 'request';
-  document.getElementById('codeEmail').disabled = false;
-  const codeInput = document.getElementById('codeInput');
-  codeInput.style.display = 'none'; codeInput.value = '';
-  document.getElementById('codeSubmit').textContent = 'Send code';
-  document.getElementById('codeHint').style.display = 'none';
-  showCodeError('');
+function friendlyAuthErr(e) {
+  const m = (e && e.message) || '';
+  if (/invalid login credentials/i.test(m)) return 'Wrong email or password.';
+  if (/already registered|already been registered/i.test(m)) return 'That email already has an account — sign in instead.';
+  if (/rate limit|too many|429/i.test(m)) return 'Too many attempts — wait a minute and try again.';
+  if (/(expired|invalid)[^]*(code|token|otp)|(code|token|otp)[^]*(expired|invalid)/i.test(m)) return "That code didn't work — request a new one.";
+  if (/should be at least|at least 6/i.test(m)) return 'Password must be at least 6 characters.';
+  return m || 'Something went wrong.';
 }
 
-async function submitCode() {
-  const btn = document.getElementById('codeSubmit');
-  const emailEl = document.getElementById('codeEmail');
-  const email = emailEl.value.trim();
-  if (codeStep === 'request') {
-    if (!email) { showCodeError('Enter your email.'); return; }
-    const orig = btn.textContent; btn.disabled = true; btn.textContent = '…'; showCodeError('');
-    try {
-      await Auth.sendCode(email);
-      codeStep = 'verify';
-      emailEl.disabled = true;
-      const codeInput = document.getElementById('codeInput');
-      codeInput.style.display = ''; codeInput.focus();
-      btn.textContent = 'Verify & sign in';
-      document.getElementById('codeHint').style.display = '';
-    } catch (e) {
-      showCodeError((e && e.message) || 'Could not send the code.');
-    } finally { btn.disabled = false; if (btn.textContent === '…') btn.textContent = orig; }
-  } else {
-    const token = document.getElementById('codeInput').value.trim();
-    if (!/^\d{6}$/.test(token)) { showCodeError('Enter the 6-digit code from your email.'); return; }
-    const orig = btn.textContent; btn.disabled = true; btn.textContent = '…'; showCodeError('');
-    try {
-      await Auth.verifyCode(email, token);
-      enterApp();
-    } catch (e) {
-      showCodeError((e && e.message) || "That code didn't work — try again.");
-    } finally { btn.disabled = false; if (btn.textContent === '…') btn.textContent = orig; }
-  }
+const AUTH_TITLES = {
+  in:    { creds: 'Sign in to Zephyr',   code: 'Check your email' },
+  up:    { creds: 'Create your account', code: 'Check your email' },
+  reset: { creds: 'Reset your password', code: 'Check your email', newpass: 'Set a new password' },
+};
+const AUTH_BTNS = {
+  in:    { creds: 'Sign in',         code: 'Verify & sign in' },
+  up:    { creds: 'Create account',  code: 'Verify & finish' },
+  reset: { creds: 'Send reset code', code: 'Verify code', newpass: 'Update password' },
+};
+function authSubmitLabel() { return AUTH_BTNS[authMode][authStep]; }
+
+function renderAuthStep() {
+  const inCreds = authStep === 'creds';
+  const show = (id, on) => { authEl(id).style.display = on ? '' : 'none'; };
+  show('authPass', inCreds && (authMode === 'in' || authMode === 'up'));
+  show('authCode', authStep === 'code');
+  show('authNewPass', authStep === 'newpass');
+  authEl('authEmail').disabled = !inCreds;
+  show('authResend', authStep === 'code');
+
+  const showSwitch = inCreds && authMode !== 'reset';
+  const showBack = authStep === 'code' || (inCreds && authMode !== 'up');
+  show('authForgot', showBack);
+  authEl('authSwitch').style.display = showSwitch ? '' : 'none';
+  authEl('authLinks').style.display = (showSwitch || showBack) ? '' : 'none';
+  authEl('authForgot').textContent =
+    authStep === 'code' ? '← Start over' :
+    authMode === 'reset' ? '← Back to sign in' : 'Forgot password?';
+
+  authEl('authTitle').textContent = AUTH_TITLES[authMode][authStep];
+  authEl('authSubmit').textContent = authSubmitLabel();
+  authEl('authSub').textContent =
+    authStep === 'code' ? 'Enter the 6-digit code we emailed to ' + pendingEmail + '.' :
+    authStep === 'newpass' ? 'Choose a new password for ' + pendingEmail + '.' :
+    authMode === 'reset' ? 'We’ll email you a reset code.' :
+    'Create AI video, images, and voice.';
+  authEl('authSwitchText').textContent = authMode === 'up' ? 'Already have an account?' : 'New here?';
+  authEl('authToggle').textContent = authMode === 'up' ? 'Sign in' : 'Create an account';
+  authEl('authPass').setAttribute('autocomplete', authMode === 'up' ? 'new-password' : 'current-password');
 }
 
-async function resendCode() {
-  const email = document.getElementById('codeEmail').value.trim();
-  if (!email) return;
-  showCodeError('');
-  try {
-    await Auth.sendCode(email);
-    document.getElementById('codeHintText').textContent = 'New code sent — check your email.';
-  } catch (e) {
-    showCodeError((e && e.message) || 'Could not resend the code.');
-  }
+function setAuthMode(mode) {
+  authMode = mode;
+  authStep = 'creds';
+  authEl('authEmail').disabled = false;
+  authEl('authCode').value = '';
+  authEl('authNewPass').value = '';
+  showAuthError('');
+  renderAuthStep();
+  authEl('authEmail').focus();
+}
+
+// The bottom-left link: Forgot ↔ back to sign in, or start over from a code step.
+function onAuthBack() {
+  if (authStep === 'code') setAuthMode(authMode);
+  else setAuthMode(authMode === 'reset' ? 'in' : 'reset');
+}
+
+function goCodeStep(email, type) {
+  pendingEmail = email; pendingType = type;
+  authStep = 'code';
+  renderAuthStep();
+  authEl('authCode').value = '';
+  authEl('authCode').focus();
 }
 
 async function submitAuth() {
-  const email = document.getElementById('authEmail').value.trim();
-  const pass = document.getElementById('authPass').value;
-  const btn = document.getElementById('authSubmit');
-  if (!email || !pass) { showAuthError('Enter your email and password.'); return; }
-  if (authMode === 'up' && pass.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
-  const orig = btn.textContent;
+  const btn = authEl('authSubmit');
   btn.disabled = true; btn.textContent = '…'; showAuthError('');
+  const email = authEl('authEmail').value.trim();
   try {
-    if (authMode === 'in') {
-      await Auth.signIn(email, pass);
-      enterApp();
-    } else {
-      const r = await Auth.signUp(email, pass);
-      if (r.needsConfirm) {
-        showAuthError('Check your email to confirm your account, then sign in.');
-        setAuthMode('in');
-      } else {
-        enterApp();
-      }
+    // Enter the emailed code.
+    if (authStep === 'code') {
+      const code = authEl('authCode').value.trim();
+      if (!/^\d{6}$/.test(code)) { showAuthError('Enter the 6-digit code from your email.'); return; }
+      await Auth.verifyCode(pendingEmail, code, pendingType);
+      if (authMode === 'reset') { authStep = 'newpass'; renderAuthStep(); authEl('authNewPass').focus(); }
+      else enterApp();
+      return;
     }
+    // Set a new password (end of the reset flow).
+    if (authStep === 'newpass') {
+      const np = authEl('authNewPass').value;
+      if (np.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+      await Auth.updatePassword(np);
+      enterApp();
+      return;
+    }
+    // Credentials step.
+    if (!email) { showAuthError('Enter your email.'); return; }
+
+    if (authMode === 'reset') {
+      await Auth.recover(email);
+      goCodeStep(email, 'recovery');
+      return;
+    }
+
+    const pass = authEl('authPass').value;
+    if (!pass) { showAuthError('Enter your password.'); return; }
+    if (authMode === 'up' && pass.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+
+    if (authMode === 'up') {
+      const r = await Auth.signUp(email, pass);
+      if (r.session) { enterApp(); return; }   // confirm-email OFF → straight in
+      goCodeStep(email, 'signup');             // confirm-email ON → verify code
+      return;
+    }
+
+    // Sign in: check the password (no session kept), then email a code.
+    try {
+      await Auth.checkPassword(email, pass);
+    } catch (e) {
+      // An unconfirmed account can't password-grant — let them finish via the code.
+      if (!/not confirmed/i.test((e && e.message) || '')) throw e;
+    }
+    await Auth.sendCode(email, false);
+    goCodeStep(email, 'email');
   } catch (e) {
-    showAuthError((e && e.message) || 'Something went wrong.');
+    showAuthError(friendlyAuthErr(e));
   } finally {
-    btn.disabled = false; btn.textContent = orig;
+    btn.disabled = false; btn.textContent = authSubmitLabel();
   }
+}
+
+async function resendAuthCode() {
+  showAuthError('');
+  const t = authEl('authResend');
+  try {
+    if (pendingType === 'recovery') await Auth.recover(pendingEmail);
+    else await Auth.sendCode(pendingEmail, pendingType === 'signup');
+    const orig = t.textContent;
+    t.textContent = 'Code re-sent ✓';
+    setTimeout(() => { t.textContent = orig; }, 1600);
+  } catch (e) { showAuthError(friendlyAuthErr(e)); }
 }
 
 function enterApp() {
@@ -1456,11 +1493,12 @@ function initAuthGate() {
   const form = document.getElementById('authForm');
   if (form) form.addEventListener('submit', (e) => { e.preventDefault(); submitAuth(); });
   const toggle = document.getElementById('authToggle');
-  if (toggle) toggle.addEventListener('click', () => setAuthMode(authMode === 'in' ? 'up' : 'in'));
-  const codeForm = document.getElementById('codeForm');
-  if (codeForm) codeForm.addEventListener('submit', (e) => { e.preventDefault(); submitCode(); });
-  const resend = document.getElementById('codeResend');
-  if (resend) resend.addEventListener('click', resendCode);
+  if (toggle) toggle.addEventListener('click', () => setAuthMode(authMode === 'up' ? 'in' : 'up'));
+  const forgot = document.getElementById('authForgot');
+  if (forgot) forgot.addEventListener('click', onAuthBack);
+  const resend = document.getElementById('authResend');
+  if (resend) resend.addEventListener('click', resendAuthCode);
+  renderAuthStep();
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showAuthGate();
 }
