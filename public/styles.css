@@ -10,9 +10,9 @@
       --neon-dim: #f0c400;    /* darker yellow (hover) */
       --purple: #a855f7;      /* purple (accent) */
       --purple-dim: #9333ea;  /* darker purple (hover) */
-      /* half-yellow / half-purple button fill, split down the middle */
-      --split: linear-gradient(90deg, var(--neon) 0 50%, var(--purple) 50% 100%);
-      --split-dim: linear-gradient(90deg, var(--neon-dim) 0 50%, var(--purple-dim) 50% 100%);
+      /* yellow → purple, blended diagonally into a soft shade (not a hard line) */
+      --split: linear-gradient(135deg, var(--neon) 0%, var(--neon) 34%, var(--purple) 74%, var(--purple) 100%);
+      --split-dim: linear-gradient(135deg, var(--neon-dim) 0%, var(--neon-dim) 34%, var(--purple-dim) 74%, var(--purple-dim) 100%);
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
