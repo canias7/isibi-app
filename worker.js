@@ -350,6 +350,13 @@ async function handleRequest(request, env) {
       const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
       const hasImage = !!body.hasImage;
       const hasEnd = !!body.hasEnd;
+      // The attached image itself (downscaled by the client) so the director
+      // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
+      let imageBlock = null;
+      if (kind !== "audio" && typeof body.image === "string" && body.image.length < 2800000) {
+        const m = body.image.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+        if (m) imageBlock = { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+      }
       const genDuration = Number.isFinite(+body.duration) ? Math.min(30, Math.max(1, Math.round(+body.duration))) : 0;
       const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
 
@@ -393,7 +400,7 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate — ask about motion, mood or camera, never about what the scene looks like (the image already answers that)" : "a source image to edit — ask about the change they want, never about what's already in the picture"}.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : kind === "video"
         ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
 
@@ -403,7 +410,7 @@ Craft rules:
 - Budget the action to the clip length${genDuration ? ` (${genDuration}s)` : ""}: one or two beats of motion, not a story arc — overstuffed prompts cause rushed, morphing results.
 - Any visible text, logos or signage: state explicitly that they stay exactly as printed, never changing — video models mangle text that is allowed to move.
 ${hasImage
-  ? `- A start image IS attached: the model animates that image. Do NOT re-describe what is already in the picture (re-describing causes drift and morphing). Refer to its contents as "the ..." and describe ONLY what moves and how, plus what must stay still. If the image has a distinct art style (anime, pixel art, illustration), say the style must be preserved exactly, with no smoothing.${hasEnd ? `
+  ? `- A start image IS attached (it's in the conversation — look at it): the model animates that image. Do NOT re-describe what is already in the picture (re-describing causes drift and morphing). Name its actual contents concretely as "the ..." ("the man leaning on the red car", not "the subject") and describe ONLY what moves and how, plus what must stay still. If the image has a distinct art style (anime, pixel art, illustration), say the style must be preserved exactly, with no smoothing.${hasEnd ? `
 - An end frame IS attached: the clip must land back on that frame — keep the motion gentle and cyclical so the return feels natural, never a hard change of state.` : ""}`
   : `- No start image: paint the full scene — subject, action, setting, lighting, mood, in that order, each in concrete visual terms.`}${familyHint ? `
 - ${familyHint}` : ""}
@@ -418,7 +425,7 @@ Craft rules:
 - Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
 - Cover subject, composition and framing, lighting and palette, in concrete visual terms.
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
-${hasImage ? `- A source image IS attached: this is an EDIT. Describe only the change to make, referring to existing content as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
+${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
 - ${familyHint}` : ""}
 
 Context: ${ctxLine}`
@@ -440,6 +447,11 @@ Context: ${ctxLine}`
       const lastTurn = turns[turns.length - 1];
       if (lastTurn && lastTurn.role === "user") lastTurn.content += "\n" + userMsg;
       else turns.push({ role: "user", content: userMsg });
+      // Put the attached image on the final user turn so the director sees it.
+      if (imageBlock) {
+        const last = turns[turns.length - 1];
+        last.content = [imageBlock, { type: "text", text: last.content }];
+      }
 
       // Force a tool call so Sonnet returns validated structured output.
       const tool = step === "ask"

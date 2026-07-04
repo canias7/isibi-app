@@ -1041,13 +1041,30 @@ function directorContext() {
   };
 }
 
+// The director gets to SEE the attached image (downscaled — it only needs to
+// understand the picture, not generate from it).
+async function directorImage() {
+  if (!attachments.image || mode === 'audio') return {};
+  try {
+    const img = new Image();
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = attachments.image; });
+    const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+    if (scale === 1 && attachments.image.length < 1500000) return { image: attachments.image };
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return { image: canvas.toDataURL('image/jpeg', 0.85) };
+  } catch { return {}; }
+}
+
 async function directorAsk(text, history) {
   // Voice mode goes through the director too — it decides whether this is
   // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [], ...directorContext() }),
+      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [], ...directorContext(), ...(await directorImage()) }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
@@ -1066,7 +1083,7 @@ async function directorCompose(text, answers) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
-        history: directorHistory(), ...directorContext(),
+        history: directorHistory(), ...directorContext(), ...(await directorImage()),
       }),
     });
     if (!res.ok) throw 0;
