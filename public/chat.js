@@ -1490,16 +1490,32 @@ function initAuthGate() {
 }
 
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
+// Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
+// on Home only, so every other view gets the full width.
+const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
-  document.querySelectorAll('.side-item[data-view]').forEach((i) =>
+  document.querySelectorAll('.nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
-  // The chat history belongs to Home — hide it elsewhere.
-  const chats = document.getElementById('homeChats');
-  if (chats) chats.style.display = name === 'home' ? '' : 'none';
+  const lbl = document.getElementById('navDdLabel');
+  if (lbl) lbl.textContent = VIEW_LABELS[name] || 'Home';
+  const sb = document.querySelector('.sidebar');
+  if (sb) sb.style.display = name === 'home' ? '' : 'none';
+  const menu = document.getElementById('navDdMenu');
+  if (menu) menu.classList.remove('open');
 }
+function toggleNavMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('navDdMenu');
+  if (menu) menu.classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  const dd = document.getElementById('navDd');
+  const menu = document.getElementById('navDdMenu');
+  if (menu && menu.classList.contains('open') && dd && !dd.contains(e.target)) menu.classList.remove('open');
+});
 
 // ── Studio (video editor) ──
 // Import runs entirely on-device: the browser loads the clip into the preview

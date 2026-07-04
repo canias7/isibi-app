@@ -578,11 +578,39 @@
 .msg:hover .copy-btn { opacity: .9; }
 .copy-btn:hover { opacity: 1; }
 
-/* ── Sidebar nav (Home / Projects / Gallery / Studio) ── */
-.side-nav { display: flex; flex-direction: column; gap: 2px; }
+/* ── Topbar nav dropdown (Home / Projects / Gallery / Studio) ── */
 .tile.nav-proj, .tile.nav-gal { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); font-size: 1rem; }
 .tile.nav-studio { background: var(--split); color: #0a0a0b; font-size: 1rem; }
-#homeChats { display: flex; flex-direction: column; min-height: 0; }
+.nav-dd { position: relative; }
+.nav-dd-btn {
+  display: flex; align-items: center; gap: .5rem; background: var(--panel);
+  border: 1px solid var(--line-2); color: var(--text); border-radius: 12px;
+  padding: .45rem .85rem; font-family: inherit; font-size: .92rem; cursor: pointer;
+}
+.nav-dd-btn:hover { border-color: #4a4a52; }
+.nav-dd-btn b { font-weight: 600; }
+.nav-dd-icon { font-size: 1rem; color: var(--muted); }
+.nav-dd-caret { color: var(--muted); font-size: .75rem; }
+.nav-dd-menu {
+  position: absolute; top: calc(100% + 8px); left: 0; min-width: 236px;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: .4rem;
+  display: none; z-index: 60; box-shadow: 0 20px 60px rgba(0, 0, 0, .55);
+  backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
+}
+.nav-dd-menu.open { display: block; animation: menu-pop .16s ease; }
+.nav-dd-item {
+  display: flex; align-items: center; gap: .65rem; width: 100%; background: none; border: none;
+  color: var(--text); font-family: inherit; font-size: .92rem; padding: .5rem .55rem;
+  border-radius: 10px; cursor: pointer; text-align: left; transition: background .15s ease;
+}
+.nav-dd-item:hover { background: var(--panel-2); }
+.nav-dd-item.active { background: var(--panel-2); }
+.nav-dd-item .tile { width: 30px; height: 30px; flex: none; font-size: .95rem; }
+.nav-dd-sep { height: 1px; background: var(--line); margin: .4rem .25rem; }
+.nav-dd-account { padding: .35rem .3rem .1rem; }
+.nav-dd-account .side-email { padding: 0 .35rem .45rem; }
+#homeChats { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+#homeChats .chat-list { flex: 1; min-height: 0; }
 
 /* ── View switching ── */
 .view { flex: 1; min-height: 0; display: none; }
@@ -595,9 +623,9 @@
 .empty-view h2 { color: var(--text); font-size: 1.5rem; margin: 0; letter-spacing: -.02em; }
 .empty-view p { margin: 0; font-size: .95rem; }
 
-/* ── Studio: chat (1/4) + iMovie-style editor (3/4) ── */
+/* ── Studio: chat + iMovie-style editor ── */
 .studio-chat {
-  flex: 0 0 25%; max-width: 360px; min-width: 250px;
+  flex: 0 0 26%; max-width: 400px; min-width: 290px;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--line);
   background: rgba(255, 255, 255, .03);
