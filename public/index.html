@@ -96,12 +96,6 @@
             <div class="cname">Zephyr</div>
             <div class="cstatus">● online · video generator</div>
           </div>
-          <div class="head-actions">
-            <span class="model-wrap">
-              <button class="btn-ghost" onclick="toggleModelMenu(event)">Model: <b id="modelLabel">Auto</b> ▾</button>
-              <div class="model-menu" id="modelMenu"></div>
-            </span>
-            </div>
         </div>
         <div class="thread"><div class="thread-inner" id="messages"></div></div>
       </section>
@@ -129,6 +123,10 @@
               <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
               <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
             </div>
+            <span class="opt-wrap" id="modelWrap">
+              <button class="opt-btn" onclick="toggleModelMenu(event)" title="Choose model">Model: <b id="modelLabel">Auto</b> ▾</button>
+              <div class="model-menu drop-up model-drop" id="modelMenu"></div>
+            </span>
             <span class="opt-wrap" id="settingsWrap">
               <button class="opt-btn" onclick="toggleOpt(event, 'settings')" title="Options">⚙ <b id="settingsSummary">Settings</b> ▾</button>
               <div class="model-menu drop-up settings-panel" id="settingsMenu"></div>

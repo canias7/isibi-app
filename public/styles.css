@@ -175,10 +175,7 @@
       .sidebar { display: none; }
     }
 
-/* ── Model picker (chat header) ──────────── */
-.head-actions { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
-.head-actions .btn-ghost { margin-left: 0; }
-.model-wrap { position: relative; }
+/* ── Model picker (now lives in the composer) ── */
 .model-menu {
   position: absolute; top: calc(100% + 8px); right: 0; min-width: 250px;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px;
@@ -362,6 +359,8 @@
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
 .model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
+/* Drops up over the composer, so keep it opaque enough to read over the attach row. */
+.model-menu.drop-up.model-drop { min-width: 250px; background: rgba(20, 20, 24, .93); }
 
 /* ── Settings panel (grouped composer options) ── */
 /* Less transparent than the glass menus so the chips read clearly over content. */
