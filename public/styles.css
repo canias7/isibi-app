@@ -435,17 +435,29 @@
   padding: 2rem; background: var(--bg); overflow: hidden;
 }
 /* Brand artwork zoomed out to fit whole (contain), over a blurred copy of
-   itself so the sides aren't black bars; dark scrim keeps the card readable. */
+   itself so the sides aren't black bars; dark scrim keeps the card readable.
+   The sharp layer is a looping video (poster = the same still, so the frame
+   is filled while it loads); the scrim sits above it in ::after. */
 .auth-gate::before {
   content: ''; position: absolute; inset: -40px; z-index: 0;
   background: url('/login-bg.jpg') center / cover no-repeat;
   filter: blur(28px) brightness(.45);
 }
+.auth-bg-video {
+  position: absolute; inset: 0; z-index: 0;
+  width: 100%; height: 100%; object-fit: contain;
+}
 .auth-gate::after {
   content: ''; position: absolute; inset: 0; z-index: 0;
-  background:
-    linear-gradient(rgba(8, 8, 10, .38), rgba(8, 8, 10, .6)),
-    url('/login-bg.jpg') center / contain no-repeat;
+  background: linear-gradient(rgba(8, 8, 10, .38), rgba(8, 8, 10, .6));
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-bg-video { display: none; }
+  .auth-gate::after {
+    background:
+      linear-gradient(rgba(8, 8, 10, .38), rgba(8, 8, 10, .6)),
+      url('/login-bg.jpg') center / contain no-repeat;
+  }
 }
 .auth-gate .auth-card { position: relative; z-index: 1; }
 .auth-card {
