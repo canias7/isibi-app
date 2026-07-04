@@ -1489,9 +1489,95 @@ function initAuthGate() {
   else showAuthGate();
 }
 
+// ── Workspace views (Home / Projects / Gallery / Studio) ──
+function showView(name) {
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+  const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.side-item[data-view]').forEach((i) =>
+    i.classList.toggle('active', i.dataset.view === name));
+  // The chat history belongs to Home — hide it elsewhere.
+  const chats = document.getElementById('homeChats');
+  if (chats) chats.style.display = name === 'home' ? '' : 'none';
+}
+
+// ── Studio (video editor) ──
+// Import runs entirely on-device: the browser loads the clip into the preview
+// and drops it on the timeline. (Cutting via ffmpeg.wasm is the next step.)
+function studioAppend(kind, text) {
+  const box = document.getElementById('studioMessages');
+  if (!box) return;
+  const div = document.createElement('div');
+  div.className = 'msg ' + kind;
+  div.textContent = text;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+function studioSend() {
+  const inp = document.getElementById('studioInput');
+  if (!inp) return;
+  const t = (inp.value || '').trim();
+  if (!t) return;
+  inp.value = '';
+  inp.style.height = 'auto';
+  studioAppend('user', t);
+  setTimeout(() => studioAppend('agent',
+    "Editing's taking shape — import a clip and I'll cut, trim and split it for you here. (The cutting engine is coming next.)"), 250);
+}
+function initStudio() {
+  const file = document.getElementById('studioFile');
+  if (!file) return;
+  file.addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    // preview
+    const stage = document.getElementById('previewStage');
+    if (stage) {
+      stage.innerHTML = '';
+      const v = document.createElement('video');
+      v.src = url; v.controls = true;
+      v.addEventListener('loadedmetadata', () => {
+        const tc = document.getElementById('studioTimecode');
+        if (tc) tc.textContent = '00:00 / ' + fmtDur(v.duration);
+      });
+      stage.appendChild(v);
+    }
+    // media bin entry
+    const bin = document.getElementById('mediaBody');
+    const zone = document.getElementById('importZone');
+    if (bin) {
+      if (zone) zone.style.minHeight = '84px';
+      const clip = document.createElement('div');
+      clip.className = 'media-clip';
+      clip.innerHTML = '<span class="mc-thumb">🎞</span><span class="mc-name"></span>';
+      clip.querySelector('.mc-name').textContent = f.name;
+      bin.appendChild(clip);
+    }
+    // timeline block
+    const track = document.getElementById('timelineTrack');
+    if (track) {
+      const empty = track.querySelector('.timeline-empty');
+      if (empty) empty.remove();
+      const block = document.createElement('div');
+      block.className = 'clip-block';
+      block.textContent = f.name;
+      track.insertBefore(block, track.querySelector('.playhead'));
+    }
+    studioAppend('agent', 'Loaded “' + f.name + '.” Tell me how you want it cut.');
+  });
+}
+function fmtDur(s) {
+  if (!isFinite(s)) return '00:00';
+  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+  return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+}
+
 // Init
 buildMenu();
 buildOptMenus();
+initStudio();
 loadStore();
 renderChatList();
 renderThread();
