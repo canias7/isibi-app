@@ -359,12 +359,12 @@
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
 .model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
-/* Drops up over the composer, so keep it opaque enough to read over the attach row. */
-.model-menu.drop-up.model-drop { min-width: 250px; background: rgba(20, 20, 24, .93); }
+/* Drops up over the composer, so keep it fully solid to read over the attach row. */
+.model-menu.drop-up.model-drop { min-width: 250px; background: #16161b; }
 
 /* ── Settings panel (grouped composer options) ── */
-/* Less transparent than the glass menus so the chips read clearly over content. */
-.settings-panel { min-width: 300px; max-width: 340px; padding: .5rem; background: rgba(20, 20, 24, .93); }
+/* Fully solid so the chips read clearly over content (matches the model picker). */
+.settings-panel { min-width: 300px; max-width: 340px; padding: .5rem; background: #16161b; }
 .set-section { padding: .55rem .45rem; }
 .set-section + .set-section { border-top: 1px solid var(--line); }
 .set-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .55rem; }
