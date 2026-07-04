@@ -432,7 +432,12 @@
 
 .auth-gate {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; background: radial-gradient(120% 120% at 50% 0%, #16160c 0%, var(--bg) 55%);
+  padding: 1.5rem;
+  /* Brand artwork behind a dark scrim so the card stays readable (video later). */
+  background:
+    linear-gradient(rgba(8, 8, 10, .42), rgba(8, 8, 10, .66)),
+    url('/login-bg.jpg') center / cover no-repeat,
+    var(--bg);
 }
 .auth-card {
   width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line-2);
