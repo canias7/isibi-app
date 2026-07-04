@@ -1605,9 +1605,8 @@ if (window.mountLaser) {
     verticalSizing: 2.6,
     horizontalSizing: 0.42,
     fogIntensity: 0.3,
-    wispIntensity: 3.8,
+    wispIntensity: 3.5,
     flowSpeed: 0.3,
-    falloffStart: 1.45,
   });
 }
 
