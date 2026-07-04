@@ -814,15 +814,15 @@
 }
 .laser-beam canvas { position: absolute; inset: 0; }
 
-/* ── Hidden doodles revealed by the cursor ── */
-/* Studio line-art tiled behind the thread; a radial mask that follows the
-   pointer uncovers it like a flashlight. Idle position parks it off-screen. */
+/* ── Hidden artwork revealed by the cursor ── */
+/* The art spans the home view behind the thread; a radial mask that follows
+   the pointer uncovers it like a flashlight. Idle position parks it off-screen. */
 .reveal-layer {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .5;
-  background-size: 560px 560px;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='560' height='560' viewBox='0 0 560 560' fill='none' stroke='%23ffd60a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'><g opacity='.85'><circle cx='90' cy='84' r='26'/><circle cx='90' cy='84' r='10'/><path d='M90 58v10M112 71l-9 5M112 97l-9-5M90 110v-10M68 97l9-5M68 71l9 5'/></g><g opacity='.8'><circle cx='306' cy='138' r='24'/><path d='M299 126l20 12-20 12z'/></g><g opacity='.8'><rect x='420' y='52' width='64' height='44' rx='6'/><path d='M420 66h64M430 52l-8 14M446 52l-8 14M462 52l-8 14M478 52l-8 14'/></g><g opacity='.75'><rect x='120' y='292' width='96' height='34' rx='6'/><path d='M132 298v4M150 298v4M168 298v4M186 298v4M204 298v4M132 316v4M150 316v4M168 316v4M186 316v4M204 316v4'/></g><path opacity='.9' d='M382 292l4 10 10 4-10 4-4 10-4-10-10-4 10-4z'/><path opacity='.7' d='M64 470l3 7 7 3-7 3-3 7-3-7-7-3 7-3z'/><path opacity='.7' d='M500 412l3 7 7 3-7 3-3 7-3-7-7-3 7-3z'/><g opacity='.8'><rect x='404' y='480' width='58' height='40' rx='8'/><circle cx='433' cy='500' r='12'/><path d='M462 492l20-10v36l-20-10'/></g><g opacity='.75'><path d='M320 392v-26l20-6v26'/><circle cx='314' cy='392' r='6'/><circle cx='334' cy='386' r='6'/></g><g opacity='.5' fill='%23ffd60a' stroke='none'><circle cx='40' cy='200' r='2'/><circle cx='110' cy='170' r='2'/><circle cx='170' cy='210' r='2'/><circle cx='520' cy='240' r='2'/><circle cx='470' cy='300' r='2'/><circle cx='540' cy='330' r='2'/></g><g opacity='.35'><path d='M40 200L110 170L170 210'/><path d='M520 240L470 300L540 330'/></g><path opacity='.6' d='M250 40v12M244 46h12'/><path opacity='.6' d='M520 150v12M514 156h12'/><path opacity='.6' d='M30 380v12M24 386h12'/></svg>");
-  -webkit-mask-image: radial-gradient(circle 200px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.35) 60%, transparent 100%);
-  mask-image: radial-gradient(circle 200px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.35) 60%, transparent 100%);
+  position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .8;
+  background-image: url('/reveal.jpg');
+  background-size: cover; background-position: center;
+  -webkit-mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
+  mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
 }
 
 /* Composer catches the warm landing glow. */
