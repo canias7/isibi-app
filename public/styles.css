@@ -431,8 +431,8 @@
 .side-signout:hover { color: var(--text); border-color: #4a4a52; }
 
 .auth-gate {
-  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; background: var(--bg); overflow: hidden;
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-start; justify-content: flex-start;
+  padding: 2rem; background: var(--bg); overflow: hidden;
 }
 /* Brand artwork zoomed out to fit whole (contain), over a blurred copy of
    itself so the sides aren't black bars; dark scrim keeps the card readable. */
