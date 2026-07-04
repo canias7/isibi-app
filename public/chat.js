@@ -465,6 +465,21 @@ function newChat() {
   document.getElementById('input').focus();
 }
 
+// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "Zephyr · 11:03 PM" (agent).
+function fmtTime(ts) {
+  const d = ts ? new Date(ts) : new Date();
+  let h = d.getHours();
+  const ap = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return h + ':' + String(d.getMinutes()).padStart(2, '0') + ' ' + ap;
+}
+function msgStamp(kind, ts) {
+  const t = document.createElement('div');
+  t.className = 'msg-time ' + kind;
+  t.textContent = kind === 'agent' ? 'Zephyr · ' + fmtTime(ts) : fmtTime(ts);
+  return t;
+}
+
 function addMsg(kind, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + kind;
@@ -475,11 +490,13 @@ function addMsg(kind, text) {
   }
   const box = document.getElementById('messages');
   box.appendChild(div);
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
   if (kind === 'user' || kind === 'agent') {
+    const ts = Date.now();
+    box.appendChild(msgStamp(kind, ts));
     addCopyBtn(div, text);
-    pushSaved({ t: kind, text });
+    pushSaved({ t: kind, text, ts });
   }
+  box.parentElement.scrollTop = box.parentElement.scrollHeight;
   return div;
 }
 
@@ -572,6 +589,7 @@ function renderSaved(item) {
   div.textContent = item.text;
   addCopyBtn(div, item.text);
   threadAppend(div);
+  if (item.t === 'user' || item.t === 'agent') threadAppend(msgStamp(item.t, item.ts));
 }
 
 function renderThread() {
@@ -1411,8 +1429,16 @@ async function resendAuthCode() {
 
 function enterApp() {
   hideAuthGate();
+  const email = Auth.email();
   const badge = document.getElementById('authEmailBadge');
-  if (badge) badge.textContent = Auth.email();
+  if (badge) badge.textContent = email;
+  // Derive a friendly display name + avatar initial from the email local part.
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
+  const nameEl = document.getElementById('sideName');
+  if (nameEl) nameEl.textContent = name;
+  const av = document.getElementById('sideAvatar');
+  if (av) av.textContent = (name[0] || '·').toUpperCase();
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
@@ -1468,6 +1494,10 @@ function showView(name) {
   if (sb) sb.style.display = isStudio ? 'none' : '';
   const dd = document.getElementById('navDd');
   if (dd) dd.style.display = isStudio ? '' : 'none';
+  // The full-width bar only exists to hold the Studio dropdown; the logo lives
+  // in the sidebar on every other view.
+  const tb = document.querySelector('.topbar');
+  if (tb) tb.style.display = isStudio ? 'flex' : 'none';
   // Chat history is Home-only.
   const chats = document.getElementById('homeChats');
   if (chats) chats.style.display = name === 'home' ? '' : 'none';
@@ -1565,6 +1595,21 @@ initStudio();
 loadStore();
 renderChatList();
 renderThread();
+
+// The falling laser (React Bits LaserFlow) behind the home chat — lands on the composer.
+if (window.mountLaser) {
+  mountLaser(document.getElementById('laserBeam'), {
+    color: '#FFB84D',
+    horizontalBeamOffset: 0.0,
+    verticalBeamOffset: -0.28,
+    verticalSizing: 2.6,
+    horizontalSizing: 0.42,
+    fogIntensity: 0.42,
+    wispIntensity: 5.5,
+    flowSpeed: 0.3,
+    falloffStart: 2.1,
+  });
+}
 
 initAuthGate();
 
