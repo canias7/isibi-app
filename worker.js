@@ -345,6 +345,36 @@ async function handleRequest(request, env) {
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
+      // Generation context so the director writes for the actual target:
+      // which model, whether a start image / end frame is attached, clip length.
+      const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
+      const hasImage = !!body.hasImage;
+      const hasEnd = !!body.hasEnd;
+      const genDuration = Number.isFinite(+body.duration) ? Math.min(30, Math.max(1, Math.round(+body.duration))) : 0;
+      const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
+
+      // Different model families respond to different prompt styles.
+      const familyHint = /seedance/.test(genModel)
+        ? "The target model rewards precise cinematic shot language — explicit camera, lighting and texture terms."
+        : /kling/.test(genModel)
+        ? "The target model wants subject + action in plain direct sentences, and preserves stylized/2D art well when told to keep the art style exactly."
+        : /veo|sora/.test(genModel)
+        ? "The target model wants flowing natural sentences describing one clear continuous scene."
+        : /hailuo|minimax/.test(genModel)
+        ? "The target model adds motion aggressively — use calm, restrained motion words unless drama is wanted."
+        : /grok/.test(genModel)
+        ? "The target model does best with short, concrete prompts."
+        : "";
+
+      const ctxBits = [];
+      if (genModel) ctxBits.push(`target model: ${genModel}`);
+      if (kind === "video" && genDuration) ctxBits.push(`clip length: ${genDuration}s`);
+      if (genRatio) ctxBits.push(`aspect ratio: ${genRatio}`);
+      if (kind !== "audio") {
+        ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
+        if (hasEnd) ctxBits.push("an end frame IS attached");
+      }
+      const ctxLine = ctxBits.join(" · ");
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
         ? body.history
@@ -363,8 +393,36 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.`)
-        : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."}`;
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate — ask about motion, mood or camera, never about what the scene looks like (the image already answers that)" : "a source image to edit — ask about the change they want, never about what's already in the picture"}.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+        : kind === "video"
+        ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
+
+Craft rules:
+- One continuous shot. Describe a single scene with continuous action — no cuts, montages or scene changes unless the user asked for them.
+- Name the camera work explicitly (locked-off static, slow push-in, handheld, orbit). If the user wants a loop or a background, open with "Fixed camera, no camera movement" and keep all motion ambient and cyclical.
+- Budget the action to the clip length${genDuration ? ` (${genDuration}s)` : ""}: one or two beats of motion, not a story arc — overstuffed prompts cause rushed, morphing results.
+- Any visible text, logos or signage: state explicitly that they stay exactly as printed, never changing — video models mangle text that is allowed to move.
+${hasImage
+  ? `- A start image IS attached: the model animates that image. Do NOT re-describe what is already in the picture (re-describing causes drift and morphing). Refer to its contents as "the ..." and describe ONLY what moves and how, plus what must stay still. If the image has a distinct art style (anime, pixel art, illustration), say the style must be preserved exactly, with no smoothing.${hasEnd ? `
+- An end frame IS attached: the clip must land back on that frame — keep the motion gentle and cyclical so the return feels natural, never a hard change of state.` : ""}`
+  : `- No start image: paint the full scene — subject, action, setting, lighting, mood, in that order, each in concrete visual terms.`}${familyHint ? `
+- ${familyHint}` : ""}
+
+Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
+
+Context: ${ctxLine}`
+        : kind === "image"
+        ? `You are the prompt writer for Zephyr, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
+
+Craft rules:
+- Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
+- Cover subject, composition and framing, lighting and palette, in concrete visual terms.
+- If words should appear in the image, give them verbatim in quotes and say where they sit.
+${hasImage ? `- A source image IS attached: this is an EDIT. Describe only the change to make, referring to existing content as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
+- ${familyHint}` : ""}
+
+Context: ${ctxLine}`
+        : `You are the prompt writer for Zephyr, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
@@ -440,7 +498,7 @@ Tailor everything to what THIS user is trying to make.`)
             system,
             tools: [tool],
             tool_choice: { type: "tool", name: tool.name },
-            messages: step === "ask" ? turns : [{ role: "user", content: userMsg }],
+            messages: turns,
           }),
         });
       } catch (e) {

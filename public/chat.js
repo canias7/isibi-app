@@ -1029,13 +1029,25 @@ function directorHistory() {
     .map((m) => ({ role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) }));
 }
 
+// Generation context, so the director writes prompts for the actual target
+// (model family, attachments, clip length) instead of guessing blind.
+function directorContext() {
+  return {
+    model: model,
+    duration: mode === 'video' ? duration : undefined,
+    ratio: mode !== 'audio' ? ratio : undefined,
+    hasImage: !!attachments.image,
+    hasEnd: !!attachments.end,
+  };
+}
+
 async function directorAsk(text, history) {
   // Voice mode goes through the director too — it decides whether this is
   // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [] }),
+      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [], ...directorContext() }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
@@ -1052,7 +1064,10 @@ async function directorCompose(text, answers) {
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean) }),
+      body: JSON.stringify({
+        step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
+        history: directorHistory(), ...directorContext(),
+      }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
