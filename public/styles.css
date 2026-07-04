@@ -799,9 +799,11 @@
 /* Thread + composer sit above the beam. */
 .view-home.active > .chat,
 .view-home.active > .composer-wrap { position: relative; z-index: 1; }
-.laser-beam { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
-/* The shader's peak alpha is modest; lift it so the beam reads as vivid amber over the near-black page. */
-.laser-beam canvas { position: absolute; inset: 0; filter: brightness(2.2) saturate(1.12); }
+/* No brightness filter — on real GPUs the shader is already hot, and a filter
+   multiplies it into a floodlight (headless software-GL renders it far dimmer,
+   which is what misled the earlier tuning). Subtle = low layer opacity. */
+.laser-beam { position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .55; }
+.laser-beam canvas { position: absolute; inset: 0; }
 
 /* Composer catches the warm landing glow. */
 .composer {
