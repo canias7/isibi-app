@@ -1599,7 +1599,7 @@ renderThread();
 // The falling laser (React Bits LaserFlow) behind the home chat — lands on the composer.
 if (window.mountLaser) {
   mountLaser(document.getElementById('laserBeam'), {
-    color: '#FFB84D',
+    color: '#FF9245',
     horizontalBeamOffset: 0.0,
     verticalBeamOffset: -0.28,
     verticalSizing: 2.6,
