@@ -432,13 +432,22 @@
 
 .auth-gate {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem;
-  /* Brand artwork behind a dark scrim so the card stays readable (video later). */
-  background:
-    linear-gradient(rgba(8, 8, 10, .42), rgba(8, 8, 10, .66)),
-    url('/login-bg.jpg') center / cover no-repeat,
-    var(--bg);
+  padding: 1.5rem; background: var(--bg); overflow: hidden;
 }
+/* Brand artwork zoomed out to fit whole (contain), over a blurred copy of
+   itself so the sides aren't black bars; dark scrim keeps the card readable. */
+.auth-gate::before {
+  content: ''; position: absolute; inset: -40px; z-index: 0;
+  background: url('/login-bg.jpg') center / cover no-repeat;
+  filter: blur(28px) brightness(.45);
+}
+.auth-gate::after {
+  content: ''; position: absolute; inset: 0; z-index: 0;
+  background:
+    linear-gradient(rgba(8, 8, 10, .38), rgba(8, 8, 10, .6)),
+    url('/login-bg.jpg') center / contain no-repeat;
+}
+.auth-gate .auth-card { position: relative; z-index: 1; }
 .auth-card {
   width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line-2);
   border-radius: 22px; padding: 2.1rem 1.9rem;
