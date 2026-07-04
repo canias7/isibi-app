@@ -39,19 +39,46 @@
   </div>
 
   <header class="topbar">
-    <div class="logo" onclick="location.href='/'" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
+    <div class="logo" onclick="showView('home')" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
+    <!-- Studio-only nav dropdown (the workspace sidebar is hidden there) -->
+    <div class="nav-dd" id="navDd" style="display:none">
+      <button class="nav-dd-btn" onclick="toggleNavMenu(event)" aria-label="Menu">
+        <span class="nav-dd-icon">☰</span><b id="navDdLabel">Studio</b><span class="nav-dd-caret">▾</span>
+      </button>
+      <div class="nav-dd-menu" id="navDdMenu">
+        <button class="nav-dd-item" data-view="home" onclick="showView('home')"><span class="tile home">⌂</span><span>Home</span></button>
+        <button class="nav-dd-item" data-view="projects" onclick="showView('projects')"><span class="tile nav-proj">🗂</span><span>Projects</span></button>
+        <button class="nav-dd-item" data-view="gallery" onclick="showView('gallery')"><span class="tile nav-gal">🖼</span><span>Gallery</span></button>
+        <button class="nav-dd-item active" data-view="studio" onclick="showView('studio')"><span class="tile nav-studio">🎬</span><span>Studio</span></button>
+      </div>
+    </div>
   </header>
 
   <div class="shell">
     <aside class="sidebar">
       <div class="side-label">Workspace</div>
-      <div class="side-item" onclick="location.href='/'">
-        <span class="tile home">⌂</span><span>Home</span>
+      <div class="side-nav">
+        <div class="side-item active" data-view="home" onclick="showView('home')">
+          <span class="tile home">⌂</span><span>Home</span>
+        </div>
+        <div class="side-item" data-view="projects" onclick="showView('projects')">
+          <span class="tile nav-proj">🗂</span><span>Projects</span>
+        </div>
+        <div class="side-item" data-view="gallery" onclick="showView('gallery')">
+          <span class="tile nav-gal">🖼</span><span>Gallery</span>
+        </div>
+        <div class="side-item" data-view="studio" onclick="showView('studio')">
+          <span class="tile nav-studio">🎬</span><span>Studio</span>
+        </div>
       </div>
-      <div class="side-label">Chats</div>
-      <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
-      <input id="chatSearch" class="chat-search" placeholder="🔍 Search chats…" autocomplete="off" oninput="renderChatList()" />
-      <div id="chatList" class="chat-list"></div>
+
+      <div id="homeChats">
+        <div class="side-label">Chats</div>
+        <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
+        <input id="chatSearch" class="chat-search" placeholder="🔍 Search chats…" autocomplete="off" oninput="renderChatList()" />
+        <div id="chatList" class="chat-list"></div>
+      </div>
+
       <div class="side-foot" id="signOutRow" style="display:none">
         <div class="side-email" id="authEmailBadge"></div>
         <button class="side-signout" style="margin-bottom:.4rem" onclick="changePassword()">Change password</button>
@@ -61,6 +88,7 @@
 
     <main class="main">
 
+      <div id="viewHome" class="view view-home active">
       <section class="chat active">
         <div class="chat-head">
           <span class="tile zephyr">Z</span>
@@ -126,6 +154,108 @@
             </button>
           </div>
         </div>
+      </div>
+      </div><!-- /viewHome -->
+
+      <div id="viewProjects" class="view view-empty">
+        <div class="empty-view">
+          <div class="empty-icon">🗂</div>
+          <h2>Projects</h2>
+          <p>Your saved projects will live here.</p>
+        </div>
+      </div>
+
+      <div id="viewGallery" class="view view-empty">
+        <div class="empty-view">
+          <div class="empty-icon">🖼</div>
+          <h2>Gallery</h2>
+          <p>Everything you generate will collect here.</p>
+        </div>
+      </div>
+
+      <div id="viewStudio" class="view view-studio">
+        <!-- 1/4 · Zephyr editor chat -->
+        <aside class="studio-chat">
+          <div class="studio-chat-head">
+            <span class="tile zephyr">Z</span>
+            <div>
+              <div class="cname">Zephyr · Editor</div>
+              <div class="cstatus">● tell me how to cut it</div>
+            </div>
+          </div>
+          <div class="studio-thread" id="studioMessages"></div>
+          <div class="studio-composer">
+            <textarea id="studioInput" rows="1" placeholder="e.g. cut this in half, trim the first 5s…"
+              onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();studioSend();}"></textarea>
+            <button class="send studio-send" onclick="studioSend()" aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
+          </div>
+        </aside>
+
+        <!-- 3/4 · iMovie-style editor -->
+        <section class="studio-editor">
+          <div class="editor-top">
+            <!-- media / import browser -->
+            <div class="editor-media">
+              <div class="media-tabs">
+                <button class="media-tab active">My Media</button>
+                <button class="media-tab">Titles</button>
+                <button class="media-tab">Transitions</button>
+              </div>
+              <div class="media-body" id="mediaBody">
+                <div class="import-zone" id="importZone" onclick="document.getElementById('studioFile').click()">
+                  <div class="import-arrow">⬇</div>
+                  <div class="import-label">Import Media</div>
+                </div>
+                <input type="file" id="studioFile" accept="video/*" hidden />
+              </div>
+            </div>
+
+            <!-- viewer / preview -->
+            <div class="editor-preview">
+              <div class="preview-toolbar">
+                <span class="pt-title">My Movie</span>
+                <div class="pt-spacer"></div>
+                <button class="pt-icon" title="Crop">▢</button>
+                <button class="pt-icon" title="Speed">⏱</button>
+                <button class="pt-icon" title="Volume">🔊</button>
+              </div>
+              <div class="preview-stage" id="previewStage">
+                <div class="preview-empty">
+                  <div class="preview-empty-text">Import a video to preview it here</div>
+                </div>
+              </div>
+              <div class="preview-controls">
+                <button class="pc-btn" title="Back">⏮</button>
+                <button class="pc-btn pc-play" title="Play">▶</button>
+                <button class="pc-btn" title="Forward">⏭</button>
+                <span class="timecode" id="studioTimecode">00:00 / 00:00</span>
+                <div class="pc-spacer"></div>
+                <button class="pc-btn" title="Full screen">⤢</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- timeline -->
+          <div class="editor-timeline">
+            <div class="timeline-bar">
+              <div class="timeline-tools">
+                <button class="tl-tool">✂ Split</button>
+                <button class="tl-tool">⧉ Trim</button>
+                <button class="tl-tool tl-export">Export</button>
+              </div>
+              <div class="tl-right">
+                <input type="range" class="tl-zoom" min="1" max="10" value="5" aria-label="Zoom timeline" />
+                <span class="tl-settings">Settings</span>
+              </div>
+            </div>
+            <div class="timeline-track" id="timelineTrack">
+              <div class="timeline-empty">Import a clip and it lands here on the timeline — then tell Zephyr how to cut it.</div>
+              <div class="playhead"></div>
+            </div>
+          </div>
+        </section>
       </div>
 
     </main>
