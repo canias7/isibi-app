@@ -40,32 +40,49 @@
 
   <header class="topbar">
     <div class="logo" onclick="showView('home')" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
-    <div class="nav-dd" id="navDd">
+    <!-- Studio-only nav dropdown (the workspace sidebar is hidden there) -->
+    <div class="nav-dd" id="navDd" style="display:none">
       <button class="nav-dd-btn" onclick="toggleNavMenu(event)" aria-label="Menu">
-        <span class="nav-dd-icon">☰</span><b id="navDdLabel">Home</b><span class="nav-dd-caret">▾</span>
+        <span class="nav-dd-icon">☰</span><b id="navDdLabel">Studio</b><span class="nav-dd-caret">▾</span>
       </button>
       <div class="nav-dd-menu" id="navDdMenu">
-        <button class="nav-dd-item active" data-view="home" onclick="showView('home')"><span class="tile home">⌂</span><span>Home</span></button>
+        <button class="nav-dd-item" data-view="home" onclick="showView('home')"><span class="tile home">⌂</span><span>Home</span></button>
         <button class="nav-dd-item" data-view="projects" onclick="showView('projects')"><span class="tile nav-proj">🗂</span><span>Projects</span></button>
         <button class="nav-dd-item" data-view="gallery" onclick="showView('gallery')"><span class="tile nav-gal">🖼</span><span>Gallery</span></button>
-        <button class="nav-dd-item" data-view="studio" onclick="showView('studio')"><span class="tile nav-studio">🎬</span><span>Studio</span></button>
-        <div class="nav-dd-sep"></div>
-        <div id="signOutRow" class="nav-dd-account" style="display:none">
-          <div class="side-email" id="authEmailBadge"></div>
-          <button class="side-signout" style="margin-bottom:.4rem" onclick="changePassword()">Change password</button>
-          <button class="side-signout" onclick="doSignOut()">Sign out</button>
-        </div>
+        <button class="nav-dd-item active" data-view="studio" onclick="showView('studio')"><span class="tile nav-studio">🎬</span><span>Studio</span></button>
       </div>
     </div>
   </header>
 
   <div class="shell">
     <aside class="sidebar">
+      <div class="side-label">Workspace</div>
+      <div class="side-nav">
+        <div class="side-item active" data-view="home" onclick="showView('home')">
+          <span class="tile home">⌂</span><span>Home</span>
+        </div>
+        <div class="side-item" data-view="projects" onclick="showView('projects')">
+          <span class="tile nav-proj">🗂</span><span>Projects</span>
+        </div>
+        <div class="side-item" data-view="gallery" onclick="showView('gallery')">
+          <span class="tile nav-gal">🖼</span><span>Gallery</span>
+        </div>
+        <div class="side-item" data-view="studio" onclick="showView('studio')">
+          <span class="tile nav-studio">🎬</span><span>Studio</span>
+        </div>
+      </div>
+
       <div id="homeChats">
         <div class="side-label">Chats</div>
         <button class="new-chat" onclick="newChat()"><span class="plus">+</span> New chat</button>
         <input id="chatSearch" class="chat-search" placeholder="🔍 Search chats…" autocomplete="off" oninput="renderChatList()" />
         <div id="chatList" class="chat-list"></div>
+      </div>
+
+      <div class="side-foot" id="signOutRow" style="display:none">
+        <div class="side-email" id="authEmailBadge"></div>
+        <button class="side-signout" style="margin-bottom:.4rem" onclick="changePassword()">Change password</button>
+        <button class="side-signout" onclick="doSignOut()">Sign out</button>
       </div>
     </aside>
 

@@ -1497,12 +1497,20 @@ function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
-  document.querySelectorAll('.nav-dd-item[data-view]').forEach((i) =>
+  document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   const lbl = document.getElementById('navDdLabel');
   if (lbl) lbl.textContent = VIEW_LABELS[name] || 'Home';
+  // Studio hides the sidebar and navigates via the topbar dropdown; every other
+  // view keeps the normal sidebar (with its nav) and no dropdown.
+  const isStudio = name === 'studio';
   const sb = document.querySelector('.sidebar');
-  if (sb) sb.style.display = name === 'home' ? '' : 'none';
+  if (sb) sb.style.display = isStudio ? 'none' : '';
+  const dd = document.getElementById('navDd');
+  if (dd) dd.style.display = isStudio ? '' : 'none';
+  // Chat history is Home-only.
+  const chats = document.getElementById('homeChats');
+  if (chats) chats.style.display = name === 'home' ? '' : 'none';
   const menu = document.getElementById('navDdMenu');
   if (menu) menu.classList.remove('open');
 }

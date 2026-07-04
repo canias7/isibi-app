@@ -578,7 +578,8 @@
 .msg:hover .copy-btn { opacity: .9; }
 .copy-btn:hover { opacity: 1; }
 
-/* ── Topbar nav dropdown (Home / Projects / Gallery / Studio) ── */
+/* ── Workspace nav (sidebar on most views, topbar dropdown in Studio) ── */
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
 .tile.nav-proj, .tile.nav-gal { background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); font-size: 1rem; }
 .tile.nav-studio { background: var(--split); color: #0a0a0b; font-size: 1rem; }
 .nav-dd { position: relative; }
