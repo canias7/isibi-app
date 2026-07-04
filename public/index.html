@@ -6,7 +6,7 @@
   <title>isibi — Zephyr · Video Generator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body data-agent="Zephyr">
@@ -38,8 +38,8 @@
     </div>
   </div>
 
-  <header class="topbar">
-    <div class="logo" onclick="showView('home')" style="cursor:pointer"><span class="logo-mark">i</span>isibi</div>
+  <!-- Full-width bar is Studio-only now (the logo lives at the top of the sidebar). -->
+  <header class="topbar" style="display:none">
     <!-- Studio-only nav dropdown (the workspace sidebar is hidden there) -->
     <div class="nav-dd" id="navDd" style="display:none">
       <button class="nav-dd-btn" onclick="toggleNavMenu(event)" aria-label="Menu">
@@ -56,19 +56,21 @@
 
   <div class="shell">
     <aside class="sidebar">
+      <div class="side-logo" onclick="showView('home')"><span class="logo-mark">i</span><span>isibi</span></div>
+
       <div class="side-label">Workspace</div>
       <div class="side-nav">
         <div class="side-item active" data-view="home" onclick="showView('home')">
-          <span class="tile home">⌂</span><span>Home</span>
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg></span><span>Home</span>
         </div>
         <div class="side-item" data-view="projects" onclick="showView('projects')">
-          <span class="tile nav-proj">🗂</span><span>Projects</span>
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span>Projects</span>
         </div>
         <div class="side-item" data-view="gallery" onclick="showView('gallery')">
-          <span class="tile nav-gal">🖼</span><span>Gallery</span>
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span><span>Gallery</span>
         </div>
         <div class="side-item" data-view="studio" onclick="showView('studio')">
-          <span class="tile nav-studio">🎬</span><span>Studio</span>
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg></span><span>Studio</span>
         </div>
       </div>
 
@@ -80,15 +82,24 @@
       </div>
 
       <div class="side-foot" id="signOutRow" style="display:none">
-        <div class="side-email" id="authEmailBadge"></div>
-        <button class="side-signout" style="margin-bottom:.4rem" onclick="changePassword()">Change password</button>
-        <button class="side-signout" onclick="doSignOut()">Sign out</button>
+        <div class="side-user">
+          <div class="side-avatar" id="sideAvatar">·</div>
+          <div class="side-user-meta">
+            <div class="side-name" id="sideName">You</div>
+            <div class="side-email" id="authEmailBadge"></div>
+          </div>
+        </div>
+        <div class="side-foot-btns">
+          <button class="side-signout" onclick="changePassword()">Password</button>
+          <button class="side-signout" onclick="doSignOut()">Sign out</button>
+        </div>
       </div>
     </aside>
 
     <main class="main">
 
       <div id="viewHome" class="view view-home active">
+      <div class="laser-beam" id="laserBeam" aria-hidden="true"></div>
       <section class="chat active">
         <div class="chat-head">
           <span class="tile zephyr">Z</span>
@@ -244,6 +255,7 @@
   </div>
 
   <script src="/auth.js"></script>
+  <script src="/laser.js"></script>
   <script src="/chat.js"></script>
 </body>
 </html>

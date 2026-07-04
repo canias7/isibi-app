@@ -1,18 +1,18 @@
 :root {
-      --bg: #0a0a0b;
-      --panel: rgba(255, 255, 255, 0.055);  /* crystal glass film (slight grey over black) */
-      --panel-2: rgba(255, 255, 255, 0.10);  /* brighter glass (raised/active) */
-      --line: rgba(255, 255, 255, 0.09);     /* light glass rim */
-      --line-2: rgba(255, 255, 255, 0.15);   /* brighter glass rim */
-      --text: #f4f4f5;
-      --muted: #8b8b93;
-      --neon: #ffd60a;        /* normal yellow (accent) */
-      --neon-dim: #f0c400;    /* darker yellow (hover) */
-      --purple: #a855f7;      /* purple (accent) */
-      --purple-dim: #9333ea;  /* darker purple (hover) */
-      /* yellow → purple, blended diagonally into a soft shade (not a hard line) */
-      --split: linear-gradient(135deg, var(--neon) 0%, var(--neon) 34%, var(--purple) 74%, var(--purple) 100%);
-      --split-dim: linear-gradient(135deg, var(--neon-dim) 0%, var(--neon-dim) 34%, var(--purple-dim) 74%, var(--purple-dim) 100%);
+      --bg: #08070c;
+      --panel: rgba(255, 255, 255, 0.03);    /* crystal glass film */
+      --panel-2: rgba(255, 255, 255, 0.06);  /* brighter glass (raised/active) */
+      --line: rgba(255, 255, 255, 0.075);    /* light glass rim */
+      --line-2: rgba(255, 255, 255, 0.14);   /* brighter glass rim */
+      --text: #edeaf3;
+      --muted: rgba(237, 234, 243, 0.5);
+      --neon: #ffb84d;        /* amber (accent) */
+      --neon-dim: #f0a52e;    /* darker amber (hover) */
+      --purple: #ff79c6;      /* pink (accent) */
+      --purple-dim: #f45cb4;  /* darker pink (hover) */
+      /* pink → amber warm sweep */
+      --split: linear-gradient(120deg, var(--purple), var(--neon));
+      --split-dim: linear-gradient(120deg, var(--purple-dim), var(--neon-dim));
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
@@ -27,8 +27,8 @@
     body::after {
       content: ''; position: fixed; inset: -25%; z-index: -1; pointer-events: none;
       background:
-        radial-gradient(38% 34% at 24% 16%, rgba(255, 214, 10, .10), transparent 62%),
-        radial-gradient(34% 30% at 86% 96%, rgba(168, 85, 247, .09), transparent 58%);
+        radial-gradient(40% 36% at 22% 14%, rgba(255, 184, 77, .06), transparent 62%),
+        radial-gradient(38% 34% at 84% 98%, rgba(255, 121, 198, .05), transparent 60%);
       animation: ambient-drift 26s ease-in-out infinite alternate;
       will-change: transform;
     }
@@ -103,8 +103,8 @@
       flex: 1; min-width: 0; position: relative;
       display: flex; flex-direction: column;
       background-image:
-        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
       background-size: 44px 44px;
     }
 
@@ -130,7 +130,13 @@
       max-width: 78%; padding: .7rem 1rem; border-radius: 16px;
       font-size: .95rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
-    .msg.user { align-self: flex-end; background: var(--neon); color: #0a0a0b; border-bottom-right-radius: 5px; font-weight: 500; }
+    .msg.user {
+      align-self: flex-end; color: var(--text); font-weight: 500;
+      background: linear-gradient(130deg, rgba(255,121,198,.16), rgba(255,184,77,.16));
+      border: 1px solid rgba(255,170,110,.28);
+      border-bottom-right-radius: 5px;
+      box-shadow: 0 4px 24px rgba(255,140,110,.08);
+    }
     /* No per-bubble backdrop blur — long chats would stack dozens of live
        blur layers; the big surfaces (composer, cards, menus) keep theirs. */
     .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
@@ -204,7 +210,7 @@
 
 /* ── Audio / Image / Video mode switch ───── */
 .mode-switch {
-  display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; padding: 3px;
+  display: flex; flex-direction: row; flex-shrink: 0; gap: 2px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
 }
 .mode-btn {
@@ -407,11 +413,20 @@
 
 
 /* ── Auth gate ─────────────────────────────── */
-.side-foot { margin-top: auto; padding: .6rem .55rem .3rem; }
-.side-email { font-size: .78rem; color: var(--muted); margin-bottom: .5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-foot { margin-top: auto; padding: .75rem .5rem .3rem; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .6rem; }
+.side-user { display: flex; align-items: center; gap: .6rem; padding: 0 .2rem; }
+.side-avatar {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%;
+  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: .9rem;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+}
+.side-user-meta { min-width: 0; }
+.side-name { font-weight: 600; font-size: .9rem; line-height: 1.2; }
+.side-email { font-size: .74rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-foot-btns { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
 .side-signout {
   width: 100%; background: none; border: 1px solid var(--line-2); color: var(--muted);
-  border-radius: 12px; padding: .55rem; font-size: .88rem; cursor: pointer;
+  border-radius: 12px; padding: .5rem; font-size: .85rem; cursor: pointer;
 }
 .side-signout:hover { color: var(--text); border-color: #4a4a52; }
 
@@ -753,3 +768,54 @@
   .studio-chat { flex: 0 0 auto; max-width: none; min-width: 0; width: auto; height: 38%; border-right: none; border-bottom: 1px solid var(--line); }
   .editor-media { flex: 0 0 40%; }
 }
+
+/* ═══════════ Studio-warm home redesign ═══════════ */
+
+/* Logo moved to the top of the sidebar. */
+.side-logo {
+  display: flex; align-items: center; gap: .6rem; cursor: pointer;
+  font-weight: 900; font-size: 1.2rem; letter-spacing: -.02em;
+  padding: .5rem .55rem 1rem;
+}
+.side-logo .logo-mark { width: 30px; height: 30px; font-size: 1rem; }
+
+/* Outline nav icons + gold active state. */
+.nav-ico { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; color: var(--muted); transition: color .15s ease; }
+.nav-ico svg { width: 20px; height: 20px; }
+.side-item:hover .nav-ico { color: var(--text); }
+.side-item.active { background: rgba(255, 184, 77, .09); border-color: rgba(255, 184, 77, .22); color: var(--neon); }
+.side-item.active .nav-ico { color: var(--neon); }
+
+/* Message timestamps — tight caption under each bubble. */
+.msg-time { font-size: .68rem; color: var(--muted); margin-top: -.35rem; padding: 0 .35rem; }
+.msg-time.user { align-self: flex-end; }
+.msg-time.agent { align-self: flex-start; }
+
+/* Space Grotesk on the wordmark + names, like the mockup. */
+.side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
+
+/* ── LaserFlow beam (falls from the top, lands on the composer) ── */
+.view-home.active { position: relative; }
+/* Thread + composer sit above the beam. */
+.view-home.active > .chat,
+.view-home.active > .composer-wrap { position: relative; z-index: 1; }
+.laser-beam { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+/* The shader's peak alpha is modest; lift it so the beam reads as vivid amber over the near-black page. */
+.laser-beam canvas { position: absolute; inset: 0; filter: brightness(3.3) saturate(1.18) contrast(1.05); }
+
+/* Composer catches the warm landing glow. */
+.composer {
+  border-color: rgba(255, 184, 77, .30);
+  box-shadow: 0 0 0 1px rgba(255,184,77,.06), 0 -8px 60px rgba(255,170,80,.10), 0 18px 50px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* Send button → rounded square with the pink→amber gradient. */
+.send { border-radius: 14px; width: 46px; height: 46px; box-shadow: 0 6px 24px rgba(255,150,120,.35); }
+.send:hover { box-shadow: 0 8px 30px rgba(255,150,120,.45); }
+
+/* Mode switch → pill; active tab takes the gradient. */
+.mode-switch { border-radius: 99px; }
+.mode-btn { border-radius: 99px; padding: .45rem 1.05rem; }
+
+/* Account avatar → dark chip (matches the mockup). */
+.side-avatar { background: linear-gradient(140deg, #3a3344, #221d2b); border: 1px solid var(--line); color: var(--muted); }
