@@ -801,7 +801,7 @@
 .view-home.active > .composer-wrap { position: relative; z-index: 1; }
 .laser-beam { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 /* The shader's peak alpha is modest; lift it so the beam reads as vivid amber over the near-black page. */
-.laser-beam canvas { position: absolute; inset: 0; filter: brightness(3.3) saturate(1.18) contrast(1.05); }
+.laser-beam canvas { position: absolute; inset: 0; filter: brightness(2.2) saturate(1.12); }
 
 /* Composer catches the warm landing glow. */
 .composer {
