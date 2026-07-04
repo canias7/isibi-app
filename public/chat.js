@@ -258,7 +258,7 @@ let previewAudio = null;
 
 function stopPreview() {
   if (previewAudio) { previewAudio.pause(); previewAudio.currentTime = 0; }
-  document.querySelectorAll('.voice-test.playing').forEach((b) => {
+  document.querySelectorAll('.voice-test.playing, .set-voicebtn.playing').forEach((b) => {
     b.classList.remove('playing'); b.textContent = '▶';
   });
 }
@@ -323,141 +323,101 @@ function playPreview(url, btn) {
   previewAudio.play().catch(() => { btn.classList.remove('playing'); btn.textContent = '▶'; });
 }
 
+// One "Settings" panel groups every option (aspect ratio / resolution /
+// duration / images / voice) into sections, filtered to what the current model
+// supports. Values reset to this model's defaults on each rebuild.
 function buildOptMenus() {
-  const durWrap = document.getElementById('durWrap');
-  if (!durWrap) return;
+  const panel = document.getElementById('settingsMenu');
+  const wrap = document.getElementById('settingsWrap');
+  if (!panel || !wrap) return;
   const opts = currentOpts();
-  durWrap.style.display = opts.durations ? '' : 'none';
 
-  if (opts.durations) {
-    duration = opts.defDur;
-    document.getElementById('durLabel').textContent = duration + 's';
-    const durMenu = document.getElementById('durMenu');
-    durMenu.innerHTML = '';
-    opts.durations.forEach((d) => {
-      const el = document.createElement('div');
-      el.className = 'model-item' + (d === duration ? ' selected' : '');
-      el.innerHTML = '<span>' + d + 's</span><span class="check">✓</span>';
-      el.onclick = () => {
-        duration = d;
-        document.getElementById('durLabel').textContent = d + 's';
-        durMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-        durMenu.classList.remove('open');
-      };
-      durMenu.appendChild(el);
-    });
-  }
+  // reset to this model's defaults
+  if (opts.durations) duration = opts.defDur;
+  if (opts.resolutions) quality = opts.defRes;
+  if (opts.ratios) ratio = opts.defRatio;
+  if (opts.nums) numImages = 1;
+  if (opts.voices) voice = opts.defVoice;
 
-  const qualWrap = document.getElementById('qualWrap');
-  qualWrap.style.display = opts.resolutions ? '' : 'none';
-  if (opts.resolutions) {
-    quality = opts.defRes;
-    document.getElementById('qualLabel').textContent = quality;
-    const qualMenu = document.getElementById('qualMenu');
-    qualMenu.innerHTML = '';
-    opts.resolutions.forEach((q) => {
-      const el = document.createElement('div');
-      el.className = 'model-item' + (q === quality ? ' selected' : '');
-      el.innerHTML = '<span>' + q + '</span><span class="check">✓</span>';
-      el.onclick = () => {
-        quality = q;
-        document.getElementById('qualLabel').textContent = q;
-        qualMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-        qualMenu.classList.remove('open');
-      };
-      qualMenu.appendChild(el);
-    });
-  }
+  const sections = [];
+  if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
+  if (opts.resolutions) sections.push(settingSection('Resolution', 'quality', opts.resolutions.map((q) => ({ value: q, label: q }))));
+  if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
+  if (opts.nums) sections.push(settingSection('Images', 'num', opts.nums.map((n) => ({ value: n, label: n === 1 ? '1 image' : n + ' images' }))));
+  if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: v })), true));
 
-  // How many images per prompt (billing is per image, so always reset to 1).
-  const numWrap = document.getElementById('numWrap');
-  numWrap.style.display = opts.nums ? '' : 'none';
-  if (opts.nums) {
-    numImages = 1;
-    document.getElementById('numLabel').textContent = '1';
-    const numMenu = document.getElementById('numMenu');
-    numMenu.innerHTML = '';
-    opts.nums.forEach((n) => {
-      const el = document.createElement('div');
-      el.className = 'model-item' + (n === numImages ? ' selected' : '');
-      el.innerHTML = '<span>' + n + (n === 1 ? ' image' : ' images') + '</span><span class="check">✓</span>';
-      el.onclick = () => {
-        numImages = n;
-        document.getElementById('numLabel').textContent = String(n);
-        numMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-        numMenu.classList.remove('open');
-      };
-      numMenu.appendChild(el);
-    });
-  }
+  wrap.style.display = sections.length ? '' : 'none';
+  panel.innerHTML = sections.join('');
+  if (!sections.length) panel.classList.remove('open');
 
-  // Audio generation has no aspect ratio; hide the ratio picker entirely.
-  const ratioWrap = document.getElementById('ratioWrap');
-  ratioWrap.style.display = opts.ratios ? '' : 'none';
-  if (opts.ratios) {
-    ratio = opts.defRatio;
-    document.getElementById('ratioLabel').textContent = ratio;
-    const ratioMenu = document.getElementById('ratioMenu');
-    ratioMenu.innerHTML = '';
-    opts.ratios.forEach((r) => {
-      const el = document.createElement('div');
-      el.className = 'model-item' + (r === ratio ? ' selected' : '');
-      el.innerHTML = '<span>' + r + '</span><span class="check">✓</span>';
-      el.onclick = () => {
-        ratio = r;
-        document.getElementById('ratioLabel').textContent = r;
-        ratioMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-        ratioMenu.classList.remove('open');
-      };
-      ratioMenu.appendChild(el);
-    });
-  }
+  // Keep the panel open while adjusting — stop clicks from reaching the
+  // document-level "close menus" handler.
+  panel.querySelectorAll('.set-chip').forEach((chip) => {
+    chip.onclick = (e) => { e.stopPropagation(); pickSetting(chip); };
+  });
+  panel.querySelectorAll('.set-voicebtn').forEach((btn) => {
+    btn.onclick = (e) => { e.stopPropagation(); previewVoice(btn.dataset.voice, btn); };
+  });
+  panel.querySelectorAll('.set-viewall').forEach((btn) => {
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const open = btn.closest('.set-section').classList.toggle('expanded');
+      btn.textContent = open ? 'View less' : 'View all';
+    };
+  });
+  updateSettingsSummary();
 
-  // Voice picker — only shown in audio (voice) mode.
-  const voiceWrap = document.getElementById('voiceWrap');
-  voiceWrap.style.display = opts.voices ? '' : 'none';
-  if (opts.voices) {
-    voice = opts.defVoice;
-    document.getElementById('voiceLabel').textContent = voice;
-    const voiceMenu = document.getElementById('voiceMenu');
-    voiceMenu.innerHTML = '';
-    opts.voices.forEach((v) => {
-      const el = document.createElement('div');
-      el.className = 'model-item' + (v === voice ? ' selected' : '');
-      const nameEl = document.createElement('span');
-      nameEl.textContent = v;
-      const right = document.createElement('span');
-      right.className = 'voice-right';
-      const test = document.createElement('button');
-      test.className = 'voice-test';
-      test.type = 'button';
-      test.textContent = '▶';
-      test.title = 'Hear ' + v;
-      test.onclick = (e) => { e.stopPropagation(); previewVoice(v, test); };
-      const check = document.createElement('span');
-      check.className = 'check';
-      check.textContent = '✓';
-      right.appendChild(test);
-      right.appendChild(check);
-      el.appendChild(nameEl);
-      el.appendChild(right);
-      el.onclick = () => {
-        voice = v;
-        document.getElementById('voiceLabel').textContent = v;
-        voiceMenu.querySelectorAll('.model-item').forEach((i) => i.classList.toggle('selected', i === el));
-        voiceMenu.classList.remove('open');
-      };
-      voiceMenu.appendChild(el);
-    });
-  }
-
-  // Placeholder: a per-model hint (e.g. lip-sync models) else the mode default.
   document.getElementById('input').placeholder = opts.hint ||
     (mode === 'image' ? 'Describe your image…' :
      mode === 'audio' ? 'Type what you want the voice to say…' :
      'Describe your scene…');
-
   updateAttachVisibility();
+}
+
+// A settings section: a label + selectable chips. Long lists (>6) collapse
+// behind a "View all" toggle.
+function settingSection(label, kind, items, isVoice) {
+  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice }[kind];
+  const collapsible = items.length > 6;
+  const chips = items.map((it) => {
+    const active = String(it.value) === String(cur) ? ' active' : '';
+    if (isVoice) {
+      return '<button type="button" class="set-chip' + active + '" data-kind="voice" data-value="' + esc(it.value) + '">' +
+        '<span>' + esc(it.label) + '</span>' +
+        '<span class="set-voicebtn" data-voice="' + esc(it.value) + '" title="Hear voice">▶</span></button>';
+    }
+    return '<button type="button" class="set-chip' + active + '" data-kind="' + kind + '" data-value="' + esc(it.value) + '">' + esc(it.label) + '</button>';
+  }).join('');
+  return '<div class="set-section' + (collapsible ? ' collapsible' : '') + '">' +
+    '<div class="set-label">' + label + '</div>' +
+    '<div class="set-chips">' + chips + '</div>' +
+    (collapsible ? '<button type="button" class="set-viewall">View all</button>' : '') +
+    '</div>';
+}
+
+function pickSetting(chip) {
+  const kind = chip.dataset.kind, val = chip.dataset.value;
+  if (kind === 'ratio') ratio = val;
+  else if (kind === 'quality') quality = val;
+  else if (kind === 'duration') duration = Number(val);
+  else if (kind === 'num') numImages = Number(val);
+  else if (kind === 'voice') voice = val;
+  chip.parentElement.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', c === chip));
+  updateSettingsSummary();
+}
+
+// The Settings button shows the current picks at a glance (e.g. "16:9 · 720p · 5s").
+function updateSettingsSummary() {
+  const el = document.getElementById('settingsSummary');
+  if (!el) return;
+  const opts = currentOpts();
+  const parts = [];
+  if (opts.ratios) parts.push(ratio);
+  if (opts.resolutions) parts.push(quality);
+  if (opts.durations) parts.push(duration + 's');
+  if (opts.nums && numImages > 1) parts.push('×' + numImages);
+  if (opts.voices) parts.push(voice);
+  el.textContent = parts.length ? parts.join(' · ') : 'Settings';
 }
 
 function toggleOpt(e, which) {

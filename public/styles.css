@@ -362,6 +362,35 @@
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
 .model-menu.drop-up { top: auto; bottom: calc(100% + 10px); right: auto; left: 0; min-width: 130px; }
+
+/* ── Settings panel (grouped composer options) ── */
+.settings-panel { min-width: 300px; max-width: 340px; padding: .5rem; }
+.set-section { padding: .55rem .45rem; }
+.set-section + .set-section { border-top: 1px solid var(--line); }
+.set-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .55rem; }
+.set-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.set-chip {
+  display: inline-flex; align-items: center; gap: .45rem;
+  background: var(--panel); border: 1px solid var(--line-2); color: var(--text);
+  border-radius: 10px; padding: .42rem .7rem; font-family: inherit; font-size: .85rem; cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.set-chip:hover { border-color: #4a4a52; }
+.set-chip.active { background: var(--split); color: #0a0a0b; border-color: transparent; font-weight: 600; }
+.set-voicebtn {
+  width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center;
+  font-size: .58rem; border: 1px solid var(--line-2); color: var(--muted); line-height: 1;
+}
+.set-voicebtn:hover { color: var(--neon); border-color: var(--neon); }
+.set-voicebtn.playing { color: var(--neon); border-color: var(--neon); }
+.set-chip.active .set-voicebtn { border-color: rgba(0, 0, 0, .35); color: #0a0a0b; }
+/* collapse long lists: show the first 6, reveal the rest on "View all" */
+.set-section.collapsible:not(.expanded) .set-chip:nth-child(n+7) { display: none; }
+.set-viewall {
+  margin-top: .55rem; background: none; border: none; color: var(--neon);
+  font-family: inherit; font-size: .8rem; cursor: pointer; padding: .1rem .2rem;
+}
+.set-viewall:hover { text-decoration: underline; }
 #voiceMenu { min-width: 168px; max-height: 340px; overflow-y: auto; }
 
 /* Per-voice preview (play) button in the voice menu */

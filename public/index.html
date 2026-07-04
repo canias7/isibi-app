@@ -129,25 +129,9 @@
               <button class="mode-btn" data-mode="image" onclick="setMode('image')">Image</button>
               <button class="mode-btn active" data-mode="video" onclick="setMode('video')">Video</button>
             </div>
-            <span class="opt-wrap" id="durWrap">
-              <button class="opt-btn" onclick="toggleOpt(event, 'dur')">⏱ <b id="durLabel">5s</b> ▾</button>
-              <div class="model-menu drop-up" id="durMenu"></div>
-            </span>
-            <span class="opt-wrap" id="ratioWrap">
-              <button class="opt-btn" onclick="toggleOpt(event, 'ratio')">▭ <b id="ratioLabel">16:9</b> ▾</button>
-              <div class="model-menu drop-up" id="ratioMenu"></div>
-            </span>
-            <span class="opt-wrap" id="qualWrap">
-              <button class="opt-btn" onclick="toggleOpt(event, 'qual')">◆ <b id="qualLabel">720p</b> ▾</button>
-              <div class="model-menu drop-up" id="qualMenu"></div>
-            </span>
-            <span class="opt-wrap" id="numWrap" style="display:none">
-              <button class="opt-btn" title="How many images" onclick="toggleOpt(event, 'num')">▦ <b id="numLabel">1</b> ▾</button>
-              <div class="model-menu drop-up" id="numMenu"></div>
-            </span>
-            <span class="opt-wrap" id="voiceWrap" style="display:none">
-              <button class="opt-btn" onclick="toggleOpt(event, 'voice')">🎙 <b id="voiceLabel">Rachel</b> ▾</button>
-              <div class="model-menu drop-up" id="voiceMenu"></div>
+            <span class="opt-wrap" id="settingsWrap">
+              <button class="opt-btn" onclick="toggleOpt(event, 'settings')" title="Options">⚙ <b id="settingsSummary">Settings</b> ▾</button>
+              <div class="model-menu drop-up settings-panel" id="settingsMenu"></div>
             </span>
             <button class="send" id="sendBtn" onclick="send(true)" aria-label="Send">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
