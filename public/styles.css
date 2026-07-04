@@ -806,7 +806,7 @@
    (screen) rather than painted over the page. */
 .laser-beam {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  opacity: .42; mix-blend-mode: screen; filter: saturate(.85);
+  opacity: .42; mix-blend-mode: screen;
 }
 .laser-beam canvas { position: absolute; inset: 0; }
 
