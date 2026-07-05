@@ -882,7 +882,7 @@
 .attach-rail {
   /* bottom offset = wrap padding-bottom (1.4rem + 44px) + arrow row (~51px):
      keeps the rail's last button level with the lifted chatbox's bottom edge */
-  position: absolute; right: calc(50% + 404px); bottom: calc(1.4rem + 95px);
+  position: absolute; right: calc(50% + 404px); bottom: calc(1.4rem + 51px);
   display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
   z-index: 2;
 }
@@ -897,7 +897,7 @@
 /* ── Chatbox lifted; arrow beneath slides down to the Presets screen ── */
 /* Extra bottom padding floats the box ~1in off the bottom; the arrow lives
    in the freed space. */
-.view-home .composer-wrap { padding-bottom: calc(1.4rem + 44px); }
+.view-home .composer-wrap { padding-bottom: 1.4rem; }
 .drawer-arrow {
   display: grid; place-items: center;
   width: 40px; height: 40px; border-radius: 50%;
