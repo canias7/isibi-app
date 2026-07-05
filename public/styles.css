@@ -898,7 +898,9 @@
 /* ── Attach rail: pickers live in the space left of the chatbox ── */
 .composer-wrap { position: relative; }
 .attach-rail {
-  position: absolute; right: calc(50% + 404px); bottom: 1.4rem;
+  /* bottom offset = wrap padding-bottom (1.4rem + 44px) + arrow row (~51px):
+     keeps the rail's last button level with the lifted chatbox's bottom edge */
+  position: absolute; right: calc(50% + 404px); bottom: calc(1.4rem + 95px);
   display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
   z-index: 2;
 }
@@ -908,4 +910,31 @@
     position: static; flex-direction: row; flex-wrap: wrap; align-items: center;
     width: 100%; max-width: 780px; margin: 0 auto .6rem;
   }
+}
+
+/* ── Chatbox lifted; arrow beneath opens the below-drawer ── */
+/* Extra bottom padding floats the box ~1in off the bottom; the arrow and
+   (future) drawer content live in the freed space. */
+.view-home .composer-wrap { padding-bottom: calc(1.4rem + 44px); }
+.drawer-arrow {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: 50%;
+  margin: .7rem auto 0;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  cursor: pointer;
+  transition: transform .28s ease, color .18s ease, border-color .18s ease, background .18s ease;
+}
+.drawer-arrow:hover { color: var(--text); border-color: #4a4a52; background: rgba(255,255,255,.09); }
+.drawer-arrow.open { transform: rotate(180deg); }
+.below-drawer {
+  width: 100%; max-width: 780px; margin: 0 auto;
+  max-height: 0; overflow: hidden;
+  transition: max-height .32s ease, margin .32s ease;
+}
+.below-drawer.open {
+  max-height: 220px; margin-top: .7rem;
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 20px;
+  min-height: 180px;
+  backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
+  box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
 }

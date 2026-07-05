@@ -252,6 +252,14 @@ function setEffort(level) {
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
 }
+// Arrow under the chatbox — opens the drawer beneath (contents TBD).
+function toggleDrawer() {
+  const open = document.getElementById('belowDrawer').classList.toggle('open');
+  const arrow = document.getElementById('drawerArrow');
+  arrow.classList.toggle('open', open);
+  arrow.setAttribute('aria-expanded', open);
+}
+
 function toggleEffortMenu(e) {
   e.stopPropagation();
   const menu = document.getElementById('effortMenu');
