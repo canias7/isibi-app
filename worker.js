@@ -433,14 +433,14 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
-    // ── Credit packs: $1 = 100 credits (25% over the $0.008 cost basis) ──
+    // ── Credit packs: sold at $0.012/credit ($0.008 cost basis) ──
     // Checkout creates a Stripe session; the webhook (signature-verified)
     // mints the credits idempotently. Both no-op cleanly until the Stripe
     // secrets are configured.
     const PACKS = {
-      "5": { cents: 500, credits: 500 },
-      "15": { cents: 1500, credits: 1500 },
-      "40": { cents: 4000, credits: 4000 },
+      "6": { cents: 600, credits: 500 },
+      "18": { cents: 1800, credits: 1500 },
+      "48": { cents: 4800, credits: 4000 },
     };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {

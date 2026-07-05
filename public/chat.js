@@ -1514,11 +1514,11 @@ async function fetchCredits() {
   } catch {}
 }
 
-// ── Get-credits panel: three packs, $1 = 100 credits ──────────────────────
+// ── Get-credits panel: three packs at $0.012 per credit ───────────────────
 const CREDIT_PACKS = [
-  { pack: '5', usd: 5, credits: 500 },
-  { pack: '15', usd: 15, credits: 1500 },
-  { pack: '40', usd: 40, credits: 4000 },
+  { pack: '6', usd: 6, credits: 500 },
+  { pack: '18', usd: 18, credits: 1500 },
+  { pack: '48', usd: 48, credits: 4000 },
 ];
 function openCredits() {
   if (document.querySelector('.credits-overlay')) return;
@@ -1531,7 +1531,7 @@ function openCredits() {
     '</button>').join('');
   ov.innerHTML = '<div class="cp-box">' +
     '<div class="cp-head"><div class="cp-title">Get credits</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">$1 buys 100 credits. A quick image is a few credits; most videos run 40–600.</div>' +
+    '<div class="cp-sub">A quick image is a few credits; most videos run 40–600.</div>' +
     '<div class="cp-grid">' + cards + '</div>' +
     '<div class="cp-note" id="cpNote"></div>' +
     '</div>';
