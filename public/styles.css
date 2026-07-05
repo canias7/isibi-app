@@ -213,6 +213,16 @@
   display: flex; flex-direction: row; flex-shrink: 0; gap: 2px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
 }
+.mode-btn { text-align: center; }
+/* Wide screens: the switch stacks vertically OUTSIDE the box's right edge,
+   so the chatbox keeps its height. Narrow screens keep the inline pill. */
+@media (min-width: 1500px) {
+  .view-home .composer { position: relative; }
+  .view-home .composer-row .mode-switch {
+    flex-direction: column;
+    position: absolute; left: calc(100% + 14px); bottom: -14px;
+  }
+}
 .mode-btn {
   background: none; border: none; color: var(--muted);
   font-weight: 600; font-size: .85rem; padding: .45rem .9rem;
@@ -835,6 +845,7 @@
 
 /* Mode switch → pill; active tab takes the gradient. */
 .mode-switch { border-radius: 99px; }
+@media (min-width: 1500px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
 .mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
 /* Account avatar → dark chip (matches the mockup). */
