@@ -930,3 +930,12 @@
   font-size: 1.45rem; font-weight: 700; letter-spacing: -.02em;
 }
 .presets-body { flex: 1; width: 100%; max-width: 1080px; }
+
+/* ── Chat column nudged right of center (box + thread text together) ── */
+/* Only on wide screens; below 1380px the rail is inline and space is tight. */
+@media (min-width: 1381px) {
+  .thread-inner,
+  .view-home .composer,
+  .view-home .drawer-arrow { position: relative; left: 70px; }
+  .attach-rail { right: calc(50% + 334px); }
+}
