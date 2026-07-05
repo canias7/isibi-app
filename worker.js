@@ -391,11 +391,15 @@ async function handleRequest(request, env, ctx) {
       const genDuration = Number.isFinite(+body.duration) ? Math.min(30, Math.max(1, Math.round(+body.duration))) : 0;
       const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
       // Effort switch: how long and detailed the written prompt should be.
-      const effort = ["low", "high"].includes(body.effort) ? body.effort : "medium";
+      const effort = ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium";
       const effortLine = kind === "audio" ? "" : effort === "low"
         ? `\nEffort: LOW — the user wants a quick take. Keep the prompt to 1-2 tight sentences (30-50 words): subject, action, setting, one style cue. Keep the non-negotiables (camera named, on-screen text pinned) but skip fine detail — let the model improvise the rest.`
         : effort === "high"
-        ? `\nEffort: HIGH — the user wants maximum craft. Write 120-180 words: precise composition and camera work, lighting, palette, texture, atmosphere, and the timing of each beat. Every sentence must add new concrete visual information — detail, never filler.`
+        ? `\nEffort: HIGH — the user wants real craft. Write 120-180 words: precise composition and camera work, lighting, palette, texture, atmosphere, and the timing of each beat. Every sentence must add new concrete visual information — detail, never filler.`
+        : effort === "ultra"
+        ? `\nEffort: ULTRA HIGH — 180-250 words. Everything a HIGH prompt covers (camera, lighting, palette, texture, atmosphere, beat timing), plus: name the lens and framing (wide or long, centered or thirds, negative space); build the scene in explicit layers — a foreground element, the subject, a living background${kind === "video" ? " — so camera moves read three-dimensional" : ""}; direct the subject's expression and body language; ${kind === "video" ? "give every motion weight and momentum; " : ""}add background life; and call one deliberate color grade. Every sentence must add new concrete visual information — detail, never filler.`
+        : effort === "max"
+        ? `\nEffort: MAX — 250-330 words, the full director's treatment. Everything ULTRA HIGH covers, plus: film stock or medium emulation, era and season${kind === "video" ? `, speed treatment if it serves the shot (slow motion, timelapse), and what the opening and closing frames each hold. If the target model generates audio (Veo, Sora), direct the soundscape too — ambience, two or three key sounds, any spoken line` : ", and where the viewer's eye lands first, second and third"}. Touch every area a director could — but never pad: if an area adds nothing to THIS shot, spend those words deepening the ones that do.`
         : `\nEffort: MEDIUM — one tight paragraph, roughly 60-100 words: enough craft to direct the shot without over-constraining the model.`;
 
       // Different model families respond to different prompt styles.
