@@ -64,6 +64,76 @@ const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
 
+// ── Credits: 1 credit = $0.008 of fal cost, charged BEFORE fal is called ──
+// The ledger lives in Postgres (public.credits + use_credits/get_credits,
+// SECURITY DEFINER, RLS owner-only). The Worker calls it under the caller's
+// own JWT, so the client can display but never mint credits.
+const CREDIT_USD = 0.008;
+const VIDEO_USD = {
+  "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
+  "fal-ai/sora-2/text-to-video/pro":              { s: { "720p": 0.30, "1080p": 0.50 }, d: 10 },
+  "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
+  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
+  "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
+  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, d: 5 },
+  "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
+  "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
+  "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
+  "xai/grok-imagine-video/text-to-video":         { s: { "480p": 0.05, "720p": 0.07, def: 0.07 }, d: 6 },
+  "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
+  "fal-ai/bytedance/omnihuman":                   { flat: 1.40 },  // fal bills on audio length; ~10s assumed
+  "fal-ai/kling-video/lipsync/audio-to-video":    { flat: 0.042 }, // three 5-second increments
+};
+const IMAGE_USD = {
+  "fal-ai/flux-2-pro": 0.03,
+  "fal-ai/gemini-3-pro-image-preview": 0.15,
+  "fal-ai/bytedance/seedream/v4/text-to-image": 0.03,
+  "fal-ai/recraft/v3/text-to-image": 0.04,
+  "google/nano-banana-2": 0.08,
+  "fal-ai/nano-banana-pro": 0.15,
+  "openai/gpt-image-2": 0.12,
+  "fal-ai/flux/dev": 0.025,
+  "fal-ai/krea-2/turbo": 0.008,
+  "xai/grok-imagine-image": 0.022,
+};
+const AUDIO_USD_PER_1K = {
+  "fal-ai/elevenlabs/tts/eleven-v3": 0.10,
+  "fal-ai/elevenlabs/tts/turbo-v2.5": 0.05,
+  "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
+};
+
+function creditCost(kind, model, { duration, quality, num, chars }) {
+  let usd;
+  if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
+  else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
+  else {
+    const p = VIDEO_USD[model];
+    if (!p) usd = 3; // unlisted video model: charge high, never undercharge
+    else if (p.flat != null) usd = p.flat;
+    else {
+      const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s["720p"];
+      usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
+    }
+  }
+  return Math.max(1, Math.ceil(usd / CREDIT_USD));
+}
+
+// Deduct credits atomically under the caller's own JWT. Returns the new
+// balance, or -1 when the balance is too low; throws if the ledger is down.
+async function useCredits(authHeader, cost) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_credits`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({ cost }),
+  });
+  if (!r.ok) throw new Error("credits rpc " + r.status);
+  return Number(await r.json());
+}
+
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
 async function authUser(request) {
   const header = request.headers.get("Authorization") || "";
@@ -323,6 +393,21 @@ async function handleRequest(request, env, ctx) {
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
+      // Everything validated — charge credits, then spend fal money.
+      // Fail closed: if the ledger can't be reached, we don't generate.
+      const genCost = creditCost(genKind, model, {
+        duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+      });
+      let balanceAfter;
+      try {
+        balanceAfter = await useCredits(request.headers.get("Authorization") || "", genCost);
+      } catch {
+        return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
+      }
+      if (!(balanceAfter >= 0)) {
+        return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
       const r = await fetch(`https://queue.fal.run/${endpoint}`, {
         method: "POST",
         headers: {
@@ -343,7 +428,29 @@ async function handleRequest(request, env, ctx) {
         status_url: data.status_url,
         response_url: data.response_url,
         model,
+        cost: genCost,
+        balance: balanceAfter,
       });
+    }
+
+    // Current credit balance (creates the row with the signup grant on first touch).
+    if (url.pathname === "/api/credits" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: request.headers.get("Authorization") || "",
+          },
+          body: "{}",
+        });
+        if (!r.ok) throw 0;
+        return Response.json({ balance: Number(await r.json()) });
+      } catch {
+        return Response.json({ error: "credits unavailable" }, { status: 503 });
+      }
     }
 
     // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.

@@ -348,7 +348,9 @@ async function sbGenerateShot(s) {
       }),
     });
     const job = await res.json();
+    if (res.status === 402) throw new Error('not enough credits for this shot');
     if (!res.ok || !job.status_url) throw new Error(JSON.stringify(job));
+    if (typeof job.balance === 'number' && typeof setCredits === 'function') setCredits(job.balance);
     for (let waited = 0; waited < 12 * 60 * 1000; waited += 4000) {
       const st = await (await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url))).json();
       if (st.status === 'COMPLETED') break;

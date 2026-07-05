@@ -1452,8 +1452,8 @@ const VIDEO_PRICE = {
   'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
   'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
-  'fal-ai/bytedance/omnihuman':                   { rate: '$0.14/s' },   // billed on the audio's real length
-  'fal-ai/kling-video/lipsync/audio-to-video':    { rate: '$0.014/5s' }, // billed in 5s increments
+  'fal-ai/bytedance/omnihuman':                   { flat: 1.40 },  // charged as ~10s of audio
+  'fal-ai/kling-video/lipsync/audio-to-video':    { flat: 0.042 }, // three 5-second increments
 };
 const IMAGE_PRICE = { // $ per image
   'fal-ai/flux-2-pro': 0.03,
@@ -1473,8 +1473,10 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
   'fal-ai/elevenlabs/tts/multilingual-v2': 0.10,
 };
 
-function fmtPrice(n) {
-  return n < 0.01 ? '<$0.01' : '~$' + n.toFixed(2);
+// 1 credit = $0.008 — same conversion the worker charges with.
+const CREDIT_USD = 0.008;
+function fmtPrice(usd) {
+  return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
 }
 function estimatePrice() {
   if (mode === 'image') {
@@ -1489,7 +1491,6 @@ function estimatePrice() {
   }
   const p = VIDEO_PRICE[model];
   if (!p) return '';
-  if (p.rate) return p.rate; // lip-sync models: priced on the attached audio
   if (p.flat != null) return fmtPrice(p.flat);
   const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
   return rate == null ? '' : fmtPrice(rate * (duration || 5));
@@ -1497,6 +1498,20 @@ function estimatePrice() {
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
   if (el) el.textContent = estimatePrice();
+}
+
+// ── Credit balance (server-owned; the chip is display only) ───────────────
+function setCredits(n) {
+  const el = document.getElementById('creditChip');
+  if (el && typeof n === 'number') el.textContent = '✦ ' + n.toLocaleString();
+}
+async function fetchCredits() {
+  try {
+    const r = await apiFetch('/api/credits');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (typeof d.balance === 'number') setCredits(d.balance);
+  } catch {}
 }
 
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
@@ -1601,11 +1616,17 @@ async function generateMedia(text, opts = {}) {
     }
     const job = await res.json();
     if (!alive()) return; // cancelled while submitting
+    if (res.status === 402) { // out of credits — nothing was spent
+      endGen(origin);
+      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Top-ups are coming soon.');
+      return;
+    }
     if (!res.ok || !job.status_url) {
       endGen(origin);
       if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
     }
+    if (typeof job.balance === 'number') setCredits(job.balance);
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
     // 4K renders can legitimately outrun ten minutes — give them twenty.
@@ -2314,6 +2335,7 @@ function enterApp() {
   }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
+  fetchCredits();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
   resumeJobs();

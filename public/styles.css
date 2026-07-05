@@ -1252,3 +1252,13 @@
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: .13rem .45rem;
 }
+
+/* Credit balance pill above the account row. */
+.side-credits {
+  display: inline-flex; align-items: center; align-self: flex-start;
+  font-weight: 700; font-size: .86rem; color: var(--text);
+  background: linear-gradient(130deg, rgba(255, 121, 198, .14), rgba(255, 184, 77, .14));
+  border: 1px solid rgba(255, 170, 110, .3);
+  border-radius: 99px; padding: .3rem .75rem; margin-bottom: .6rem;
+  font-variant-numeric: tabular-nums;
+}
