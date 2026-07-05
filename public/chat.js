@@ -1845,12 +1845,9 @@ function renderQuestion(qi) {
 
 function chooseAnswer(card, optEl, qi, value) {
   directorState.answers[qi] = value;
-  // Claude-style: the answered card collapses to a slim question → answer
-  // recap, so only the current question is ever open.
-  const q = directorState.questions[qi];
-  card.classList.add('q-done');
-  card.innerHTML = '<span class="q-done-q">' + esc(q.title) + '</span>'
-    + '<span class="q-done-a">' + esc(value) + '</span>';
+  // Answered questions leave the thread — the next one takes their place,
+  // so there's never a pile of finished cards above the open question.
+  card.remove();
   const next = qi + 1;
   if (next < directorState.questions.length) renderQuestion(next);
   else composeAndReview(directorState.text, directorState.answers);
