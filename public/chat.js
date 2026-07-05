@@ -1474,9 +1474,11 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
 };
 
 // 1 credit = $0.008 — same conversion the worker charges with.
+// +1 flat covers the Sonnet 5 director at cost (must match worker DIRECTOR_CR).
 const CREDIT_USD = 0.008;
+const DIRECTOR_CR = 1;
 function fmtPrice(usd) {
-  return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
+  return '✦ ' + (DIRECTOR_CR + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
 }
 function estimatePrice() {
   if (mode === 'image') {

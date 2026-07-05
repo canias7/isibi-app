@@ -102,6 +102,11 @@ const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
 };
 
+// The Sonnet 5 director (ask + compose) costs $0.008–0.015 per generation.
+// One credit sells for $0.0125–0.014, so a flat +1 credit passes that bill
+// through at cost — no markup on Claude, profit stays the fal margin alone.
+const DIRECTOR_CR = 1;
+
 function creditCost(kind, model, { duration, quality, num, chars }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
@@ -115,7 +120,7 @@ function creditCost(kind, model, { duration, quality, num, chars }) {
       usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
     }
   }
-  return Math.max(1, Math.ceil(usd / CREDIT_USD));
+  return DIRECTOR_CR + Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
 // Deduct credits atomically under the caller's own JWT. Returns the new
