@@ -1067,8 +1067,13 @@ function directorContext() {
     ratio: mode !== 'audio' ? ratio : undefined,
     hasImage: !!attachments.image,
     hasEnd: !!attachments.end,
+    brief: (activeChat() || {}).brief || undefined,
   };
 }
+
+// The composer returns an updated per-chat creative brief with each prompt;
+// it only becomes the chat's memory when the user APPROVES that prompt.
+let pendingBrief = null;
 
 // The director gets to SEE the attached image (downscaled — it only needs to
 // understand the picture, not generate from it).
@@ -1113,6 +1118,7 @@ async function directorAsk(text, history) {
 // Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
 async function directorRevise(feedback) {
   const prev = (activeChat() || {}).lastPrompt || '';
+  pendingBrief = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1123,6 +1129,7 @@ async function directorRevise(feedback) {
     });
     if (!res.ok) throw 0;
     const data = await res.json();
+    if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return prev ? prev + ' ' + feedback : feedback; }
@@ -1130,6 +1137,7 @@ async function directorRevise(feedback) {
 
 async function directorCompose(text, answers) {
   if (mode === 'audio') return text; // voice: speak the words as given
+  pendingBrief = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1140,6 +1148,7 @@ async function directorCompose(text, answers) {
     });
     if (!res.ok) throw 0;
     const data = await res.json();
+    if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return localCompose(text, answers); }
@@ -1306,7 +1315,13 @@ function reviewPrompt(prompt) {
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow'; allow.textContent = 'Allow & Generate ✦';
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
-  allow.onclick = () => { actions.remove(); label.textContent = 'Approved ✦'; generateMedia(prompt, { announce: false }); };
+  allow.onclick = () => {
+    actions.remove(); label.textContent = 'Approved ✦';
+    // Approval is the signal that this direction is right — commit the brief.
+    const c = activeChat();
+    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); }
+    generateMedia(prompt, { announce: false });
+  };
   actions.appendChild(deny); actions.appendChild(allow);
   box.appendChild(label); box.appendChild(body); box.appendChild(actions);
   threadAppend(box);

@@ -348,6 +348,9 @@ async function handleRequest(request, env) {
       if (step === "revise" && !prevPrompt) step = "compose";
       // Raw pipeline error, for the explain-a-failure step.
       const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
+      // The chat's running creative brief — per-chat taste memory, maintained
+      // by the composer and committed by the client on approval.
+      const brief = kind !== "audio" && typeof body.brief === "string" ? body.brief.trim().slice(0, 600) : "";
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
@@ -396,6 +399,9 @@ async function handleRequest(request, env) {
             .map((h) => ({ role: h.role, content: h.text.slice(0, 400) }))
         : [];
 
+      const briefLine = brief
+        ? `\nThis chat's running creative brief: "${brief}" — stay consistent with it unless this request changes direction.`
+        : "";
       const system = step === "ask"
         ? (kind === "audio"
           ? `You are Zephyr, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
@@ -406,7 +412,7 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "error"
         ? `You are Zephyr, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "revise"
@@ -421,7 +427,7 @@ Fix patterns:
 
 Previous prompt:
 ${prevPrompt}
-
+${briefLine}
 Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
@@ -438,7 +444,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-
+${briefLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for Zephyr, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -449,7 +455,7 @@ Craft rules:
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
 ${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
 - ${familyHint}` : ""}
-
+${briefLine}
 Context: ${ctxLine}`
         : `You are the prompt writer for Zephyr, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
@@ -527,10 +533,13 @@ Context: ${ctxLine}`
           }
         : {
             name: "write_prompt",
-            description: "Return the final generation prompt.",
+            description: "Return the final generation prompt and the chat's updated creative brief.",
             input_schema: {
               type: "object",
-              properties: { prompt: { type: "string" } },
+              properties: {
+                prompt: { type: "string" },
+                brief: { type: "string", description: "1-3 sentence updated running creative brief for this chat — subject, style, mood, standing constraints; carry forward what still holds, fold in what this request adds" },
+              },
               required: ["prompt"],
             },
           };
@@ -587,7 +596,10 @@ Context: ${ctxLine}`
           prompt: parsed.fixedPrompt ? String(parsed.fixedPrompt).slice(0, 2000) : undefined,
         });
       }
-      return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
+      return Response.json({
+        prompt: String(parsed.prompt || prompt).slice(0, 2000),
+        brief: parsed.brief ? String(parsed.brief).slice(0, 600) : undefined,
+      });
     }
 
     // Cancels a queued/running fal job with the server-side key, so stopping
