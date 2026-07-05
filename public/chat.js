@@ -1732,6 +1732,15 @@ async function startDirector(text) {
   const origin = chatStore.active;
   const history = directorHistory(); // prior turns only — capture before adding this one
   addMsg('user', text);
+  // Plain retry after a run ("try again", "retry", "run it again"…): the
+  // prompt was already approved once — just run it again, no re-interview.
+  const chatNow = activeChat();
+  if (chatNow && chatNow.lastPrompt && mode !== 'audio'
+      && /^(try( it)?( again)?|retry|re-?run( it)?|run( it)? again|again|one more( time)?|same( prompt)?( again)?)[\s.!]*$/i.test(text.trim())) {
+    deliverAgent(origin, '🔁 Running the same prompt again.');
+    generateMedia(chatNow.lastPrompt, { announce: false });
+    return;
+  }
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
   // Zephyr's reply streams into a live bubble; the final text is re-delivered
   // through the normal path (persisted, stamped) when the stream ends.
@@ -1836,9 +1845,12 @@ function renderQuestion(qi) {
 
 function chooseAnswer(card, optEl, qi, value) {
   directorState.answers[qi] = value;
-  card.querySelectorAll('.opt').forEach((o) => { o.classList.remove('sel'); o.style.pointerEvents = 'none'; });
-  optEl.classList.add('sel');
-  card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
+  // Claude-style: the answered card collapses to a slim question → answer
+  // recap, so only the current question is ever open.
+  const q = directorState.questions[qi];
+  card.classList.add('q-done');
+  card.innerHTML = '<span class="q-done-q">' + esc(q.title) + '</span>'
+    + '<span class="q-done-a">' + esc(value) + '</span>';
   const next = qi + 1;
   if (next < directorState.questions.length) renderQuestion(next);
   else composeAndReview(directorState.text, directorState.answers);
