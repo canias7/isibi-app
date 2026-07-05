@@ -908,7 +908,6 @@
   padding: .78rem .6rem; border-radius: 12px; cursor: pointer;
 }
 .ap-head:hover { background: var(--panel-2); }
-.ap-ico { width: 22px; text-align: center; font-size: 1rem; }
 .ap-count { color: var(--neon); font-weight: 700; margin-left: .45rem; font-size: .82rem; }
 .ap-head svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
 .ap-row.open .ap-head svg { transform: rotate(180deg); }
