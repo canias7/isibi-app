@@ -930,6 +930,14 @@
 
 /* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
+
+/* Clarifying questions dock in a fixed spot right above the composer. */
+.q-dock { width: 100%; max-width: 780px; margin: 0 auto; }
+.q-dock .q-card {
+  max-width: 100%; align-self: stretch;
+  border-bottom-left-radius: 16px;
+  margin-bottom: .85rem;
+}
 .attach-panel {
   position: absolute; left: 14px; top: 72px; max-height: calc(100% - 86px); width: 272px;
   z-index: 2; overflow-y: auto;
@@ -1016,6 +1024,7 @@
 @media (min-width: 1381px) {
   .thread-inner,
   .view-home .composer,
+  .view-home .q-dock,
   .view-home .drawer-arrow { position: relative; left: 100px; }
 }
 

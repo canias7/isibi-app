@@ -1072,6 +1072,7 @@ function renderSaved(item) {
 function renderThread() {
   const box = document.getElementById('messages');
   box.innerHTML = '';
+  clearQDock(); // questions belong to the flow that opened them, not the next chat
   const chat = activeChat();
   if (chat && chat.msgs.length) chat.msgs.forEach(renderSaved);
   // If this chat has a generation in flight, bring its loader back and keep
@@ -1733,6 +1734,7 @@ function threadAppend(el) {
 async function startDirector(text) {
   const origin = chatStore.active;
   const history = directorHistory(); // prior turns only — capture before adding this one
+  clearQDock(); // a fresh message supersedes any question still waiting
   addMsg('user', text);
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
   // Zephyr's reply streams into a live bubble; the final text is re-delivered
@@ -1840,7 +1842,16 @@ function renderQuestion(qi) {
   opts.appendChild(other);
 
   card.appendChild(opts);
-  threadAppend(card);
+  // Questions live in a fixed dock right above the composer, not in the
+  // thread — one card in that spot, replaced as the flow advances.
+  const dock = document.getElementById('qDock');
+  dock.innerHTML = '';
+  dock.appendChild(card);
+}
+
+function clearQDock() {
+  const dock = document.getElementById('qDock');
+  if (dock) dock.innerHTML = '';
 }
 
 function chooseAnswer(card, optEl, qi, value) {
