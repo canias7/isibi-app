@@ -148,7 +148,7 @@
     .composer-wrap { padding: 1rem 1.5rem 1.4rem; flex-shrink: 0; }
     .composer {
       display: flex; flex-direction: column; align-items: stretch; gap: 1.4rem;
-      width: 100%; max-width: 1120px; margin: 0 auto;
+      width: 100%; max-width: 780px; margin: 0 auto;
       background: var(--panel); border: 1px solid var(--line-2);
       border-radius: 24px; padding: 1.35rem 1.35rem 1.1rem 1.5rem;
       box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.10);
@@ -162,7 +162,7 @@
       display: block;
     }
     .composer-row {
-      display: flex; align-items: center; gap: 1rem;
+      display: flex; align-items: center; gap: .75rem;
     }
     .composer-row .send { margin-left: auto; }
     .composer #input::placeholder { color: #5c5c66; }
@@ -359,8 +359,9 @@
 .opt-wrap { position: relative; }
 .opt-btn {
   background: none; border: 1px solid var(--line-2); color: var(--muted);
-  border-radius: 12px; padding: .7rem 1rem; font-size: .9rem;
+  border-radius: 12px; padding: .7rem .85rem; font-size: .9rem;
   cursor: pointer; display: flex; align-items: center; gap: .4rem;
+  white-space: nowrap;
 }
 .opt-btn b { color: var(--text); font-weight: 600; }
 .opt-btn:hover { border-color: #4a4a52; color: var(--text); }
@@ -840,17 +841,6 @@
 }
 .laser-beam canvas { position: absolute; inset: 0; }
 
-/* ── Hidden artwork revealed by the cursor ── */
-/* The art spans the home view behind the thread; a radial mask that follows
-   the pointer uncovers it like a flashlight. Idle position parks it off-screen. */
-.reveal-layer {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .8;
-  background-image: url('/reveal.jpg');
-  background-size: cover; background-position: center;
-  -webkit-mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
-  mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
-}
-
 /* Composer catches the warm landing glow. */
 .composer {
   border-color: rgba(255, 184, 77, .30);
@@ -863,7 +853,7 @@
 
 /* Mode switch → pill; active tab takes the gradient. */
 .mode-switch { border-radius: 99px; }
-.mode-btn { border-radius: 99px; padding: .45rem 1.05rem; }
+.mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
 /* Account avatar → dark chip (matches the mockup). */
 .side-avatar { background: linear-gradient(140deg, #3a3344, #221d2b); border: 1px solid var(--line); color: var(--muted); }
@@ -899,22 +889,23 @@
 .timeline-track.has-shots { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; place-items: unset; }
 .clip-block.sb-block { position: static; inset: auto; width: auto; height: auto; padding: 0; }
 
-/* ── Effort switch (top-left of the main chat) ── */
-.effort-switch {
-  display: flex; align-items: center; gap: .15rem;
-  padding: .22rem .28rem .22rem .75rem; margin-right: .35rem;
-  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 99px;
+/* ── Effort picker (top-left of the main chat) ── */
+.effort-pick { margin-right: .35rem; }
+.effort-pick .opt-btn { border-radius: 99px; padding: .5rem .95rem; font-size: .84rem; }
+/* Sits at the top-left, so the menu drops DOWN and hangs off the left edge. */
+.model-menu.effort-menu { right: auto; left: 0; min-width: 165px; background: #16161b; }
+
+/* ── Attach rail: pickers live in the space left of the chatbox ── */
+.composer-wrap { position: relative; }
+.attach-rail {
+  position: absolute; right: calc(50% + 404px); bottom: 1.4rem;
+  display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
+  z-index: 2;
 }
-.effort-label {
-  font-size: .68rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--muted); margin-right: .35rem;
+/* Not enough room beside the box → tuck the rail back above it. */
+@media (max-width: 1380px) {
+  .attach-rail {
+    position: static; flex-direction: row; flex-wrap: wrap; align-items: center;
+    width: 100%; max-width: 780px; margin: 0 auto .6rem;
+  }
 }
-.effort-btn {
-  background: none; border: none; color: var(--muted);
-  font-weight: 600; font-size: .78rem; padding: .32rem .75rem;
-  border-radius: 99px; cursor: pointer;
-  transition: color .18s ease, background .18s ease, transform .16s ease;
-}
-.effort-btn:hover { color: var(--text); }
-.effort-btn:active { transform: scale(.96); }
-.effort-btn.active { background: var(--split); color: #0a0a0b; }

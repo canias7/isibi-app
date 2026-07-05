@@ -105,42 +105,40 @@
 
       <div id="viewHome" class="view view-home active">
       <div class="laser-beam" id="laserBeam" aria-hidden="true"></div>
-      <div class="reveal-layer" id="revealLayer" aria-hidden="true"></div>
       <section class="chat active">
         <div class="chat-head">
-          <div class="effort-switch" id="effortSwitch">
-            <span class="effort-label">Effort</span>
-            <button class="effort-btn" data-effort="low" onclick="setEffort('low')">Low</button>
-            <button class="effort-btn" data-effort="medium" onclick="setEffort('medium')">Medium</button>
-            <button class="effort-btn" data-effort="high" onclick="setEffort('high')">High</button>
-            <button class="effort-btn" data-effort="ultra" onclick="setEffort('ultra')">Ultra High</button>
-            <button class="effort-btn" data-effort="max" onclick="setEffort('max')">Max</button>
-          </div>
-          <span class="tile zephyr">Z</span>
-          <div>
-            <div class="cname">Zephyr</div>
-            <div class="cstatus">● online · video generator</div>
+          <div class="opt-wrap effort-pick">
+            <button class="opt-btn" onclick="toggleEffortMenu(event)" title="How detailed the written prompt gets">Effort: <b id="effortLabel">Medium</b> ▾</button>
+            <div class="model-menu effort-menu" id="effortMenu">
+              <div class="model-item effort-item" data-effort="low" onclick="setEffort('low')"><span>Low</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="medium" onclick="setEffort('medium')"><span>Medium</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="high" onclick="setEffort('high')"><span>High</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="ultra" onclick="setEffort('ultra')"><span>Ultra High</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="max" onclick="setEffort('max')"><span>Max</span><span class="check">✓</span></div>
+            </div>
           </div>
         </div>
         <div class="thread"><div class="thread-inner" id="messages"></div></div>
       </section>
 
       <div class="composer-wrap">
+        <div class="attach-rail" id="attachRail">
+          <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
+          <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
+          <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
+          <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
+          <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
+          <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
+          <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
+          <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
+          <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
+          <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
+        </div>
         <div class="composer">
           <div class="composer-top">
-            <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
-            <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
-            <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
-            <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
-            <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
-            <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
-            <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
-            <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
             <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    oninput="autoGrow(this)"
                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
-            <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
-            <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
           </div>
           <div class="composer-row">
             <div class="mode-switch">

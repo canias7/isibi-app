@@ -239,14 +239,24 @@ function setMode(m) {
   buildOptMenus();
 }
 
-// Effort switch (top-left of the main chat) — persisted; behavior wired per level.
+// Effort picker (top-left of the main chat) — how detailed the director's
+// written prompt gets. Persisted per browser.
 const EFFORT_KEY = 'zephyr_effort';
-let effort = localStorage.getItem(EFFORT_KEY) || 'medium';
+const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra High', max: 'Max' };
+let effort = EFFORT_LABELS[localStorage.getItem(EFFORT_KEY)] ? localStorage.getItem(EFFORT_KEY) : 'medium';
 function setEffort(level) {
   effort = level;
   localStorage.setItem(EFFORT_KEY, level);
-  document.querySelectorAll('.effort-btn').forEach((b) =>
-    b.classList.toggle('active', b.dataset.effort === level));
+  document.querySelectorAll('.effort-item').forEach((i) =>
+    i.classList.toggle('selected', i.dataset.effort === level));
+  document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
+  document.getElementById('effortMenu').classList.remove('open');
+}
+function toggleEffortMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('effortMenu');
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
 }
 setEffort(effort);
 
@@ -1713,24 +1723,6 @@ if (window.mountLaser) {
     wispIntensity: 3.5,
     flowSpeed: 0.3,
   });
-}
-
-// Hidden doodles behind the home thread — a radial mask follows the cursor
-// and reveals the art only around it (parked off-screen when the mouse leaves).
-{
-  const revealLayer = document.getElementById('revealLayer');
-  const homeView = document.getElementById('viewHome');
-  if (revealLayer && homeView) {
-    homeView.addEventListener('pointermove', (e) => {
-      const r = homeView.getBoundingClientRect();
-      revealLayer.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-      revealLayer.style.setProperty('--my', (e.clientY - r.top) + 'px');
-    });
-    homeView.addEventListener('pointerleave', () => {
-      revealLayer.style.setProperty('--mx', '-400px');
-      revealLayer.style.setProperty('--my', '-400px');
-    });
-  }
 }
 
 initAuthGate();
