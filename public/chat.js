@@ -1715,24 +1715,6 @@ if (window.mountLaser) {
   });
 }
 
-// Hidden doodles behind the home thread — a radial mask follows the cursor
-// and reveals the art only around it (parked off-screen when the mouse leaves).
-{
-  const revealLayer = document.getElementById('revealLayer');
-  const homeView = document.getElementById('viewHome');
-  if (revealLayer && homeView) {
-    homeView.addEventListener('pointermove', (e) => {
-      const r = homeView.getBoundingClientRect();
-      revealLayer.style.setProperty('--mx', (e.clientX - r.left) + 'px');
-      revealLayer.style.setProperty('--my', (e.clientY - r.top) + 'px');
-    });
-    homeView.addEventListener('pointerleave', () => {
-      revealLayer.style.setProperty('--mx', '-400px');
-      revealLayer.style.setProperty('--my', '-400px');
-    });
-  }
-}
-
 initAuthGate();
 
 const params = new URLSearchParams(location.search);

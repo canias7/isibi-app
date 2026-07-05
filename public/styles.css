@@ -840,17 +840,6 @@
 }
 .laser-beam canvas { position: absolute; inset: 0; }
 
-/* ── Hidden artwork revealed by the cursor ── */
-/* The art spans the home view behind the thread; a radial mask that follows
-   the pointer uncovers it like a flashlight. Idle position parks it off-screen. */
-.reveal-layer {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .8;
-  background-image: url('/reveal.jpg');
-  background-size: cover; background-position: center;
-  -webkit-mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
-  mask-image: radial-gradient(circle 230px at var(--mx, -400px) var(--my, -400px), rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 60%, transparent 100%);
-}
-
 /* Composer catches the warm landing glow. */
 .composer {
   border-color: rgba(255, 184, 77, .30);
