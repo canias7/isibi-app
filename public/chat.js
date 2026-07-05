@@ -252,6 +252,13 @@ function setEffort(level) {
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
 }
+// Arrow under the chatbox — slides the whole view down to the Presets screen
+// (and back up from its own arrow).
+function togglePresets(open) {
+  document.getElementById('homeSlide').classList.toggle('show-presets', open);
+  document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
+}
+
 function toggleEffortMenu(e) {
   e.stopPropagation();
   const menu = document.getElementById('effortMenu');
@@ -1710,20 +1717,6 @@ buildOptMenus();
 loadStore();
 renderChatList();
 renderThread();
-
-// The falling laser (React Bits LaserFlow) behind the home chat — lands on the composer.
-if (window.mountLaser) {
-  mountLaser(document.getElementById('laserBeam'), {
-    color: '#FFD60A',
-    horizontalBeamOffset: 0.0,
-    verticalBeamOffset: -0.28,
-    verticalSizing: 2.6,
-    horizontalSizing: 0.42,
-    fogIntensity: 0.3,
-    wispIntensity: 3.5,
-    flowSpeed: 0.3,
-  });
-}
 
 initAuthGate();
 

@@ -1,6 +1,6 @@
 # isibi-app
 
-Zephyr — an AI image/video/voice generator at https://isibi.ai — dark studio design, glass panels, pink → amber accents (#ff79c6 / #ffb84d, `--split` gradient on buttons/active states) over a near-black `#08070c`, Space Grotesk wordmark. The home thread has an animated **LaserFlow** beam (React Bits shader ported to raw WebGL in `public/laser.js`) that falls from the top and lands on the composer. Root (`/`) opens straight into the Zephyr chatbox behind a Supabase login gate; the workspace has Home/Projects/Gallery/Studio views (single page, view-switched).
+Zephyr — an AI image/video/voice generator at https://isibi.ai — dark studio design, glass panels, pink → amber accents (#ff79c6 / #ffb84d, `--split` gradient on buttons/active states) over a near-black `#08070c`, Space Grotesk wordmark. (The old LaserFlow beam on the home thread was removed 2026-07-05.) Root (`/`) opens straight into the Zephyr chatbox behind a Supabase login gate; the workspace has Home/Projects/Gallery/Studio views (single page, view-switched).
 
 ## Structure
 

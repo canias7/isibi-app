@@ -821,25 +821,7 @@
 /* Space Grotesk on the wordmark + names, like the mockup. */
 .side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
 
-/* ── LaserFlow beam (falls from the top, lands on the composer) ── */
-.view-home.active { position: relative; }
-/* Thread + composer sit above the beam. */
-.view-home.active > .chat,
-.view-home.active > .composer-wrap { position: relative; z-index: 1; }
-/* No brightness filter — on real GPUs the shader is already hot, and a filter
-   multiplies it into a floodlight (headless software-GL renders it far dimmer,
-   which is what misled the earlier tuning). Subtle = low layer opacity;
-   cinematic = warm graded amber, slightly desaturated, composited as light
-   (screen) rather than painted over the page. */
-.laser-beam {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  opacity: .42; mix-blend-mode: screen;
-  /* Rising plume: the beam grows out of the composer and dissolves by
-     mid-screen instead of hanging full-height in the room. */
-  -webkit-mask-image: linear-gradient(to top, #000 20%, transparent 56%);
-  mask-image: linear-gradient(to top, #000 20%, transparent 56%);
-}
-.laser-beam canvas { position: absolute; inset: 0; }
+.view-home.active { position: relative; overflow: hidden; }
 
 /* Composer catches the warm landing glow. */
 .composer {
@@ -898,7 +880,9 @@
 /* ── Attach rail: pickers live in the space left of the chatbox ── */
 .composer-wrap { position: relative; }
 .attach-rail {
-  position: absolute; right: calc(50% + 404px); bottom: 1.4rem;
+  /* bottom offset = wrap padding-bottom (1.4rem + 44px) + arrow row (~51px):
+     keeps the rail's last button level with the lifted chatbox's bottom edge */
+  position: absolute; right: calc(50% + 404px); bottom: calc(1.4rem + 95px);
   display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
   z-index: 2;
 }
@@ -909,3 +893,40 @@
     width: 100%; max-width: 780px; margin: 0 auto .6rem;
   }
 }
+
+/* ── Chatbox lifted; arrow beneath slides down to the Presets screen ── */
+/* Extra bottom padding floats the box ~1in off the bottom; the arrow lives
+   in the freed space. */
+.view-home .composer-wrap { padding-bottom: calc(1.4rem + 44px); }
+.drawer-arrow {
+  display: grid; place-items: center;
+  width: 40px; height: 40px; border-radius: 50%;
+  margin: .7rem auto 0;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  cursor: pointer;
+  transition: transform .28s ease, color .18s ease, border-color .18s ease, background .18s ease;
+}
+.drawer-arrow:hover { color: var(--text); border-color: #4a4a52; background: rgba(255,255,255,.09); }
+
+/* Two full screens stacked vertically; the slide translates between them. */
+.home-slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  transition: transform .55s cubic-bezier(.65, 0, .35, 1); will-change: transform;
+}
+.home-slide.show-presets { transform: translateY(-100%); }
+.home-screen {
+  height: 100%; flex: none; position: relative;
+  display: flex; flex-direction: column; min-height: 0;
+}
+.presets-screen {
+  height: 100%; flex: none;
+  display: flex; flex-direction: column; align-items: center; gap: .9rem;
+  padding: 1.1rem 1.5rem 1.5rem;
+}
+.presets-screen .drawer-arrow { margin: 0 auto; }
+.presets-title {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size: 1.45rem; font-weight: 700; letter-spacing: -.02em;
+}
+.presets-body { flex: 1; width: 100%; max-width: 1080px; }
