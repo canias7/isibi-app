@@ -394,6 +394,7 @@ function openGalleryPicker() {
     ? '<div class="gal-grid">' + urls.map((u) => '<img src="' + u + '" alt="" />').join('') + '</div>'
     : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>';
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
+    + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
     + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>' + grid + '</div>';
   ov.querySelectorAll('.gal-grid img').forEach((img) => {
     img.onclick = () => { useGalleryImage(img.src); ov.remove(); };
