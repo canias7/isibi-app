@@ -664,8 +664,8 @@ function deliverAgent(chatId, text) {
   if (chatStore.active === chatId) addMsg('agent', text);
   else saveToChat(chatId, { t: 'agent', text });
 }
-function deliverMedia(chatId, kind, url) {
-  saveToChat(chatId, { t: 'media', kind, url });
+function deliverMedia(chatId, kind, url, prompt) {
+  saveToChat(chatId, { t: 'media', kind, url, prompt: prompt ? String(prompt).slice(0, 300) : undefined });
   if (chatStore.active === chatId) threadAppend(buildMedia(kind, url));
 }
 
@@ -869,6 +869,28 @@ function cancelGen(chatId) {
     : '⏹ Cancelled before it started — no charge.');
 }
 
+// Failures become a conversation: Zephyr explains what went wrong in plain
+// words and, when a rewording could fix it, offers a corrected prompt.
+// Returns false if the director can't help so the generic message shows.
+async function explainFailure(origin, kind, genPrompt, job) {
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'error', kind, prompt: genPrompt || '(no prompt)',
+        error: JSON.stringify(job || {}).slice(0, 700),
+        ...directorContext(),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (!data.reply) throw 0;
+    deliverAgent(origin, data.reply);
+    if (data.prompt && chatStore.active === origin) reviewPrompt(data.prompt);
+    return true;
+  } catch { return false; }
+}
+
 // Turn fal/worker failures into human messages; the raw detail goes to the console.
 function friendlyFail(job) {
   console.error('generation failed:', job);
@@ -888,6 +910,9 @@ async function generateMedia(text, opts = {}) {
     return;
   }
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
+  // Remember what we generated with, so "make it slower" can revise it later.
+  const originChat = activeChat();
+  if (originChat && text && mode !== 'audio') { originChat.lastPrompt = text; persistStore(); }
 
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
@@ -928,7 +953,7 @@ async function generateMedia(text, opts = {}) {
     if (!alive()) return; // cancelled while submitting
     if (!res.ok || !job.status_url) {
       endGen(origin);
-      deliverAgent(origin, friendlyFail(job));
+      if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
     }
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
@@ -992,7 +1017,7 @@ async function generateMedia(text, opts = {}) {
       }
       if (!alive()) return;
       endGen(origin);
-      finals.forEach((f) => deliverMedia(origin, kind, f));
+      finals.forEach((f) => deliverMedia(origin, kind, f, text));
       // The inputs were consumed — don't let them ride along on the next prompt.
       Object.keys(attachments).forEach((k) => {
         if (attachments[k]) { attachments[k] = null; renderAttach(k); }
@@ -1024,38 +1049,135 @@ let directorState = null;
 function directorHistory() {
   const chat = activeChat();
   return (chat ? chat.msgs : [])
-    .filter((m) => m.t === 'user' || m.t === 'agent')
+    .filter((m) => m.t === 'user' || m.t === 'agent' || m.t === 'media')
     .slice(-8)
-    .map((m) => ({ role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) }));
+    .map((m) => m.t === 'media'
+      // The director can't see media — give it a text marker so "another one
+      // like the last one" means something.
+      ? { role: 'assistant', text: '[generated a ' + (m.kind || 'media') + (m.prompt ? ' with prompt: "' + String(m.prompt).slice(0, 200) + '"' : '') + ']' }
+      : { role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) });
 }
 
-async function directorAsk(text, history) {
+// Generation context, so the director writes prompts for the actual target
+// (model family, attachments, clip length) instead of guessing blind.
+function directorContext() {
+  return {
+    model: model,
+    duration: mode === 'video' ? duration : undefined,
+    ratio: mode !== 'audio' ? ratio : undefined,
+    hasImage: !!attachments.image,
+    hasEnd: !!attachments.end,
+    brief: (activeChat() || {}).brief || undefined,
+  };
+}
+
+// The composer returns an updated per-chat creative brief with each prompt;
+// it only becomes the chat's memory when the user APPROVES that prompt.
+let pendingBrief = null;
+
+// The director gets to SEE the attached image (downscaled — it only needs to
+// understand the picture, not generate from it).
+async function directorImage() {
+  if (!attachments.image || mode === 'audio') return {};
+  try {
+    const img = new Image();
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = attachments.image; });
+    const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
+    if (scale === 1 && attachments.image.length < 1500000) return { image: attachments.image };
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    return { image: canvas.toDataURL('image/jpeg', 0.85) };
+  } catch { return {}; }
+}
+
+async function directorAsk(text, history, onDelta) {
   // Voice mode goes through the director too — it decides whether this is
   // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [] }),
+      body: JSON.stringify({
+        step: 'ask', kind: mode, prompt: text, history: history || [], stream: true,
+        prevPrompt: (activeChat() || {}).lastPrompt || undefined,
+        ...directorContext(), ...(await directorImage()),
+      }),
     });
     if (!res.ok) throw 0;
+    // Streamed reply: render deltas live, then return the final payload.
+    if ((res.headers.get('content-type') || '').includes('text/event-stream') && res.body) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', final = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const line = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+          buf = buf.slice(i + 2);
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+          if (ev.d && onDelta) onDelta(ev.d);
+          if (ev.done) final = ev.done;
+          if (ev.error) throw 0;
+        }
+      }
+      if (!final) throw 0;
+      return {
+        reply: final.reply || '',
+        ready: !!final.ready,
+        revise: !!final.revise,
+        questions: Array.isArray(final.questions) ? final.questions : [],
+      };
+    }
     const data = await res.json();
     return {
       reply: data.reply || '',
       ready: !!data.ready,
+      revise: !!data.revise,
       questions: Array.isArray(data.questions) ? data.questions : [],
     };
   } catch { return localAsk(text); }
 }
 
-async function directorCompose(text, answers) {
-  if (mode === 'audio') return text; // voice: speak the words as given
+// Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
+async function directorRevise(feedback) {
+  const prev = (activeChat() || {}).lastPrompt || '';
+  pendingBrief = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean) }),
+      body: JSON.stringify({
+        step: 'revise', kind: mode, prompt: feedback, prevPrompt: prev,
+        history: directorHistory(), ...directorContext(), ...(await directorImage()),
+      }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
+    if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
+    if (data.prompt) return data.prompt;
+    throw 0;
+  } catch { return prev ? prev + ' ' + feedback : feedback; }
+}
+
+async function directorCompose(text, answers) {
+  if (mode === 'audio') return text; // voice: speak the words as given
+  pendingBrief = null;
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
+        history: directorHistory(), ...directorContext(), ...(await directorImage()),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return localCompose(text, answers); }
@@ -1111,13 +1233,37 @@ async function startDirector(text) {
   const history = directorHistory(); // prior turns only — capture before adding this one
   addMsg('user', text);
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
+  // Zephyr's reply streams into a live bubble; the final text is re-delivered
+  // through the normal path (persisted, stamped) when the stream ends.
+  let live = null;
+  const onDelta = (d) => {
+    if (chatStore.active !== origin) return;
+    if (!live) {
+      thinking.remove();
+      live = document.createElement('div');
+      live.className = 'msg agent live';
+      document.getElementById('messages').appendChild(live);
+    }
+    live.textContent += d;
+    live.parentElement.parentElement.scrollTop = live.parentElement.parentElement.scrollHeight;
+  };
   let res;
-  try { res = await directorAsk(text, history); } finally { thinking.remove(); }
+  try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
   // Zephyr's conversational reply (greetings, small talk, or a lead-in to questions).
   if (res.reply) deliverAgent(origin, res.reply);
   // If the user moved to another chat while Zephyr was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
+  // Feedback on the previous generation — revise that prompt surgically,
+  // no clarifying questions.
+  if (res.revise && (activeChat() || {}).lastPrompt) {
+    const thinking2 = addMsg('agent typing', 'Revising the prompt');
+    let prompt;
+    try { prompt = await directorRevise(text); } finally { thinking2.remove(); }
+    if (chatStore.active !== origin) return;
+    reviewPrompt(prompt);
+    return;
+  }
   // A vague creative request — walk through the tappable questions.
   if (res.questions && res.questions.length) {
     directorState = { text, questions: res.questions, answers: new Array(res.questions.length).fill(null) };
@@ -1212,7 +1358,13 @@ function reviewPrompt(prompt) {
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow'; allow.textContent = 'Allow & Generate ✦';
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
-  allow.onclick = () => { actions.remove(); label.textContent = 'Approved ✦'; generateMedia(prompt, { announce: false }); };
+  allow.onclick = () => {
+    actions.remove(); label.textContent = 'Approved ✦';
+    // Approval is the signal that this direction is right — commit the brief.
+    const c = activeChat();
+    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); }
+    generateMedia(prompt, { announce: false });
+  };
   actions.appendChild(deny); actions.appendChild(allow);
   box.appendChild(label); box.appendChild(body); box.appendChild(actions);
   threadAppend(box);

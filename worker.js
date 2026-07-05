@@ -113,13 +113,24 @@ function harden(res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+// Pull the (possibly still-growing) "reply" string out of a partial tool-input
+// JSON buffer, so the ask step can stream Zephyr's reply as Sonnet writes it.
+function extractReplyPrefix(buf) {
+  const m = buf.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!m) return "";
+  let s = m[1];
+  if (/(?:^|[^\\])(?:\\\\)*\\$/.test(s)) s = s.slice(0, -1); // trailing half escape
+  s = s.replace(/\\u[0-9a-fA-F]{0,3}$/, ""); // incomplete \uXXXX
+  try { return JSON.parse('"' + s + '"'); } catch { return ""; }
+}
+
 export default {
-  async fetch(request, env) {
-    return harden(await handleRequest(request, env));
+  async fetch(request, env, ctx) {
+    return harden(await handleRequest(request, env, ctx));
   },
 };
 
-async function handleRequest(request, env) {
+async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
     const genKind =
@@ -338,13 +349,59 @@ async function handleRequest(request, env) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const step = body.step === "compose" ? "compose" : "ask";
+      let step = ["compose", "revise", "error"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
+      // The previous generation's prompt — lets the ask step spot feedback
+      // ("slower", "fix the text") and the revise step edit surgically.
+      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
+      if (step === "revise" && !prevPrompt) step = "compose";
+      // Raw pipeline error, for the explain-a-failure step.
+      const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
+      // The chat's running creative brief — per-chat taste memory, maintained
+      // by the composer and committed by the client on approval.
+      const brief = kind !== "audio" && typeof body.brief === "string" ? body.brief.trim().slice(0, 600) : "";
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
+      // Generation context so the director writes for the actual target:
+      // which model, whether a start image / end frame is attached, clip length.
+      const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
+      const hasImage = !!body.hasImage;
+      const hasEnd = !!body.hasEnd;
+      // The attached image itself (downscaled by the client) so the director
+      // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
+      let imageBlock = null;
+      if (kind !== "audio" && typeof body.image === "string" && body.image.length < 2800000) {
+        const m = body.image.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+        if (m) imageBlock = { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+      }
+      const genDuration = Number.isFinite(+body.duration) ? Math.min(30, Math.max(1, Math.round(+body.duration))) : 0;
+      const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
+
+      // Different model families respond to different prompt styles.
+      const familyHint = /seedance/.test(genModel)
+        ? "The target model rewards precise cinematic shot language — explicit camera, lighting and texture terms."
+        : /kling/.test(genModel)
+        ? "The target model wants subject + action in plain direct sentences, and preserves stylized/2D art well when told to keep the art style exactly."
+        : /veo|sora/.test(genModel)
+        ? "The target model wants flowing natural sentences describing one clear continuous scene."
+        : /hailuo|minimax/.test(genModel)
+        ? "The target model adds motion aggressively — use calm, restrained motion words unless drama is wanted."
+        : /grok/.test(genModel)
+        ? "The target model does best with short, concrete prompts."
+        : "";
+
+      const ctxBits = [];
+      if (genModel) ctxBits.push(`target model: ${genModel}`);
+      if (kind === "video" && genDuration) ctxBits.push(`clip length: ${genDuration}s`);
+      if (genRatio) ctxBits.push(`aspect ratio: ${genRatio}`);
+      if (kind !== "audio") {
+        ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
+        if (hasEnd) ctxBits.push("an end frame IS attached");
+      }
+      const ctxLine = ctxBits.join(" · ");
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
         ? body.history
@@ -353,6 +410,9 @@ async function handleRequest(request, env) {
             .map((h) => ({ role: h.role, content: h.text.slice(0, 400) }))
         : [];
 
+      const briefLine = brief
+        ? `\nThis chat's running creative brief: "${brief}" — stay consistent with it unless this request changes direction.`
+        : "";
       const system = step === "ask"
         ? (kind === "audio"
           ? `You are Zephyr, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
@@ -363,11 +423,59 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.`)
-        : `You are the prompt writer for Zephyr, an AI ${kind} generator. Turn the user's request and their picks into ONE vivid, specific ${kind}-generation prompt. ${kind === "video" ? "Cover subject, action, setting, lighting, camera and mood." : kind === "image" ? "Cover subject, style, composition and lighting." : "Describe the delivery and tone."}`;
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+        : step === "error"
+        ? `You are Zephyr, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
+        : step === "revise"
+        ? `You are the prompt writer for Zephyr, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
+
+Fix patterns:
+- Mangled or morphing on-screen text → pin it harder: all text stays exactly as printed, never changing.
+- Too much, too fast or wrong motion → name the camera explicitly and calm the action verbs.
+- Style drift on an animated image → state the art style is preserved exactly, with no smoothing.
+- Feels rushed or overstuffed → cut to one or two beats of motion${genDuration ? ` for the ${genDuration}s clip` : ""}.${familyHint ? `
+- ${familyHint}` : ""}
+
+Previous prompt:
+${prevPrompt}
+${briefLine}
+Context: ${ctxLine}`
+        : kind === "video"
+        ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
+
+Craft rules:
+- One continuous shot. Describe a single scene with continuous action — no cuts, montages or scene changes unless the user asked for them.
+- Name the camera work explicitly (locked-off static, slow push-in, handheld, orbit). If the user wants a loop or a background, open with "Fixed camera, no camera movement" and keep all motion ambient and cyclical.
+- Budget the action to the clip length${genDuration ? ` (${genDuration}s)` : ""}: one or two beats of motion, not a story arc — overstuffed prompts cause rushed, morphing results.
+- Any visible text, logos or signage: state explicitly that they stay exactly as printed, never changing — video models mangle text that is allowed to move.
+${hasImage
+  ? `- A start image IS attached (it's in the conversation — look at it): the model animates that image. Do NOT re-describe what is already in the picture (re-describing causes drift and morphing). Name its actual contents concretely as "the ..." ("the man leaning on the red car", not "the subject") and describe ONLY what moves and how, plus what must stay still. If the image has a distinct art style (anime, pixel art, illustration), say the style must be preserved exactly, with no smoothing.${hasEnd ? `
+- An end frame IS attached: the clip must land back on that frame — keep the motion gentle and cyclical so the return feels natural, never a hard change of state.` : ""}`
+  : `- No start image: paint the full scene — subject, action, setting, lighting, mood, in that order, each in concrete visual terms.`}${familyHint ? `
+- ${familyHint}` : ""}
+
+Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
+${briefLine}
+Context: ${ctxLine}`
+        : kind === "image"
+        ? `You are the prompt writer for Zephyr, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
+
+Craft rules:
+- Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
+- Cover subject, composition and framing, lighting and palette, in concrete visual terms.
+- If words should appear in the image, give them verbatim in quotes and say where they sit.
+${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
+- ${familyHint}` : ""}
+${briefLine}
+Context: ${ctxLine}`
+        : `You are the prompt writer for Zephyr, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
+        : step === "revise"
+        ? `Feedback on the previous generation: ${prompt}`
+        : step === "error"
+        ? `Failed generation prompt: ${prompt}\nRaw error: ${errText || "(no detail)"}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
 
       // Build the message list: prior turns (merged so roles alternate and the
@@ -382,6 +490,11 @@ Tailor everything to what THIS user is trying to make.`)
       const lastTurn = turns[turns.length - 1];
       if (lastTurn && lastTurn.role === "user") lastTurn.content += "\n" + userMsg;
       else turns.push({ role: "user", content: userMsg });
+      // Put the attached image on the final user turn so the director sees it.
+      if (imageBlock) {
+        const last = turns[turns.length - 1];
+        last.content = [imageBlock, { type: "text", text: last.content }];
+      }
 
       // Force a tool call so Sonnet returns validated structured output.
       const tool = step === "ask"
@@ -393,6 +506,7 @@ Tailor everything to what THIS user is trying to make.`)
               properties: {
                 reply: { type: "string", description: "a short, friendly conversational message in Zephyr's voice" },
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
+                revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 questions: {
                   type: "array",
                   items: {
@@ -415,16 +529,51 @@ Tailor everything to what THIS user is trying to make.`)
               required: ["reply", "ready"],
             },
           }
-        : {
-            name: "write_prompt",
-            description: "Return the final generation prompt.",
+        : step === "error"
+        ? {
+            name: "explain",
+            description: "Explain the failure to the user and optionally offer a fixed prompt.",
             input_schema: {
               type: "object",
-              properties: { prompt: { type: "string" } },
+              properties: {
+                reply: { type: "string", description: "1-2 friendly plain-language sentences about what went wrong and what to do" },
+                fixedPrompt: { type: "string", description: "only when rewording the prompt could fix the failure: the minimally reworded prompt" },
+              },
+              required: ["reply"],
+            },
+          }
+        : {
+            name: "write_prompt",
+            description: "Return the final generation prompt and the chat's updated creative brief.",
+            input_schema: {
+              type: "object",
+              properties: {
+                prompt: { type: "string" },
+                brief: { type: "string", description: "1-3 sentence updated running creative brief for this chat — subject, style, mood, standing constraints; carry forward what still holds, fold in what this request adds" },
+              },
               required: ["prompt"],
             },
           };
 
+      // Shape the ask-step tool output into the API payload.
+      // Voice mode never asks clarifying questions — the words are literal.
+      const shapeAsk = (parsed) => ({
+        reply: String(parsed.reply || "").slice(0, 500),
+        ready: !!parsed.ready,
+        revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
+        questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
+          .slice(0, kind === "audio" ? 0 : 3)
+          .map((q) => ({
+            title: String(q.title || "").slice(0, 120),
+            options: (Array.isArray(q.options) ? q.options : [])
+              .slice(0, 3)
+              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
+              .filter((o) => o.label),
+          }))
+          .filter((q) => q.title && q.options.length),
+      });
+
+      const wantStream = body.stream === true && step === "ask";
       let r;
       try {
         r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -437,40 +586,82 @@ Tailor everything to what THIS user is trying to make.`)
           body: JSON.stringify({
             model: "claude-sonnet-5",
             max_tokens: 1500,
+            // Chat replies should feel instant; thinking stays on for the
+            // prompt-writing steps, where it earns its latency.
+            ...(step === "ask" ? { thinking: { type: "disabled" } } : {}),
+            ...(wantStream ? { stream: true } : {}),
             system,
             tools: [tool],
             tool_choice: { type: "tool", name: tool.name },
-            messages: step === "ask" ? turns : [{ role: "user", content: userMsg }],
+            messages: turns,
           }),
         });
       } catch (e) {
         return Response.json({ error: "director request failed", detail: String(e) }, { status: 502 });
       }
+
+      // Streaming ask: forward Zephyr's reply as it's written, then the
+      // full parsed payload as a final "done" event.
+      if (wantStream && r.ok && r.body) {
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const enc = new TextEncoder();
+        const send = (obj) => writer.write(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        const pump = (async () => {
+          const reader = r.body.getReader();
+          const dec = new TextDecoder();
+          let sse = "", partial = "", sent = 0;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              sse += dec.decode(value, { stream: true });
+              let idx;
+              while ((idx = sse.indexOf("\n\n")) !== -1) {
+                const line = sse.slice(0, idx).split("\n").find((l) => l.startsWith("data: "));
+                sse = sse.slice(idx + 2);
+                if (!line) continue;
+                let ev;
+                try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+                if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "input_json_delta") {
+                  partial += ev.delta.partial_json || "";
+                  const reply = extractReplyPrefix(partial);
+                  if (reply.length > sent) { await send({ d: reply.slice(sent, 500) }); sent = Math.min(reply.length, 500); }
+                }
+              }
+            }
+            let parsed = null;
+            try { parsed = JSON.parse(partial); } catch {}
+            await send(parsed ? { done: shapeAsk(parsed) } : { error: "director no output" });
+          } catch {
+            try { await send({ error: "stream failed" }); } catch {}
+          } finally {
+            try { await writer.close(); } catch {}
+          }
+        })();
+        if (ctx && ctx.waitUntil) ctx.waitUntil(pump);
+        return new Response(readable, {
+          headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+        });
+      }
+
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
 
       const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
       if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
 
-      if (step === "ask") {
-        // Voice mode never asks clarifying questions — the words are literal.
-        const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, kind === "audio" ? 0 : 3)
-          .map((q) => ({
-            title: String(q.title || "").slice(0, 120),
-            options: (Array.isArray(q.options) ? q.options : [])
-              .slice(0, 3)
-              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
-              .filter((o) => o.label),
-          }))
-          .filter((q) => q.title && q.options.length);
+      if (step === "ask") return Response.json(shapeAsk(parsed));
+      if (step === "error") {
         return Response.json({
           reply: String(parsed.reply || "").slice(0, 500),
-          ready: !!parsed.ready,
-          questions,
+          prompt: parsed.fixedPrompt ? String(parsed.fixedPrompt).slice(0, 2000) : undefined,
         });
       }
-      return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });
+      return Response.json({
+        prompt: String(parsed.prompt || prompt).slice(0, 2000),
+        brief: parsed.brief ? String(parsed.brief).slice(0, 600) : undefined,
+      });
     }
 
     // Cancels a queued/running fal job with the server-side key, so stopping
