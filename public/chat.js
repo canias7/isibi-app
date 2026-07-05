@@ -755,6 +755,7 @@ function newChat() {
   chatStore.chats.unshift(fresh);
   chatStore.active = fresh.id;
   persistStore();
+  touchSync(fresh.id);
   renderChatList();
   renderThread();
   document.getElementById('input').focus();
@@ -827,7 +828,7 @@ const OLD_STORE_KEY = 'zephyr_thread_v1';
 let chatStore = { active: null, chats: [] };
 
 function newChatEntry() {
-  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: 'New chat', msgs: [] };
+  return { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), title: 'New chat', msgs: [], updatedAt: Date.now() };
 }
 
 function loadStore() {
@@ -862,6 +863,123 @@ function persistStore() {
   } catch {}
 }
 
+// ── Cross-device chat sync ─────────────────────────────────────────────
+// One row per chat in Supabase (RLS: owner only), last-write-wins by the
+// client-stamped updatedAt. localStorage stays the instant-boot cache; the
+// server is the durable copy that follows the account.
+const SYNC_ENDPOINT = SUPABASE_URL + '/rest/v1/chats';
+const syncDirty = new Set();
+const syncDeleted = new Set();
+let syncTimer = null;
+let lastPull = 0;
+
+function touchSync(chatId) {
+  const c = chatStore.chats.find((x) => x.id === chatId);
+  if (c) c.updatedAt = Date.now();
+  syncDeleted.delete(chatId);
+  syncDirty.add(chatId);
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushChats, 1500);
+}
+
+function deleteSync(chatId) {
+  syncDirty.delete(chatId);
+  syncDeleted.add(chatId);
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushChats, 800);
+}
+
+async function syncHeaders() {
+  if (!window.Auth || !Auth.isSignedIn()) return null;
+  const token = await Auth.accessToken();
+  if (!token) return null;
+  return { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token };
+}
+
+async function pushChats() {
+  const h = await syncHeaders();
+  if (!h) return;
+  const ids = [...syncDirty]; syncDirty.clear();
+  const dels = [...syncDeleted]; syncDeleted.clear();
+  const rows = ids.map((id) => chatStore.chats.find((c) => c.id === id)).filter(Boolean).map((c) => ({
+    id: c.id,
+    title: (c.title || 'New chat').slice(0, 120),
+    brief: c.brief || null,
+    last_prompt: c.lastPrompt || null,
+    msgs: c.msgs.slice(-80),
+    updated_at: new Date(c.updatedAt || Date.now()).toISOString(),
+  }));
+  try {
+    if (rows.length) {
+      await fetch(SYNC_ENDPOINT + '?on_conflict=user_id,id', {
+        method: 'POST',
+        headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
+        body: JSON.stringify(rows),
+      });
+    }
+    for (const id of dels) {
+      await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(id), { method: 'DELETE', headers: h });
+    }
+  } catch {
+    // Network hiccup — requeue everything for the next flush.
+    ids.forEach((id) => syncDirty.add(id));
+    dels.forEach((id) => syncDeleted.add(id));
+  }
+}
+
+async function pullChats() {
+  const h = await syncHeaders();
+  if (!h) return;
+  lastPull = Date.now();
+  let rows;
+  try {
+    const res = await fetch(SYNC_ENDPOINT + '?select=id,title,brief,last_prompt,msgs,updated_at&order=updated_at.desc&limit=30', { headers: h });
+    if (!res.ok) return;
+    rows = await res.json();
+  } catch { return; }
+  if (!Array.isArray(rows)) return;
+  let changed = false;
+  rows.forEach((r) => {
+    const remoteAt = Date.parse(r.updated_at) || 0;
+    const local = chatStore.chats.find((c) => c.id === r.id);
+    if (!local) {
+      chatStore.chats.push({
+        id: r.id, title: r.title || 'New chat', brief: r.brief || undefined,
+        lastPrompt: r.last_prompt || undefined,
+        msgs: Array.isArray(r.msgs) ? r.msgs : [], updatedAt: remoteAt,
+      });
+      changed = true;
+    } else if (remoteAt > (local.updatedAt || 0)) {
+      local.title = r.title || local.title;
+      local.brief = r.brief || undefined;
+      local.lastPrompt = r.last_prompt || undefined;
+      if (Array.isArray(r.msgs)) local.msgs = r.msgs;
+      local.updatedAt = remoteAt;
+      changed = true;
+    } else if ((local.updatedAt || 0) > remoteAt) {
+      syncDirty.add(local.id); // local is ahead — push it back up
+    }
+  });
+  // Local chats the server has never seen ride up too.
+  chatStore.chats.forEach((c) => {
+    if (c.msgs.length && !rows.some((r) => r.id === c.id)) syncDirty.add(c.id);
+  });
+  if (syncDirty.size) { clearTimeout(syncTimer); syncTimer = setTimeout(pushChats, 1200); }
+  if (changed) {
+    chatStore.chats.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+    if (!chatStore.chats.find((c) => c.id === chatStore.active)) {
+      chatStore.active = (chatStore.chats[0] || {}).id || null;
+    }
+    persistStore();
+    renderChatList();
+    renderThread();
+  }
+}
+
+// Freshen when returning to the tab; flush pending writes when leaving it.
+window.addEventListener('focus', () => { if (Date.now() - lastPull > 30000) pullChats(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') pushChats(); });
+
 function activeChat() {
   return chatStore.chats.find((c) => c.id === chatStore.active);
 }
@@ -875,6 +993,7 @@ function pushSaved(item) {
     renderChatList();
   }
   persistStore();
+  touchSync(chat.id);
 }
 
 function renderSaved(item) {
@@ -943,6 +1062,7 @@ function deleteChat(id) {
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
   persistStore();
+  deleteSync(id);
   renderChatList();
   renderThread();
 }
@@ -954,6 +1074,7 @@ function saveToChat(chatId, item) {
   if (!chat) return;
   chat.msgs.push(item);
   persistStore();
+  touchSync(chat.id);
 }
 function deliverAgent(chatId, text) {
   if (chatStore.active === chatId) addMsg('agent', text);
@@ -1023,7 +1144,7 @@ async function deleteMedia(el, url) {
   const chat = activeChat();
   if (chat) {
     const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
-    if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); }
+    if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
   }
   const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
   if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
@@ -1224,7 +1345,7 @@ async function generateMedia(text, opts = {}) {
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
   // Remember what we generated with, so "make it slower" can revise it later.
   const originChat = activeChat();
-  if (originChat && text && mode !== 'audio') { originChat.lastPrompt = text; persistStore(); }
+  if (originChat && text && mode !== 'audio') { originChat.lastPrompt = text; persistStore(); touchSync(originChat.id); }
 
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
@@ -1678,7 +1799,7 @@ function reviewPrompt(prompt) {
     actions.remove(); label.textContent = 'Approved ✦';
     // Approval is the signal that this direction is right — commit the brief.
     const c = activeChat();
-    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); }
+    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
     generateMedia(prompt, { announce: false });
   };
   actions.appendChild(deny); actions.appendChild(allow);
@@ -1910,6 +2031,8 @@ function enterApp() {
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
+  // Signed in — pull the account's chats from the server and merge.
+  pullChats();
 }
 
 async function doSignOut() {
@@ -1943,6 +2066,83 @@ function initAuthGate() {
   else showAuthGate();
 }
 
+// ── Gallery view: every generation across all (synced) chats ──
+function galleryItems() {
+  const seen = new Set();
+  const out = [];
+  chatStore.chats.forEach((c) => (c.msgs || []).forEach((m) => {
+    if (m.t === 'media' && m.url && !seen.has(m.url)) {
+      seen.add(m.url);
+      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt });
+    }
+  }));
+  return out.reverse(); // newest first
+}
+
+function renderGallery() {
+  const grid = document.getElementById('galleryGrid');
+  if (!grid) return;
+  const items = galleryItems();
+  const sub = document.getElementById('gallerySub');
+  if (sub) sub.textContent = items.length ? items.length + (items.length === 1 ? ' creation' : ' creations') : '';
+  const empty = document.getElementById('galleryEmpty');
+  if (empty) empty.style.display = items.length ? 'none' : '';
+  grid.innerHTML = '';
+  items.forEach((it) => {
+    const d = document.createElement('div');
+    d.className = 'g-item';
+    let media;
+    if (it.kind === 'image') {
+      media = document.createElement('img');
+      media.src = it.url; media.loading = 'lazy'; media.alt = '';
+      media.onclick = () => openLightbox('image', it.url);
+    } else if (it.kind === 'audio') {
+      media = document.createElement('div');
+      media.className = 'g-audio';
+      media.innerHTML = '<span class="note">♪</span>';
+      const au = document.createElement('audio');
+      au.controls = true; au.preload = 'none'; au.src = it.url;
+      media.appendChild(au);
+    } else {
+      media = document.createElement('video');
+      media.src = it.url; media.preload = 'metadata'; media.muted = true;
+      media.onmouseenter = () => { media.play().catch(() => {}); };
+      media.onmouseleave = () => { media.pause(); media.currentTime = 0; };
+      media.onclick = () => openLightbox('video', it.url);
+    }
+    d.appendChild(media);
+    if (it.prompt) {
+      const p = document.createElement('div');
+      p.className = 'g-prompt'; p.textContent = it.prompt;
+      d.appendChild(p);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'g-actions';
+    const dl = document.createElement('a');
+    dl.className = 'g-btn'; dl.textContent = '⤓'; dl.title = 'Download';
+    dl.href = it.url; dl.download = ''; dl.target = '_blank'; dl.rel = 'noopener';
+    const del = document.createElement('button');
+    del.className = 'g-btn'; del.textContent = '🗑'; del.title = 'Delete';
+    del.onclick = () => galleryDelete(it, d);
+    actions.appendChild(dl); actions.appendChild(del);
+    d.appendChild(actions);
+    grid.appendChild(d);
+  });
+}
+
+async function galleryDelete(it, el) {
+  if (!confirm('Delete this from your gallery and its chat?')) return;
+  el.remove();
+  const chat = chatStore.chats.find((c) => c.id === it.chatId);
+  if (chat) {
+    const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === it.url);
+    if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
+  }
+  const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+  if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
+  renderGallery();
+}
+
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
@@ -1951,6 +2151,7 @@ function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  if (name === 'gallery') renderGallery();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   const lbl = document.getElementById('navDdLabel');
