@@ -29,11 +29,10 @@ const IMAGE_MODELS = new Set([
   "fal-ai/nano-banana-pro",
   "openai/gpt-image-2",
   "fal-ai/flux/dev",
-  "fal-ai/flux/schnell",
   "fal-ai/krea-2/turbo",
   "xai/grok-imagine-image",
 ]);
-const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
+const DEFAULT_IMAGE_MODEL = "fal-ai/bytedance/seedream/v4/text-to-image";
 
 // Image editing: attaching an image in Image mode routes to the model's
 // edit / image-to-image endpoint. `multi` → image_urls[] vs a single image_url.
@@ -64,6 +63,76 @@ const DEFAULT_AUDIO_MODEL = "fal-ai/elevenlabs/tts/eleven-v3";
 const SUPABASE_URL = "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqcnFkbW10Y3B0dmltYXpsaG9tIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODUyNTUsImV4cCI6MjA5NDM2MTI1NX0.F-af9iC-BWTZN2hQ5cD1Keke8qXARhqPwxOgSHhNLK4";
+
+// ── Credits: 1 credit = $0.008 of fal cost, charged BEFORE fal is called ──
+// The ledger lives in Postgres (public.credits + use_credits/get_credits,
+// SECURITY DEFINER, RLS owner-only). The Worker calls it under the caller's
+// own JWT, so the client can display but never mint credits.
+const CREDIT_USD = 0.008;
+const VIDEO_USD = {
+  "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
+  "fal-ai/sora-2/text-to-video/pro":              { s: { "720p": 0.30, "1080p": 0.50 }, d: 10 },
+  "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
+  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
+  "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
+  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, d: 5 },
+  "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
+  "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
+  "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
+  "xai/grok-imagine-video/text-to-video":         { s: { "480p": 0.05, "720p": 0.07, def: 0.07 }, d: 6 },
+  "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
+  "fal-ai/bytedance/omnihuman":                   { flat: 1.40 },  // fal bills on audio length; ~10s assumed
+  "fal-ai/kling-video/lipsync/audio-to-video":    { flat: 0.042 }, // three 5-second increments
+};
+const IMAGE_USD = {
+  "fal-ai/flux-2-pro": 0.03,
+  "fal-ai/gemini-3-pro-image-preview": 0.15,
+  "fal-ai/bytedance/seedream/v4/text-to-image": 0.03,
+  "fal-ai/recraft/v3/text-to-image": 0.04,
+  "google/nano-banana-2": 0.08,
+  "fal-ai/nano-banana-pro": 0.15,
+  "openai/gpt-image-2": 0.12,
+  "fal-ai/flux/dev": 0.025,
+  "fal-ai/krea-2/turbo": 0.008,
+  "xai/grok-imagine-image": 0.022,
+};
+const AUDIO_USD_PER_1K = {
+  "fal-ai/elevenlabs/tts/eleven-v3": 0.10,
+  "fal-ai/elevenlabs/tts/turbo-v2.5": 0.05,
+  "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
+};
+
+function creditCost(kind, model, { duration, quality, num, chars }) {
+  let usd;
+  if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
+  else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
+  else {
+    const p = VIDEO_USD[model];
+    if (!p) usd = 3; // unlisted video model: charge high, never undercharge
+    else if (p.flat != null) usd = p.flat;
+    else {
+      const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s["720p"];
+      usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
+    }
+  }
+  return Math.max(1, Math.ceil(usd / CREDIT_USD));
+}
+
+// Deduct credits atomically under the caller's own JWT. Returns the new
+// balance, or -1 when the balance is too low; throws if the ledger is down.
+async function useCredits(authHeader, cost) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_credits`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeader,
+    },
+    body: JSON.stringify({ cost }),
+  });
+  if (!r.ok) throw new Error("credits rpc " + r.status);
+  return Number(await r.json());
+}
 
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
 async function authUser(request) {
@@ -324,6 +393,21 @@ async function handleRequest(request, env, ctx) {
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
+      // Everything validated — charge credits, then spend fal money.
+      // Fail closed: if the ledger can't be reached, we don't generate.
+      const genCost = creditCost(genKind, model, {
+        duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+      });
+      let balanceAfter;
+      try {
+        balanceAfter = await useCredits(request.headers.get("Authorization") || "", genCost);
+      } catch {
+        return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
+      }
+      if (!(balanceAfter >= 0)) {
+        return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
       const r = await fetch(`https://queue.fal.run/${endpoint}`, {
         method: "POST",
         headers: {
@@ -344,7 +428,173 @@ async function handleRequest(request, env, ctx) {
         status_url: data.status_url,
         response_url: data.response_url,
         model,
+        cost: genCost,
+        balance: balanceAfter,
       });
+    }
+
+    // ── Memberships: monthly credits at ~$0.012/credit ($0.008 cost basis) ──
+    // Checkout creates a Stripe SUBSCRIPTION session; every paid invoice
+    // (first charge and each renewal) mints that month's credits via the
+    // webhook. Both no-op cleanly until the Stripe secrets are configured.
+    const PLANS = {
+      "25": { cents: 2500, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
+      "50": { cents: 5000, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
+      "100": { cents: 10000, credits: 8000, name: "isibi Max — 8,000 credits / month" },
+    };
+    // One-time top-ups at $0.014/credit — dearer than membership on purpose.
+    const TOPUPS = {
+      "15": { cents: 1500, credits: 1070 },
+      "30": { cents: 3000, credits: 2140 },
+      "50": { cents: 5000, credits: 3570 },
+      "75": { cents: 7500, credits: 5350 },
+      "100": { cents: 10000, credits: 7140 },
+    };
+
+    if (url.pathname === "/api/checkout" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.STRIPE_SECRET_KEY) {
+        return Response.json({ error: "payments not configured yet" }, { status: 501 });
+      }
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const plan = body.plan != null ? PLANS[String(body.plan)] : null;
+      const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
+      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const form = new URLSearchParams({
+        mode: plan ? "subscription" : "payment",
+        success_url: "https://isibi.ai/?credits=added",
+        cancel_url: "https://isibi.ai/",
+        "line_items[0][quantity]": "1",
+        "line_items[0][price_data][currency]": "usd",
+        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
+      });
+      if (plan) {
+        form.set("line_items[0][price_data][recurring][interval]", "month");
+        form.set("line_items[0][price_data][product_data][name]", plan.name);
+        // Subscription metadata rides along on every invoice, so renewals
+        // know who to credit and how much.
+        form.set("subscription_data[metadata][user_id]", user.id);
+        form.set("subscription_data[metadata][credits]", String(plan.credits));
+      } else {
+        form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
+        form.set("metadata[user_id]", user.id);
+        form.set("metadata[credits]", String(topup.credits));
+      }
+      if (user.email) form.set("customer_email", user.email);
+      try {
+        const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: form.toString(),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.url) return Response.json({ error: "checkout failed" }, { status: 502 });
+        return Response.json({ url: data.url });
+      } catch {
+        return Response.json({ error: "checkout failed" }, { status: 502 });
+      }
+    }
+
+    if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
+      if (!env.STRIPE_WEBHOOK_SECRET || !env.CREDITS_MINT_SECRET) {
+        return Response.json({ error: "not configured" }, { status: 501 });
+      }
+      const raw = await request.text();
+      // Stripe-Signature: t=<unix>,v1=<hmac-sha256 hex of "<t>.<raw body>">
+      const parts = {};
+      for (const p of (request.headers.get("Stripe-Signature") || "").split(",")) {
+        const i = p.indexOf("=");
+        if (i > 0) parts[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+      }
+      const t = Number(parts.t);
+      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !parts.v1) {
+        return Response.json({ error: "bad signature" }, { status: 400 });
+      }
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw", enc.encode(env.STRIPE_WEBHOOK_SECRET),
+        { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+      );
+      const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
+      const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (hex !== parts.v1) return Response.json({ error: "bad signature" }, { status: 400 });
+
+      let event;
+      try { event = JSON.parse(raw); } catch {
+        return Response.json({ error: "bad payload" }, { status: 400 });
+      }
+      // One-time top-ups mint on session completion (payment mode only —
+      // membership sessions mint via their invoice instead).
+      if (event.type === "checkout.session.completed") {
+        const s = event.data && event.data.object;
+        const uid = s && s.metadata && s.metadata.user_id;
+        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
+        if (s && s.mode === "payment" && s.payment_status === "paid" && s.id && uid && credits > 0) {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            body: JSON.stringify({
+              target: uid, amount: credits, cents: s.amount_total || 0,
+              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
+            }),
+          });
+          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+        }
+      }
+      // Memberships mint on every PAID INVOICE — the first charge and each
+      // monthly renewal both arrive here, idempotent on the invoice id.
+      if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+        const inv = event.data && event.data.object;
+        // Subscription metadata's location varies by Stripe API version.
+        const meta =
+          (inv && inv.subscription_details && inv.subscription_details.metadata) ||
+          (inv && inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.metadata) ||
+          (inv && inv.lines && inv.lines.data && inv.lines.data[0] && inv.lines.data[0].metadata) ||
+          {};
+        const uid = meta.user_id;
+        const credits = Number(meta.credits) || 0;
+        const paid = inv && (inv.status === "paid" || inv.paid === true);
+        if (uid && credits > 0 && paid && inv.id) {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            body: JSON.stringify({
+              target: uid, amount: credits, cents: inv.amount_paid || 0,
+              purchase_ref: inv.id, mint_key: env.CREDITS_MINT_SECRET,
+            }),
+          });
+          // Non-2xx → 500 so Stripe retries the delivery.
+          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+        }
+      }
+      return Response.json({ received: true });
+    }
+
+    // Current credit balance (creates the row with the signup grant on first touch).
+    if (url.pathname === "/api/credits" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: request.headers.get("Authorization") || "",
+          },
+          body: "{}",
+        });
+        if (!r.ok) throw 0;
+        return Response.json({ balance: Number(await r.json()) });
+      } catch {
+        return Response.json({ error: "credits unavailable" }, { status: 503 });
+      }
     }
 
     // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.

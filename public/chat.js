@@ -1,6 +1,6 @@
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
-  image: 'fal-ai/flux/schnell',
+  image: 'fal-ai/bytedance/seedream/v4/text-to-image',
   audio: 'fal-ai/elevenlabs/tts/eleven-v3',
 };
 
@@ -86,7 +86,7 @@ const IMAGE_MULTI_MODELS = new Set([
 ]);
 // Models whose fal schema accepts num_images (verified against the OpenAPI docs).
 const IMAGE_NUM_MODELS = new Set([
-  'fal-ai/flux/schnell', 'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
+  'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
   'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/krea-2/turbo',
   'xai/grok-imagine-image', 'fal-ai/gemini-3-pro-image-preview',
 ]);
@@ -130,8 +130,7 @@ const MODEL_LISTS = {
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
     { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
     { id: 'fal-ai/flux/dev', label: 'FLUX.1 Dev' },
-    { id: 'fal-ai/flux/schnell', label: 'FLUX.1 Schnell', note: 'fastest' },
-    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo' },
+    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo', note: 'fastest' },
     { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
   ],
   audio: [
@@ -732,6 +731,7 @@ function buildOptMenus() {
      mode === 'audio' ? 'Type what you want the voice to say…' :
      'Describe your scene…');
   updateAttachVisibility();
+  updateSendPrice();
 }
 
 // A settings section: a label + selectable chips. Long lists (>6) collapse
@@ -764,6 +764,7 @@ function pickSetting(chip) {
   else if (kind === 'voice') voice = val;
   chip.parentElement.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', c === chip));
   updateSettingsSummary();
+  updateSendPrice();
 }
 
 // The Settings button shows the current picks at a glance (e.g. "16:9 · 720p · 5s").
@@ -1433,7 +1434,144 @@ function updateSendLock() {
   const busy = activeGens.has(chatStore.active);
   btn.disabled = false;
   btn.title = busy ? 'Stop generating' : 'Send';
-  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG;
+  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG + '<span class="send-price" id="sendPrice"></span>';
+  if (!busy) updateSendPrice();
+}
+
+// ── Send-button price tag — estimates from fal's published pricing ────────
+// Video: $/sec by resolution (audio-on rates where the model does audio).
+const VIDEO_PRICE = {
+  'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
+  'fal-ai/sora-2/text-to-video/pro':              { s: { '720p': 0.30, '1080p': 0.50 } },
+  'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
+  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
+  'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },
+  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 } },
+  'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
+  'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
+  'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
+  'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
+  'google/gemini-omni-flash':                     { s: { def: 0.13 } },
+  'fal-ai/bytedance/omnihuman':                   { flat: 1.40 },  // charged as ~10s of audio
+  'fal-ai/kling-video/lipsync/audio-to-video':    { flat: 0.042 }, // three 5-second increments
+};
+const IMAGE_PRICE = { // $ per image
+  'fal-ai/flux-2-pro': 0.03,
+  'fal-ai/gemini-3-pro-image-preview': 0.15,
+  'fal-ai/bytedance/seedream/v4/text-to-image': 0.03,
+  'fal-ai/recraft/v3/text-to-image': 0.04,
+  'google/nano-banana-2': 0.08,
+  'fal-ai/nano-banana-pro': 0.15,
+  'openai/gpt-image-2': 0.12, // token-billed; high quality 1024² lands about here
+  'fal-ai/flux/dev': 0.025,
+  'fal-ai/krea-2/turbo': 0.008,
+  'xai/grok-imagine-image': 0.022,
+};
+const AUDIO_PRICE = { // $ per 1,000 characters spoken
+  'fal-ai/elevenlabs/tts/eleven-v3': 0.10,
+  'fal-ai/elevenlabs/tts/turbo-v2.5': 0.05,
+  'fal-ai/elevenlabs/tts/multilingual-v2': 0.10,
+};
+
+// 1 credit = $0.008 — same conversion the worker charges with.
+const CREDIT_USD = 0.008;
+function fmtPrice(usd) {
+  return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
+}
+function estimatePrice() {
+  if (mode === 'image') {
+    const per = IMAGE_PRICE[model];
+    return per == null ? '' : fmtPrice(per * (numImages || 1));
+  }
+  if (mode === 'audio') {
+    const per = AUDIO_PRICE[model];
+    if (per == null) return '';
+    const chars = (document.getElementById('input').value || '').length;
+    return fmtPrice(Math.max(chars, 40) / 1000 * per);
+  }
+  const p = VIDEO_PRICE[model];
+  if (!p) return '';
+  if (p.flat != null) return fmtPrice(p.flat);
+  const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
+  return rate == null ? '' : fmtPrice(rate * (duration || 5));
+}
+function updateSendPrice() {
+  const el = document.getElementById('sendPrice');
+  if (el) el.textContent = estimatePrice();
+}
+
+// ── Credit balance (server-owned; the chip is display only) ───────────────
+function setCredits(n) {
+  const el = document.getElementById('creditChip');
+  if (el && typeof n === 'number') el.textContent = '✦ ' + n.toLocaleString();
+}
+async function fetchCredits() {
+  try {
+    const r = await apiFetch('/api/credits');
+    if (!r.ok) return;
+    const d = await r.json();
+    if (typeof d.balance === 'number') setCredits(d.balance);
+  } catch {}
+}
+
+// ── Membership panel: monthly credits, two tiers ───────────────────────────
+const MEMBERSHIPS = [
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus' },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular' },
+  { plan: '100', usd: 100, credits: 8000, name: 'Max' },
+];
+const TOPUPS = [
+  { topup: '15', usd: 15, credits: 1070 },
+  { topup: '30', usd: 30, credits: 2140 },
+  { topup: '50', usd: 50, credits: 3570 },
+  { topup: '75', usd: 75, credits: 5350 },
+  { topup: '100', usd: 100, credits: 7140 },
+];
+function openCredits() {
+  if (document.querySelector('.credits-overlay')) return;
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  const cards = MEMBERSHIPS.map((p) =>
+    '<button type="button" class="cp-card' + (p.tag ? ' cp-best' : '') + '" data-plan="' + p.plan + '">' +
+      (p.tag ? '<div class="cp-tag">' + p.tag + '</div>' : '') +
+      '<div class="cp-plan">' + p.name + '</div>' +
+      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '<span class="cp-per">/month</span></div>' +
+      '<div class="cp-usd">$' + p.usd + '/mo</div>' +
+    '</button>').join('');
+  const minis = TOPUPS.map((p) =>
+    '<button type="button" class="cp-card cp-mini" data-topup="' + p.topup + '">' +
+      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
+      '<div class="cp-usd">$' + p.usd + '</div>' +
+    '</button>').join('');
+  ov.innerHTML = '<div class="cp-box">' +
+    '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
+    '<div class="cp-grid">' + cards + '</div>' +
+    '<div class="cp-sec">One-time top-ups</div>' +
+    '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
+    '<div class="cp-note" id="cpNote"></div>' +
+    '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelectorAll('.cp-card').forEach((c) => {
+    c.onclick = async () => {
+      const note = document.getElementById('cpNote');
+      note.textContent = 'Opening secure checkout…';
+      try {
+        const r = await apiFetch('/api/checkout', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(c.dataset.plan ? { plan: c.dataset.plan } : { topup: c.dataset.topup }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll buy them.'; return; }
+        if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
+        note.textContent = 'Checkout hit a snag — try again in a moment.';
+      } catch {
+        note.textContent = 'Checkout hit a snag — try again in a moment.';
+      }
+    };
+  });
+  document.body.appendChild(ov);
 }
 
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
@@ -1538,11 +1676,17 @@ async function generateMedia(text, opts = {}) {
     }
     const job = await res.json();
     if (!alive()) return; // cancelled while submitting
+    if (res.status === 402) { // out of credits — nothing was spent
+      endGen(origin);
+      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance in the sidebar to get more.');
+      return;
+    }
     if (!res.ok || !job.status_url) {
       endGen(origin);
       if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
     }
+    if (typeof job.balance === 'number') setCredits(job.balance);
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
     // 4K renders can legitimately outrun ten minutes — give them twenty.
@@ -2008,6 +2152,7 @@ function reviewPrompt(prompt) {
 
 // Grow the message box downward as the user types; cap it, then scroll.
 function autoGrow(el) {
+  if (mode === 'audio') updateSendPrice(); // voice bills per character — live re-quote
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.38)) + 'px';
 }
@@ -2250,6 +2395,7 @@ function enterApp() {
   }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
+  fetchCredits();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
   resumeJobs();
@@ -2455,4 +2601,14 @@ const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
   if (window.Auth && Auth.isSignedIn()) startDirector(firstMsg);
+}
+// Back from Stripe: the webhook mints the credits — poll the balance so the
+// chip catches up even if the webhook lands a few seconds after we do.
+if (params.get('credits') === 'added') {
+  window.history.replaceState({}, '', location.pathname);
+  if (window.Auth && Auth.isSignedIn()) {
+    addMsg('agent', '✦ Payment received — your credits are landing now.');
+    setTimeout(fetchCredits, 2500);
+    setTimeout(fetchCredits, 8000);
+  }
 }

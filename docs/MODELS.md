@@ -48,7 +48,6 @@ best at, and 1–10 ratings per capability.
 | **Nano Banana Pro** | 8 | 9 | 10 | 9 | 9 | 7 | 9 | 7 |
 | **GPT Image 2** | 8 | 10 | 9 | 8 | 8 | 7 | 6 | 4 |
 | **FLUX.1 Dev** | 8 | 6 | 7 | 6 | 6 | 5 | 7 | 7 |
-| **FLUX.1 Schnell** | 6 | 4 | — | 5 | 5 | 4 | 6 | 10 |
 | **Krea 2 Turbo** | 9 | 5 | — | 6 | 6 | 6 | 7 | 8 |
 | **Grok Imagine** | 6 | 5 | — | 5 | 5 | 5 | 6 | 8 |
 
@@ -91,7 +90,7 @@ best at, and 1–10 ratings per capability.
 - **Same character across images** → Nano Banana 2
 - **Product / e-commerce shots** → Seedream v4
 - **Highest resolution (native 4K)** → Seedream v4 & Gemini 3 Pro Image
-- **Fastest / cheapest** → FLUX.1 Schnell
+- **Fastest / cheapest** → Krea 2 Turbo
 
 ### Voice
 - **Most emotion / acting** → ElevenLabs v3
