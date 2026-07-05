@@ -208,12 +208,21 @@
 .msg.video { padding: .45rem; max-width: 68%; }
 .msg.video video { display: block; width: 460px; max-width: 100%; border-radius: 12px; }
 
-/* ── Audio / Image / Video mode switch (vertical stack) ───── */
+/* ── Audio / Image / Video mode switch ───── */
 .mode-switch {
-  display: flex; flex-direction: column; flex-shrink: 0; gap: 2px; padding: 3px;
+  display: flex; flex-direction: row; flex-shrink: 0; gap: 2px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
 }
 .mode-btn { text-align: center; }
+/* Wide screens: the switch stacks vertically OUTSIDE the box's right edge,
+   so the chatbox keeps its height. Narrow screens keep the inline pill. */
+@media (min-width: 1500px) {
+  .view-home .composer { position: relative; }
+  .view-home .composer-row .mode-switch {
+    flex-direction: column;
+    position: absolute; left: calc(100% + 14px); bottom: 0;
+  }
+}
 .mode-btn {
   background: none; border: none; color: var(--muted);
   font-weight: 600; font-size: .85rem; padding: .45rem .9rem;
@@ -834,8 +843,9 @@
 .send { border-radius: 14px; width: 46px; height: 46px; box-shadow: 0 6px 24px rgba(255,150,120,.35); }
 .send:hover { box-shadow: 0 8px 30px rgba(255,150,120,.45); }
 
-/* Mode switch → vertical pill; active tab takes the gradient. */
-.mode-switch { border-radius: 20px; }
+/* Mode switch → pill; active tab takes the gradient. */
+.mode-switch { border-radius: 99px; }
+@media (min-width: 1500px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
 .mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
 /* Account avatar → dark chip (matches the mockup). */
