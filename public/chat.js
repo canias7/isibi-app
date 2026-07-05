@@ -349,6 +349,82 @@ function toggleApRow(kind) {
   if (row) row.classList.toggle('open');
 }
 
+// ── Image source chooser: device files or the isibi gallery ──
+let imgPickTarget = 'main'; // which slot the chosen image lands in
+
+function openImgSrc(target, ev) {
+  ev.stopPropagation();
+  imgPickTarget = target;
+  const menu = document.getElementById('imgSrcMenu');
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+
+function imgSrcPick(src, ev) {
+  ev.stopPropagation();
+  document.getElementById('imgSrcMenu').classList.remove('open');
+  if (src === 'device') {
+    document.getElementById(imgPickTarget === 'extra' ? 'fileExtra' : 'fileImage').click();
+  } else {
+    openGalleryPicker();
+  }
+}
+
+// Every image generated in any chat (media messages hold permanent URLs).
+function galleryImages() {
+  const seen = new Set();
+  const out = [];
+  (chatStore.chats || []).forEach((c) => (c.msgs || []).forEach((m) => {
+    if (m.t === 'media' && m.kind === 'image' && m.url && !seen.has(m.url)) {
+      seen.add(m.url);
+      out.push(m.url);
+    }
+  }));
+  return out.reverse(); // newest first
+}
+
+function openGalleryPicker() {
+  const old = document.querySelector('.gal-overlay');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.className = 'gal-overlay';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const urls = galleryImages();
+  const grid = urls.length
+    ? '<div class="gal-grid">' + urls.map((u) => '<img src="' + u + '" alt="" />').join('') + '</div>'
+    : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>';
+  ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
+    + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
+    + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>' + grid + '</div>';
+  ov.querySelectorAll('.gal-grid img').forEach((img) => {
+    img.onclick = () => { useGalleryImage(img.src); ov.remove(); };
+  });
+  document.body.appendChild(ov);
+}
+
+// Fetch the stored image and attach it like a picked file (the API wants data URIs).
+async function useGalleryImage(url) {
+  try {
+    const blob = await (await fetch(url)).blob();
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+    const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+    if (imgPickTarget === 'extra' && attachments.image) {
+      if (extraImages.length < cap - 1) extraImages.push(dataUrl);
+    } else {
+      attachments.image = dataUrl;
+    }
+    renderAttach('image');
+    renderExtraImages();
+  } catch {
+    alert("Couldn't load that image — try saving it to your device instead.");
+  }
+}
+
 // Extra images beyond the first, for models that take several references.
 function onAttachExtra(inputEl) {
   const files = Array.from(inputEl.files || []);
