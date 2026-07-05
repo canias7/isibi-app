@@ -475,17 +475,80 @@ function renderExtraImages() {
   }
 }
 
+// Provider identity per model id: real logo where we have one, monogram otherwise.
+function providerOf(id) {
+  if (/veo|gemini|nano-banana|^google\//.test(id)) return { logo: '/logos/google.svg', name: 'Google' };
+  if (/sora|gpt-image|^openai\//.test(id)) return { mono: 'O', name: 'OpenAI' };
+  if (/seedance|seedream|bytedance/.test(id)) return { logo: '/logos/bytedance.svg', name: 'ByteDance' };
+  if (/kling/.test(id)) return { logo: '/logos/kuaishou.svg', name: 'Kling' };
+  if (/hailuo|minimax/.test(id)) return { logo: '/logos/minimax.svg', name: 'MiniMax' };
+  if (/grok|^xai\//.test(id)) return { logo: '/logos/x.svg', name: 'xAI' };
+  if (/elevenlabs/.test(id)) return { logo: '/logos/elevenlabs.svg', name: 'ElevenLabs' };
+  if (/flux/.test(id)) return { mono: 'F', name: 'Black Forest Labs' };
+  if (/recraft/.test(id)) return { mono: 'R', name: 'Recraft' };
+  if (/krea/.test(id)) return { mono: 'K', name: 'Krea' };
+  return { mono: '·', name: '' };
+}
+
+function modelChips(id) {
+  const chips = [];
+  const o = MODEL_OPTS[id];
+  if (o && o.resolutions) {
+    const top = o.resolutions[o.resolutions.length - 1];
+    chips.push('🏷 ' + (top === '4k' ? '4K' : top));
+  }
+  if (o && o.durations) chips.push('⏱ ' + o.durations[0] + 's–' + o.durations[o.durations.length - 1] + 's');
+  if (o && o.noPrompt) chips.push('⏱ from audio');
+  return chips;
+}
+
 function buildMenu() {
   if (!modelMenu) return;
   modelMenu.innerHTML = '';
   model = selectedModels[mode] || DEFAULT_MODELS[mode];
+
+  const search = document.createElement('input');
+  search.className = 'm-search';
+  search.placeholder = 'Search…';
+  search.onclick = (e) => e.stopPropagation();
+  search.oninput = () => {
+    const q = search.value.trim().toLowerCase();
+    modelMenu.querySelectorAll('.m-row').forEach((r) => {
+      r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none';
+    });
+  };
+  modelMenu.appendChild(search);
+
+  const section = document.createElement('div');
+  section.className = 'm-section';
+  section.textContent = '✦ Featured models';
+  modelMenu.appendChild(section);
+
   MODEL_LISTS[mode].forEach((m) => {
+    const prov = providerOf(m.id);
     const d = document.createElement('div');
-    d.className = 'model-item' + (m.id === model ? ' selected' : '');
+    d.className = 'model-item m-row' + (m.id === model ? ' selected' : '');
     d.dataset.model = m.id;
     d.dataset.label = m.label;
-    const note = m.note ? ' <small style="color:var(--muted)">· ' + m.note + '</small>' : '';
-    d.innerHTML = '<span>' + m.label + note + '</span><span class="check">✓</span>';
+    d.dataset.search = (m.label + ' ' + prov.name + ' ' + (m.note || '')).toLowerCase();
+
+    const notes = (m.note || '').split('·').map((t) => t.trim()).filter(Boolean);
+    const hasAudio = notes.includes('audio');
+    const badges = notes
+      .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax'].includes(t))
+      .map((t) => t === 'newest'
+        ? '<span class="m-badge">NEW</span>'
+        : '<span class="m-tag">' + t.toUpperCase() + '</span>')
+      .join('');
+    const chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
+
+    d.innerHTML =
+      '<span class="m-ico">' + (prov.logo ? '<img src="' + prov.logo + '" alt="" />' : '<b>' + (prov.mono || '·') + '</b>') + '</span>'
+      + '<span class="m-main">'
+      +   '<span class="m-title">' + m.label + (hasAudio ? ' <span class="spk">🔊</span>' : '') + badges + '</span>'
+      +   (chips ? '<span class="m-chips">' + chips + '</span>' : '')
+      + '</span>'
+      + '<span class="check">✓</span>';
     d.onclick = () => pickModel(d);
     modelMenu.appendChild(d);
   });
