@@ -451,8 +451,7 @@ async function handleRequest(request, env, ctx) {
 Leave questions empty either way. When genuinely unsure, set ready=true.`
           : `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
-- If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
-- If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
+- If they've described something to create: set ready=true. Questions are the exception, not the routine — most requests should get NONE; make the creative calls yourself. Only ask (1-2 max, each with exactly 3 options: a short label + a few-word description) when the request leaves a decision so open you can't write a good prompt without it — no clear subject, or a fork that changes the whole result. When you do ask, phrase it the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — leave questions empty and use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — leave questions empty and use your reply to acknowledge the fix.
@@ -653,7 +652,7 @@ Context: ${ctxLine}`
         rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
         revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
         questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, kind === "audio" ? 0 : 3)
+          .slice(0, kind === "audio" ? 0 : 2)
           .map((q) => ({
             title: String(q.title || "").slice(0, 120),
             options: (Array.isArray(q.options) ? q.options : [])

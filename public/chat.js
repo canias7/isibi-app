@@ -1806,6 +1806,15 @@ function renderQuestion(qi) {
   const card = document.createElement('div');
   card.className = 'q-card';
 
+  // ✕ skips the interview — Zephyr generates with whatever's answered so far.
+  const skip = document.createElement('button');
+  skip.className = 'q-skip'; skip.title = 'Skip — just generate'; skip.textContent = '✕';
+  skip.onclick = () => {
+    clearQDock();
+    composeAndReview(directorState.text, directorState.answers);
+  };
+  card.appendChild(skip);
+
   const step = document.createElement('div');
   step.className = 'q-intro';
   step.textContent = 'Question ' + (qi + 1) + ' of ' + total;
