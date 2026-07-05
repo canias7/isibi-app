@@ -338,10 +338,14 @@ async function handleRequest(request, env) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const step = body.step === "compose" ? "compose" : "ask";
+      let step = ["compose", "revise"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
+      // The previous generation's prompt — lets the ask step spot feedback
+      // ("slower", "fix the text") and the revise step edit surgically.
+      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
+      if (step === "revise" && !prevPrompt) step = "compose";
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
@@ -400,7 +404,21 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+        : step === "revise"
+        ? `You are the prompt writer for Zephyr, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
+
+Fix patterns:
+- Mangled or morphing on-screen text → pin it harder: all text stays exactly as printed, never changing.
+- Too much, too fast or wrong motion → name the camera explicitly and calm the action verbs.
+- Style drift on an animated image → state the art style is preserved exactly, with no smoothing.
+- Feels rushed or overstuffed → cut to one or two beats of motion${genDuration ? ` for the ${genDuration}s clip` : ""}.${familyHint ? `
+- ${familyHint}` : ""}
+
+Previous prompt:
+${prevPrompt}
+
+Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
 
@@ -433,6 +451,8 @@ Context: ${ctxLine}`
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
+        : step === "revise"
+        ? `Feedback on the previous generation: ${prompt}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
 
       // Build the message list: prior turns (merged so roles alternate and the
@@ -463,6 +483,7 @@ Context: ${ctxLine}`
               properties: {
                 reply: { type: "string", description: "a short, friendly conversational message in Zephyr's voice" },
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
+                revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 questions: {
                   type: "array",
                   items: {
@@ -537,6 +558,7 @@ Context: ${ctxLine}`
         return Response.json({
           reply: String(parsed.reply || "").slice(0, 500),
           ready: !!parsed.ready,
+          revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
           questions,
         });
       }

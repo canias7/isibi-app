@@ -888,6 +888,9 @@ async function generateMedia(text, opts = {}) {
     return;
   }
   if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
+  // Remember what we generated with, so "make it slower" can revise it later.
+  const originChat = activeChat();
+  if (originChat && text && mode !== 'audio') { originChat.lastPrompt = text; persistStore(); }
 
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
@@ -1064,16 +1067,39 @@ async function directorAsk(text, history) {
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ step: 'ask', kind: mode, prompt: text, history: history || [], ...directorContext(), ...(await directorImage()) }),
+      body: JSON.stringify({
+        step: 'ask', kind: mode, prompt: text, history: history || [],
+        prevPrompt: (activeChat() || {}).lastPrompt || undefined,
+        ...directorContext(), ...(await directorImage()),
+      }),
     });
     if (!res.ok) throw 0;
     const data = await res.json();
     return {
       reply: data.reply || '',
       ready: !!data.ready,
+      revise: !!data.revise,
       questions: Array.isArray(data.questions) ? data.questions : [],
     };
   } catch { return localAsk(text); }
+}
+
+// Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
+async function directorRevise(feedback) {
+  const prev = (activeChat() || {}).lastPrompt || '';
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'revise', kind: mode, prompt: feedback, prevPrompt: prev,
+        history: directorHistory(), ...directorContext(), ...(await directorImage()),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (data.prompt) return data.prompt;
+    throw 0;
+  } catch { return prev ? prev + ' ' + feedback : feedback; }
 }
 
 async function directorCompose(text, answers) {
@@ -1150,6 +1176,16 @@ async function startDirector(text) {
   // If the user moved to another chat while Zephyr was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
+  // Feedback on the previous generation — revise that prompt surgically,
+  // no clarifying questions.
+  if (res.revise && (activeChat() || {}).lastPrompt) {
+    const thinking2 = addMsg('agent typing', 'Revising the prompt');
+    let prompt;
+    try { prompt = await directorRevise(text); } finally { thinking2.remove(); }
+    if (chatStore.active !== origin) return;
+    reviewPrompt(prompt);
+    return;
+  }
   // A vague creative request — walk through the tappable questions.
   if (res.questions && res.questions.length) {
     directorState = { text, questions: res.questions, answers: new Array(res.questions.length).fill(null) };
