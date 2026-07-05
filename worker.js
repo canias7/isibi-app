@@ -919,6 +919,13 @@ Context: ${ctxLine}`
       });
 
       const wantStream = body.stream === true && step === "ask";
+      // Effort-routed model: Low/Medium prompt-writing is tight checklist
+      // work a small model does as well for a third of the price. High and
+      // up — and the judgment-heavy ask/error/studio steps — stay on Sonnet.
+      const dirModel =
+        (step === "compose" || step === "revise") && (effort === "low" || effort === "medium")
+          ? "claude-haiku-4-5"
+          : "claude-sonnet-5";
       let r;
       try {
         r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -929,10 +936,11 @@ Context: ${ctxLine}`
             "content-type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-sonnet-5",
+            model: dirModel,
             max_tokens: 1500,
-            // Chat replies should feel instant; thinking stays on for the
-            // prompt-writing steps, where it earns its latency.
+            // Chat replies should feel instant; on the Sonnet prompt-writing
+            // steps thinking stays on (adaptive), where it earns its latency.
+            // Haiku ignores the omission — it simply runs without thinking.
             ...(step === "ask" ? { thinking: { type: "disabled" } } : {}),
             ...(wantStream ? { stream: true } : {}),
             system,
