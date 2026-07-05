@@ -1517,15 +1517,16 @@ async function fetchCredits() {
 // ── Membership panel: monthly credits, two tiers ───────────────────────────
 const MEMBERSHIPS = [
   { plan: '25', usd: 25, credits: 2000, name: 'Plus' },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', best: true },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular' },
+  { plan: '100', usd: 100, credits: 8000, name: 'Max' },
 ];
 function openCredits() {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
   ov.className = 'credits-overlay';
   const cards = MEMBERSHIPS.map((p) =>
-    '<button type="button" class="cp-card' + (p.best ? ' cp-best' : '') + '" data-plan="' + p.plan + '">' +
-      (p.best ? '<div class="cp-tag">Best value</div>' : '') +
+    '<button type="button" class="cp-card' + (p.tag ? ' cp-best' : '') + '" data-plan="' + p.plan + '">' +
+      (p.tag ? '<div class="cp-tag">' + p.tag + '</div>' : '') +
       '<div class="cp-plan">' + p.name + '</div>' +
       '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '<span class="cp-per">/month</span></div>' +
       '<div class="cp-usd">$' + p.usd + '/mo</div>' +
@@ -1533,7 +1534,7 @@ function openCredits() {
   ov.innerHTML = '<div class="cp-box">' +
     '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
     '<div class="cp-sub">Fresh credits every month — a quick image is a few, most videos run 40–600. Cancel anytime.</div>' +
-    '<div class="cp-grid cp-grid-2">' + cards + '</div>' +
+    '<div class="cp-grid">' + cards + '</div>' +
     '<div class="cp-note" id="cpNote"></div>' +
     '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };

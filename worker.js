@@ -440,6 +440,7 @@ async function handleRequest(request, env, ctx) {
     const PLANS = {
       "25": { cents: 2500, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
       "50": { cents: 5000, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
+      "100": { cents: 10000, credits: 8000, name: "isibi Max — 8,000 credits / month" },
     };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
