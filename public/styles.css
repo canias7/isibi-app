@@ -277,14 +277,42 @@
   display: flex; flex-direction: column; gap: .65rem;
   background: none; border: none; padding: 0;
 }
+/* Dreaming frame: drifting pink/amber aurora inside the placeholder, a
+   light sweep gliding across it, and a softly breathing gradient border. */
 .gen-shimmer {
-  width: 420px; max-width: 100%; border-radius: 12px; border: 1px solid var(--line);
-  background: linear-gradient(100deg,
-    var(--panel-2) 20%, var(--line-2) 40%, #40404a 50%, var(--line-2) 60%, var(--panel-2) 80%);
-  background-size: 220% 100%;
-  animation: shimmer 1.25s linear infinite;
+  position: relative; overflow: hidden;
+  width: 420px; max-width: 100%; border-radius: 12px;
+  border: 1px solid rgba(255, 170, 110, .35);
+  background: #101016;
+  animation: gen-breathe 2.6s ease-in-out infinite;
 }
-@keyframes shimmer { from { background-position: 220% 0; } to { background-position: -120% 0; } }
+.gen-shimmer::before {
+  content: ''; position: absolute; inset: -40%;
+  background:
+    radial-gradient(38% 45% at 30% 35%, rgba(255, 121, 198, .26), transparent 70%),
+    radial-gradient(42% 48% at 72% 68%, rgba(255, 184, 77, .22), transparent 70%),
+    radial-gradient(30% 36% at 55% 25%, rgba(168, 85, 247, .16), transparent 70%);
+  filter: blur(26px);
+  animation: gen-aurora 7s ease-in-out infinite alternate;
+}
+.gen-shimmer::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(115deg,
+    transparent 32%, rgba(255, 255, 255, .07) 46%, rgba(255, 255, 255, .13) 50%,
+    rgba(255, 255, 255, .07) 54%, transparent 68%);
+  background-size: 240% 100%;
+  animation: gen-sweep 2.2s ease-in-out infinite;
+}
+@keyframes gen-aurora {
+  0%   { transform: translate3d(-6%, -4%, 0) rotate(-3deg) scale(1); }
+  50%  { transform: translate3d(5%, 6%, 0) rotate(2deg) scale(1.12); }
+  100% { transform: translate3d(-3%, 4%, 0) rotate(-2deg) scale(1.05); }
+}
+@keyframes gen-sweep { from { background-position: 210% 0; } to { background-position: -110% 0; } }
+@keyframes gen-breathe {
+  0%, 100% { border-color: rgba(255, 121, 198, .32); box-shadow: 0 0 22px rgba(255, 121, 198, .07); }
+  50%      { border-color: rgba(255, 184, 77, .45);  box-shadow: 0 0 30px rgba(255, 184, 77, .12); }
+}
 .gen-bars { display: flex; align-items: center; gap: 4px; height: 46px; padding: 0 .2rem; }
 .gen-bars span {
   width: 5px; height: 22%; border-radius: 3px; background: var(--neon);
@@ -294,7 +322,7 @@
 .gen-status { display: flex; align-items: center; gap: .55rem; color: var(--muted); font-size: .9rem; }
 .gen-spinner {
   width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
-  border: 2px solid var(--line-2); border-top-color: var(--neon);
+  border: 2px solid var(--line-2); border-top-color: var(--neon); border-right-color: var(--purple);
   animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
