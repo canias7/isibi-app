@@ -239,14 +239,24 @@ function setMode(m) {
   buildOptMenus();
 }
 
-// Effort switch (top-left of the main chat) — persisted; behavior wired per level.
+// Effort picker (top-left of the main chat) — how detailed the director's
+// written prompt gets. Persisted per browser.
 const EFFORT_KEY = 'zephyr_effort';
-let effort = localStorage.getItem(EFFORT_KEY) || 'medium';
+const EFFORT_LABELS = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra High', max: 'Max' };
+let effort = EFFORT_LABELS[localStorage.getItem(EFFORT_KEY)] ? localStorage.getItem(EFFORT_KEY) : 'medium';
 function setEffort(level) {
   effort = level;
   localStorage.setItem(EFFORT_KEY, level);
-  document.querySelectorAll('.effort-btn').forEach((b) =>
-    b.classList.toggle('active', b.dataset.effort === level));
+  document.querySelectorAll('.effort-item').forEach((i) =>
+    i.classList.toggle('selected', i.dataset.effort === level));
+  document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
+  document.getElementById('effortMenu').classList.remove('open');
+}
+function toggleEffortMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('effortMenu');
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
 }
 setEffort(effort);
 

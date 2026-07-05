@@ -107,18 +107,15 @@
       <div class="laser-beam" id="laserBeam" aria-hidden="true"></div>
       <section class="chat active">
         <div class="chat-head">
-          <div class="effort-switch" id="effortSwitch">
-            <span class="effort-label">Effort</span>
-            <button class="effort-btn" data-effort="low" onclick="setEffort('low')">Low</button>
-            <button class="effort-btn" data-effort="medium" onclick="setEffort('medium')">Medium</button>
-            <button class="effort-btn" data-effort="high" onclick="setEffort('high')">High</button>
-            <button class="effort-btn" data-effort="ultra" onclick="setEffort('ultra')">Ultra High</button>
-            <button class="effort-btn" data-effort="max" onclick="setEffort('max')">Max</button>
-          </div>
-          <span class="tile zephyr">Z</span>
-          <div>
-            <div class="cname">Zephyr</div>
-            <div class="cstatus">● online · video generator</div>
+          <div class="opt-wrap effort-pick">
+            <button class="opt-btn" onclick="toggleEffortMenu(event)" title="How detailed the written prompt gets">Effort: <b id="effortLabel">Medium</b> ▾</button>
+            <div class="model-menu effort-menu" id="effortMenu">
+              <div class="model-item effort-item" data-effort="low" onclick="setEffort('low')"><span>Low</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="medium" onclick="setEffort('medium')"><span>Medium</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="high" onclick="setEffort('high')"><span>High</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="ultra" onclick="setEffort('ultra')"><span>Ultra High</span><span class="check">✓</span></div>
+              <div class="model-item effort-item" data-effort="max" onclick="setEffort('max')"><span>Max</span><span class="check">✓</span></div>
+            </div>
           </div>
         </div>
         <div class="thread"><div class="thread-inner" id="messages"></div></div>
