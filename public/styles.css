@@ -1165,3 +1165,19 @@
 }
 .g-item:hover .g-prompt { opacity: 1; }
 .gallery-empty { color: var(--muted); font-size: .95rem; padding: 3rem 0; text-align: center; }
+
+/* Gallery controls: type filter chips + sort toggle */
+.gallery-controls { margin-left: auto; display: flex; align-items: center; gap: .7rem; }
+.g-filters {
+  display: flex; gap: 2px; padding: 3px;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 99px;
+}
+.g-chip {
+  background: none; border: none; color: var(--muted);
+  font-weight: 600; font-size: .8rem; padding: .35rem .8rem;
+  border-radius: 99px; cursor: pointer;
+  transition: color .15s ease, background .15s ease;
+}
+.g-chip:hover { color: var(--text); }
+.g-chip.active { background: var(--split); color: #0a0a0b; }
+.g-sort { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; }

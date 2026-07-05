@@ -220,6 +220,15 @@
         <div class="gallery-head">
           <span class="gallery-title">Gallery</span>
           <span class="gallery-sub" id="gallerySub"></span>
+          <div class="gallery-controls">
+            <div class="g-filters">
+              <button class="g-chip active" data-f="all" onclick="setGalFilter('all')">All</button>
+              <button class="g-chip" data-f="video" onclick="setGalFilter('video')">Videos</button>
+              <button class="g-chip" data-f="image" onclick="setGalFilter('image')">Images</button>
+              <button class="g-chip" data-f="audio" onclick="setGalFilter('audio')">Audio</button>
+            </div>
+            <button class="g-sort opt-btn" id="gallerySort" onclick="toggleGalSort()">Newest first ▾</button>
+          </div>
         </div>
         <div class="gallery-grid" id="galleryGrid"></div>
         <div class="gallery-empty" id="galleryEmpty" style="display:none">Nothing here yet — everything you generate lands in your gallery.</div>

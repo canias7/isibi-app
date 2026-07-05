@@ -1081,7 +1081,7 @@ function deliverAgent(chatId, text) {
   else saveToChat(chatId, { t: 'agent', text });
 }
 function deliverMedia(chatId, kind, url, prompt) {
-  saveToChat(chatId, { t: 'media', kind, url, prompt: prompt ? String(prompt).slice(0, 300) : undefined });
+  saveToChat(chatId, { t: 'media', kind, url, at: Date.now(), prompt: prompt ? String(prompt).slice(0, 300) : undefined });
   if (chatStore.active === chatId) threadAppend(buildMedia(kind, url, prompt));
 }
 
@@ -2067,16 +2067,37 @@ function initAuthGate() {
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
+let galFilter = 'all';   // all | video | image | audio
+let galSort = 'new';     // new | old
+
 function galleryItems() {
   const seen = new Set();
   const out = [];
+  let seq = 0;
   chatStore.chats.forEach((c) => (c.msgs || []).forEach((m) => {
     if (m.t === 'media' && m.url && !seen.has(m.url)) {
       seen.add(m.url);
-      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt });
+      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt, at: m.at || 0, seq: seq++ });
     }
   }));
-  return out.reverse(); // newest first
+  const filtered = galFilter === 'all' ? out : out.filter((i) => i.kind === galFilter);
+  // Old media has no timestamp — insertion order stands in for age.
+  filtered.sort((a, b) => (a.at - b.at) || (a.seq - b.seq));
+  if (galSort === 'new') filtered.reverse();
+  return filtered;
+}
+
+function setGalFilter(f) {
+  galFilter = f;
+  document.querySelectorAll('.g-chip').forEach((c) => c.classList.toggle('active', c.dataset.f === f));
+  renderGallery();
+}
+
+function toggleGalSort() {
+  galSort = galSort === 'new' ? 'old' : 'new';
+  const b = document.getElementById('gallerySort');
+  if (b) b.textContent = galSort === 'new' ? 'Newest first ▾' : 'Oldest first ▴';
+  renderGallery();
 }
 
 function renderGallery() {
@@ -2086,7 +2107,12 @@ function renderGallery() {
   const sub = document.getElementById('gallerySub');
   if (sub) sub.textContent = items.length ? items.length + (items.length === 1 ? ' creation' : ' creations') : '';
   const empty = document.getElementById('galleryEmpty');
-  if (empty) empty.style.display = items.length ? 'none' : '';
+  if (empty) {
+    empty.style.display = items.length ? 'none' : '';
+    empty.textContent = galFilter === 'all'
+      ? 'Nothing here yet — everything you generate lands in your gallery.'
+      : 'No ' + (galFilter === 'audio' ? 'audio' : galFilter + 's') + ' yet.';
+  }
   grid.innerHTML = '';
   items.forEach((it) => {
     const d = document.createElement('div');
