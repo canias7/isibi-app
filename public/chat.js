@@ -1092,6 +1092,7 @@ function directorContext() {
     hasImage: !!attachments.image,
     hasEnd: !!attachments.end,
     brief: (activeChat() || {}).brief || undefined,
+    effort: effort,
   };
 }
 
