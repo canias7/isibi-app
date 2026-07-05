@@ -239,6 +239,17 @@ function setMode(m) {
   buildOptMenus();
 }
 
+// Effort switch (top-left of the main chat) — persisted; behavior wired per level.
+const EFFORT_KEY = 'zephyr_effort';
+let effort = localStorage.getItem(EFFORT_KEY) || 'medium';
+function setEffort(level) {
+  effort = level;
+  localStorage.setItem(EFFORT_KEY, level);
+  document.querySelectorAll('.effort-btn').forEach((b) =>
+    b.classList.toggle('active', b.dataset.effort === level));
+}
+setEffort(effort);
+
 function currentOpts() {
   if (mode === 'audio') return AUDIO_OPTS;
   if (mode === 'image') {

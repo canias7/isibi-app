@@ -898,3 +898,23 @@
 /* shot-strip mode: the track becomes a flex row of proportional blocks */
 .timeline-track.has-shots { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; place-items: unset; }
 .clip-block.sb-block { position: static; inset: auto; width: auto; height: auto; padding: 0; }
+
+/* ── Effort switch (top-left of the main chat) ── */
+.effort-switch {
+  display: flex; align-items: center; gap: .15rem;
+  padding: .22rem .28rem .22rem .75rem; margin-right: .35rem;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 99px;
+}
+.effort-label {
+  font-size: .68rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--muted); margin-right: .35rem;
+}
+.effort-btn {
+  background: none; border: none; color: var(--muted);
+  font-weight: 600; font-size: .78rem; padding: .32rem .75rem;
+  border-radius: 99px; cursor: pointer;
+  transition: color .18s ease, background .18s ease, transform .16s ease;
+}
+.effort-btn:hover { color: var(--text); }
+.effort-btn:active { transform: scale(.96); }
+.effort-btn.active { background: var(--split); color: #0a0a0b; }
