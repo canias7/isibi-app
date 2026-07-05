@@ -104,6 +104,8 @@
     <main class="main">
 
       <div id="viewHome" class="view view-home active">
+      <div class="home-slide" id="homeSlide">
+      <div class="home-screen">
       <div class="laser-beam" id="laserBeam" aria-hidden="true"></div>
       <section class="chat active">
         <div class="chat-head">
@@ -159,11 +161,20 @@
             </button>
           </div>
         </div>
-        <button class="drawer-arrow" id="drawerArrow" onclick="toggleDrawer()" title="More" aria-expanded="false">
+        <button class="drawer-arrow" id="drawerArrow" onclick="togglePresets(true)" title="Presets" aria-expanded="false">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
         </button>
-        <div class="below-drawer" id="belowDrawer"></div>
       </div>
+      </div><!-- /home-screen -->
+
+      <div class="presets-screen" id="presetsScreen">
+        <button class="drawer-arrow" onclick="togglePresets(false)" title="Back to chat">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 15l-6-6-6 6"/></svg>
+        </button>
+        <div class="presets-title">Presets</div>
+        <div class="presets-body" id="presetsBody"></div>
+      </div>
+      </div><!-- /home-slide -->
       </div><!-- /viewHome -->
 
       <div id="viewProjects" class="view view-empty">

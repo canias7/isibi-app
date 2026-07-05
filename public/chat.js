@@ -252,12 +252,11 @@ function setEffort(level) {
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
 }
-// Arrow under the chatbox — opens the drawer beneath (contents TBD).
-function toggleDrawer() {
-  const open = document.getElementById('belowDrawer').classList.toggle('open');
-  const arrow = document.getElementById('drawerArrow');
-  arrow.classList.toggle('open', open);
-  arrow.setAttribute('aria-expanded', open);
+// Arrow under the chatbox — slides the whole view down to the Presets screen
+// (and back up from its own arrow).
+function togglePresets(open) {
+  document.getElementById('homeSlide').classList.toggle('show-presets', open);
+  document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
 }
 
 function toggleEffortMenu(e) {

@@ -822,10 +822,10 @@
 .side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
 
 /* ── LaserFlow beam (falls from the top, lands on the composer) ── */
-.view-home.active { position: relative; }
+.view-home.active { position: relative; overflow: hidden; }
 /* Thread + composer sit above the beam. */
-.view-home.active > .chat,
-.view-home.active > .composer-wrap { position: relative; z-index: 1; }
+.home-screen > .chat,
+.home-screen > .composer-wrap { position: relative; z-index: 1; }
 /* No brightness filter — on real GPUs the shader is already hot, and a filter
    multiplies it into a floodlight (headless software-GL renders it far dimmer,
    which is what misled the earlier tuning). Subtle = low layer opacity;
@@ -912,9 +912,9 @@
   }
 }
 
-/* ── Chatbox lifted; arrow beneath opens the below-drawer ── */
-/* Extra bottom padding floats the box ~1in off the bottom; the arrow and
-   (future) drawer content live in the freed space. */
+/* ── Chatbox lifted; arrow beneath slides down to the Presets screen ── */
+/* Extra bottom padding floats the box ~1in off the bottom; the arrow lives
+   in the freed space. */
 .view-home .composer-wrap { padding-bottom: calc(1.4rem + 44px); }
 .drawer-arrow {
   display: grid; place-items: center;
@@ -925,16 +925,26 @@
   transition: transform .28s ease, color .18s ease, border-color .18s ease, background .18s ease;
 }
 .drawer-arrow:hover { color: var(--text); border-color: #4a4a52; background: rgba(255,255,255,.09); }
-.drawer-arrow.open { transform: rotate(180deg); }
-.below-drawer {
-  width: 100%; max-width: 780px; margin: 0 auto;
-  max-height: 0; overflow: hidden;
-  transition: max-height .32s ease, margin .32s ease;
+
+/* Two full screens stacked vertically; the slide translates between them. */
+.home-slide {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  transition: transform .55s cubic-bezier(.65, 0, .35, 1); will-change: transform;
 }
-.below-drawer.open {
-  max-height: 220px; margin-top: .7rem;
-  background: var(--panel); border: 1px solid var(--line-2); border-radius: 20px;
-  min-height: 180px;
-  backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
-  box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.08);
+.home-slide.show-presets { transform: translateY(-100%); }
+.home-screen {
+  height: 100%; flex: none; position: relative;
+  display: flex; flex-direction: column; min-height: 0;
 }
+.presets-screen {
+  height: 100%; flex: none;
+  display: flex; flex-direction: column; align-items: center; gap: .9rem;
+  padding: 1.1rem 1.5rem 1.5rem;
+}
+.presets-screen .drawer-arrow { margin: 0 auto; }
+.presets-title {
+  font-family: 'Space Grotesk', Inter, sans-serif;
+  font-size: 1.45rem; font-weight: 700; letter-spacing: -.02em;
+}
+.presets-body { flex: 1; width: 100%; max-width: 1080px; }
