@@ -1514,6 +1514,50 @@ async function fetchCredits() {
   } catch {}
 }
 
+// ── Get-credits panel: three packs, $1 = 100 credits ──────────────────────
+const CREDIT_PACKS = [
+  { pack: '5', usd: 5, credits: 500 },
+  { pack: '15', usd: 15, credits: 1500 },
+  { pack: '40', usd: 40, credits: 4000 },
+];
+function openCredits() {
+  if (document.querySelector('.credits-overlay')) return;
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  const cards = CREDIT_PACKS.map((p) =>
+    '<button type="button" class="cp-card" data-pack="' + p.pack + '">' +
+      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
+      '<div class="cp-usd">$' + p.usd + '</div>' +
+    '</button>').join('');
+  ov.innerHTML = '<div class="cp-box">' +
+    '<div class="cp-head"><div class="cp-title">Get credits</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="cp-sub">$1 buys 100 credits. A quick image is a few credits; most videos run 40–600.</div>' +
+    '<div class="cp-grid">' + cards + '</div>' +
+    '<div class="cp-note" id="cpNote"></div>' +
+    '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelectorAll('.cp-card').forEach((c) => {
+    c.onclick = async () => {
+      const note = document.getElementById('cpNote');
+      note.textContent = 'Opening secure checkout…';
+      try {
+        const r = await apiFetch('/api/checkout', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pack: c.dataset.pack }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll buy them.'; return; }
+        if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
+        note.textContent = 'Checkout hit a snag — try again in a moment.';
+      } catch {
+        note.textContent = 'Checkout hit a snag — try again in a moment.';
+      }
+    };
+  });
+  document.body.appendChild(ov);
+}
+
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
 // drop the loader, and free the chat.
 function cancelGen(chatId) {
@@ -1618,7 +1662,7 @@ async function generateMedia(text, opts = {}) {
     if (!alive()) return; // cancelled while submitting
     if (res.status === 402) { // out of credits — nothing was spent
       endGen(origin);
-      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Top-ups are coming soon.');
+      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance in the sidebar to get more.');
       return;
     }
     if (!res.ok || !job.status_url) {
@@ -2541,4 +2585,14 @@ const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
   if (window.Auth && Auth.isSignedIn()) startDirector(firstMsg);
+}
+// Back from Stripe: the webhook mints the credits — poll the balance so the
+// chip catches up even if the webhook lands a few seconds after we do.
+if (params.get('credits') === 'added') {
+  window.history.replaceState({}, '', location.pathname);
+  if (window.Auth && Auth.isSignedIn()) {
+    addMsg('agent', '✦ Payment received — your credits are landing now.');
+    setTimeout(fetchCredits, 2500);
+    setTimeout(fetchCredits, 8000);
+  }
 }

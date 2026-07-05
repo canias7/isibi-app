@@ -22,3 +22,22 @@ jobs:
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Payment secrets are optional: uploaded only once they exist in the
+      # repo settings, so deploys keep working before Stripe is set up.
+      - name: Upload payment secrets (if configured)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
+        run: |
+          for s in STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET CREDITS_MINT_SECRET; do
+            v="${!s}"
+            if [ -n "$v" ]; then
+              printf '%s' "$v" | npx wrangler@4.107.0 secret put "$s"
+              echo "uploaded $s"
+            else
+              echo "skipping $s (not set)"
+            fi
+          done

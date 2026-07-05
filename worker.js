@@ -433,6 +433,105 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
+    // ── Credit packs: $1 = 100 credits (25% over the $0.008 cost basis) ──
+    // Checkout creates a Stripe session; the webhook (signature-verified)
+    // mints the credits idempotently. Both no-op cleanly until the Stripe
+    // secrets are configured.
+    const PACKS = {
+      "5": { cents: 500, credits: 500 },
+      "15": { cents: 1500, credits: 1500 },
+      "40": { cents: 4000, credits: 4000 },
+    };
+
+    if (url.pathname === "/api/checkout" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.STRIPE_SECRET_KEY) {
+        return Response.json({ error: "payments not configured yet" }, { status: 501 });
+      }
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const pack = PACKS[String(body.pack)];
+      if (!pack) return Response.json({ error: "unknown pack" }, { status: 400 });
+      const form = new URLSearchParams({
+        mode: "payment",
+        success_url: "https://isibi.ai/?credits=added",
+        cancel_url: "https://isibi.ai/",
+        "line_items[0][quantity]": "1",
+        "line_items[0][price_data][currency]": "usd",
+        "line_items[0][price_data][unit_amount]": String(pack.cents),
+        "line_items[0][price_data][product_data][name]": pack.credits.toLocaleString("en-US") + " isibi credits",
+        "metadata[user_id]": user.id,
+        "metadata[credits]": String(pack.credits),
+      });
+      if (user.email) form.set("customer_email", user.email);
+      try {
+        const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: form.toString(),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.url) return Response.json({ error: "checkout failed" }, { status: 502 });
+        return Response.json({ url: data.url });
+      } catch {
+        return Response.json({ error: "checkout failed" }, { status: 502 });
+      }
+    }
+
+    if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
+      if (!env.STRIPE_WEBHOOK_SECRET || !env.CREDITS_MINT_SECRET) {
+        return Response.json({ error: "not configured" }, { status: 501 });
+      }
+      const raw = await request.text();
+      // Stripe-Signature: t=<unix>,v1=<hmac-sha256 hex of "<t>.<raw body>">
+      const parts = {};
+      for (const p of (request.headers.get("Stripe-Signature") || "").split(",")) {
+        const i = p.indexOf("=");
+        if (i > 0) parts[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+      }
+      const t = Number(parts.t);
+      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !parts.v1) {
+        return Response.json({ error: "bad signature" }, { status: 400 });
+      }
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        "raw", enc.encode(env.STRIPE_WEBHOOK_SECRET),
+        { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+      );
+      const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
+      const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (hex !== parts.v1) return Response.json({ error: "bad signature" }, { status: 400 });
+
+      let event;
+      try { event = JSON.parse(raw); } catch {
+        return Response.json({ error: "bad payload" }, { status: 400 });
+      }
+      if (event.type === "checkout.session.completed") {
+        const s = event.data && event.data.object;
+        const uid = s && s.metadata && s.metadata.user_id;
+        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
+        if (uid && credits > 0 && s.payment_status === "paid" && s.id) {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            body: JSON.stringify({
+              target: uid, amount: credits, cents: s.amount_total || 0,
+              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
+            }),
+          });
+          // Non-2xx → 500 so Stripe retries the delivery.
+          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+        }
+      }
+      return Response.json({ received: true });
+    }
+
     // Current credit balance (creates the row with the signup grant on first touch).
     if (url.pathname === "/api/credits" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
