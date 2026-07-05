@@ -29,11 +29,10 @@ const IMAGE_MODELS = new Set([
   "fal-ai/nano-banana-pro",
   "openai/gpt-image-2",
   "fal-ai/flux/dev",
-  "fal-ai/flux/schnell",
   "fal-ai/krea-2/turbo",
   "xai/grok-imagine-image",
 ]);
-const DEFAULT_IMAGE_MODEL = "fal-ai/flux/schnell";
+const DEFAULT_IMAGE_MODEL = "fal-ai/bytedance/seedream/v4/text-to-image";
 
 // Image editing: attaching an image in Image mode routes to the model's
 // edit / image-to-image endpoint. `multi` → image_urls[] vs a single image_url.

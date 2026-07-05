@@ -1,6 +1,6 @@
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
-  image: 'fal-ai/flux/schnell',
+  image: 'fal-ai/bytedance/seedream/v4/text-to-image',
   audio: 'fal-ai/elevenlabs/tts/eleven-v3',
 };
 
@@ -86,7 +86,7 @@ const IMAGE_MULTI_MODELS = new Set([
 ]);
 // Models whose fal schema accepts num_images (verified against the OpenAPI docs).
 const IMAGE_NUM_MODELS = new Set([
-  'fal-ai/flux/schnell', 'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
+  'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
   'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/krea-2/turbo',
   'xai/grok-imagine-image', 'fal-ai/gemini-3-pro-image-preview',
 ]);
@@ -130,8 +130,7 @@ const MODEL_LISTS = {
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
     { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
     { id: 'fal-ai/flux/dev', label: 'FLUX.1 Dev' },
-    { id: 'fal-ai/flux/schnell', label: 'FLUX.1 Schnell', note: 'fastest' },
-    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo' },
+    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo', note: 'fastest' },
     { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
   ],
   audio: [
@@ -1465,7 +1464,6 @@ const IMAGE_PRICE = { // $ per image
   'fal-ai/nano-banana-pro': 0.15,
   'openai/gpt-image-2': 0.12, // token-billed; high quality 1024² lands about here
   'fal-ai/flux/dev': 0.025,
-  'fal-ai/flux/schnell': 0.003,
   'fal-ai/krea-2/turbo': 0.008,
   'xai/grok-imagine-image': 0.022,
 };
