@@ -189,6 +189,8 @@ function renderAttach(kind) {
     btn.classList.remove('has');
     btn.innerHTML = ATTACH_LABELS[kind];
   }
+  const cnt = document.getElementById('cnt' + kind[0].toUpperCase() + kind.slice(1));
+  if (cnt) cnt.textContent = attachments[kind] ? '· 1' : '';
 }
 
 function clearAttach(ev, kind) {
@@ -197,7 +199,7 @@ function clearAttach(ev, kind) {
   renderAttach(kind);
 }
 
-// Show only the attachment pickers the current model actually supports,
+// Dim the panel rows the current model can't use (and hide their pick button),
 // and clear any attachment a model can't use so it isn't sent.
 function updateAttachVisibility() {
   const caps = (currentOpts() && currentOpts().caps) || {};
@@ -205,8 +207,60 @@ function updateAttachVisibility() {
     const btn = attachBtn(kind);
     if (!btn) return;
     btn.style.display = ok ? '' : 'none';
+    const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
+    if (row) row.classList.toggle('off', !ok);
     if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
   });
+  apRefresh();
+}
+
+// ── Attach panel (left of the thread): accordion rows + model chips ──
+function toggleApRow(kind) {
+  const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
+  if (row) row.classList.toggle('open');
+}
+
+// Which models can use each attachment kind (video caps + image-edit tables).
+function apModelsFor(kind) {
+  const out = [];
+  MODEL_LISTS.video.forEach((m) => {
+    const caps = (MODEL_OPTS[m.id] || {}).caps || {};
+    if (caps[kind]) out.push({ mode: 'video', id: m.id, label: m.label });
+  });
+  if (kind === 'image') MODEL_LISTS.image.forEach((m) => {
+    if (IMAGE_EDIT_MODELS.has(m.id)) out.push({ mode: 'image', id: m.id, label: m.label });
+  });
+  if (kind === 'avatar') MODEL_LISTS.image.forEach((m) => {
+    if (IMAGE_MULTI_MODELS.has(m.id)) out.push({ mode: 'image', id: m.id, label: m.label });
+  });
+  return out;
+}
+
+function apPick(m, id) {
+  selectedModels[m] = id;
+  setMode(m);
+}
+
+function apRefresh() {
+  document.querySelectorAll('.ap-chip').forEach((c) =>
+    c.classList.toggle('cur', c.dataset.mode === mode && c.dataset.model === model));
+}
+
+function initAttachPanel() {
+  ['image', 'avatar', 'audio', 'clip', 'end'].forEach((kind) => {
+    const host = document.getElementById('models' + kind[0].toUpperCase() + kind.slice(1));
+    if (!host) return;
+    apModelsFor(kind).forEach((m) => {
+      const b = document.createElement('button');
+      b.className = 'ap-chip';
+      b.textContent = m.label;
+      b.dataset.mode = m.mode;
+      b.dataset.model = m.id;
+      b.onclick = () => apPick(m.mode, m.id);
+      host.appendChild(b);
+    });
+  });
+  apRefresh();
 }
 
 function buildMenu() {
@@ -1713,6 +1767,7 @@ document.addEventListener('click', (e) => {
 
 // Init
 buildMenu();
+initAttachPanel();
 buildOptMenus();
 loadStore();
 renderChatList();

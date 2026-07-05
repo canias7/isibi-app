@@ -888,20 +888,47 @@
 /* Sits at the top-left, so the menu drops DOWN and hangs off the left edge. */
 .model-menu.effort-menu { right: auto; left: 0; min-width: 165px; background: #16161b; }
 
-/* ── Attach rail: pickers live in the space left of the chatbox ── */
+/* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
-.attach-rail {
-  /* bottom offset = wrap padding-bottom (1.4rem + 44px) + arrow row (~51px):
-     keeps the rail's last button level with the lifted chatbox's bottom edge */
-  position: absolute; right: calc(50% + 404px); bottom: calc(1.4rem + 51px);
-  display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
-  z-index: 2;
+.attach-panel {
+  position: absolute; left: 14px; top: 72px; bottom: 14px; width: 272px;
+  z-index: 2; overflow-y: auto;
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
+  padding: .45rem;
+  backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
-/* Not enough room beside the box → tuck the rail back above it. */
+.attach-panel::-webkit-scrollbar { width: 8px; }
+.attach-panel::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.ap-row + .ap-row { border-top: 1px solid var(--line); }
+.ap-row.off { opacity: .4; }
+.ap-head {
+  display: flex; align-items: center; gap: .65rem; width: 100%;
+  background: none; border: none; color: var(--text);
+  font-size: .92rem; font-weight: 600; text-align: left;
+  padding: .78rem .6rem; border-radius: 12px; cursor: pointer;
+}
+.ap-head:hover { background: var(--panel-2); }
+.ap-ico { width: 22px; text-align: center; font-size: 1rem; }
+.ap-count { color: var(--neon); font-weight: 700; margin-left: .45rem; font-size: .82rem; }
+.ap-head svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
+.ap-row.open .ap-head svg { transform: rotate(180deg); }
+.ap-body { display: none; padding: .15rem .5rem .85rem 2.45rem; }
+.ap-row.open .ap-body { display: block; }
+.ap-body .attach-btn { padding: .5rem .85rem; font-size: .85rem; }
+.ap-models { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
+.ap-chip {
+  font-size: .76rem; font-weight: 600; padding: .3rem .6rem; border-radius: 99px;
+  border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer;
+  transition: color .15s ease, border-color .15s ease;
+}
+.ap-chip:hover { color: var(--text); border-color: #4a4a52; }
+.ap-chip.cur { background: var(--split); color: #0a0a0b; border-color: transparent; }
+/* Not enough side room → the panel becomes a block above the composer. */
 @media (max-width: 1380px) {
-  .attach-rail {
-    position: static; flex-direction: row; flex-wrap: wrap; align-items: center;
-    width: 100%; max-width: 780px; margin: 0 auto .6rem;
+  .attach-panel {
+    position: static; width: auto; max-height: 220px;
+    margin: 0 1.5rem .5rem;
   }
 }
 
@@ -948,5 +975,4 @@
   .thread-inner,
   .view-home .composer,
   .view-home .drawer-arrow { position: relative; left: 100px; }
-  .attach-rail { right: calc(50% + 304px); }
 }
