@@ -930,6 +930,27 @@
 
 /* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
+
+/* Clarifying questions pop up floating over the thread, anchored on top of
+   the composer — nothing is there when no question is open, and the page
+   never shifts. */
+.q-dock {
+  position: absolute; bottom: 100%; left: 0; right: 0;
+  margin: 0 auto; max-width: 780px; z-index: 3;
+}
+.q-dock .q-card {
+  max-width: 100%;
+  border-bottom-left-radius: 16px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .1);
+}
+.q-card { position: relative; }
+.q-skip {
+  position: absolute; top: .55rem; right: .6rem;
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  font-size: .88rem; line-height: 1; padding: .25rem .4rem; border-radius: 7px;
+}
+.q-skip:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 .attach-panel {
   position: absolute; left: 14px; top: 72px; max-height: calc(100% - 86px); width: 272px;
   z-index: 2; overflow-y: auto;
@@ -1017,6 +1038,7 @@
   .thread-inner,
   .view-home .composer,
   .view-home .drawer-arrow { position: relative; left: 100px; }
+  .view-home .q-dock { transform: translateX(100px); }
 }
 
 /* ── Image previews in the panel: big card (user-picked size) ── */
@@ -1223,18 +1245,4 @@
   font-size: .68rem; color: var(--muted);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: .13rem .45rem;
-}
-
-/* Answered question cards collapse to a slim recap line */
-.q-card.q-done {
-  flex-direction: row; align-items: center; gap: .65rem;
-  padding: .55rem .95rem; max-width: 70%;
-  transition: opacity .2s ease;
-}
-.q-done-q { color: var(--muted); font-size: .82rem; min-width: 0; }
-.q-done-a {
-  font-weight: 600; font-size: .82rem; color: var(--text); white-space: nowrap;
-  background: linear-gradient(130deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .16));
-  border: 1px solid rgba(255, 170, 110, .28);
-  border-radius: 99px; padding: .22rem .7rem;
 }

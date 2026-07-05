@@ -150,6 +150,7 @@ const Auth = (() => {
     signOut, storageDelete, updatePassword,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
+    userId: () => (session && session.user && session.user.id) || '',
   };
 })();
 
