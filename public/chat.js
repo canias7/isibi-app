@@ -215,6 +215,50 @@ async function awDecode(dataUrl) {
   renderAttach('audio');
 }
 
+// Live visualization: while playing, an analyser drives the bars with the
+// actual audio; on pause/end they settle back to the decoded waveform.
+let awCtx = null, awAnalyser = null, awRaf = 0, awWired = false;
+
+function awStartViz() {
+  if (!awPlayer) return;
+  if (!awWired) {
+    if (!awCtx) awCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = awCtx.createMediaElementSource(awPlayer);
+    awAnalyser = awCtx.createAnalyser();
+    awAnalyser.fftSize = 128;
+    src.connect(awAnalyser);
+    awAnalyser.connect(awCtx.destination);
+    awWired = true;
+  }
+  awCtx.resume();
+  const data = new Uint8Array(awAnalyser.frequencyBinCount);
+  const loop = () => {
+    if (!awPlayer || awPlayer.paused) return;
+    awAnalyser.getByteFrequencyData(data);
+    const bars = document.querySelectorAll('#rowAudio .aw-bars i');
+    bars.forEach((b, i) => {
+      const v = data[Math.floor((i / bars.length) * data.length * 0.75)] / 255;
+      b.style.height = Math.max(6, Math.round(6 + Math.pow(v, 1.4) * 58)) + 'px';
+    });
+    awRaf = requestAnimationFrame(loop);
+  };
+  cancelAnimationFrame(awRaf);
+  awRaf = requestAnimationFrame(loop);
+}
+
+function awStopViz() {
+  cancelAnimationFrame(awRaf);
+  const peaks = awPeaks || awPlaceholder(0.25);
+  document.querySelectorAll('#rowAudio .aw-bars i').forEach((b, i) => {
+    b.style.height = Math.max(6, Math.round(peaks[i] * 64)) + 'px';
+  });
+}
+
+function awIcon() {
+  const b = document.querySelector('.aw-play');
+  if (b) b.textContent = awPlayer && !awPlayer.paused ? '❚❚' : '▶';
+}
+
 function awToggle(ev) {
   ev.stopPropagation();
   if (!attachments.audio) return;
@@ -222,12 +266,13 @@ function awToggle(ev) {
   else {
     if (!awPlayer) {
       awPlayer = new Audio(attachments.audio);
-      awPlayer.onended = () => { const b = document.querySelector('.aw-play'); if (b) b.textContent = '▶'; };
+      awPlayer.onplay = () => { awStartViz(); awIcon(); };
+      awPlayer.onpause = () => { awStopViz(); awIcon(); };
+      awPlayer.onended = () => { awStopViz(); awIcon(); };
     }
     awPlayer.play();
   }
-  const b = document.querySelector('.aw-play');
-  if (b && awPlayer) b.textContent = awPlayer.paused ? '▶' : '❚❚';
+  awIcon();
 }
 
 function renderAudioSlot(btn) {
@@ -241,7 +286,9 @@ function renderAudioSlot(btn) {
       + '<span class="x" onclick="clearAttach(event, \'audio\')">×</span>';
   } else {
     btn.classList.remove('has');
+    cancelAnimationFrame(awRaf);
     if (awPlayer) { awPlayer.pause(); awPlayer = null; }
+    awWired = false; awAnalyser = null;
     awPeaks = null; awDur = 0; awName = '';
     btn.innerHTML = awBarsHtml(awPlaceholder(0.15), false) + '<span class="plus-big">+</span>';
   }

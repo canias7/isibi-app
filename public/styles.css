@@ -982,7 +982,7 @@
 @media (min-width: 1381px) {
   .thread-inner,
   .view-home .composer,
-  .view-home .drawer-arrow { position: relative; left: 240px; }
+  .view-home .drawer-arrow { position: relative; left: 100px; }
 }
 
 /* ── Image previews in the panel: big card (user-picked size) ── */
@@ -1044,3 +1044,5 @@
   position: absolute; top: 2px; right: 9px; z-index: 3;
   color: #fff; text-shadow: 0 0 5px #000; font-weight: 700;
 }
+/* Bars ease between frames so the live dance looks fluid. */
+.aw-bars i { transition: height .09s ease; }
