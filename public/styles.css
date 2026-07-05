@@ -936,6 +936,6 @@
 @media (min-width: 1381px) {
   .thread-inner,
   .view-home .composer,
-  .view-home .drawer-arrow { position: relative; left: 70px; }
-  .attach-rail { right: calc(50% + 334px); }
+  .view-home .drawer-arrow { position: relative; left: 100px; }
+  .attach-rail { right: calc(50% + 304px); }
 }
