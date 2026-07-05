@@ -982,7 +982,7 @@
 @media (min-width: 1381px) {
   .thread-inner,
   .view-home .composer,
-  .view-home .drawer-arrow { position: relative; left: 100px; }
+  .view-home .drawer-arrow { position: relative; left: 170px; }
 }
 
 /* ── Image previews in the panel: big card (user-picked size) ── */
