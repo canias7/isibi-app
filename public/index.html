@@ -108,6 +108,14 @@
       <div class="reveal-layer" id="revealLayer" aria-hidden="true"></div>
       <section class="chat active">
         <div class="chat-head">
+          <div class="effort-switch" id="effortSwitch">
+            <span class="effort-label">Effort</span>
+            <button class="effort-btn" data-effort="low" onclick="setEffort('low')">Low</button>
+            <button class="effort-btn" data-effort="medium" onclick="setEffort('medium')">Medium</button>
+            <button class="effort-btn" data-effort="high" onclick="setEffort('high')">High</button>
+            <button class="effort-btn" data-effort="ultra" onclick="setEffort('ultra')">Ultra High</button>
+            <button class="effort-btn" data-effort="max" onclick="setEffort('max')">Max</button>
+          </div>
           <span class="tile zephyr">Z</span>
           <div>
             <div class="cname">Zephyr</div>
