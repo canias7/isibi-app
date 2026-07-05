@@ -750,9 +750,7 @@ function newChat() {
   // invisible in the list — clear the filter first.
   const search = document.getElementById('chatSearch');
   if (search) search.value = '';
-  // Keep the current chat in the sidebar; just start a fresh one.
-  const current = activeChat();
-  if (current && !current.msgs.length) { document.getElementById('input').focus(); renderChatList(); return; }
+  // Always start a fresh chat — even if the current one is still empty.
   const fresh = newChatEntry();
   chatStore.chats.unshift(fresh);
   chatStore.active = fresh.id;
