@@ -147,7 +147,7 @@ const attachments = { image: null, avatar: null, end: null, audio: null, clip: n
 // Extra reference images beyond the first (multi-image models only).
 const extraImages = [];
 const ATTACH_LABELS = {
-  image: '+ Image',
+  image: '<span class="plus-big">+</span>',
   avatar: '+ Avatar',
   audio: '+ Audio',
   clip: '+ Video clip',
@@ -270,8 +270,8 @@ function renderExtraImages() {
   if (more) {
     const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
     const total = (attachments.image ? 1 : 0) + extraImages.length;
-    more.style.display = cap > 1 ? '' : 'none';
-    more.textContent = '+ Add image (' + total + '/' + cap + ')';
+    more.style.display = (cap > 1 && attachments.image) ? '' : 'none';
+    more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
 }
 

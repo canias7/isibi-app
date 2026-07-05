@@ -990,3 +990,11 @@
 }
 .ap-extra .slot { width: 100%; height: 190px; border-radius: 10px; }
 .ap-extra { gap: .5rem; }
+
+/* Empty image slot: same size as the picture it will hold, plus centered */
+#rowImage .attach-btn:not(.has) {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: .25rem; width: 100%; height: 190px; padding: 0; border-radius: 10px;
+}
+#rowImage .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
+#rowImage .slot-count { font-size: .75rem; color: var(--muted); }
