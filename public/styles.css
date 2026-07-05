@@ -1046,3 +1046,35 @@
 }
 /* Bars ease between frames so the live dance looks fluid. */
 .aw-bars i { transition: height .09s ease; }
+
+/* ── Image source chooser + gallery picker ── */
+#rowImage .ap-body { position: relative; }
+.img-src-menu { top: 10px; left: 10px; right: auto; min-width: 170px; background: #16161b; }
+.img-src-menu .check { color: var(--muted); }
+.gal-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(5, 4, 8, .72);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+}
+.gal-box {
+  width: min(760px, 92vw); max-height: 78vh; overflow-y: auto;
+  background: #131318; border: 1px solid var(--line-2); border-radius: 20px;
+  padding: 1.1rem 1.2rem 1.3rem;
+  box-shadow: 0 30px 80px rgba(0,0,0,.6);
+}
+.gal-head { display: flex; align-items: center; margin-bottom: .9rem; }
+.gal-title { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.05rem; }
+.gal-close {
+  margin-left: auto; background: none; border: none; color: var(--muted);
+  font-size: 1.3rem; cursor: pointer; line-height: 1;
+}
+.gal-close:hover { color: var(--text); }
+.gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .55rem; }
+.gal-grid img {
+  width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block;
+  border-radius: 10px; border: 1px solid var(--line-2); cursor: pointer;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.gal-grid img:hover { border-color: var(--neon); transform: scale(1.02); }
+.gal-empty { color: var(--muted); font-size: .9rem; padding: 1.4rem 0; text-align: center; }
