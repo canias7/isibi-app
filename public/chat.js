@@ -321,6 +321,12 @@ function renderAttach(kind) {
 function clearAttach(ev, kind) {
   ev.stopPropagation();
   attachments[kind] = null;
+  // Removing the main image promotes the first extra ref so none orphan,
+  // and the add-more slot re-renders (it keys off the main image).
+  if (kind === 'image') {
+    if (extraImages.length) attachments.image = extraImages.shift();
+    renderExtraImages();
+  }
   renderAttach(kind);
 }
 

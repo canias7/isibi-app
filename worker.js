@@ -256,6 +256,10 @@ async function handleRequest(request, env, ctx) {
         if ((avatar || audio || extraImages.length) && isSeedance) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
           const refs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
+          // fal rule: reference audio requires at least one image/video ref.
+          if (audio && !refs.length) {
+            return Response.json({ error: "Seedance needs a reference image along with the audio — add an image too" }, { status: 400 });
+          }
           if (refs.length) input.image_urls = refs;
           if (audio) input.audio_urls = [audio];
         } else if (image) {
