@@ -338,7 +338,7 @@ async function handleRequest(request, env) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      let step = ["compose", "revise"].includes(body.step) ? body.step : "ask";
+      let step = ["compose", "revise", "error"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
@@ -346,6 +346,8 @@ async function handleRequest(request, env) {
       // ("slower", "fix the text") and the revise step edit surgically.
       const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
       if (step === "revise" && !prevPrompt) step = "compose";
+      // Raw pipeline error, for the explain-a-failure step.
+      const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
@@ -405,6 +407,8 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+        : step === "error"
+        ? `You are Zephyr, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "revise"
         ? `You are the prompt writer for Zephyr, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
 
@@ -453,6 +457,8 @@ Context: ${ctxLine}`
         ? `Request: ${prompt}`
         : step === "revise"
         ? `Feedback on the previous generation: ${prompt}`
+        : step === "error"
+        ? `Failed generation prompt: ${prompt}\nRaw error: ${errText || "(no detail)"}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
 
       // Build the message list: prior turns (merged so roles alternate and the
@@ -504,6 +510,19 @@ Context: ${ctxLine}`
                 },
               },
               required: ["reply", "ready"],
+            },
+          }
+        : step === "error"
+        ? {
+            name: "explain",
+            description: "Explain the failure to the user and optionally offer a fixed prompt.",
+            input_schema: {
+              type: "object",
+              properties: {
+                reply: { type: "string", description: "1-2 friendly plain-language sentences about what went wrong and what to do" },
+                fixedPrompt: { type: "string", description: "only when rewording the prompt could fix the failure: the minimally reworded prompt" },
+              },
+              required: ["reply"],
             },
           }
         : {
@@ -560,6 +579,12 @@ Context: ${ctxLine}`
           ready: !!parsed.ready,
           revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
           questions,
+        });
+      }
+      if (step === "error") {
+        return Response.json({
+          reply: String(parsed.reply || "").slice(0, 500),
+          prompt: parsed.fixedPrompt ? String(parsed.fixedPrompt).slice(0, 2000) : undefined,
         });
       }
       return Response.json({ prompt: String(parsed.prompt || prompt).slice(0, 2000) });

@@ -664,8 +664,8 @@ function deliverAgent(chatId, text) {
   if (chatStore.active === chatId) addMsg('agent', text);
   else saveToChat(chatId, { t: 'agent', text });
 }
-function deliverMedia(chatId, kind, url) {
-  saveToChat(chatId, { t: 'media', kind, url });
+function deliverMedia(chatId, kind, url, prompt) {
+  saveToChat(chatId, { t: 'media', kind, url, prompt: prompt ? String(prompt).slice(0, 300) : undefined });
   if (chatStore.active === chatId) threadAppend(buildMedia(kind, url));
 }
 
@@ -869,6 +869,28 @@ function cancelGen(chatId) {
     : '⏹ Cancelled before it started — no charge.');
 }
 
+// Failures become a conversation: Zephyr explains what went wrong in plain
+// words and, when a rewording could fix it, offers a corrected prompt.
+// Returns false if the director can't help so the generic message shows.
+async function explainFailure(origin, kind, genPrompt, job) {
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'error', kind, prompt: genPrompt || '(no prompt)',
+        error: JSON.stringify(job || {}).slice(0, 700),
+        ...directorContext(),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    if (!data.reply) throw 0;
+    deliverAgent(origin, data.reply);
+    if (data.prompt && chatStore.active === origin) reviewPrompt(data.prompt);
+    return true;
+  } catch { return false; }
+}
+
 // Turn fal/worker failures into human messages; the raw detail goes to the console.
 function friendlyFail(job) {
   console.error('generation failed:', job);
@@ -931,7 +953,7 @@ async function generateMedia(text, opts = {}) {
     if (!alive()) return; // cancelled while submitting
     if (!res.ok || !job.status_url) {
       endGen(origin);
-      deliverAgent(origin, friendlyFail(job));
+      if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
     }
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
@@ -995,7 +1017,7 @@ async function generateMedia(text, opts = {}) {
       }
       if (!alive()) return;
       endGen(origin);
-      finals.forEach((f) => deliverMedia(origin, kind, f));
+      finals.forEach((f) => deliverMedia(origin, kind, f, text));
       // The inputs were consumed — don't let them ride along on the next prompt.
       Object.keys(attachments).forEach((k) => {
         if (attachments[k]) { attachments[k] = null; renderAttach(k); }
@@ -1027,9 +1049,13 @@ let directorState = null;
 function directorHistory() {
   const chat = activeChat();
   return (chat ? chat.msgs : [])
-    .filter((m) => m.t === 'user' || m.t === 'agent')
+    .filter((m) => m.t === 'user' || m.t === 'agent' || m.t === 'media')
     .slice(-8)
-    .map((m) => ({ role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) }));
+    .map((m) => m.t === 'media'
+      // The director can't see media — give it a text marker so "another one
+      // like the last one" means something.
+      ? { role: 'assistant', text: '[generated a ' + (m.kind || 'media') + (m.prompt ? ' with prompt: "' + String(m.prompt).slice(0, 200) + '"' : '') + ']' }
+      : { role: m.t === 'user' ? 'user' : 'assistant', text: String(m.text || '').slice(0, 400) });
 }
 
 // Generation context, so the director writes prompts for the actual target
