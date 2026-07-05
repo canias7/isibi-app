@@ -931,12 +931,18 @@
 /* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
 
-/* Clarifying questions dock in a fixed spot right above the composer. */
-.q-dock { width: 100%; max-width: 780px; margin: 0 auto; }
+/* Clarifying questions pop up floating over the thread, anchored on top of
+   the composer — nothing is there when no question is open, and the page
+   never shifts. */
+.q-dock {
+  position: absolute; bottom: 100%; left: 0; right: 0;
+  margin: 0 auto; max-width: 780px; z-index: 3;
+}
 .q-dock .q-card {
-  max-width: 100%; align-self: stretch;
+  max-width: 100%;
   border-bottom-left-radius: 16px;
-  margin-bottom: .85rem;
+  background: var(--panel);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .1);
 }
 .q-card { position: relative; }
 .q-skip {
@@ -1031,8 +1037,8 @@
 @media (min-width: 1381px) {
   .thread-inner,
   .view-home .composer,
-  .view-home .q-dock,
   .view-home .drawer-arrow { position: relative; left: 100px; }
+  .view-home .q-dock { transform: translateX(100px); }
 }
 
 /* ── Image previews in the panel: big card (user-picked size) ── */
