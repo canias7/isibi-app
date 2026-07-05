@@ -122,21 +122,23 @@
       </section>
 
       <div class="composer-wrap">
+        <div class="attach-rail" id="attachRail">
+          <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
+          <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
+          <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
+          <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
+          <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
+          <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
+          <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
+          <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
+          <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
+          <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
+        </div>
         <div class="composer">
           <div class="composer-top">
-            <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
-            <input type="file" id="fileAvatar" accept="image/*" hidden onchange="onAttach('avatar', this)" />
-            <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
-            <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
-            <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
-            <button class="attach-btn" id="btnAvatar" title="Optional" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
-            <button class="attach-btn" id="btnAudio" title="Optional" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
-            <button class="attach-btn" id="btnClip" title="Source video" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
             <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    oninput="autoGrow(this)"
                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
-            <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
-            <button class="attach-btn" id="btnEnd" title="Optional" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
           </div>
           <div class="composer-row">
             <div class="mode-switch">

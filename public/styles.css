@@ -894,3 +894,18 @@
 .effort-pick .opt-btn { border-radius: 99px; padding: .5rem .95rem; font-size: .84rem; }
 /* Sits at the top-left, so the menu drops DOWN and hangs off the left edge. */
 .model-menu.effort-menu { right: auto; left: 0; min-width: 165px; background: #16161b; }
+
+/* ── Attach rail: pickers live in the space left of the chatbox ── */
+.composer-wrap { position: relative; }
+.attach-rail {
+  position: absolute; right: calc(50% + 404px); bottom: 1.4rem;
+  display: flex; flex-direction: column; align-items: flex-end; gap: .5rem;
+  z-index: 2;
+}
+/* Not enough room beside the box → tuck the rail back above it. */
+@media (max-width: 1380px) {
+  .attach-rail {
+    position: static; flex-direction: row; flex-wrap: wrap; align-items: center;
+    width: 100%; max-width: 780px; margin: 0 auto .6rem;
+  }
+}
