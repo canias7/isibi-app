@@ -220,7 +220,7 @@
   .view-home .composer { position: relative; }
   .view-home .composer-row .mode-switch {
     flex-direction: column;
-    position: absolute; left: calc(100% + 14px); bottom: 0;
+    position: absolute; left: calc(100% + 14px); bottom: -14px;
   }
 }
 .mode-btn {
