@@ -442,6 +442,14 @@ async function handleRequest(request, env, ctx) {
       "50": { cents: 5000, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
       "100": { cents: 10000, credits: 8000, name: "isibi Max — 8,000 credits / month" },
     };
+    // One-time top-ups at $0.014/credit — dearer than membership on purpose.
+    const TOPUPS = {
+      "15": { cents: 1500, credits: 1070 },
+      "30": { cents: 3000, credits: 2140 },
+      "50": { cents: 5000, credits: 3570 },
+      "75": { cents: 7500, credits: 5350 },
+      "100": { cents: 10000, credits: 7140 },
+    };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
@@ -453,22 +461,29 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const plan = PLANS[String(body.plan)];
-      if (!plan) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const plan = body.plan != null ? PLANS[String(body.plan)] : null;
+      const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
+      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
       const form = new URLSearchParams({
-        mode: "subscription",
+        mode: plan ? "subscription" : "payment",
         success_url: "https://isibi.ai/?credits=added",
         cancel_url: "https://isibi.ai/",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String(plan.cents),
-        "line_items[0][price_data][recurring][interval]": "month",
-        "line_items[0][price_data][product_data][name]": plan.name,
+        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
+      });
+      if (plan) {
+        form.set("line_items[0][price_data][recurring][interval]", "month");
+        form.set("line_items[0][price_data][product_data][name]", plan.name);
         // Subscription metadata rides along on every invoice, so renewals
         // know who to credit and how much.
-        "subscription_data[metadata][user_id]": user.id,
-        "subscription_data[metadata][credits]": String(plan.credits),
-      });
+        form.set("subscription_data[metadata][user_id]", user.id);
+        form.set("subscription_data[metadata][credits]", String(plan.credits));
+      } else {
+        form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
+        form.set("metadata[user_id]", user.id);
+        form.set("metadata[credits]", String(topup.credits));
+      }
       if (user.email) form.set("customer_email", user.email);
       try {
         const r = await fetch("https://api.stripe.com/v1/checkout/sessions", {
@@ -514,6 +529,24 @@ async function handleRequest(request, env, ctx) {
       let event;
       try { event = JSON.parse(raw); } catch {
         return Response.json({ error: "bad payload" }, { status: 400 });
+      }
+      // One-time top-ups mint on session completion (payment mode only —
+      // membership sessions mint via their invoice instead).
+      if (event.type === "checkout.session.completed") {
+        const s = event.data && event.data.object;
+        const uid = s && s.metadata && s.metadata.user_id;
+        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
+        if (s && s.mode === "payment" && s.payment_status === "paid" && s.id && uid && credits > 0) {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            body: JSON.stringify({
+              target: uid, amount: credits, cents: s.amount_total || 0,
+              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
+            }),
+          });
+          if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+        }
       }
       // Memberships mint on every PAID INVOICE — the first charge and each
       // monthly renewal both arrive here, idempotent on the invoice id.

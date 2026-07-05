@@ -1311,3 +1311,18 @@
   font-size: .6rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
   background: var(--split); color: #0a0a0b; border-radius: 99px; padding: .16rem .5rem; white-space: nowrap;
 }
+
+/* Top-up minis under the membership cards */
+.cp-box { width: min(92vw, 540px); }
+.cp-sec {
+  margin: 1.1rem 0 .55rem; font-size: .72rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+}
+.cp-grid-5 { grid-template-columns: repeat(5, 1fr); gap: .45rem; }
+.cp-mini { padding: .6rem .3rem; border-radius: 11px; }
+.cp-mini .cp-credits { font-size: .78rem; }
+.cp-mini .cp-usd { font-size: .8rem; margin-top: .25rem; }
+@media (max-width: 560px) {
+  .cp-grid { grid-template-columns: 1fr; }
+  .cp-grid-5 { grid-template-columns: repeat(3, 1fr); }
+}

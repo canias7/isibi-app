@@ -1520,6 +1520,13 @@ const MEMBERSHIPS = [
   { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular' },
   { plan: '100', usd: 100, credits: 8000, name: 'Max' },
 ];
+const TOPUPS = [
+  { topup: '15', usd: 15, credits: 1070 },
+  { topup: '30', usd: 30, credits: 2140 },
+  { topup: '50', usd: 50, credits: 3570 },
+  { topup: '75', usd: 75, credits: 5350 },
+  { topup: '100', usd: 100, credits: 7140 },
+];
 function openCredits() {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
@@ -1531,10 +1538,17 @@ function openCredits() {
       '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '<span class="cp-per">/month</span></div>' +
       '<div class="cp-usd">$' + p.usd + '/mo</div>' +
     '</button>').join('');
+  const minis = TOPUPS.map((p) =>
+    '<button type="button" class="cp-card cp-mini" data-topup="' + p.topup + '">' +
+      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
+      '<div class="cp-usd">$' + p.usd + '</div>' +
+    '</button>').join('');
   ov.innerHTML = '<div class="cp-box">' +
     '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">Fresh credits every month — a quick image is a few, most videos run 40–600. Cancel anytime.</div>' +
+    '<div class="cp-sub">Fresh credits every month at the best rate — cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
     '<div class="cp-grid">' + cards + '</div>' +
+    '<div class="cp-sec">One-time top-ups</div>' +
+    '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
     '<div class="cp-note" id="cpNote"></div>' +
     '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
@@ -1546,7 +1560,7 @@ function openCredits() {
       try {
         const r = await apiFetch('/api/checkout', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan: c.dataset.plan }),
+          body: JSON.stringify(c.dataset.plan ? { plan: c.dataset.plan } : { topup: c.dataset.topup }),
         });
         const d = await r.json().catch(() => ({}));
         if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll buy them.'; return; }
