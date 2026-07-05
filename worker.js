@@ -184,6 +184,10 @@ async function handleRequest(request, env, ctx) {
       const end = dataImage(body.end);
       const audio = dataAudio(body.audio);
       const clip = dataVideo(body.clip);
+      // Extra reference images beyond the first (multi-image models).
+      const extraImages = Array.isArray(body.images)
+        ? body.images.map(dataImage).filter(Boolean).slice(0, 8)
+        : [];
 
       let endpoint = model;
       const input = { prompt };
@@ -249,9 +253,9 @@ async function handleRequest(request, env, ctx) {
         //  Gemini: text-to-video only, no image input
         // Audio input only exists on Seedance reference-to-video, so any audio
         // attachment routes there (carrying along a reference image if present).
-        if ((avatar || audio) && isSeedance) {
+        if ((avatar || audio || extraImages.length) && isSeedance) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          const refs = [image, avatar].filter(Boolean);
+          const refs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
           if (refs.length) input.image_urls = refs;
           if (audio) input.audio_urls = [audio];
         } else if (image) {
@@ -290,7 +294,7 @@ async function handleRequest(request, env, ctx) {
         // Size comes from the source image, so no aspect_ratio here.
         const edit = IMAGE_EDIT[model];
         endpoint = edit.endpoint;
-        const urls = [image, avatar].filter(Boolean);
+        const urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
         if (edit.multi) input.image_urls = urls;
         else input.image_url = urls[0];
       } else if (ratio) {

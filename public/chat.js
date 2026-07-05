@@ -15,7 +15,7 @@ const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
-  caps: { image: true, end: true, avatar: true, audio: true },
+  caps: { image: true, end: true, avatar: true, audio: true, maxImages: 9 },
 };
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
@@ -144,6 +144,8 @@ const MODEL_LISTS = {
 const modelMenu = document.getElementById('modelMenu');
 
 const attachments = { image: null, avatar: null, end: null, audio: null, clip: null };
+// Extra reference images beyond the first (multi-image models only).
+const extraImages = [];
 const ATTACH_LABELS = {
   image: '+ Image',
   avatar: '+ Avatar',
@@ -190,7 +192,12 @@ function renderAttach(kind) {
     btn.innerHTML = ATTACH_LABELS[kind];
   }
   const cnt = document.getElementById('cnt' + kind[0].toUpperCase() + kind.slice(1));
-  if (cnt) cnt.textContent = attachments[kind] ? '· 1' : '';
+  if (cnt) {
+    const n = kind === 'image'
+      ? (attachments.image ? 1 : 0) + extraImages.length
+      : (attachments[kind] ? 1 : 0);
+    cnt.textContent = n ? '· ' + n : '';
+  }
 }
 
 function clearAttach(ev, kind) {
@@ -199,8 +206,8 @@ function clearAttach(ev, kind) {
   renderAttach(kind);
 }
 
-// Dim the panel rows the current model can't use (and hide their pick button),
-// and clear any attachment a model can't use so it isn't sent.
+// Show only the panel rows the current model actually supports (same rules
+// as the old inline pickers), and clear anything a model can't use.
 function updateAttachVisibility() {
   const caps = (currentOpts() && currentOpts().caps) || {};
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
@@ -208,59 +215,64 @@ function updateAttachVisibility() {
     if (!btn) return;
     btn.style.display = ok ? '' : 'none';
     const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
-    if (row) row.classList.toggle('off', !ok);
+    if (row) row.style.display = ok ? '' : 'none';
     if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
   });
-  apRefresh();
+  // Multi-image slots follow the model's cap (Seedance refs take up to 9).
+  const cap = caps.maxImages || 1;
+  if (!caps.image) extraImages.length = 0;
+  else if (extraImages.length > cap - 1) extraImages.length = Math.max(0, cap - 1);
+  renderExtraImages();
 }
 
-// ── Attach panel (left of the thread): accordion rows + model chips ──
+// ── Attach panel (left of the thread): accordion rows ──
 function toggleApRow(kind) {
   const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
   if (row) row.classList.toggle('open');
 }
 
-// Which models can use each attachment kind (video caps + image-edit tables).
-function apModelsFor(kind) {
-  const out = [];
-  MODEL_LISTS.video.forEach((m) => {
-    const caps = (MODEL_OPTS[m.id] || {}).caps || {};
-    if (caps[kind]) out.push({ mode: 'video', id: m.id, label: m.label });
+// Extra images beyond the first, for models that take several references.
+function onAttachExtra(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+  files.forEach((file) => {
+    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (!attachments.image) attachments.image = reader.result;
+      else if (extraImages.length < cap - 1) extraImages.push(reader.result);
+      renderAttach('image');
+      renderExtraImages();
+    };
+    reader.readAsDataURL(file);
   });
-  if (kind === 'image') MODEL_LISTS.image.forEach((m) => {
-    if (IMAGE_EDIT_MODELS.has(m.id)) out.push({ mode: 'image', id: m.id, label: m.label });
-  });
-  if (kind === 'avatar') MODEL_LISTS.image.forEach((m) => {
-    if (IMAGE_MULTI_MODELS.has(m.id)) out.push({ mode: 'image', id: m.id, label: m.label });
-  });
-  return out;
 }
 
-function apPick(m, id) {
-  selectedModels[m] = id;
-  setMode(m);
+function removeExtraImage(i) {
+  extraImages.splice(i, 1);
+  renderExtraImages();
+  renderAttach('image');
 }
 
-function apRefresh() {
-  document.querySelectorAll('.ap-chip').forEach((c) =>
-    c.classList.toggle('cur', c.dataset.mode === mode && c.dataset.model === model));
-}
-
-function initAttachPanel() {
-  ['image', 'avatar', 'audio', 'clip', 'end'].forEach((kind) => {
-    const host = document.getElementById('models' + kind[0].toUpperCase() + kind.slice(1));
-    if (!host) return;
-    apModelsFor(kind).forEach((m) => {
-      const b = document.createElement('button');
-      b.className = 'ap-chip';
-      b.textContent = m.label;
-      b.dataset.mode = m.mode;
-      b.dataset.model = m.id;
-      b.onclick = () => apPick(m.mode, m.id);
-      host.appendChild(b);
-    });
+function renderExtraImages() {
+  const host = document.getElementById('extraImages');
+  if (!host) return;
+  host.innerHTML = '';
+  extraImages.forEach((src, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<img src="' + src + '" alt="" /><span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeExtraImage(i);
+    host.appendChild(d);
   });
-  apRefresh();
+  const more = document.getElementById('btnMoreImages');
+  if (more) {
+    const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+    const total = (attachments.image ? 1 : 0) + extraImages.length;
+    more.style.display = cap > 1 ? '' : 'none';
+    more.textContent = '+ Add image (' + total + '/' + cap + ')';
+  }
 }
 
 function buildMenu() {
@@ -327,7 +339,10 @@ function currentOpts() {
     return {
       ratios: IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
-      caps: { image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model) },
+      caps: {
+        image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model),
+        maxImages: IMAGE_MULTI_MODELS.has(model) ? 4 : 1,
+      },
     };
   }
   return MODEL_OPTS[model];
@@ -1028,6 +1043,7 @@ async function generateMedia(text, opts = {}) {
         model,
         prompt: text,
         image: attachments.image || undefined,
+        images: extraImages.length ? extraImages.slice() : undefined,
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
         audio: attachments.audio || undefined,
@@ -1117,6 +1133,8 @@ async function generateMedia(text, opts = {}) {
       Object.keys(attachments).forEach((k) => {
         if (attachments[k]) { attachments[k] = null; renderAttach(k); }
       });
+      extraImages.length = 0;
+      renderExtraImages();
     } else {
       endGen(origin);
       console.error('generation finished without media:', out);
@@ -1767,7 +1785,6 @@ document.addEventListener('click', (e) => {
 
 // Init
 buildMenu();
-initAttachPanel();
 buildOptMenus();
 loadStore();
 renderChatList();

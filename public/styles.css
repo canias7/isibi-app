@@ -891,7 +891,7 @@
 /* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
 .attach-panel {
-  position: absolute; left: 14px; top: 72px; bottom: 14px; width: 272px;
+  position: absolute; left: 14px; top: 72px; max-height: calc(100% - 86px); width: 272px;
   z-index: 2; overflow-y: auto;
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
@@ -901,7 +901,6 @@
 .attach-panel::-webkit-scrollbar { width: 8px; }
 .attach-panel::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
 .ap-row + .ap-row { border-top: 1px solid var(--line); }
-.ap-row.off { opacity: .4; }
 .ap-head {
   display: flex; align-items: center; gap: .65rem; width: 100%;
   background: none; border: none; color: var(--text);
@@ -916,14 +915,18 @@
 .ap-body { display: none; padding: .15rem .5rem .85rem 2.45rem; }
 .ap-row.open .ap-body { display: block; }
 .ap-body .attach-btn { padding: .5rem .85rem; font-size: .85rem; }
-.ap-models { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
-.ap-chip {
-  font-size: .76rem; font-weight: 600; padding: .3rem .6rem; border-radius: 99px;
-  border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer;
-  transition: color .15s ease, border-color .15s ease;
+/* Extra image slots (multi-image models, e.g. Seedance refs) */
+.ap-extra { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .5rem; }
+.ap-extra .slot {
+  position: relative; width: 58px; height: 44px; border-radius: 8px;
+  overflow: hidden; border: 1px solid var(--line-2);
 }
-.ap-chip:hover { color: var(--text); border-color: #4a4a52; }
-.ap-chip.cur { background: var(--split); color: #0a0a0b; border-color: transparent; }
+.ap-extra img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ap-extra .x {
+  position: absolute; top: 0; right: 4px; cursor: pointer;
+  color: #fff; text-shadow: 0 0 5px #000; font-weight: 700;
+}
+.ap-add { margin-top: .5rem; }
 /* Not enough side room → the panel becomes a block above the composer. */
 @media (max-width: 1380px) {
   .attach-panel {

@@ -128,39 +128,37 @@
         <input type="file" id="fileAudio" accept="audio/*" hidden onchange="onAttach('audio', this)" />
         <input type="file" id="fileClip" accept="video/*" hidden onchange="onAttach('clip', this)" />
         <input type="file" id="fileEnd" accept="image/*" hidden onchange="onAttach('end', this)" />
+        <input type="file" id="fileExtra" accept="image/*" multiple hidden onchange="onAttachExtra(this)" />
         <div class="ap-row" id="rowImage">
           <button class="ap-head" onclick="toggleApRow('image')"><span class="ap-ico">🖼</span><span class="ap-label">Image<b class="ap-count" id="cntImage"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
             <button class="attach-btn" id="btnImage" onclick="document.getElementById('fileImage').click()">+ Image</button>
-            <div class="ap-models" id="modelsImage"></div>
+            <div class="ap-extra" id="extraImages"></div>
+            <button class="attach-btn ap-add" id="btnMoreImages" style="display:none" onclick="document.getElementById('fileExtra').click()">+ Add image</button>
           </div>
         </div>
         <div class="ap-row" id="rowAvatar">
           <button class="ap-head" onclick="toggleApRow('avatar')"><span class="ap-ico">👤</span><span class="ap-label">Avatar<b class="ap-count" id="cntAvatar"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
             <button class="attach-btn" id="btnAvatar" onclick="document.getElementById('fileAvatar').click()">+ Avatar</button>
-            <div class="ap-models" id="modelsAvatar"></div>
           </div>
         </div>
         <div class="ap-row" id="rowAudio">
           <button class="ap-head" onclick="toggleApRow('audio')"><span class="ap-ico">🎧</span><span class="ap-label">Audio<b class="ap-count" id="cntAudio"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
             <button class="attach-btn" id="btnAudio" onclick="document.getElementById('fileAudio').click()">+ Audio</button>
-            <div class="ap-models" id="modelsAudio"></div>
           </div>
         </div>
         <div class="ap-row" id="rowClip">
           <button class="ap-head" onclick="toggleApRow('clip')"><span class="ap-ico">🎬</span><span class="ap-label">Video clip<b class="ap-count" id="cntClip"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
             <button class="attach-btn" id="btnClip" onclick="document.getElementById('fileClip').click()">+ Video clip</button>
-            <div class="ap-models" id="modelsClip"></div>
           </div>
         </div>
         <div class="ap-row" id="rowEnd">
           <button class="ap-head" onclick="toggleApRow('end')"><span class="ap-ico">🏁</span><span class="ap-label">End frame<b class="ap-count" id="cntEnd"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
             <button class="attach-btn" id="btnEnd" onclick="document.getElementById('fileEnd').click()">+ End frame</button>
-            <div class="ap-models" id="modelsEnd"></div>
           </div>
         </div>
       </div>
