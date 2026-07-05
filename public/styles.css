@@ -1058,7 +1058,7 @@
   display: flex; align-items: center; justify-content: center;
 }
 .gal-box {
-  width: min(760px, 92vw); max-height: 78vh; overflow-y: auto;
+  width: min(96vw, 1500px); height: 92vh; overflow-y: auto;
   background: #131318; border: 1px solid var(--line-2); border-radius: 20px;
   padding: 1.1rem 1.2rem 1.3rem;
   box-shadow: 0 30px 80px rgba(0,0,0,.6);
@@ -1070,7 +1070,7 @@
   font-size: 1.3rem; cursor: pointer; line-height: 1;
 }
 .gal-close:hover { color: var(--text); }
-.gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .55rem; }
+.gal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: .7rem; }
 .gal-grid img {
   width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block;
   border-radius: 10px; border: 1px solid var(--line-2); cursor: pointer;
