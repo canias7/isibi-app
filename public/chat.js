@@ -583,7 +583,7 @@ function pushSaved(item) {
 }
 
 function renderSaved(item) {
-  if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url)); return; }
+  if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
@@ -666,11 +666,11 @@ function deliverAgent(chatId, text) {
 }
 function deliverMedia(chatId, kind, url, prompt) {
   saveToChat(chatId, { t: 'media', kind, url, prompt: prompt ? String(prompt).slice(0, 300) : undefined });
-  if (chatStore.active === chatId) threadAppend(buildMedia(kind, url));
+  if (chatStore.active === chatId) threadAppend(buildMedia(kind, url, prompt));
 }
 
 // ── Generated media: element + download + full-screen actions ──
-function buildMedia(kind, url) {
+function buildMedia(kind, url, prompt) {
   const div = document.createElement('div');
   div.className = 'msg agent ' + kind;
   let el;
@@ -699,6 +699,19 @@ function buildMedia(kind, url) {
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
+  if (kind === 'video' && window.sbAddFromChat) {
+    const st = document.createElement('button');
+    st.className = 'media-btn'; st.type = 'button'; st.title = 'Add to Studio as a shot'; st.textContent = '🎬';
+    st.onclick = async (e) => {
+      e.stopPropagation();
+      st.textContent = '…';
+      const n = await sbAddFromChat(url, prompt || '');
+      st.textContent = '✓';
+      setTimeout(() => { st.textContent = '🎬'; }, 1500);
+      deliverAgent(chatStore.active, 'Added to Studio as shot ' + n + ' of “' + sbProject().title + '” — open Studio to direct it.');
+    };
+    actions.appendChild(st);
+  }
   const del = document.createElement('button');
   del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
@@ -1667,83 +1680,11 @@ document.addEventListener('click', (e) => {
   if (menu && menu.classList.contains('open') && dd && !dd.contains(e.target)) menu.classList.remove('open');
 });
 
-// ── Studio (video editor) ──
-// Import runs entirely on-device: the browser loads the clip into the preview
-// and drops it on the timeline. (Cutting via ffmpeg.wasm is the next step.)
-function studioAppend(kind, text) {
-  const box = document.getElementById('studioMessages');
-  if (!box) return;
-  const div = document.createElement('div');
-  div.className = 'msg ' + kind;
-  div.textContent = text;
-  box.appendChild(div);
-  box.scrollTop = box.scrollHeight;
-}
-function studioSend() {
-  const inp = document.getElementById('studioInput');
-  if (!inp) return;
-  const t = (inp.value || '').trim();
-  if (!t) return;
-  inp.value = '';
-  inp.style.height = 'auto';
-  studioAppend('user', t);
-  setTimeout(() => studioAppend('agent',
-    "Editing's taking shape — import a clip and I'll cut, trim and split it for you here. (The cutting engine is coming next.)"), 250);
-}
-function initStudio() {
-  const file = document.getElementById('studioFile');
-  if (!file) return;
-  file.addEventListener('change', (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (!f) return;
-    const url = URL.createObjectURL(f);
-    // preview
-    const stage = document.getElementById('previewStage');
-    if (stage) {
-      stage.innerHTML = '';
-      const v = document.createElement('video');
-      v.src = url; v.controls = true;
-      v.addEventListener('loadedmetadata', () => {
-        const tc = document.getElementById('studioTimecode');
-        if (tc) tc.textContent = '00:00 / ' + fmtDur(v.duration);
-      });
-      stage.appendChild(v);
-    }
-    // media bin entry
-    const bin = document.getElementById('mediaBody');
-    const zone = document.getElementById('importZone');
-    if (bin) {
-      if (zone) zone.style.minHeight = '84px';
-      const clip = document.createElement('div');
-      clip.className = 'media-clip';
-      clip.innerHTML = '<span class="mc-thumb">🎞</span><span class="mc-name"></span>';
-      clip.querySelector('.mc-name').textContent = f.name;
-      bin.appendChild(clip);
-    }
-    // timeline block
-    const track = document.getElementById('timelineTrack');
-    if (track) {
-      const empty = track.querySelector('.timeline-empty');
-      if (empty) empty.remove();
-      const block = document.createElement('div');
-      block.className = 'clip-block';
-      block.textContent = f.name;
-      track.insertBefore(block, track.querySelector('.playhead'));
-    }
-    studioAppend('agent', 'Loaded “' + f.name + '.” Tell me how you want it cut.');
-  });
-}
-function fmtDur(s) {
-  if (!isFinite(s)) return '00:00';
-  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
-  return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
-}
+// ── Studio lives in studio.js (shot-based projects) ──
 
 // Init
 buildMenu();
 buildOptMenus();
-initStudio();
 loadStore();
 renderChatList();
 renderThread();

@@ -349,7 +349,7 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      let step = ["compose", "revise", "error"].includes(body.step) ? body.step : "ask";
+      let step = ["compose", "revise", "error", "studio"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
@@ -362,6 +362,17 @@ async function handleRequest(request, env, ctx) {
       // The chat's running creative brief — per-chat taste memory, maintained
       // by the composer and committed by the client on approval.
       const brief = kind !== "audio" && typeof body.brief === "string" ? body.brief.trim().slice(0, 600) : "";
+      // Studio: the project's current shot list, summarized by the client.
+      const shotsCtx = Array.isArray(body.shots)
+        ? body.shots.slice(0, 40).map((s) => ({
+            n: +s.n || 0,
+            title: String(s.title || "").slice(0, 60),
+            status: String(s.status || "").slice(0, 12),
+            dur: +s.dur || 0,
+            prompt: String(s.prompt || "").slice(0, 160),
+            src: String(s.src || "").slice(0, 8),
+          }))
+        : [];
       const answers = Array.isArray(body.answers)
         ? body.answers.filter((a) => typeof a === "string").slice(0, 4).map((a) => a.slice(0, 200))
         : [];
@@ -424,6 +435,19 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result or a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+        : step === "studio"
+        ? `You are Zephyr, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
+
+Current shots (JSON): ${JSON.stringify(shotsCtx)}
+${brief ? `Project brief: "${brief}"` : "No project brief yet."}
+
+Rules:
+- When the user describes a film, ad or sequence: break it into 3-8 shots via one add_shots action. Each shot gets a short title, a duration (3-10s), and a full generation prompt following video craft: one continuous shot, explicit camera work, concrete visual language, on-screen text pinned as never changing.
+- CONSISTENCY: describe each character and setting ONCE in the brief, then repeat those descriptions WORD-FOR-WORD in every shot prompt that features them — verbatim repetition is what keeps AI characters consistent across shots.
+- Always return an updated brief (1-3 sentences: cast, setting, style) when shots are added or changed.
+- update_shot (by n) changes prompt/title/duration; use trim {start,end} (seconds within the shot) to shorten imported slices. Rewriting a generated shot's prompt means it must be regenerated — mention that.
+- generate (n, or "all" for every draft) ONLY when the user explicitly asks to generate/run/make the shots — generation costs money; never trigger it uninvited.
+- reply: short and friendly, reference shots by number. If the user is just chatting or asking, reply with no actions.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "error"
         ? `You are Zephyr, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "revise"
@@ -476,6 +500,8 @@ Context: ${ctxLine}`
         ? `Feedback on the previous generation: ${prompt}`
         : step === "error"
         ? `Failed generation prompt: ${prompt}\nRaw error: ${errText || "(no detail)"}`
+        : step === "studio"
+        ? `Request: ${prompt}`
         : `Request: ${prompt}\nPicks: ${answers.length ? answers.join("; ") : "(none)"}`;
 
       // Build the message list: prior turns (merged so roles alternate and the
@@ -527,6 +553,47 @@ Context: ${ctxLine}`
                 },
               },
               required: ["reply", "ready"],
+            },
+          }
+        : step === "studio"
+        ? {
+            name: "direct_studio",
+            description: "Reply to the user and return the actions to apply to the shot list.",
+            input_schema: {
+              type: "object",
+              properties: {
+                reply: { type: "string", description: "short, friendly reply referencing shots by number" },
+                brief: { type: "string", description: "updated 1-3 sentence project brief: cast and setting described once, style, mood" },
+                actions: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      type: { type: "string", enum: ["add_shots", "update_shot", "remove_shot", "reorder", "generate"] },
+                      shots: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            title: { type: "string" },
+                            prompt: { type: "string", description: "full generation prompt for this shot" },
+                            duration: { type: "number", description: "seconds, 3-10" },
+                          },
+                          required: ["prompt"],
+                        },
+                      },
+                      n: { description: "shot number (1-based), or the string 'all' for generate" },
+                      title: { type: "string" },
+                      prompt: { type: "string" },
+                      duration: { type: "number" },
+                      trim: { type: "object", properties: { start: { type: "number" }, end: { type: "number" } } },
+                      order: { type: "array", items: { type: "integer" }, description: "new order as current shot numbers" },
+                    },
+                    required: ["type"],
+                  },
+                },
+              },
+              required: ["reply"],
             },
           }
         : step === "error"
@@ -656,6 +723,13 @@ Context: ${ctxLine}`
         return Response.json({
           reply: String(parsed.reply || "").slice(0, 500),
           prompt: parsed.fixedPrompt ? String(parsed.fixedPrompt).slice(0, 2000) : undefined,
+        });
+      }
+      if (step === "studio") {
+        return Response.json({
+          reply: String(parsed.reply || "").slice(0, 600),
+          brief: parsed.brief ? String(parsed.brief).slice(0, 600) : undefined,
+          actions: (Array.isArray(parsed.actions) ? parsed.actions : []).slice(0, 20),
         });
       }
       return Response.json({

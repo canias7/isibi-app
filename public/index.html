@@ -195,18 +195,15 @@
         <!-- 3/4 · iMovie-style editor -->
         <section class="studio-editor">
           <div class="editor-top">
-            <!-- media / import browser -->
+            <!-- storyboard: the project's shots, in order -->
             <div class="editor-media">
               <div class="media-tabs">
-                <button class="media-tab active">My Media</button>
-                <button class="media-tab">Titles</button>
-                <button class="media-tab">Transitions</button>
+                <button class="media-tab active">Storyboard</button>
+                <select id="sbProjectSel" class="sb-project" onchange="sbSwitchProject(this.value)" aria-label="Project"></select>
               </div>
-              <div class="media-body" id="mediaBody">
-                <div class="import-zone" id="importZone" onclick="document.getElementById('studioFile').click()">
-                  <div class="import-arrow">⬇</div>
-                  <div class="import-label">Import Media</div>
-                </div>
+              <div class="media-body" id="sbList"></div>
+              <div class="sb-actions">
+                <button class="sb-btn" onclick="document.getElementById('studioFile').click()">⬇ Import & split into shots</button>
                 <input type="file" id="studioFile" accept="video/*" hidden />
               </div>
             </div>
@@ -240,18 +237,15 @@
           <div class="editor-timeline">
             <div class="timeline-bar">
               <div class="timeline-tools">
-                <button class="tl-tool">✂ Split</button>
-                <button class="tl-tool">⧉ Trim</button>
-                <button class="tl-tool tl-export">Export</button>
+                <button class="tl-tool" onclick="sbPlayAll()">▶ Play film</button>
+                <button class="tl-tool tl-export" id="sbExportBtn" onclick="sbExport()">Export</button>
               </div>
               <div class="tl-right">
-                <input type="range" class="tl-zoom" min="1" max="10" value="5" aria-label="Zoom timeline" />
-                <span class="tl-settings">Settings</span>
+                <span class="tl-settings" id="sbTotalDur"></span>
               </div>
             </div>
             <div class="timeline-track" id="timelineTrack">
-              <div class="timeline-empty">Import a clip and it lands here on the timeline — then tell Zephyr how to cut it.</div>
-              <div class="playhead"></div>
+              <div class="timeline-empty">Describe your film to Zephyr — or import a video — and its shots land here.</div>
             </div>
           </div>
         </section>
@@ -263,5 +257,6 @@
   <script src="/auth.js"></script>
   <script src="/laser.js"></script>
   <script src="/chat.js"></script>
+  <script src="/studio.js"></script>
 </body>
 </html>
