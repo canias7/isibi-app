@@ -214,13 +214,14 @@
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px;
 }
 .mode-btn { text-align: center; }
-/* Wide screens: the switch stacks vertically OUTSIDE the box's right edge,
-   so the chatbox keeps its height. Narrow screens keep the inline pill. */
+/* Wide screens: the switch stacks vertically INSIDE the box's left edge,
+   vertically centered; the content shifts right to make room, so the
+   chatbox keeps its height. Narrow screens keep the inline pill. */
 @media (min-width: 1500px) {
-  .view-home .composer { position: relative; }
+  .view-home .composer { position: relative; padding-left: 122px; }
   .view-home .composer-row .mode-switch {
     flex-direction: column;
-    position: absolute; left: calc(100% + 14px); bottom: -14px;
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
   }
 }
 .mode-btn {
