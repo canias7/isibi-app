@@ -986,10 +986,18 @@
 }
 
 /* ── Image previews in the panel: big card (user-picked size) ── */
-#rowImage .ap-body { padding-left: .6rem; }
-#rowImage .attach-btn.has { display: block; width: 100%; padding: .3rem; position: relative; }
-#rowImage .attach-btn.has img { width: 100%; height: 190px; object-fit: cover; border-radius: 10px; }
-#rowImage .attach-btn.has .x {
+#rowImage .ap-body,
+#rowAvatar .ap-body,
+#rowEnd .ap-body { padding-left: .6rem; }
+#rowImage .attach-btn.has,
+#rowAvatar .attach-btn.has,
+#rowEnd .attach-btn.has { display: block; width: 100%; padding: .3rem; position: relative; }
+#rowImage .attach-btn.has img,
+#rowAvatar .attach-btn.has img,
+#rowEnd .attach-btn.has img { width: 100%; height: 190px; object-fit: cover; border-radius: 10px; }
+#rowImage .attach-btn.has .x,
+#rowAvatar .attach-btn.has .x,
+#rowEnd .attach-btn.has .x {
   position: absolute; top: 10px; right: 14px; font-size: 1.15rem;
   color: #fff; text-shadow: 0 0 6px #000;
 }
@@ -997,11 +1005,13 @@
 .ap-extra { gap: .5rem; }
 
 /* Empty image slot: same size as the picture it will hold, plus centered */
-#rowImage .attach-btn:not(.has) {
+#rowImage .attach-btn:not(.has),
+#rowAvatar .attach-btn:not(.has),
+#rowEnd .attach-btn:not(.has) {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: .25rem; width: 100%; height: 190px; padding: 0; border-radius: 10px;
 }
-#rowImage .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
-#rowImage .slot-count { font-size: .75rem; color: var(--muted); }
+#rowImage .plus-big, #rowAvatar .plus-big, #rowEnd .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
+#rowImage .slot-count, #rowAvatar .slot-count, #rowEnd .slot-count { font-size: .75rem; color: var(--muted); }
 /* No header bar anymore — keep the first message clear of the floating chip. */
 .view-home .thread { padding-top: 3.4rem; }

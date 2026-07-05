@@ -148,10 +148,10 @@ const attachments = { image: null, avatar: null, end: null, audio: null, clip: n
 const extraImages = [];
 const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
-  avatar: '+ Avatar',
+  avatar: '<span class="plus-big">+</span>',
   audio: '+ Audio',
   clip: '+ Video clip',
-  end: '+ End frame',
+  end: '<span class="plus-big">+</span>',
 };
 
 function attachBtn(kind) {
