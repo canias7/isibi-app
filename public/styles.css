@@ -867,3 +867,34 @@
 
 /* Account avatar → dark chip (matches the mockup). */
 .side-avatar { background: linear-gradient(140deg, #3a3344, #221d2b); border: 1px solid var(--line); color: var(--muted); }
+
+/* ── Studio storyboard (shot-based) ─────────────── */
+.sb-project { margin-left: auto; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line-2); border-radius: 8px; font-size: .78rem; padding: .25rem .4rem; max-width: 46%; }
+.sb-actions { padding: .6rem; border-top: 1px solid var(--line); }
+.sb-btn { width: 100%; background: none; border: 1px dashed var(--line-2); color: var(--muted); border-radius: 10px; padding: .55rem; cursor: pointer; font-size: .85rem; }
+.sb-btn:hover { color: var(--text); border-color: #4a4a52; }
+.sb-empty { color: var(--muted); font-size: .85rem; padding: 1rem; line-height: 1.5; }
+.sb-card { display: flex; align-items: center; gap: .55rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 10px; margin: 0 .5rem .5rem; cursor: pointer; background: var(--panel); }
+.sb-card:hover { border-color: var(--line-2); }
+.sb-card.sel { border-color: rgba(255, 184, 77, .7); }
+.sb-num { color: var(--muted); font-size: .75rem; width: 1.1rem; text-align: right; flex: none; }
+.sb-thumb { width: 56px; height: 32px; object-fit: cover; border-radius: 6px; background: #000; flex: none; display: grid; place-items: center; }
+.sb-thumb-empty { font-size: .95rem; }
+.sb-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sb-meta b { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-meta small { color: var(--muted); font-size: .7rem; }
+.sb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
+.sb-card.st-ready .sb-dot { background: #34d399; }
+.sb-card.st-generating .sb-dot { background: #ffb84d; animation: sbpulse .9s infinite alternate; }
+.sb-card.st-missing .sb-dot { background: #f43f5e; }
+@keyframes sbpulse { from { opacity: .35; } to { opacity: 1; } }
+.sb-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .95rem; padding: 0 .1rem; flex: none; }
+.sb-x:hover { color: #f43f5e; }
+.sb-block { position: relative; background-size: cover; background-position: center; min-width: 34px; cursor: pointer; }
+.sb-block span { position: absolute; left: .4rem; top: .25rem; font-size: .7rem; color: #fff; text-shadow: 0 1px 2px #000; }
+.sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); }
+.sb-block.st-draft { opacity: .45; }
+.sb-block.st-generating { animation: sbpulse .9s infinite alternate; }
+/* shot-strip mode: the track becomes a flex row of proportional blocks */
+.timeline-track.has-shots { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; place-items: unset; }
+.clip-block.sb-block { position: static; inset: auto; width: auto; height: auto; padding: 0; }
