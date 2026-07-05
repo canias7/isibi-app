@@ -453,7 +453,10 @@ Leave questions empty either way. When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create but it's vague: set ready=true and add up to 3 natural clarifying questions, each with exactly 3 options (a short label + a few-word description). Phrase questions the way a friend would ask out loud ("How do you want it to feel?", "Where's this happening?"), NEVER terse labels like "Setting" or "Camera style".
 - If they've already given a detailed creative request: set ready=true and leave questions empty — you have enough to generate.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". If their message is feedback on that result, a tweak to it ("slower", "fix the text", "make it brighter", "again but at night"), or simply asks to retry/re-run it, set revise=true, leave questions empty, and use your reply to acknowledge the fix. For a brand-new idea, set revise=false.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+- rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — leave questions empty and use your reply to say you're running it again.
+- revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — leave questions empty and use your reply to acknowledge the fix.
+- both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "studio"
         ? `You are Zephyr, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
 
@@ -552,6 +555,7 @@ Context: ${ctxLine}`
                 reply: { type: "string", description: "a short, friendly conversational message in Zephyr's voice" },
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
+                rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
                 questions: {
                   type: "array",
                   items: {
@@ -646,7 +650,8 @@ Context: ${ctxLine}`
       const shapeAsk = (parsed) => ({
         reply: String(parsed.reply || "").slice(0, 500),
         ready: !!parsed.ready,
-        revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
+        rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
+        revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
         questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
           .slice(0, kind === "audio" ? 0 : 3)
           .map((q) => ({

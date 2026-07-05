@@ -1630,6 +1630,7 @@ async function directorAsk(text, history, onDelta) {
       return {
         reply: final.reply || '',
         ready: !!final.ready,
+        rerun: !!final.rerun,
         revise: !!final.revise,
         questions: Array.isArray(final.questions) ? final.questions : [],
       };
@@ -1638,6 +1639,7 @@ async function directorAsk(text, history, onDelta) {
     return {
       reply: data.reply || '',
       ready: !!data.ready,
+      rerun: !!data.rerun,
       revise: !!data.revise,
       questions: Array.isArray(data.questions) ? data.questions : [],
     };
@@ -1732,15 +1734,6 @@ async function startDirector(text) {
   const origin = chatStore.active;
   const history = directorHistory(); // prior turns only — capture before adding this one
   addMsg('user', text);
-  // Plain retry after a run ("try again", "retry", "run it again"…): the
-  // prompt was already approved once — just run it again, no re-interview.
-  const chatNow = activeChat();
-  if (chatNow && chatNow.lastPrompt && mode !== 'audio'
-      && /^(try( it)?( again)?|retry|re-?run( it)?|run( it)? again|again|one more( time)?|same( prompt)?( again)?)[\s.!]*$/i.test(text.trim())) {
-    deliverAgent(origin, '🔁 Running the same prompt again.');
-    generateMedia(chatNow.lastPrompt, { announce: false });
-    return;
-  }
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
   // Zephyr's reply streams into a live bubble; the final text is re-delivered
   // through the normal path (persisted, stamped) when the stream ends.
@@ -1763,6 +1756,13 @@ async function startDirector(text) {
   // If the user moved to another chat while Zephyr was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
+  // The director read the message as "run that again": the last prompt was
+  // already approved once — straight back into generation, no re-interview.
+  if (res.rerun && (activeChat() || {}).lastPrompt) {
+    if (!res.reply) deliverAgent(origin, '🔁 Running it again.');
+    generateMedia(activeChat().lastPrompt, { announce: false });
+    return;
+  }
   // Feedback on the previous generation — revise that prompt surgically,
   // no clarifying questions.
   if (res.revise && (activeChat() || {}).lastPrompt) {
