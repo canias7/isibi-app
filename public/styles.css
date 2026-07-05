@@ -1015,3 +1015,32 @@
 #rowImage .slot-count, #rowAvatar .slot-count, #rowEnd .slot-count { font-size: .75rem; color: var(--muted); }
 /* No header bar anymore — keep the first message clear of the floating chip. */
 .view-home .thread { padding-top: 3.4rem; }
+
+/* ── Audio slot: waveform bars (design B) ── */
+#rowAudio .ap-body { padding-left: .6rem; }
+#rowAudio .attach-btn {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 96px; padding: 0; border-radius: 12px; overflow: hidden;
+}
+#rowAudio .attach-btn.has { border-style: solid; border-color: var(--neon); }
+.aw-bars {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; gap: 3px; padding: 0 14px; pointer-events: none;
+}
+.aw-bars i { width: 3px; border-radius: 2px; background: linear-gradient(180deg, var(--purple), var(--neon)); opacity: .3; }
+.aw-bars.lit i { opacity: .85; }
+#rowAudio .plus-big { position: relative; z-index: 2; font-size: 1.9rem; font-weight: 300; line-height: 1; }
+.aw-play {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%); z-index: 2;
+  width: 34px; height: 34px; border-radius: 50%; background: var(--split); color: #0a0a0b;
+  display: grid; place-items: center; font-size: .72rem; cursor: pointer;
+}
+.aw-meta {
+  position: absolute; left: 12px; bottom: 7px; z-index: 2;
+  font-size: .72rem; font-weight: 600; color: var(--text); text-shadow: 0 0 4px #000;
+  max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#rowAudio .attach-btn .x {
+  position: absolute; top: 2px; right: 9px; z-index: 3;
+  color: #fff; text-shadow: 0 0 5px #000; font-weight: 700;
+}
