@@ -107,20 +107,19 @@
       <div class="home-slide" id="homeSlide">
       <div class="home-screen">
       <section class="chat active">
-        <div class="chat-head">
-          <div class="opt-wrap effort-pick">
-            <button class="opt-btn" onclick="toggleEffortMenu(event)" title="How detailed the written prompt gets">Effort: <b id="effortLabel">Medium</b> ▾</button>
-            <div class="model-menu effort-menu" id="effortMenu">
-              <div class="model-item effort-item" data-effort="low" onclick="setEffort('low')"><span>Low</span><span class="check">✓</span></div>
-              <div class="model-item effort-item" data-effort="medium" onclick="setEffort('medium')"><span>Medium</span><span class="check">✓</span></div>
-              <div class="model-item effort-item" data-effort="high" onclick="setEffort('high')"><span>High</span><span class="check">✓</span></div>
-              <div class="model-item effort-item" data-effort="ultra" onclick="setEffort('ultra')"><span>Ultra High</span><span class="check">✓</span></div>
-              <div class="model-item effort-item" data-effort="max" onclick="setEffort('max')"><span>Max</span><span class="check">✓</span></div>
-            </div>
-          </div>
-        </div>
         <div class="thread"><div class="thread-inner" id="messages"></div></div>
       </section>
+
+      <div class="opt-wrap effort-pick">
+        <button class="opt-btn" onclick="toggleEffortMenu(event)" title="How detailed the written prompt gets">Effort: <b id="effortLabel">Medium</b> ▾</button>
+        <div class="model-menu effort-menu" id="effortMenu">
+          <div class="model-item effort-item" data-effort="low" onclick="setEffort('low')"><span>Low</span><span class="check">✓</span></div>
+          <div class="model-item effort-item" data-effort="medium" onclick="setEffort('medium')"><span>Medium</span><span class="check">✓</span></div>
+          <div class="model-item effort-item" data-effort="high" onclick="setEffort('high')"><span>High</span><span class="check">✓</span></div>
+          <div class="model-item effort-item" data-effort="ultra" onclick="setEffort('ultra')"><span>Ultra High</span><span class="check">✓</span></div>
+          <div class="model-item effort-item" data-effort="max" onclick="setEffort('max')"><span>Max</span><span class="check">✓</span></div>
+        </div>
+      </div>
 
       <div class="attach-panel" id="attachPanel">
         <input type="file" id="fileImage" accept="image/*" hidden onchange="onAttach('image', this)" />
