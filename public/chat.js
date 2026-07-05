@@ -732,6 +732,7 @@ function buildOptMenus() {
      mode === 'audio' ? 'Type what you want the voice to say…' :
      'Describe your scene…');
   updateAttachVisibility();
+  updateSendPrice();
 }
 
 // A settings section: a label + selectable chips. Long lists (>6) collapse
@@ -764,6 +765,7 @@ function pickSetting(chip) {
   else if (kind === 'voice') voice = val;
   chip.parentElement.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', c === chip));
   updateSettingsSummary();
+  updateSendPrice();
 }
 
 // The Settings button shows the current picks at a glance (e.g. "16:9 · 720p · 5s").
@@ -1433,7 +1435,70 @@ function updateSendLock() {
   const busy = activeGens.has(chatStore.active);
   btn.disabled = false;
   btn.title = busy ? 'Stop generating' : 'Send';
-  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG;
+  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG + '<span class="send-price" id="sendPrice"></span>';
+  if (!busy) updateSendPrice();
+}
+
+// ── Send-button price tag — estimates from fal's published pricing ────────
+// Video: $/sec by resolution (audio-on rates where the model does audio).
+const VIDEO_PRICE = {
+  'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
+  'fal-ai/sora-2/text-to-video/pro':              { s: { '720p': 0.30, '1080p': 0.50 } },
+  'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
+  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
+  'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },
+  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 } },
+  'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
+  'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
+  'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
+  'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
+  'google/gemini-omni-flash':                     { s: { def: 0.13 } },
+  'fal-ai/bytedance/omnihuman':                   { rate: '$0.14/s' },   // billed on the audio's real length
+  'fal-ai/kling-video/lipsync/audio-to-video':    { rate: '$0.014/5s' }, // billed in 5s increments
+};
+const IMAGE_PRICE = { // $ per image
+  'fal-ai/flux-2-pro': 0.03,
+  'fal-ai/gemini-3-pro-image-preview': 0.15,
+  'fal-ai/bytedance/seedream/v4/text-to-image': 0.03,
+  'fal-ai/recraft/v3/text-to-image': 0.04,
+  'google/nano-banana-2': 0.08,
+  'fal-ai/nano-banana-pro': 0.15,
+  'openai/gpt-image-2': 0.12, // token-billed; high quality 1024² lands about here
+  'fal-ai/flux/dev': 0.025,
+  'fal-ai/flux/schnell': 0.003,
+  'fal-ai/krea-2/turbo': 0.008,
+  'xai/grok-imagine-image': 0.022,
+};
+const AUDIO_PRICE = { // $ per 1,000 characters spoken
+  'fal-ai/elevenlabs/tts/eleven-v3': 0.10,
+  'fal-ai/elevenlabs/tts/turbo-v2.5': 0.05,
+  'fal-ai/elevenlabs/tts/multilingual-v2': 0.10,
+};
+
+function fmtPrice(n) {
+  return n < 0.01 ? '<$0.01' : '~$' + n.toFixed(2);
+}
+function estimatePrice() {
+  if (mode === 'image') {
+    const per = IMAGE_PRICE[model];
+    return per == null ? '' : fmtPrice(per * (numImages || 1));
+  }
+  if (mode === 'audio') {
+    const per = AUDIO_PRICE[model];
+    if (per == null) return '';
+    const chars = (document.getElementById('input').value || '').length;
+    return fmtPrice(Math.max(chars, 40) / 1000 * per);
+  }
+  const p = VIDEO_PRICE[model];
+  if (!p) return '';
+  if (p.rate) return p.rate; // lip-sync models: priced on the attached audio
+  if (p.flat != null) return fmtPrice(p.flat);
+  const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
+  return rate == null ? '' : fmtPrice(rate * (duration || 5));
+}
+function updateSendPrice() {
+  const el = document.getElementById('sendPrice');
+  if (el) el.textContent = estimatePrice();
 }
 
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
@@ -2008,6 +2073,7 @@ function reviewPrompt(prompt) {
 
 // Grow the message box downward as the user types; cap it, then scroll.
 function autoGrow(el) {
+  if (mode === 'audio') updateSendPrice(); // voice bills per character — live re-quote
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, Math.round(window.innerHeight * 0.38)) + 'px';
 }
