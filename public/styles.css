@@ -821,25 +821,7 @@
 /* Space Grotesk on the wordmark + names, like the mockup. */
 .side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
 
-/* ── LaserFlow beam (falls from the top, lands on the composer) ── */
 .view-home.active { position: relative; overflow: hidden; }
-/* Thread + composer sit above the beam. */
-.home-screen > .chat,
-.home-screen > .composer-wrap { position: relative; z-index: 1; }
-/* No brightness filter — on real GPUs the shader is already hot, and a filter
-   multiplies it into a floodlight (headless software-GL renders it far dimmer,
-   which is what misled the earlier tuning). Subtle = low layer opacity;
-   cinematic = warm graded amber, slightly desaturated, composited as light
-   (screen) rather than painted over the page. */
-.laser-beam {
-  position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  opacity: .42; mix-blend-mode: screen;
-  /* Rising plume: the beam grows out of the composer and dissolves by
-     mid-screen instead of hanging full-height in the room. */
-  -webkit-mask-image: linear-gradient(to top, #000 20%, transparent 56%);
-  mask-image: linear-gradient(to top, #000 20%, transparent 56%);
-}
-.laser-beam canvas { position: absolute; inset: 0; }
 
 /* Composer catches the warm landing glow. */
 .composer {
