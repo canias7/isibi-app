@@ -148,10 +148,10 @@ const attachments = { image: null, avatar: null, end: null, audio: null, clip: n
 const extraImages = [];
 const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
-  avatar: '+ Avatar',
+  avatar: '<span class="plus-big">+</span>',
   audio: '+ Audio',
   clip: '+ Video clip',
-  end: '+ End frame',
+  end: '<span class="plus-big">+</span>',
 };
 
 function attachBtn(kind) {
@@ -171,19 +171,137 @@ function onAttach(kind, inputEl) {
   const reader = new FileReader();
   reader.onload = () => {
     attachments[kind] = reader.result;
+    if (kind === 'audio') { awName = (file.name || 'audio').replace(/[<>&"]/g, ''); awDecode(reader.result); }
     renderAttach(kind);
   };
   reader.readAsDataURL(file);
 }
 
+// ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
+const AW_N = 40;
+let awPeaks = null, awDur = 0, awName = '', awPlayer = null;
+
+// Decorative envelope for the empty slot; replaced by the real waveform once decoded.
+function awPlaceholder(lo) {
+  return Array.from({ length: AW_N }, (_, i) =>
+    lo + (1 - lo) * Math.abs(Math.sin(i * 1.7)) * Math.sin((i / AW_N) * Math.PI));
+}
+
+function awBarsHtml(peaks, lit) {
+  let s = '<span class="aw-bars' + (lit ? ' lit' : '') + '">';
+  peaks.forEach((p) => { s += '<i style="height:' + Math.max(6, Math.round(p * 64)) + 'px"></i>'; });
+  return s + '</span>';
+}
+
+// Decode the attached clip and reduce it to AW_N peak buckets.
+async function awDecode(dataUrl) {
+  try {
+    const buf = await (await fetch(dataUrl)).arrayBuffer();
+    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    const audio = await actx.decodeAudioData(buf);
+    const ch = audio.getChannelData(0);
+    const step = Math.max(1, Math.floor(ch.length / AW_N));
+    const peaks = [];
+    for (let i = 0; i < AW_N; i++) {
+      let m = 0;
+      for (let j = i * step; j < (i + 1) * step && j < ch.length; j += 40) m = Math.max(m, Math.abs(ch[j]));
+      peaks.push(m);
+    }
+    const top = Math.max(...peaks, 0.01);
+    awPeaks = peaks.map((p) => Math.pow(p / top, 0.7));
+    awDur = audio.duration;
+    actx.close();
+  } catch { awPeaks = null; awDur = 0; }
+  renderAttach('audio');
+}
+
+// Live visualization: while playing, an analyser drives the bars with the
+// actual audio; on pause/end they settle back to the decoded waveform.
+let awCtx = null, awAnalyser = null, awRaf = 0, awWired = false;
+
+function awStartViz() {
+  if (!awPlayer) return;
+  if (!awWired) {
+    if (!awCtx) awCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = awCtx.createMediaElementSource(awPlayer);
+    awAnalyser = awCtx.createAnalyser();
+    awAnalyser.fftSize = 128;
+    src.connect(awAnalyser);
+    awAnalyser.connect(awCtx.destination);
+    awWired = true;
+  }
+  awCtx.resume();
+  const data = new Uint8Array(awAnalyser.frequencyBinCount);
+  const loop = () => {
+    if (!awPlayer || awPlayer.paused) return;
+    awAnalyser.getByteFrequencyData(data);
+    const bars = document.querySelectorAll('#rowAudio .aw-bars i');
+    bars.forEach((b, i) => {
+      const v = data[Math.floor((i / bars.length) * data.length * 0.75)] / 255;
+      b.style.height = Math.max(6, Math.round(6 + Math.pow(v, 1.4) * 58)) + 'px';
+    });
+    awRaf = requestAnimationFrame(loop);
+  };
+  cancelAnimationFrame(awRaf);
+  awRaf = requestAnimationFrame(loop);
+}
+
+function awStopViz() {
+  cancelAnimationFrame(awRaf);
+  const peaks = awPeaks || awPlaceholder(0.25);
+  document.querySelectorAll('#rowAudio .aw-bars i').forEach((b, i) => {
+    b.style.height = Math.max(6, Math.round(peaks[i] * 64)) + 'px';
+  });
+}
+
+function awIcon() {
+  const b = document.querySelector('.aw-play');
+  if (b) b.textContent = awPlayer && !awPlayer.paused ? '❚❚' : '▶';
+}
+
+function awToggle(ev) {
+  ev.stopPropagation();
+  if (!attachments.audio) return;
+  if (awPlayer && !awPlayer.paused) awPlayer.pause();
+  else {
+    if (!awPlayer) {
+      awPlayer = new Audio(attachments.audio);
+      awPlayer.onplay = () => { awStartViz(); awIcon(); };
+      awPlayer.onpause = () => { awStopViz(); awIcon(); };
+      awPlayer.onended = () => { awStopViz(); awIcon(); };
+    }
+    awPlayer.play();
+  }
+  awIcon();
+}
+
+function renderAudioSlot(btn) {
+  if (attachments.audio) {
+    btn.classList.add('has');
+    const dur = Math.round(awDur || 0);
+    const meta = (awName || 'audio') + (dur ? ' · ' + Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0') : '');
+    btn.innerHTML = awBarsHtml(awPeaks || awPlaceholder(0.25), true)
+      + '<span class="aw-play" onclick="awToggle(event)">▶</span>'
+      + '<span class="aw-meta">' + meta + '</span>'
+      + '<span class="x" onclick="clearAttach(event, \'audio\')">×</span>';
+  } else {
+    btn.classList.remove('has');
+    cancelAnimationFrame(awRaf);
+    if (awPlayer) { awPlayer.pause(); awPlayer = null; }
+    awWired = false; awAnalyser = null;
+    awPeaks = null; awDur = 0; awName = '';
+    btn.innerHTML = awBarsHtml(awPlaceholder(0.15), false) + '<span class="plus-big">+</span>';
+  }
+}
+
 function renderAttach(kind) {
   const btn = attachBtn(kind);
   if (!btn) return;
-  if (attachments[kind]) {
+  if (kind === 'audio') {
+    renderAudioSlot(btn);
+  } else if (attachments[kind]) {
     btn.classList.add('has');
-    const preview = kind === 'audio'
-      ? '<span class="audio-chip">♪ audio</span>'
-      : kind === 'clip'
+    const preview = kind === 'clip'
       ? '<span class="audio-chip">🎬 clip</span>'
       : '<img src="' + attachments[kind] + '" alt="" />';
     btn.innerHTML = preview + '<span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
@@ -1786,6 +1904,7 @@ document.addEventListener('click', (e) => {
 // Init
 buildMenu();
 buildOptMenus();
+renderAttach('audio');
 loadStore();
 renderChatList();
 renderThread();
