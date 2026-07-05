@@ -1092,19 +1092,48 @@ async function directorImage() {
   } catch { return {}; }
 }
 
-async function directorAsk(text, history) {
+async function directorAsk(text, history, onDelta) {
   // Voice mode goes through the director too — it decides whether this is
   // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        step: 'ask', kind: mode, prompt: text, history: history || [],
+        step: 'ask', kind: mode, prompt: text, history: history || [], stream: true,
         prevPrompt: (activeChat() || {}).lastPrompt || undefined,
         ...directorContext(), ...(await directorImage()),
       }),
     });
     if (!res.ok) throw 0;
+    // Streamed reply: render deltas live, then return the final payload.
+    if ((res.headers.get('content-type') || '').includes('text/event-stream') && res.body) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', final = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n\n')) !== -1) {
+          const line = buf.slice(0, i).split('\n').find((l) => l.startsWith('data: '));
+          buf = buf.slice(i + 2);
+          if (!line) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+          if (ev.d && onDelta) onDelta(ev.d);
+          if (ev.done) final = ev.done;
+          if (ev.error) throw 0;
+        }
+      }
+      if (!final) throw 0;
+      return {
+        reply: final.reply || '',
+        ready: !!final.ready,
+        revise: !!final.revise,
+        questions: Array.isArray(final.questions) ? final.questions : [],
+      };
+    }
     const data = await res.json();
     return {
       reply: data.reply || '',
@@ -1204,8 +1233,22 @@ async function startDirector(text) {
   const history = directorHistory(); // prior turns only — capture before adding this one
   addMsg('user', text);
   const thinking = addMsg('agent typing', 'Zephyr is thinking');
+  // Zephyr's reply streams into a live bubble; the final text is re-delivered
+  // through the normal path (persisted, stamped) when the stream ends.
+  let live = null;
+  const onDelta = (d) => {
+    if (chatStore.active !== origin) return;
+    if (!live) {
+      thinking.remove();
+      live = document.createElement('div');
+      live.className = 'msg agent live';
+      document.getElementById('messages').appendChild(live);
+    }
+    live.textContent += d;
+    live.parentElement.parentElement.scrollTop = live.parentElement.parentElement.scrollHeight;
+  };
   let res;
-  try { res = await directorAsk(text, history); } finally { thinking.remove(); }
+  try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
   // Zephyr's conversational reply (greetings, small talk, or a lead-in to questions).
   if (res.reply) deliverAgent(origin, res.reply);
   // If the user moved to another chat while Zephyr was thinking, stop here —

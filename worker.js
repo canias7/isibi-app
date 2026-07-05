@@ -113,13 +113,24 @@ function harden(res) {
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
+// Pull the (possibly still-growing) "reply" string out of a partial tool-input
+// JSON buffer, so the ask step can stream Zephyr's reply as Sonnet writes it.
+function extractReplyPrefix(buf) {
+  const m = buf.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!m) return "";
+  let s = m[1];
+  if (/(?:^|[^\\])(?:\\\\)*\\$/.test(s)) s = s.slice(0, -1); // trailing half escape
+  s = s.replace(/\\u[0-9a-fA-F]{0,3}$/, ""); // incomplete \uXXXX
+  try { return JSON.parse('"' + s + '"'); } catch { return ""; }
+}
+
 export default {
-  async fetch(request, env) {
-    return harden(await handleRequest(request, env));
+  async fetch(request, env, ctx) {
+    return harden(await handleRequest(request, env, ctx));
   },
 };
 
-async function handleRequest(request, env) {
+async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
     const genKind =
@@ -544,6 +555,25 @@ Context: ${ctxLine}`
             },
           };
 
+      // Shape the ask-step tool output into the API payload.
+      // Voice mode never asks clarifying questions — the words are literal.
+      const shapeAsk = (parsed) => ({
+        reply: String(parsed.reply || "").slice(0, 500),
+        ready: !!parsed.ready,
+        revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
+        questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
+          .slice(0, kind === "audio" ? 0 : 3)
+          .map((q) => ({
+            title: String(q.title || "").slice(0, 120),
+            options: (Array.isArray(q.options) ? q.options : [])
+              .slice(0, 3)
+              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
+              .filter((o) => o.label),
+          }))
+          .filter((q) => q.title && q.options.length),
+      });
+
+      const wantStream = body.stream === true && step === "ask";
       let r;
       try {
         r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -556,6 +586,10 @@ Context: ${ctxLine}`
           body: JSON.stringify({
             model: "claude-sonnet-5",
             max_tokens: 1500,
+            // Chat replies should feel instant; thinking stays on for the
+            // prompt-writing steps, where it earns its latency.
+            ...(step === "ask" ? { thinking: { type: "disabled" } } : {}),
+            ...(wantStream ? { stream: true } : {}),
             system,
             tools: [tool],
             tool_choice: { type: "tool", name: tool.name },
@@ -565,31 +599,59 @@ Context: ${ctxLine}`
       } catch (e) {
         return Response.json({ error: "director request failed", detail: String(e) }, { status: 502 });
       }
+
+      // Streaming ask: forward Zephyr's reply as it's written, then the
+      // full parsed payload as a final "done" event.
+      if (wantStream && r.ok && r.body) {
+        const { readable, writable } = new TransformStream();
+        const writer = writable.getWriter();
+        const enc = new TextEncoder();
+        const send = (obj) => writer.write(enc.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        const pump = (async () => {
+          const reader = r.body.getReader();
+          const dec = new TextDecoder();
+          let sse = "", partial = "", sent = 0;
+          try {
+            for (;;) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              sse += dec.decode(value, { stream: true });
+              let idx;
+              while ((idx = sse.indexOf("\n\n")) !== -1) {
+                const line = sse.slice(0, idx).split("\n").find((l) => l.startsWith("data: "));
+                sse = sse.slice(idx + 2);
+                if (!line) continue;
+                let ev;
+                try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+                if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "input_json_delta") {
+                  partial += ev.delta.partial_json || "";
+                  const reply = extractReplyPrefix(partial);
+                  if (reply.length > sent) { await send({ d: reply.slice(sent, 500) }); sent = Math.min(reply.length, 500); }
+                }
+              }
+            }
+            let parsed = null;
+            try { parsed = JSON.parse(partial); } catch {}
+            await send(parsed ? { done: shapeAsk(parsed) } : { error: "director no output" });
+          } catch {
+            try { await send({ error: "stream failed" }); } catch {}
+          } finally {
+            try { await writer.close(); } catch {}
+          }
+        })();
+        if (ctx && ctx.waitUntil) ctx.waitUntil(pump);
+        return new Response(readable, {
+          headers: { "content-type": "text/event-stream", "cache-control": "no-cache" },
+        });
+      }
+
       const data = await r.json().catch(() => ({}));
       if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
 
       const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
       if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
 
-      if (step === "ask") {
-        // Voice mode never asks clarifying questions — the words are literal.
-        const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, kind === "audio" ? 0 : 3)
-          .map((q) => ({
-            title: String(q.title || "").slice(0, 120),
-            options: (Array.isArray(q.options) ? q.options : [])
-              .slice(0, 3)
-              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
-              .filter((o) => o.label),
-          }))
-          .filter((q) => q.title && q.options.length);
-        return Response.json({
-          reply: String(parsed.reply || "").slice(0, 500),
-          ready: !!parsed.ready,
-          revise: !!parsed.revise && !!prevPrompt && kind !== "audio",
-          questions,
-        });
-      }
+      if (step === "ask") return Response.json(shapeAsk(parsed));
       if (step === "error") {
         return Response.json({
           reply: String(parsed.reply || "").slice(0, 500),
