@@ -433,14 +433,13 @@ async function handleRequest(request, env, ctx) {
       });
     }
 
-    // ── Credit packs: sold at $0.012/credit ($0.008 cost basis) ──
-    // Checkout creates a Stripe session; the webhook (signature-verified)
-    // mints the credits idempotently. Both no-op cleanly until the Stripe
-    // secrets are configured.
-    const PACKS = {
-      "6": { cents: 600, credits: 500 },
-      "18": { cents: 1800, credits: 1500 },
-      "48": { cents: 4800, credits: 4000 },
+    // ── Memberships: monthly credits at ~$0.012/credit ($0.008 cost basis) ──
+    // Checkout creates a Stripe SUBSCRIPTION session; every paid invoice
+    // (first charge and each renewal) mints that month's credits via the
+    // webhook. Both no-op cleanly until the Stripe secrets are configured.
+    const PLANS = {
+      "25": { cents: 2500, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
+      "50": { cents: 5000, credits: 4200, name: "isibi Pro — 4,200 credits / month" },
     };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
@@ -453,18 +452,21 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      const pack = PACKS[String(body.pack)];
-      if (!pack) return Response.json({ error: "unknown pack" }, { status: 400 });
+      const plan = PLANS[String(body.plan)];
+      if (!plan) return Response.json({ error: "unknown plan" }, { status: 400 });
       const form = new URLSearchParams({
-        mode: "payment",
+        mode: "subscription",
         success_url: "https://isibi.ai/?credits=added",
         cancel_url: "https://isibi.ai/",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String(pack.cents),
-        "line_items[0][price_data][product_data][name]": pack.credits.toLocaleString("en-US") + " isibi credits",
-        "metadata[user_id]": user.id,
-        "metadata[credits]": String(pack.credits),
+        "line_items[0][price_data][unit_amount]": String(plan.cents),
+        "line_items[0][price_data][recurring][interval]": "month",
+        "line_items[0][price_data][product_data][name]": plan.name,
+        // Subscription metadata rides along on every invoice, so renewals
+        // know who to credit and how much.
+        "subscription_data[metadata][user_id]": user.id,
+        "subscription_data[metadata][credits]": String(plan.credits),
       });
       if (user.email) form.set("customer_email", user.email);
       try {
@@ -512,17 +514,26 @@ async function handleRequest(request, env, ctx) {
       try { event = JSON.parse(raw); } catch {
         return Response.json({ error: "bad payload" }, { status: 400 });
       }
-      if (event.type === "checkout.session.completed") {
-        const s = event.data && event.data.object;
-        const uid = s && s.metadata && s.metadata.user_id;
-        const credits = s && s.metadata ? Number(s.metadata.credits) : 0;
-        if (uid && credits > 0 && s.payment_status === "paid" && s.id) {
+      // Memberships mint on every PAID INVOICE — the first charge and each
+      // monthly renewal both arrive here, idempotent on the invoice id.
+      if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+        const inv = event.data && event.data.object;
+        // Subscription metadata's location varies by Stripe API version.
+        const meta =
+          (inv && inv.subscription_details && inv.subscription_details.metadata) ||
+          (inv && inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.metadata) ||
+          (inv && inv.lines && inv.lines.data && inv.lines.data[0] && inv.lines.data[0].metadata) ||
+          {};
+        const uid = meta.user_id;
+        const credits = Number(meta.credits) || 0;
+        const paid = inv && (inv.status === "paid" || inv.paid === true);
+        if (uid && credits > 0 && paid && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
             body: JSON.stringify({
-              target: uid, amount: credits, cents: s.amount_total || 0,
-              purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
+              target: uid, amount: credits, cents: inv.amount_paid || 0,
+              purchase_ref: inv.id, mint_key: env.CREDITS_MINT_SECRET,
             }),
           });
           // Non-2xx → 500 so Stripe retries the delivery.

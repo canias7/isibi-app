@@ -1514,25 +1514,26 @@ async function fetchCredits() {
   } catch {}
 }
 
-// ── Get-credits panel: three packs at $0.012 per credit ───────────────────
-const CREDIT_PACKS = [
-  { pack: '6', usd: 6, credits: 500 },
-  { pack: '18', usd: 18, credits: 1500 },
-  { pack: '48', usd: 48, credits: 4000 },
+// ── Membership panel: monthly credits, two tiers ───────────────────────────
+const MEMBERSHIPS = [
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus' },
+  { plan: '50', usd: 50, credits: 4200, name: 'Pro', best: true },
 ];
 function openCredits() {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
   ov.className = 'credits-overlay';
-  const cards = CREDIT_PACKS.map((p) =>
-    '<button type="button" class="cp-card" data-pack="' + p.pack + '">' +
-      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
-      '<div class="cp-usd">$' + p.usd + '</div>' +
+  const cards = MEMBERSHIPS.map((p) =>
+    '<button type="button" class="cp-card' + (p.best ? ' cp-best' : '') + '" data-plan="' + p.plan + '">' +
+      (p.best ? '<div class="cp-tag">Best value</div>' : '') +
+      '<div class="cp-plan">' + p.name + '</div>' +
+      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '<span class="cp-per">/month</span></div>' +
+      '<div class="cp-usd">$' + p.usd + '/mo</div>' +
     '</button>').join('');
   ov.innerHTML = '<div class="cp-box">' +
-    '<div class="cp-head"><div class="cp-title">Get credits</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">A quick image is a few credits; most videos run 40–600.</div>' +
-    '<div class="cp-grid">' + cards + '</div>' +
+    '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="cp-sub">Fresh credits every month — a quick image is a few, most videos run 40–600. Cancel anytime.</div>' +
+    '<div class="cp-grid cp-grid-2">' + cards + '</div>' +
     '<div class="cp-note" id="cpNote"></div>' +
     '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
@@ -1544,7 +1545,7 @@ function openCredits() {
       try {
         const r = await apiFetch('/api/checkout', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pack: c.dataset.pack }),
+          body: JSON.stringify({ plan: c.dataset.plan }),
         });
         const d = await r.json().catch(() => ({}));
         if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll buy them.'; return; }
