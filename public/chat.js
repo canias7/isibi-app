@@ -110,11 +110,11 @@ const MODEL_LISTS = {
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio' },
     { id: 'fal-ai/sora-2/text-to-video/pro', label: 'Sora 2 Pro', note: 'OpenAI' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
-    { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast' },
-    { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest' },
+    { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio' },
+    { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio' },
     { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest' },
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
-    { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard' },
+    { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio' },
     { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
     { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
@@ -321,6 +321,12 @@ function renderAttach(kind) {
 function clearAttach(ev, kind) {
   ev.stopPropagation();
   attachments[kind] = null;
+  // Removing the main image promotes the first extra ref so none orphan,
+  // and the add-more slot re-renders (it keys off the main image).
+  if (kind === 'image') {
+    if (extraImages.length) attachments.image = extraImages.shift();
+    renderExtraImages();
+  }
   renderAttach(kind);
 }
 
@@ -744,9 +750,7 @@ function newChat() {
   // invisible in the list — clear the filter first.
   const search = document.getElementById('chatSearch');
   if (search) search.value = '';
-  // Keep the current chat in the sidebar; just start a fresh one.
-  const current = activeChat();
-  if (current && !current.msgs.length) { document.getElementById('input').focus(); renderChatList(); return; }
+  // Always start a fresh chat — even if the current one is still empty.
   const fresh = newChatEntry();
   chatStore.chats.unshift(fresh);
   chatStore.active = fresh.id;
@@ -1101,6 +1105,10 @@ function makeLoader(kind, aspect) {
     visual = document.createElement('div');
     visual.className = 'gen-shimmer';
     visual.style.aspectRatio = aspect || ratioAspect(ratio);
+    // The ghost loop plays inside the frame; the poster covers the first beat.
+    visual.innerHTML = '<video autoplay muted loop playsinline poster="/loading-ghost.webp">'
+      + '<source src="/loading-ghost.webm" type="video/webm" />'
+      + '<source src="/loading-ghost.mp4" type="video/mp4" /></video>';
   }
 
   const status = document.createElement('div');
