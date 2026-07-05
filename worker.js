@@ -102,12 +102,16 @@ const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
 };
 
-// The Sonnet 5 director (ask + compose) costs $0.008–0.015 per generation.
-// One credit sells for $0.0125–0.014, so a flat +1 credit passes that bill
-// through at cost — no markup on Claude, profit stays the fal margin alone.
-const DIRECTOR_CR = 1;
+// The director's Claude bill, passed through at cost — no markup, profit
+// stays the fal margin alone. Priced at Sonnet 5's STANDARD rates ($3/$15,
+// live from 2026-09-01) so nothing changes when the intro pricing ends:
+// Low/Medium run on Haiku (~$0.005/gen ≈ 1 credit sold), High/Ultra/Max on
+// Sonnet (~$0.017–0.022/gen ≈ 2 credits sold).
+function directorCr(effort) {
+  return effort === "high" || effort === "ultra" || effort === "max" ? 2 : 1;
+}
 
-function creditCost(kind, model, { duration, quality, num, chars }) {
+function creditCost(kind, model, { duration, quality, num, chars, effort }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -120,7 +124,7 @@ function creditCost(kind, model, { duration, quality, num, chars }) {
       usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
     }
   }
-  return DIRECTOR_CR + Math.max(1, Math.ceil(usd / CREDIT_USD));
+  return directorCr(effort) + Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
 // Deduct credits atomically under the caller's own JWT. Returns the new
@@ -402,6 +406,7 @@ async function handleRequest(request, env, ctx) {
       // Fail closed: if the ledger can't be reached, we don't generate.
       const genCost = creditCost(genKind, model, {
         duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+        effort: typeof body.effort === "string" ? body.effort : "",
       });
       let balanceAfter;
       try {

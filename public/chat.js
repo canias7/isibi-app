@@ -579,6 +579,7 @@ function setEffort(level) {
     i.classList.toggle('selected', i.dataset.effort === level));
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
+  updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
@@ -1474,11 +1475,14 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
 };
 
 // 1 credit = $0.008 — same conversion the worker charges with.
-// +1 flat covers the Sonnet 5 director at cost (must match worker DIRECTOR_CR).
+// Director surcharge at cost (must match worker directorCr): +1 credit on
+// the Haiku levels (Low/Medium), +2 on the Sonnet levels (High/Ultra/Max).
 const CREDIT_USD = 0.008;
-const DIRECTOR_CR = 1;
+function directorCr() {
+  return effort === 'high' || effort === 'ultra' || effort === 'max' ? 2 : 1;
+}
 function fmtPrice(usd) {
-  return '✦ ' + (DIRECTOR_CR + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
+  return '✦ ' + (directorCr() + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
 }
 function estimatePrice() {
   if (mode === 'image') {
@@ -1669,6 +1673,7 @@ async function generateMedia(text, opts = {}) {
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
+        effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
       }),
     });
     if (res.status === 401) { // session died — stop cleanly, the gate is up
