@@ -581,6 +581,21 @@ function setEffort(level) {
   document.getElementById('effortMenu').classList.remove('open');
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
+// Accept-edits chip in the composer row — a persisted toggle; what it
+// controls is being decided, so nothing reads the flag yet.
+const ACCEPT_KEY = 'zephyr_accept_edits';
+let acceptEdits = localStorage.getItem(ACCEPT_KEY) === '1';
+function renderAcceptChip() {
+  const el = document.getElementById('acceptChip');
+  if (el) el.classList.toggle('on', acceptEdits);
+}
+function toggleAcceptEdits() {
+  acceptEdits = !acceptEdits;
+  localStorage.setItem(ACCEPT_KEY, acceptEdits ? '1' : '0');
+  renderAcceptChip();
+}
+renderAcceptChip();
+
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
 function togglePresets(open) {
