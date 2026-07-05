@@ -174,6 +174,9 @@
             <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    oninput="autoGrow(this)"
                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
+            <button class="accept-chip" id="acceptChip" onclick="toggleAcceptEdits()" title="Accept edits">
+              <span class="ae-icon">&lt;/&gt;</span><span class="ae-label">Accept edits</span>
+            </button>
           </div>
           <div class="composer-row">
             <div class="mode-switch">

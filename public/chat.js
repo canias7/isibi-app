@@ -579,7 +579,23 @@ function setEffort(level) {
     i.classList.toggle('selected', i.dataset.effort === level));
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
+  updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
+// Accept-edits chip in the composer row — a persisted toggle; what it
+// controls is being decided, so nothing reads the flag yet.
+const ACCEPT_KEY = 'zephyr_accept_edits';
+let acceptEdits = localStorage.getItem(ACCEPT_KEY) === '1';
+function renderAcceptChip() {
+  const el = document.getElementById('acceptChip');
+  if (el) el.classList.toggle('on', acceptEdits);
+}
+function toggleAcceptEdits() {
+  acceptEdits = !acceptEdits;
+  localStorage.setItem(ACCEPT_KEY, acceptEdits ? '1' : '0');
+  renderAcceptChip();
+}
+renderAcceptChip();
+
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
 function togglePresets(open) {
@@ -1474,9 +1490,14 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
 };
 
 // 1 credit = $0.008 — same conversion the worker charges with.
+// Director surcharge at cost (must match worker directorCr): +1 credit on
+// the Haiku levels (Low/Medium), +2 on the Sonnet levels (High/Ultra/Max).
 const CREDIT_USD = 0.008;
+function directorCr() {
+  return effort === 'high' || effort === 'ultra' || effort === 'max' ? 2 : 1;
+}
 function fmtPrice(usd) {
-  return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
+  return '✦ ' + (directorCr() + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
 }
 function estimatePrice() {
   if (mode === 'image') {
@@ -1667,6 +1688,7 @@ async function generateMedia(text, opts = {}) {
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
+        effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
       }),
     });
     if (res.status === 401) { // session died — stop cleanly, the gate is up
