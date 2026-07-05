@@ -1545,7 +1545,7 @@ function openCredits() {
     '</button>').join('');
   ov.innerHTML = '<div class="cp-box">' +
     '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">Fresh credits every month at the best rate — cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
+    '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
     '<div class="cp-grid">' + cards + '</div>' +
     '<div class="cp-sec">One-time top-ups</div>' +
     '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
