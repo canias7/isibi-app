@@ -1105,6 +1105,10 @@ function makeLoader(kind, aspect) {
     visual = document.createElement('div');
     visual.className = 'gen-shimmer';
     visual.style.aspectRatio = aspect || ratioAspect(ratio);
+    // The ghost loop plays inside the frame; the poster covers the first beat.
+    visual.innerHTML = '<video autoplay muted loop playsinline poster="/loading-ghost.webp">'
+      + '<source src="/loading-ghost.webm" type="video/webm" />'
+      + '<source src="/loading-ghost.mp4" type="video/mp4" /></video>';
   }
 
   const status = document.createElement('div');

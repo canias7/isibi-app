@@ -277,22 +277,22 @@
   display: flex; flex-direction: column; gap: .65rem;
   background: none; border: none; padding: 0;
 }
-/* Dreaming frame: the isibi ghost chills inside the placeholder (gentle
-   Ken Burns drift), pink/amber aurora tint above it, a light sweep gliding
-   across, and a softly breathing gradient border. */
+/* Dreaming frame: the isibi ghost loop plays inside the placeholder,
+   pink/amber aurora tint above it, a light sweep gliding across, and a
+   softly breathing gradient border. */
 .gen-shimmer {
   position: relative; overflow: hidden;
   width: 420px; max-width: 100%; border-radius: 12px;
   border: 1px solid rgba(255, 170, 110, .35);
-  background: #101016 url('/loading-ghost.webp') center / cover no-repeat;
-  animation: gen-breathe 2.6s ease-in-out infinite, gen-kenburns 16s ease-in-out infinite alternate;
+  background: #101016;
+  animation: gen-breathe 2.6s ease-in-out infinite;
 }
-@keyframes gen-kenburns {
-  from { background-size: 102%; background-position: 48% 42%; }
-  to   { background-size: 116%; background-position: 54% 58%; }
+.gen-shimmer video {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; z-index: 0;
 }
 .gen-shimmer::before {
-  content: ''; position: absolute; inset: -40%;
+  content: ''; position: absolute; inset: -40%; z-index: 1;
   mix-blend-mode: screen; opacity: .55;
   background:
     radial-gradient(38% 45% at 30% 35%, rgba(255, 121, 198, .26), transparent 70%),
@@ -302,7 +302,7 @@
   animation: gen-aurora 7s ease-in-out infinite alternate;
 }
 .gen-shimmer::after {
-  content: ''; position: absolute; inset: 0;
+  content: ''; position: absolute; inset: 0; z-index: 2;
   background: linear-gradient(115deg,
     transparent 32%, rgba(255, 255, 255, .07) 46%, rgba(255, 255, 255, .13) 50%,
     rgba(255, 255, 255, .07) 54%, transparent 68%);
