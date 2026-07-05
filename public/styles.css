@@ -1224,3 +1224,17 @@
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: .13rem .45rem;
 }
+
+/* Answered question cards collapse to a slim recap line */
+.q-card.q-done {
+  flex-direction: row; align-items: center; gap: .65rem;
+  padding: .55rem .95rem; max-width: 70%;
+  transition: opacity .2s ease;
+}
+.q-done-q { color: var(--muted); font-size: .82rem; min-width: 0; }
+.q-done-a {
+  font-weight: 600; font-size: .82rem; color: var(--text); white-space: nowrap;
+  background: linear-gradient(130deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .16));
+  border: 1px solid rgba(255, 170, 110, .28);
+  border-radius: 99px; padding: .22rem .7rem;
+}

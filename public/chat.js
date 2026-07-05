@@ -1630,6 +1630,7 @@ async function directorAsk(text, history, onDelta) {
       return {
         reply: final.reply || '',
         ready: !!final.ready,
+        rerun: !!final.rerun,
         revise: !!final.revise,
         questions: Array.isArray(final.questions) ? final.questions : [],
       };
@@ -1638,6 +1639,7 @@ async function directorAsk(text, history, onDelta) {
     return {
       reply: data.reply || '',
       ready: !!data.ready,
+      rerun: !!data.rerun,
       revise: !!data.revise,
       questions: Array.isArray(data.questions) ? data.questions : [],
     };
@@ -1754,6 +1756,13 @@ async function startDirector(text) {
   // If the user moved to another chat while Zephyr was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
+  // The director read the message as "run that again": the last prompt was
+  // already approved once — straight back into generation, no re-interview.
+  if (res.rerun && (activeChat() || {}).lastPrompt) {
+    if (!res.reply) deliverAgent(origin, '🔁 Running it again.');
+    generateMedia(activeChat().lastPrompt, { announce: false });
+    return;
+  }
   // Feedback on the previous generation — revise that prompt surgically,
   // no clarifying questions.
   if (res.revise && (activeChat() || {}).lastPrompt) {
@@ -1836,9 +1845,12 @@ function renderQuestion(qi) {
 
 function chooseAnswer(card, optEl, qi, value) {
   directorState.answers[qi] = value;
-  card.querySelectorAll('.opt').forEach((o) => { o.classList.remove('sel'); o.style.pointerEvents = 'none'; });
-  optEl.classList.add('sel');
-  card.querySelectorAll('.other-input').forEach((i) => { i.disabled = true; });
+  // Claude-style: the answered card collapses to a slim question → answer
+  // recap, so only the current question is ever open.
+  const q = directorState.questions[qi];
+  card.classList.add('q-done');
+  card.innerHTML = '<span class="q-done-q">' + esc(q.title) + '</span>'
+    + '<span class="q-done-a">' + esc(value) + '</span>';
   const next = qi + 1;
   if (next < directorState.questions.length) renderQuestion(next);
   else composeAndReview(directorState.text, directorState.answers);
