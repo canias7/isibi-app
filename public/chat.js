@@ -1517,7 +1517,7 @@ async function fetchCredits() {
 // ── Membership panel: monthly credits, two tiers ───────────────────────────
 const MEMBERSHIPS = [
   { plan: '25', usd: 25, credits: 2000, name: 'Plus' },
-  { plan: '50', usd: 50, credits: 4200, name: 'Pro', best: true },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', best: true },
 ];
 function openCredits() {
   if (document.querySelector('.credits-overlay')) return;

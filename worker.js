@@ -439,7 +439,7 @@ async function handleRequest(request, env, ctx) {
     // webhook. Both no-op cleanly until the Stripe secrets are configured.
     const PLANS = {
       "25": { cents: 2500, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
-      "50": { cents: 5000, credits: 4200, name: "isibi Pro — 4,200 credits / month" },
+      "50": { cents: 5000, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
     };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
