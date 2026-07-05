@@ -358,17 +358,17 @@ async function sbGenerateShot(s) {
     const out = await (await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url))).json();
     let urlOut = out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url;
     if (!urlOut) throw new Error('no video in result');
-    try {
-      const sv = await apiFetch('/api/save', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlOut, kind: 'video' }),
-      });
-      if (sv.ok) { const d = await sv.json(); if (d.url) urlOut = d.url; }
-    } catch {}
+    // trySave/queuePendingSave live in chat.js: bounded retries, and a failed
+    // copy queues a boot-time retry that swaps in the permanent URL later.
+    const perm = await trySave(urlOut, 'video', 3);
+    if (perm) urlOut = perm;
+    else queuePendingSave(urlOut, 'video');
     s.url = urlOut; s.in = null; s.out = null; s.status = 'ready';
     await sbThumb(s).catch(() => {});
     sbSave(); sbRender();
-    sbStudioNote('Shot ' + idx + ' is ready ✦');
+    sbStudioNote(perm
+      ? 'Shot ' + idx + ' is ready ✦'
+      : 'Shot ' + idx + ' is ready, but its gallery copy failed — using a temporary link and retrying next app open.');
   } catch (e) {
     console.error('shot generation failed:', e);
     s.status = 'draft';

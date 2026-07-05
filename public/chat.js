@@ -1329,11 +1329,100 @@ function setGenText(chatId, t) {
 }
 function endGen(chatId) {
   activeGens.delete(chatId);
+  jobClear(chatId);
   if (chatStore.active === chatId) {
     const el = document.getElementById('genLoader');
     if (el) el.remove();
   }
   updateSendLock();
+}
+
+// ── Refresh-proof generations & gallery saves ──────────────────────────────
+// Every submitted fal job stays on record until it ends, so a closed or
+// refreshed tab resumes polling at the next boot instead of losing a paid
+// render. Gallery copies that fail queue here too and retry at boot,
+// swapping the temporary fal URL for the permanent one wherever it landed.
+const JOBS_KEY = 'zephyr_jobs_v1';
+const SAVES_KEY = 'zephyr_pending_saves_v1';
+
+function jobsLoad() { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]'); } catch { return []; } }
+function jobsWrite(list) { try { localStorage.setItem(JOBS_KEY, JSON.stringify(list.slice(-8))); } catch {} }
+function jobRecord(chatId, rec) { jobsWrite([...jobsLoad().filter((j) => j.chatId !== chatId), { chatId, ...rec }]); }
+function jobClear(chatId) { jobsWrite(jobsLoad().filter((j) => j.chatId !== chatId)); }
+
+function savesLoad() { try { return JSON.parse(localStorage.getItem(SAVES_KEY) || '[]'); } catch { return []; } }
+function savesWrite(list) { try { localStorage.setItem(SAVES_KEY, JSON.stringify(list.slice(-20))); } catch {} }
+function queuePendingSave(url, kind) { savesWrite([...savesLoad().filter((p) => p.url !== url), { url, kind, at: Date.now() }]); }
+
+// Copy a fal output into permanent Supabase Storage, with bounded retries —
+// a failed copy must never silently become the permanent record.
+async function trySave(url, kind, attempts) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const sv = await apiFetch('/api/save', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, kind }),
+      });
+      if (sv.ok) { const d = await sv.json(); if (d.url) return d.url; }
+      if (sv.status === 401) return null; // signed out — retrying now won't help
+    } catch {}
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+  }
+  return null;
+}
+
+// Swap a temporary fal URL for its permanent copy wherever it was stored.
+function replaceMediaUrl(oldUrl, newUrl) {
+  let hit = false;
+  chatStore.chats.forEach((c) => c.msgs.forEach((m) => {
+    if (m.url === oldUrl) { m.url = newUrl; hit = true; touchSync(c.id); }
+  }));
+  if (hit) {
+    persistStore();
+    const dock = document.getElementById('qDock');
+    if (!dock || !dock.children.length) renderThread();
+  }
+  try { // Studio shots too (sb / sbSave are studio.js globals on this page)
+    if (typeof sb !== 'undefined' && sb && Array.isArray(sb.projects)) {
+      let sHit = false;
+      sb.projects.forEach((p) => (p.shots || []).forEach((s) => {
+        if (s.url === oldUrl) { s.url = newUrl; sHit = true; }
+      }));
+      if (sHit && typeof sbSave === 'function') sbSave();
+    }
+  } catch {}
+}
+
+// Boot: retry gallery copies that failed, while their fal URL is still alive.
+async function retryPendingSaves() {
+  const list = savesLoad();
+  if (!list.length) return;
+  const keep = [];
+  for (const p of list) {
+    if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
+    const perm = await trySave(p.url, p.kind, 1);
+    if (perm) replaceMediaUrl(p.url, perm);
+    else keep.push(p);
+  }
+  savesWrite(keep);
+}
+
+// Boot: pick up any generation that was in flight when the tab last died.
+function resumeJobs() {
+  const jobs = jobsLoad().filter((j) => j.chatId && j.statusUrl && j.responseUrl);
+  jobsWrite(jobs);
+  jobs.forEach((j) => {
+    if (activeGens.has(j.chatId)) return;
+    const kind = j.kind || 'video';
+    const myGen = { kind, aspect: j.aspect, text: 'Checking on your ' + kind + '…', statusUrl: j.statusUrl };
+    activeGens.set(j.chatId, myGen);
+    updateSendLock();
+    mountGenLoader();
+    // Give even a stale job a real chance — fal keeps results around for days.
+    const deadline = Math.max(Date.now() + 90000, j.deadline || 0);
+    const mins = Math.max(2, Math.round((deadline - Date.now()) / 60000));
+    pollAndDeliver(j.chatId, kind, j.statusUrl, j.responseUrl, j.text || '', j.label || 'the model', deadline, mins, myGen, false);
+  });
 }
 
 // While the active chat is generating, the send arrow becomes a stop square.
@@ -1456,12 +1545,32 @@ async function generateMedia(text, opts = {}) {
     }
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
-    const started = Date.now();
     // 4K renders can legitimately outrun ten minutes — give them twenty.
     const maxWaitMin = kind === 'video' && quality === '4k' ? 20 : 10;
+    const deadline = Date.now() + maxWaitMin * 60 * 1000;
+    // On record until endGen clears it — a refreshed tab resumes this at boot.
+    jobRecord(origin, {
+      kind, statusUrl: job.status_url, responseUrl: job.response_url,
+      text: text ? String(text).slice(0, 400) : '', label, aspect: myGen.aspect, deadline,
+    });
+    await pollAndDeliver(origin, kind, job.status_url, job.response_url, text, label, deadline, maxWaitMin, myGen, true);
+  } catch {
+    if (alive()) deliverAgent(origin, '⚠️ Network hiccup — try again.');
+  } finally {
+    if (alive()) endGen(origin);
+    if (chatStore.active === origin) document.getElementById('input').focus();
+  }
+}
+
+// The wait-save-deliver half of a generation, shared by a live submit and a
+// boot-time resume: poll fal until done, copy outputs to permanent storage,
+// deliver into the origin chat.
+async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label, deadline, maxWaitMin, myGen, clearInputs) {
+  const alive = () => activeGens.get(origin) === myGen;
+  try {
     let state = '';
-    while (Date.now() - started < maxWaitMin * 60 * 1000) {
-      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+    while (Date.now() < deadline) {
+      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(statusUrl));
       if (sr.status === 401) {
         if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
         return;
@@ -1484,7 +1593,7 @@ async function generateMedia(text, opts = {}) {
       return;
     }
 
-    const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+    const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
     const out = await rr.json();
     if (!alive()) return;
     // Images may come back as several variations; video/audio is a single URL.
@@ -1502,26 +1611,24 @@ async function generateMedia(text, opts = {}) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
       const finals = [];
+      let saveFailed = false;
       for (const u of urls) {
-        let finalUrl = u;
-        try {
-          const sv = await apiFetch('/api/save', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: u, kind }),
-          });
-          if (sv.ok) { const d = await sv.json(); if (d.url) finalUrl = d.url; }
-        } catch {}
-        finals.push(finalUrl);
+        const perm = await trySave(u, kind, 3);
+        if (perm) finals.push(perm);
+        else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }
       if (!alive()) return;
       endGen(origin);
       finals.forEach((f) => deliverMedia(origin, kind, f, text));
-      // The inputs were consumed — don't let them ride along on the next prompt.
-      Object.keys(attachments).forEach((k) => {
-        if (attachments[k]) { attachments[k] = null; renderAttach(k); }
-      });
-      extraImages.length = 0;
-      renderExtraImages();
+      if (saveFailed) deliverAgent(origin, '⚠️ Delivered with a temporary link — the gallery copy failed, so I queued a retry for the next time the app opens.');
+      if (clearInputs) {
+        // The inputs were consumed — don't let them ride along on the next prompt.
+        Object.keys(attachments).forEach((k) => {
+          if (attachments[k]) { attachments[k] = null; renderAttach(k); }
+        });
+        extraImages.length = 0;
+        renderExtraImages();
+      }
     } else {
       endGen(origin);
       console.error('generation finished without media:', out);
@@ -2123,11 +2230,40 @@ function enterApp() {
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
+  // A different account signed in on this browser: drop the previous user's
+  // local cache so their chats are never shown to — or re-uploaded under —
+  // this account. (Sign-out clears it too; this covers expired-session swaps.)
+  const uid = Auth.userId ? Auth.userId() : '';
+  if (uid) {
+    const prevOwner = localStorage.getItem('zephyr_owner_v1');
+    if (prevOwner && prevOwner !== uid) {
+      try {
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1']
+          .forEach((k) => localStorage.removeItem(k));
+      } catch {}
+      chatStore = { active: null, chats: [] };
+      syncDirty.clear(); syncDeleted.clear();
+      loadStore();
+      renderChatList(); renderThread();
+    }
+    try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
+  }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
+  // Pick up any generation that was mid-flight when the tab last closed,
+  // and re-copy any media whose gallery save failed.
+  resumeJobs();
+  retryPendingSaves();
 }
 
 async function doSignOut() {
+  // Flush any unsynced edits first, then wipe this browser's local copy so
+  // the next account on this machine never sees — or re-uploads — these chats.
+  try { await pushChats(); } catch {}
+  try {
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1']
+      .forEach((k) => localStorage.removeItem(k));
+  } catch {}
   await Auth.signOut();
   location.reload();
 }
