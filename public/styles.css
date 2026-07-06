@@ -1169,6 +1169,16 @@
 .sb-actions { padding: .6rem; border-top: 1px solid var(--line); }
 .sb-btn { width: 100%; background: none; border: 1px dashed var(--line-2); color: var(--muted); border-radius: 10px; padding: .55rem; cursor: pointer; font-size: .85rem; }
 .sb-btn:hover { color: var(--text); border-color: #4a4a52; }
+.sb-toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(12px);
+  z-index: 120; max-width: min(90vw, 460px); text-align: center;
+  background: rgba(10, 9, 14, .92); color: var(--text); border: 1px solid var(--line-2);
+  border-radius: 12px; padding: .7rem 1rem; font-size: .85rem; line-height: 1.4;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .5); opacity: 0; pointer-events: none;
+  transition: opacity .2s ease, transform .2s ease;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.sb-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .sb-empty { color: var(--muted); font-size: .85rem; padding: 1rem; line-height: 1.5; }
 .sb-card { display: flex; align-items: center; gap: .55rem; padding: .45rem .55rem; border: 1px solid var(--line); border-radius: 10px; margin: 0 .5rem .5rem; cursor: pointer; background: var(--panel); }
 .sb-card:hover { border-color: var(--line-2); }
