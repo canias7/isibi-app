@@ -1161,17 +1161,6 @@ function toggleHomeHero(show) {
   const hero = document.getElementById('homeHero');
   if (hero) hero.classList.toggle('gone', !show);
 }
-function initHomeHero() {
-  document.querySelectorAll('.hh-chip').forEach((c) => {
-    c.onclick = () => {
-      setMode(c.dataset.mode);
-      const inp = document.getElementById('input');
-      inp.value = c.dataset.prompt;
-      inp.focus();
-      if (typeof updateSendPrice === 'function') updateSendPrice();
-    };
-  });
-}
 
 function renderChatList() {
   const list = document.getElementById('chatList');
@@ -2549,7 +2538,6 @@ function enterApp() {
   if (nameEl) nameEl.textContent = name;
   const heroName = document.getElementById('heroName');
   if (heroName) heroName.textContent = name;
-  initHomeHero();
   const initial = (name[0] || '·').toUpperCase();
   const av = document.getElementById('sideAvatar');
   if (av) av.textContent = initial;
