@@ -581,20 +581,56 @@ function setEffort(level) {
   document.getElementById('effortMenu').classList.remove('open');
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
-// Accept-edits chip in the composer row — a persisted toggle; what it
-// controls is being decided, so nothing reads the flag yet.
-const ACCEPT_KEY = 'zephyr_accept_edits';
-let acceptEdits = localStorage.getItem(ACCEPT_KEY) === '1';
-function renderAcceptChip() {
-  const el = document.getElementById('acceptChip');
-  if (el) el.classList.toggle('on', acceptEdits);
+// Prompt-help mode chip (top-right of the composer). Three modes:
+//   auto — Zephyr composes and makes every creative call, never asks
+//   plan — Zephyr interviews first (the question popup), then composes
+//   off  — raw prompting: the text goes to the model exactly as typed,
+//          and the director surcharge disappears from the price
+const DIR_MODE_KEY = 'zephyr_director_mode';
+const DIR_MODES = {
+  auto: { icon: '⚡', label: 'Auto', desc: 'Zephyr writes the prompt and makes every creative call' },
+  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr asks a question or two, then writes the prompt' },
+  off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
+};
+let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
+function renderDirChip() {
+  const el = document.getElementById('dirModeChip');
+  if (!el) return;
+  const m = DIR_MODES[directorMode];
+  el.innerHTML = '<span class="ae-icon">' + esc(m.icon) + '</span><span class="ae-label">' + m.label + '</span>';
+  el.classList.toggle('on', directorMode !== 'off');
+  document.querySelectorAll('#dirMenu .dir-item').forEach((i) =>
+    i.classList.toggle('selected', i.dataset.mode === directorMode));
 }
-function toggleAcceptEdits() {
-  acceptEdits = !acceptEdits;
-  localStorage.setItem(ACCEPT_KEY, acceptEdits ? '1' : '0');
-  renderAcceptChip();
+function setDirectorMode(m) {
+  directorMode = m;
+  localStorage.setItem(DIR_MODE_KEY, m);
+  renderDirChip();
+  renderEffortLock();
+  document.getElementById('dirMenu').classList.remove('open');
+  updateSendPrice(); // raw mode drops the director surcharge from the tag
 }
-renderAcceptChip();
+function toggleDirMenu(e) {
+  e.stopPropagation();
+  const menu = document.getElementById('dirMenu');
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+(function buildDirMenu() {
+  const menu = document.getElementById('dirMenu');
+  if (!menu) return;
+  for (const key of ['auto', 'plan', 'off']) {
+    const m = DIR_MODES[key];
+    const it = document.createElement('div');
+    it.className = 'model-item dir-item';
+    it.dataset.mode = key;
+    it.innerHTML = '<span class="txt"><b>' + esc(m.icon) + ' ' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span>';
+    it.onclick = () => setDirectorMode(key);
+    menu.appendChild(it);
+  }
+  renderDirChip();
+  renderEffortLock();
+})();
 
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
@@ -605,9 +641,22 @@ function togglePresets(open) {
 
 function toggleEffortMenu(e) {
   e.stopPropagation();
+  if (directorMode === 'off') return; // raw mode: effort has nothing to control
   const menu = document.getElementById('effortMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
+}
+// Raw mode greys the effort picker out — the knob only shapes the prompt
+// Zephyr writes, and in raw mode Zephyr isn't writing one.
+function renderEffortLock() {
+  const pick = document.querySelector('.effort-pick');
+  if (!pick) return;
+  const off = directorMode === 'off';
+  pick.classList.toggle('locked', off);
+  pick.querySelector('.opt-btn').title = off
+    ? 'Effort applies when Zephyr writes the prompt — turn prompt help back on to use it'
+    : 'How detailed the written prompt gets';
+  if (off) document.getElementById('effortMenu').classList.remove('open');
 }
 setEffort(effort);
 
@@ -1494,6 +1543,7 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
 // the Haiku levels (Low/Medium), +2 on the Sonnet levels (High/Ultra/Max).
 const CREDIT_USD = 0.008;
 function directorCr() {
+  if (directorMode === 'off') return 0; // raw prompting — no Claude in the loop
   return effort === 'high' || effort === 'ultra' || effort === 'max' ? 2 : 1;
 }
 function fmtPrice(usd) {
@@ -1689,6 +1739,7 @@ async function generateMedia(text, opts = {}) {
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
+        director: directorMode === 'off' ? 'off' : 'on', // off waives the surcharge
       }),
     });
     if (res.status === 401) { // session died — stop cleanly, the gate is up
@@ -1874,6 +1925,7 @@ async function directorAsk(text, history, onDelta) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         step: 'ask', kind: mode, prompt: text, history: history || [], stream: true,
+        qmode: directorMode, // auto: never ask questions · plan: interview first
         prevPrompt: (activeChat() || {}).lastPrompt || undefined,
         ...directorContext(), ...(await directorImage()),
       }),
@@ -2194,6 +2246,8 @@ function send(fromButton) {
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
   if (promptless) { generateMedia(text); return; }
+  // Raw mode: no director — the words go to the model exactly as typed.
+  if (directorMode === 'off') { generateMedia(text); return; }
   startDirector(text);
 }
 

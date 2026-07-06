@@ -174,9 +174,10 @@
             <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
                    oninput="autoGrow(this)"
                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
-            <button class="accept-chip" id="acceptChip" onclick="toggleAcceptEdits()" title="Accept edits">
-              <span class="ae-icon">&lt;/&gt;</span><span class="ae-label">Accept edits</span>
-            </button>
+            <span class="opt-wrap dir-wrap">
+              <button class="accept-chip" id="dirModeChip" onclick="toggleDirMenu(event)" title="Prompt help — tap to change"></button>
+              <div class="model-menu drop-up dir-menu" id="dirMenu"></div>
+            </span>
           </div>
           <div class="composer-row">
             <div class="mode-switch">
