@@ -642,7 +642,11 @@ async function handleRequest(request, env, ctx) {
       );
       const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
       const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      if (hex !== parts.v1) return Response.json({ error: "bad signature" }, { status: 400 });
+      // Constant-time compare so signature verification can't be timing-probed.
+      const sig = String(parts.v1 || "");
+      let mismatch = hex.length ^ sig.length;
+      for (let i = 0; i < hex.length; i++) mismatch |= hex.charCodeAt(i) ^ sig.charCodeAt(i);
+      if (mismatch !== 0) return Response.json({ error: "bad signature" }, { status: 400 });
 
       let event;
       try { event = JSON.parse(raw); } catch {
