@@ -16,7 +16,7 @@ let sbBusy = false;         // an export or generation batch is running
 // the now-wiped storage, so Studio never shows the old account's work.
 function sbResetForAccountSwitch() {
   sb = { active: null, projects: [] };
-  sbSelected = null; sbPlaying = null;
+  sbSelected = null; sbPlaying = null; sbBusy = false; sbSegment = null;
   if (typeof sbPreviewClear === 'function') sbPreviewClear(); // wipe the old user's video from the stage
   sbLoad();   // storage was just cleared → creates a fresh default project
   sbRender();
@@ -28,18 +28,46 @@ function sbLoad() {
     if (raw && Array.isArray(raw.projects)) sb = raw;
   } catch {}
   if (!sb.projects.length) {
-    sb.projects.push({ id: 'p' + Date.now(), title: 'My first film', brief: '', shots: [] });
+    sb.projects.push({ id: sbUid('p'), title: 'My first film', brief: '', shots: [] });
   }
   if (!sb.projects.some((p) => p.id === sb.active)) sb.active = sb.projects[0].id;
-  // Imported shots reference blob: URLs that die with the page — mark them.
   for (const p of sb.projects) {
     for (const s of p.shots) {
+      // Imported shots reference blob: URLs that die with the page — mark them.
       if (s.url && s.url.startsWith('blob:')) { s.url = null; if (s.status === 'ready') s.status = 'missing'; }
+      // A shot left mid-render when the tab closed (Studio has no boot-resume)
+      // would be a permanent ⏳ that no button restarts — reset it so it can run
+      // again (or shows its result if the URL survived).
+      if (s.status === 'generating') s.status = s.url ? 'ready' : 'draft';
     }
   }
 }
+// A short, collision-resistant id (timestamp alone collides within a ms).
+function sbUid(prefix) { return prefix + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+// Transient message for Studio (storage/export problems etc.).
+function sbToast(msg) {
+  let t = document.getElementById('sbToast');
+  if (!t) { t = document.createElement('div'); t.id = 'sbToast'; t.className = 'sb-toast'; document.body.appendChild(t); }
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(sbToast._t);
+  sbToast._t = setTimeout(() => t.classList.remove('show'), 5000);
+}
 function sbSave() {
-  try { localStorage.setItem(SB_KEY, JSON.stringify(sb)); } catch {}
+  try { localStorage.setItem(SB_KEY, JSON.stringify(sb)); return true; }
+  catch (e) {
+    // Out of localStorage room (thumbnails add up): drop this project's base64
+    // thumbs and retry once so at least the project structure survives, and
+    // tell the user rather than silently losing work.
+    try {
+      sb.projects.forEach((p) => p.shots.forEach((s) => { if (s.thumb) s.thumb = null; }));
+      localStorage.setItem(SB_KEY, JSON.stringify(sb));
+      if (typeof sbToast === 'function') sbToast('Storage is full — cleared shot thumbnails to save your project.');
+      return true;
+    } catch {
+      if (typeof sbToast === 'function') sbToast('Storage is full — could not save. Export or delete a project to free space.');
+      return false;
+    }
+  }
 }
 function sbProject() {
   return sb.projects.find((p) => p.id === sb.active);
@@ -145,7 +173,7 @@ function sbRender() {
 function sbSwitchProject(v) {
   if (v === '__new__') {
     const title = prompt('Project name:', 'Untitled film') || 'Untitled film';
-    const p = { id: 'p' + Date.now(), title, brief: '', shots: [] };
+    const p = { id: sbUid('p'), title, brief: '', shots: [] };
     sb.projects.unshift(p);
     sb.active = p.id;
   } else {
@@ -259,7 +287,7 @@ async function sbImportFile(f) {
     const base = proj.shots.length;
     shots.forEach((sh, i) => {
       proj.shots.push({
-        id: 's' + Date.now() + '_' + i,
+        id: sbUid('s'),
         title: f.name.replace(/\.[^.]+$/, '') + ' · ' + (i + 1),
         prompt: '',
         status: 'ready',
@@ -298,7 +326,10 @@ async function sbDetectShots(url, onProgress) {
   }
   const dur = isFinite(v.duration) ? v.duration : v.currentTime;
   if (!isFinite(dur) || dur <= 0) throw new Error('unreadable duration');
-  const step = Math.max(0.2, Math.min(0.4, dur / 240)); // ≤ ~240 samples
+  // Scale the sample step to the whole clip so a long video is scanned end to
+  // end within a bounded ~480-sample budget (was a fixed 0.4s that only ever
+  // reached the first ~200s before the hard sample cap).
+  const step = Math.max(0.4, dur / 480);
   const seek = (t) => new Promise((ok) => { v.onseeked = () => ok(); v.currentTime = Math.min(t, dur - 0.01); });
   let samples = 0;
 
@@ -390,15 +421,33 @@ async function sbGenerateShot(s) {
   }
 }
 
+// Resolve when the video seeks, but never hang: a decode error or a stalled
+// source that emits no event would otherwise leave the caller awaiting forever.
+function sbSeek(v, time) {
+  return new Promise((ok, err) => {
+    const to = setTimeout(() => err(new Error('seek timed out')), 12000);
+    v.onerror = () => { clearTimeout(to); err(new Error('seek error')); };
+    v.onseeked = () => { clearTimeout(to); ok(); };
+    v.currentTime = time;
+  });
+}
+function sbMeta(v) {
+  return new Promise((ok, err) => {
+    const to = setTimeout(() => err(new Error('load timed out')), 12000);
+    v.onloadedmetadata = () => { clearTimeout(to); ok(); };
+    v.onerror = () => { clearTimeout(to); err(new Error('load error')); };
+  });
+}
+
 // Draw the last frame of a shot to a canvas → JPEG data URL (start image for
 // the next shot). Needs CORS-readable media; falls back silently if tainted.
 async function sbLastFrame(s) {
   const v = document.createElement('video');
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'auto';
   v.src = s.url;
-  await new Promise((ok, err) => { v.onloadedmetadata = ok; v.onerror = err; });
+  await sbMeta(v);
   const t = (s.out != null ? s.out : v.duration) - 0.08;
-  await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.max(0, t); });
+  await sbSeek(v, Math.max(0, t));
   return sbGrabFrame(v, 1024).toDataURL('image/jpeg', 0.85);
 }
 
@@ -406,9 +455,9 @@ async function sbThumb(s) {
   const v = document.createElement('video');
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'metadata';
   v.src = s.url;
-  await new Promise((ok, err) => { v.onloadedmetadata = ok; v.onerror = err; });
+  await sbMeta(v);
   s.dur = s.dur || v.duration;
-  await new Promise((ok) => { v.onseeked = ok; v.currentTime = Math.min(0.1, v.duration / 2); });
+  await sbSeek(v, Math.min(0.1, v.duration / 2));
   s.thumb = sbGrabFrame(v, 160).toDataURL('image/jpeg', 0.6);
 }
 
@@ -438,19 +487,27 @@ async function sbExport() {
     const done = new Promise((ok) => { rec.onstop = ok; });
     rec.start(250);
 
+    let ok = 0, skipped = 0;
     for (let i = 0; i < shots.length; i++) {
       sbStudioProgress('Exporting shot ' + (i + 1) + '/' + shots.length + '…');
-      await sbExportShot(shots[i], ctx, W, H, ac, dest);
+      // One unreadable/stalled shot must not abort the whole export — skip it
+      // and keep the shots that worked.
+      try { await sbExportShot(shots[i], ctx, W, H, ac, dest); ok++; }
+      catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; }
     }
     rec.stop();
     await done;
     ac.close().catch(() => {});
+    if (!ok) { sbStudioNote('Export failed — none of the shots could be read (they may still be uploading, or blocked by the browser).'); return; }
     const blob = new Blob(parts, { type: 'video/webm' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const objUrl = URL.createObjectURL(blob);
+    a.href = objUrl;
     a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.webm';
     a.click();
-    sbStudioNote('Exported “' + sbProject().title + '” (' + shots.length + ' shots) — check your downloads ✦');
+    setTimeout(() => URL.revokeObjectURL(objUrl), 10000); // free the blob after the download starts
+    sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
+      (skipped ? ', ' + skipped + ' skipped' : '') + ') — check your downloads ✦');
   } catch (e) {
     console.error('export failed:', e);
     sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
@@ -466,15 +523,21 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
     v.crossOrigin = 'anonymous';
     v.src = s.url;
     v.muted = false; v.volume = 1;
-    let node = null, raf = 0;
+    let node = null, raf = 0, settled = false;
     const start = s.in || 0;
     const stopAt = s.out != null ? s.out : Infinity;
     const cleanup = () => {
       cancelAnimationFrame(raf);
+      clearTimeout(guard);
       try { if (node) node.disconnect(); } catch {}
       v.pause(); v.src = '';
     };
-    v.onerror = () => { cleanup(); reject(new Error('could not read a shot (CORS or codec)')); };
+    const finish = (fn, arg) => { if (settled) return; settled = true; cleanup(); fn(arg); };
+    // Hard stop: a shot that never loads or a remote stream that stalls (no
+    // error event) can't hang the whole export. Bound to the clip length + 20s.
+    const budget = ((sbShotDur(s) || 10) + 20) * 1000;
+    const guard = setTimeout(() => finish(reject, new Error('shot timed out')), Math.min(budget, 180000));
+    v.onerror = () => finish(reject, new Error('could not read a shot (CORS or codec)'));
     v.onloadedmetadata = () => {
       try { node = ac.createMediaElementSource(v); node.connect(dest); } catch {}
       v.currentTime = start;
@@ -486,11 +549,11 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
           if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
           ctx.drawImage(v, dx, dy, dw, dh);
-          if (v.currentTime >= stopAt - 0.03 || v.ended) { cleanup(); resolve(); return; }
+          if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve); return; }
           raf = requestAnimationFrame(draw);
         };
         draw();
-      }).catch((e) => { cleanup(); reject(e); });
+      }).catch((e) => finish(reject, e));
     };
   });
 }
@@ -559,7 +622,7 @@ async function studioSend() {
       if (a.type === 'add_shots' && Array.isArray(a.shots)) {
         for (const ns of a.shots.slice(0, 12)) {
           proj.shots.push({
-            id: 's' + Date.now() + '_' + Math.floor(Math.random() * 1e6),
+            id: sbUid('s'),
             title: String(ns.title || 'Shot').slice(0, 60),
             prompt: String(ns.prompt || '').slice(0, 1200),
             dur: Math.max(3, Math.min(12, Number(ns.duration) || 5)),
@@ -582,8 +645,13 @@ async function studioSend() {
         const s = proj.shots[a.n - 1];
         if (s) proj.shots.splice(a.n - 1, 1);
       } else if (a.type === 'reorder' && Array.isArray(a.order)) {
-        const next = a.order.map((n) => proj.shots[n - 1]).filter(Boolean);
-        if (next.length === proj.shots.length) proj.shots = next;
+        // Require a true permutation — a duplicate index (e.g. [1,1,3]) would
+        // alias one shot into two slots and silently drop another.
+        const idx = a.order.map((n) => n - 1);
+        const uniq = new Set(idx);
+        const valid = idx.length === proj.shots.length && uniq.size === proj.shots.length &&
+          idx.every((i) => i >= 0 && i < proj.shots.length);
+        if (valid) proj.shots = idx.map((i) => proj.shots[i]);
       } else if (a.type === 'generate') {
         if (a.n === 'all') proj.shots.forEach((s) => { if (s.status === 'draft' && s.prompt) toGenerate.push(s); });
         else { const s = proj.shots[a.n - 1]; if (s && s.prompt) toGenerate.push(s); }

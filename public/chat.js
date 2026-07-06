@@ -1509,10 +1509,31 @@ function jobsLoad() { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || 
 function jobsWrite(list) { try { localStorage.setItem(JOBS_KEY, JSON.stringify(list.slice(-8))); } catch {} }
 function jobRecord(chatId, rec) { jobsWrite([...jobsLoad().filter((j) => j.chatId !== chatId), { chatId, ...rec }]); }
 function jobClear(chatId) { jobsWrite(jobsLoad().filter((j) => j.chatId !== chatId)); }
+// Count a failed-to-complete resume so a permanently-dead job is eventually
+// abandoned instead of re-polled every boot forever.
+function jobBumpTries(chatId) { jobsWrite(jobsLoad().map((j) => j.chatId === chatId ? { ...j, tries: (j.tries || 0) + 1 } : j)); }
 
 function savesLoad() { try { return JSON.parse(localStorage.getItem(SAVES_KEY) || '[]'); } catch { return []; } }
 function savesWrite(list) { try { localStorage.setItem(SAVES_KEY, JSON.stringify(list.slice(-20))); } catch {} }
 function queuePendingSave(url, kind) { savesWrite([...savesLoad().filter((p) => p.url !== url), { url, kind, at: Date.now() }]); }
+
+// Cross-tab delivery claim: two tabs of the same account can each resume the
+// same job record and both poll it. The first to reach COMPLETED claims the
+// result key (the fal status URL) in shared localStorage; the other sees the
+// claim and skips save+deliver, so a job is copied and shown exactly once.
+const DELIVERED_KEY = 'zephyr_delivered_v1';
+function claimDelivery(key) {
+  try {
+    const now = Date.now();
+    const map = JSON.parse(localStorage.getItem(DELIVERED_KEY) || '{}');
+    if (map[key] && now - map[key] < 3600e3) return false; // already claimed recently
+    map[key] = now;
+    // Keep the map small — drop entries older than a day.
+    for (const k of Object.keys(map)) if (now - map[k] > 86400e3) delete map[k];
+    localStorage.setItem(DELIVERED_KEY, JSON.stringify(map));
+    return true;
+  } catch { return true; } // storage broken → don't block delivery
+}
 
 // Copy a fal output into permanent Supabase Storage, with bounded retries —
 // a failed copy must never silently become the permanent record.
@@ -1608,7 +1629,10 @@ async function retryPendingSaves() {
   const keep = [];
   for (const p of list) {
     if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
-    const perm = await trySave(p.url, p.kind, 1);
+    // Re-enter saveOutput (not raw trySave) so a free account's image still gets
+    // watermarked on retry — the server now 403s a raw free-image save, so a
+    // bare retry would loop forever and lose the image.
+    const perm = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
     else keep.push(p);
   }
@@ -1618,17 +1642,21 @@ async function retryPendingSaves() {
 // Boot: pick up any generation that was in flight when the tab last died.
 function resumeJobs() {
   const jobs = jobsLoad().filter((j) => j.chatId && j.statusUrl && j.responseUrl);
-  jobsWrite(jobs);
-  jobs.forEach((j) => {
+  // Give up on a record that has been paused (network-dead) several boots
+  // running — its fal URL is almost certainly gone, so stop re-polling forever.
+  const live = jobs.filter((j) => (j.tries || 0) < 4);
+  jobsWrite(live);
+  live.forEach((j) => {
     if (activeGens.has(j.chatId)) return;
     const kind = j.kind || 'video';
     const myGen = { kind, aspect: j.aspect, text: 'Checking on your ' + kind + '…', statusUrl: j.statusUrl };
     activeGens.set(j.chatId, myGen);
     updateSendLock();
     mountGenLoader();
-    // Give even a stale job a real chance — fal keeps results around for days.
-    const deadline = Math.max(Date.now() + 90000, j.deadline || 0);
-    const mins = Math.max(2, Math.round((deadline - Date.now()) / 60000));
+    // Give even a stale job a real chance — fal keeps results around for days,
+    // and a 4K render may still be going, so floor the resumed window at 5 min.
+    const deadline = Math.max(Date.now() + 5 * 60000, j.deadline || 0);
+    const mins = Math.max(5, Math.round((deadline - Date.now()) / 60000));
     pollAndDeliver(j.chatId, kind, j.statusUrl, j.responseUrl, j.text || '', j.label || 'the model', deadline, mins, myGen, false);
   });
 }
@@ -2147,6 +2175,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         // in-memory loader only after a sustained outage (~1 min).
         if (!alive()) return;
         if (++softErrors >= 15) {
+          jobBumpTries(origin);
           pauseGen(origin);
           deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on fal, and the app will pick it back up automatically.');
           return;
@@ -2171,6 +2200,10 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai.');
       return;
     }
+
+    // Another tab of this account may be polling the same resumed job — claim
+    // it so the result is saved and shown exactly once, not duplicated.
+    if (!claimDelivery(statusUrl)) { endGen(origin); return; }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
     const out = await rr.json();
@@ -2219,7 +2252,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // Completed-but-couldn't-fetch-the-result, or any other late failure: the
     // job is (or was) live on fal and already charged, so keep the record and
     // let boot-resume finish the delivery rather than dropping a paid render.
-    if (alive()) { pauseGen(origin); deliverAgent(origin, '⚠️ Hit a snag fetching the result — the app will pick it back up automatically.'); }
+    if (alive()) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Hit a snag fetching the result — the app will pick it back up automatically.'); }
   } finally {
     if (alive()) pauseGen(origin); // never jobClear here — only terminal paths clear
     if (chatStore.active === origin) document.getElementById('input').focus();
@@ -2763,8 +2796,6 @@ function enterApp() {
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
-  // A ?q= prompt from a signed-out visitor: run it now that they're in.
-  if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
   // A different account signed in on this browser: drop the previous user's
   // local cache so their chats are never shown to — or re-uploaded under —
   // this account. (Sign-out clears it too; this covers expired-session swaps.)
@@ -2785,6 +2816,9 @@ function enterApp() {
     }
     try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
   }
+  // Run a ?q= prompt only AFTER the account-switch wipe above — otherwise it
+  // would land in the outgoing account's chat and be discarded by the reset.
+  if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
   fetchCredits();
