@@ -589,7 +589,7 @@ function setEffort(level) {
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
   auto: { icon: '⚡', label: 'Auto', desc: 'Zephyr writes the prompt and makes every creative call' },
-  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr asks a question or two, then writes the prompt' },
+  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr lays out the plan before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
@@ -1138,7 +1138,7 @@ function renderSaved(item) {
 function renderThread() {
   const box = document.getElementById('messages');
   box.innerHTML = '';
-  clearQDock(); // questions belong to the flow that opened them, not the next chat
+  clearQDock(); // the dock card belongs to the flow that opened it, not the next chat
   const chat = activeChat();
   if (chat && chat.msgs.length) chat.msgs.forEach(renderSaved);
   // If this chat has a generation in flight, bring its loader back and keep
@@ -1860,12 +1860,6 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
 }
 
 // ── Director flow (Zephyr) ───────────────────────────────────────────────
-// Sonnet 5 will drive this once ANTHROPIC_API_KEY is set. For now the two
-// "brain" functions below (directorAsk / directorCompose) are local
-// placeholders; the question card + review UI and wiring are the real,
-// final implementation and won't change when Sonnet is plugged in.
-let directorState = null;
-
 // Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
@@ -1925,7 +1919,7 @@ async function directorAsk(text, history, onDelta) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         step: 'ask', kind: mode, prompt: text, history: history || [], stream: true,
-        qmode: directorMode, // auto: never ask questions · plan: interview first
+        qmode: directorMode, // tells the worker which prompt-help mode is active
         prevPrompt: (activeChat() || {}).lastPrompt || undefined,
         ...directorContext(), ...(await directorImage()),
       }),
@@ -1958,7 +1952,6 @@ async function directorAsk(text, history, onDelta) {
         ready: !!final.ready,
         rerun: !!final.rerun,
         revise: !!final.revise,
-        questions: Array.isArray(final.questions) ? final.questions : [],
       };
     }
     const data = await res.json();
@@ -1967,7 +1960,6 @@ async function directorAsk(text, history, onDelta) {
       ready: !!data.ready,
       rerun: !!data.rerun,
       revise: !!data.revise,
-      questions: Array.isArray(data.questions) ? data.questions : [],
     };
   } catch { return localAsk(text); }
 }
@@ -2013,32 +2005,16 @@ async function directorCompose(text, answers) {
 
 function localAsk(text) {
   const words = text.trim().split(/\s+/).filter(Boolean).length;
-  // Greeting / small talk — just chat, no question card.
+  // Greeting / small talk — just chat.
   if (words < 3) {
     return {
       reply: mode === 'audio'
         ? 'Hey! Type the words you want the voice to say and I’ll voice them.'
         : "Hey! Tell me what you'd like to create and I'll help you shape it.",
-      ready: false, questions: [],
+      ready: false,
     };
   }
-  // Voice scripts are literal; long requests are detailed enough — compose.
-  if (mode === 'audio' || words >= 12) return { reply: '', ready: true, questions: [] };
-  // Vague creative request — ask a couple of natural questions.
-  const look = mode === 'image'
-    ? { title: 'What style?', options: [
-        { label: 'Photoreal', desc: 'Lifelike detail' },
-        { label: 'Illustration', desc: 'Drawn / painted' },
-        { label: '3D render', desc: 'CGI look' }] }
-    : { title: 'What look?', options: [
-        { label: 'Realistic', desc: 'Photoreal footage' },
-        { label: 'Cinematic', desc: 'Filmic, color-graded' },
-        { label: 'Animated', desc: '3D / anime' }] };
-  const mood = { title: 'Mood?', options: [
-    { label: 'Bright & lively', desc: '' },
-    { label: 'Moody & dramatic', desc: '' },
-    { label: 'Dreamy & soft', desc: '' }] };
-  return { reply: '', ready: true, questions: [look, mood] };
+  return { reply: '', ready: true };
 }
 
 function localCompose(text, answers) {
@@ -2078,7 +2054,7 @@ async function startDirector(text) {
   };
   let res;
   try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
-  // Zephyr's conversational reply (greetings, small talk, or a lead-in to questions).
+  // Zephyr's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
   // If the user moved to another chat while Zephyr was thinking, stop here —
   // don't pop question cards into the wrong thread.
@@ -2090,8 +2066,7 @@ async function startDirector(text) {
     generateMedia(activeChat().lastPrompt, { announce: false });
     return;
   }
-  // Feedback on the previous generation — revise that prompt surgically,
-  // no clarifying questions.
+  // Feedback on the previous generation — revise that prompt surgically.
   if (res.revise && (activeChat() || {}).lastPrompt) {
     const thinking2 = addMsg('agent typing', 'Revising the prompt');
     let prompt;
@@ -2100,13 +2075,7 @@ async function startDirector(text) {
     reviewPrompt(prompt);
     return;
   }
-  // A vague creative request — walk through the tappable questions.
-  if (res.questions && res.questions.length) {
-    directorState = { text, questions: res.questions, answers: new Array(res.questions.length).fill(null) };
-    renderQuestion(0);
-    return;
-  }
-  // A ready, detailed request — compose the prompt for review.
+  // A creative request — compose the prompt for review.
   if (res.ready) composeAndReview(text, []);
   // Otherwise (greeting / small talk): the reply alone is the whole turn.
 }
@@ -2122,80 +2091,11 @@ async function composeAndReview(text, answers) {
   reviewPrompt(prompt);
 }
 
-// One question per card; answering it reveals the next, then the review.
-function renderQuestion(qi) {
-  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
-  const q = directorState.questions[qi];
-  const total = directorState.questions.length;
-
-  const card = document.createElement('div');
-  card.className = 'q-card';
-
-  // ✕ skips the interview — Zephyr generates with whatever's answered so far.
-  const skip = document.createElement('button');
-  skip.className = 'q-skip'; skip.title = 'Skip — just generate'; skip.textContent = '✕';
-  skip.onclick = () => {
-    clearQDock();
-    composeAndReview(directorState.text, directorState.answers);
-  };
-  card.appendChild(skip);
-
-  const step = document.createElement('div');
-  step.className = 'q-intro';
-  step.textContent = 'Question ' + (qi + 1) + ' of ' + total;
-  card.appendChild(step);
-
-  const title = document.createElement('div');
-  title.className = 'q-title'; title.textContent = q.title;
-  card.appendChild(title);
-
-  const opts = document.createElement('div'); opts.className = 'opts';
-  q.options.forEach((o, oi) => {
-    const opt = document.createElement('div'); opt.className = 'opt';
-    opt.innerHTML = '<span class="key">' + LETTERS[oi] + '</span><span class="txt"><b>' +
-      esc(o.label) + '</b>' + (o.desc ? '<small>' + esc(o.desc) + '</small>' : '') + '</span>';
-    opt.onclick = () => chooseAnswer(card, opt, qi, o.label);
-    opts.appendChild(opt);
-  });
-
-  // Other… — tap to reveal a text field; Enter (or tapping it again) confirms.
-  const other = document.createElement('div'); other.className = 'opt';
-  other.innerHTML = '<span class="key">' + LETTERS[q.options.length] + '</span><span class="txt"><b>Other…</b></span>';
-  const inp = document.createElement('input');
-  inp.className = 'other-input'; inp.placeholder = 'Type & press Enter…'; inp.style.display = 'none';
-  other.querySelector('.txt').appendChild(inp);
-  other.onclick = (e) => {
-    if (e.target === inp) return;
-    if (inp.style.display === 'none') { other.classList.add('sel'); inp.style.display = ''; inp.focus(); }
-    else if (inp.value.trim()) chooseAnswer(card, other, qi, inp.value.trim());
-  };
-  inp.onclick = (e) => e.stopPropagation();
-  inp.onkeydown = (e) => {
-    if (e.key === 'Enter' && inp.value.trim()) { e.preventDefault(); chooseAnswer(card, other, qi, inp.value.trim()); }
-  };
-  opts.appendChild(other);
-
-  card.appendChild(opts);
-  // Questions live in a fixed dock right above the composer, not in the
-  // thread — one card in that spot, replaced as the flow advances.
-  const dock = document.getElementById('qDock');
-  dock.innerHTML = '';
-  dock.appendChild(card);
-}
-
+// The floating dock above the composer (was the question cards; the Plan
+// mode card renders here next).
 function clearQDock() {
   const dock = document.getElementById('qDock');
   if (dock) dock.innerHTML = '';
-}
-
-function chooseAnswer(card, optEl, qi, value) {
-  directorState.answers[qi] = value;
-  // Answered questions leave the thread — the next one takes their place,
-  // so there's never a pile of finished cards above the open question.
-  card.remove();
-  const next = qi + 1;
-  if (next < directorState.questions.length) renderQuestion(next);
-  else composeAndReview(directorState.text, directorState.answers);
 }
 
 function reviewPrompt(prompt) {

@@ -611,7 +611,7 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Sonnet 5 director: turns a request into A/B/C questions, then a final prompt.
+    // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
     if (url.pathname === "/api/direct" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
       if (!env.ANTHROPIC_API_KEY) {
@@ -664,10 +664,10 @@ async function handleRequest(request, env, ctx) {
       const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
       // Effort switch: how long and detailed the written prompt should be.
       const effort = ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium";
-      // Prompt-help mode for the ask step: "auto" never asks questions,
-      // "plan" interviews willingly; anything else keeps the legacy
-      // rare-questions behavior (older clients that don't send qmode).
+      // Prompt-help mode (auto | plan) — the ask step never asks questions
+      // anymore; qmode is reserved for the Plan-mode flow.
       const qmode = body.qmode === "auto" || body.qmode === "plan" ? body.qmode : "";
+      void qmode;
       // Effort sets DEPTH, never a recipe: no level prescribes which areas to
       // cover, so two prompts at the same level read like two different
       // directors, not one template.
@@ -719,18 +719,14 @@ async function handleRequest(request, env, ctx) {
           ? `You are Zephyr, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
 - Greeting, small talk, or a question aimed at you ("hey", "how are you", "why are you running"): set ready=false and use your reply to chat back and invite them to type the words they want voiced.
 - Words meant to be spoken aloud (a script, a line, a message, a caption): set ready=true. Their text will be voiced EXACTLY as written — never rewrite it and never ask clarifying questions.
-Leave questions empty either way. When genuinely unsure, set ready=true.`
+When genuinely unsure, set ready=true.`
           : `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
-- If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
-${qmode === "auto"
-  ? `- If they've described something to create: set ready=true and leave questions EMPTY — never ask clarifying questions; make every creative call yourself.`
-  : qmode === "plan"
-  ? `- If they've described something to create: set ready=true. The user turned on Plan mode — they want a quick interview before you write the prompt: ask 1-2 questions (each with exactly 3 options: a short label + a few-word description) about the most important open creative forks (mood, setting, style, camera, pacing). Only skip the questions when their request already nails everything down. Phrase each one the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".`
-  : `- If they've described something to create: set ready=true. Questions are the exception, not the routine — most requests should get NONE; make the creative calls yourself. Only ask (1-2 max, each with exactly 3 options: a short label + a few-word description) when the request leaves a decision so open you can't write a good prompt without it — no clear subject, or a fork that changes the whole result. When you do ask, phrase it the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".`}
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
-- rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — leave questions empty and use your reply to say you're running it again.
-- revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — leave questions empty and use your reply to acknowledge the fix.
-- both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make questions and replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+- If they're just greeting you, making small talk, or asking what you can do: set ready=false. Use your reply to warmly invite them to describe what they'd like to create.
+- If they've described something to create: set ready=true. Never ask clarifying questions — make every creative call yourself.
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+- rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
+- revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
+- both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "studio"
         ? `You are Zephyr, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
 
@@ -822,7 +818,7 @@ Context: ${ctxLine}`
       const tool = step === "ask"
         ? {
             name: "respond",
-            description: "Reply to the user and, when it's a creative request, ask clarifying questions.",
+            description: "Reply to the user and flag what kind of request this is.",
             input_schema: {
               type: "object",
               properties: {
@@ -830,24 +826,6 @@ Context: ${ctxLine}`
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
-                questions: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      title: { type: "string", description: "the natural, conversational question" },
-                      options: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          properties: { label: { type: "string" }, desc: { type: "string" } },
-                          required: ["label"],
-                        },
-                      },
-                    },
-                    required: ["title", "options"],
-                  },
-                },
               },
               required: ["reply", "ready"],
             },
@@ -920,22 +898,12 @@ Context: ${ctxLine}`
           };
 
       // Shape the ask-step tool output into the API payload.
-      // Voice mode never asks clarifying questions — the words are literal.
+      // Flags only — reply plus intent booleans.
       const shapeAsk = (parsed) => ({
         reply: String(parsed.reply || "").slice(0, 500),
         ready: !!parsed.ready,
         rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
         revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
-        questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, kind === "audio" || qmode === "auto" ? 0 : 2)
-          .map((q) => ({
-            title: String(q.title || "").slice(0, 120),
-            options: (Array.isArray(q.options) ? q.options : [])
-              .slice(0, 3)
-              .map((o) => ({ label: String(o.label || "").slice(0, 40), desc: String(o.desc || "").slice(0, 60) }))
-              .filter((o) => o.label),
-          }))
-          .filter((q) => q.title && q.options.length),
       });
 
       const wantStream = body.stream === true && step === "ask";
