@@ -588,8 +588,8 @@ function setEffort(level) {
 //          and the director surcharge disappears from the price
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
-  auto: { icon: '⚡', label: 'Auto', desc: 'Zephyr writes the prompt and makes every creative call' },
-  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr lays out the plan before generating' },
+  auto: { icon: '⚡', label: 'Auto', desc: 'Zephyr writes the prompt and generates right away' },
+  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
@@ -2072,7 +2072,7 @@ async function startDirector(text) {
     let prompt;
     try { prompt = await directorRevise(text); } finally { thinking2.remove(); }
     if (chatStore.active !== origin) return;
-    reviewPrompt(prompt);
+    deliverPrompt(prompt);
     return;
   }
   // A creative request — compose the prompt for review.
@@ -2088,7 +2088,16 @@ async function composeAndReview(text, answers) {
   // The user moved to another chat while the prompt was being written —
   // don't pop the review card into the wrong thread.
   if (chatStore.active !== origin) return;
-  reviewPrompt(prompt);
+  deliverPrompt(prompt);
+}
+
+// Mode split: Plan pops the finished paragraph into the chat for approval;
+// Auto commits the brief and generates without stopping.
+function deliverPrompt(prompt) {
+  if (directorMode === 'plan') { reviewPrompt(prompt); return; }
+  const c = activeChat();
+  if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
+  generateMedia(prompt, { announce: false });
 }
 
 // The floating dock above the composer (was the question cards; the Plan
@@ -2105,12 +2114,13 @@ function reviewPrompt(prompt) {
   label.className = 'review-label';
   label.textContent = mode === 'audio'
     ? "I'll voice exactly these words — approve to hear it:"
-    : "Here's the prompt I'll generate — approve to run it:";
+    : "Here's the plan — approve to run it:";
   const body = document.createElement('div');
   body.className = 'review-prompt'; body.textContent = prompt;
   const actions = document.createElement('div'); actions.className = 'review-actions';
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
-  const allow = document.createElement('button'); allow.className = 'review-allow'; allow.textContent = 'Allow & Generate ✦';
+  const allow = document.createElement('button'); allow.className = 'review-allow';
+  allow.textContent = 'Generate ' + (estimatePrice() || '✦');
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     actions.remove(); label.textContent = 'Approved ✦';
