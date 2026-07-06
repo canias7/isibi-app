@@ -212,6 +212,7 @@ async function awDecode(dataUrl) {
     actx.close();
   } catch { awPeaks = null; awDur = 0; }
   renderAttach('audio');
+  updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
 }
 
 // Live visualization: while playing, an analyser drives the bars with the
@@ -326,6 +327,7 @@ function clearAttach(ev, kind) {
     if (extraImages.length) attachments.image = extraImages.shift();
     renderExtraImages();
   }
+  if (kind === 'audio') { awDur = 0; awPeaks = null; updateSendPrice(); } // reset lip-sync price
   renderAttach(kind);
 }
 
@@ -1517,8 +1519,8 @@ const VIDEO_PRICE = {
   'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
   'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
-  'fal-ai/bytedance/omnihuman':                   { flat: 1.40 },  // charged as ~10s of audio
-  'fal-ai/kling-video/lipsync/audio-to-video':    { flat: 0.042 }, // three 5-second increments
+  'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
+  'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_PRICE = { // $ per image
   'fal-ai/flux-2-pro': 0.03,
@@ -1562,6 +1564,12 @@ function estimatePrice() {
   }
   const p = VIDEO_PRICE[model];
   if (!p) return '';
+  // Audio-driven models bill by the attached clip's length (awDur, seconds).
+  if (p.audioPerSec != null || p.audioPer5s != null) {
+    const secs = Math.max(1, Math.min(60, Math.round(awDur || 0)));
+    const usd = p.audioPerSec != null ? p.audioPerSec * secs : p.audioPer5s * Math.ceil(secs / 5);
+    return fmtPrice(usd);
+  }
   if (p.flat != null) return fmtPrice(p.flat);
   const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
   return rate == null ? '' : fmtPrice(rate * (duration || 5));
@@ -1732,6 +1740,7 @@ async function generateMedia(text, opts = {}) {
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
         audio: attachments.audio || undefined,
+        audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,

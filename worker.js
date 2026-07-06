@@ -81,8 +81,8 @@ const VIDEO_USD = {
   "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
   "xai/grok-imagine-video/text-to-video":         { s: { "480p": 0.05, "720p": 0.07, def: 0.07 }, d: 6 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
-  "fal-ai/bytedance/omnihuman":                   { flat: 1.40 },  // fal bills on audio length; ~10s assumed
-  "fal-ai/kling-video/lipsync/audio-to-video":    { flat: 0.042 }, // three 5-second increments
+  "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
+  "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_USD = {
   "fal-ai/flux-2-pro": 0.03,
@@ -112,13 +112,20 @@ function directorCr(effort, director) {
   return effort === "high" || effort === "ultra" || effort === "max" ? 2 : 1;
 }
 
-function creditCost(kind, model, { duration, quality, num, chars, effort, director }) {
+// Audio-driven video models (OmniHuman, Kling LipSync) are billed by fal on
+// the driving clip's real length, so we cap and charge by measured seconds.
+const AUDIO_DRIVE_MAX_S = 60;
+
+function creditCost(kind, model, { duration, quality, num, chars, effort, director, audioSeconds }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
   else {
     const p = VIDEO_USD[model];
+    const secs = Math.max(1, Math.min(AUDIO_DRIVE_MAX_S, Math.round(audioSeconds || 0)));
     if (!p) usd = 3; // unlisted video model: charge high, never undercharge
+    else if (p.audioPerSec != null) usd = p.audioPerSec * secs;
+    else if (p.audioPer5s != null) usd = p.audioPer5s * Math.ceil(secs / 5);
     else if (p.flat != null) usd = p.flat;
     else {
       const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s["720p"];
@@ -403,6 +410,24 @@ async function handleRequest(request, env, ctx) {
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
+      // Driving-audio length for the audio-billed video models (fal charges by
+      // it). Trust the client's measured duration, but floor it by a lenient
+      // size-derived bound (~3 Mbps) so a tampered short claim can't underpay a
+      // big clip, and reject anything over the cap so we never undercharge fal.
+      let audioSeconds = 0;
+      if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
+        const claimed = Number(body.audioDuration);
+        const hasClaim = Number.isFinite(claimed) && claimed > 0;
+        if (hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
+          return Response.json({ error: `audio clip too long — max ${AUDIO_DRIVE_MAX_S}s for lip-sync` }, { status: 400 });
+        }
+        const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
+        const floorSec = bytes ? (bytes * 8) / 3_000_000 : 0; // lenient size floor (~3 Mbps) vs under-claims
+        // A real client always measures and sends the duration; a missing one
+        // is treated as the cap so a tampered request can never undercharge.
+        audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+      }
+
       // Everything validated — charge credits, then spend fal money.
       // Fail closed: if the ledger can't be reached, we don't generate.
       const genCost = creditCost(genKind, model, {
@@ -411,6 +436,7 @@ async function handleRequest(request, env, ctx) {
         // Only an explicit "off" waives the director surcharge — absent or
         // anything else charges it, so old clients never undercharge.
         director: body.director === "off" ? "off" : "on",
+        audioSeconds,
       });
       let balanceAfter;
       try {
