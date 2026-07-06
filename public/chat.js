@@ -1618,11 +1618,16 @@ function maybeShowWelcome(balance) {
       '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
       '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $25/mo.</p>' +
       '<button type="button" class="wm-cta">See plans</button>' +
-      '<button type="button" class="wm-skip">Start creating</button>' +
+      '<button type="button" class="wm-skip">Start generating</button>' +
     '</div>';
     const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} ov.remove(); };
     ov.onclick = (e) => { if (e.target === ov) dismiss(); };
-    ov.querySelector('.wm-skip').onclick = dismiss;
+    ov.querySelector('.wm-skip').onclick = () => {
+      dismiss();
+      showView('home');
+      const inp = document.getElementById('input');
+      if (inp) inp.focus();
+    };
     ov.querySelector('.wm-cta').onclick = () => { dismiss(); openCredits(); };
     document.body.appendChild(ov);
   } catch {}
