@@ -435,8 +435,6 @@
 .accept-chip .ae-icon { font-weight: 700; font-size: .75rem; letter-spacing: -1px; }
 .accept-chip:hover { color: var(--text); border-color: #4a4a52; }
 .accept-chip:active { transform: scale(.96); }
-.accept-chip.on { background: var(--split); border-color: transparent; color: #0a0a0b; }
-@media (max-width: 700px) { .accept-chip .ae-label { display: none; } }
 
 /* ── Settings panel (grouped composer options) ── */
 /* Fully solid so the chips read clearly over content (matches the model picker). */
