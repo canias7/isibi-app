@@ -2470,16 +2470,51 @@ async function doSignOut() {
   location.reload();
 }
 
-async function changePassword() {
-  const np = prompt('New password (at least 6 characters):');
-  if (np === null) return;
-  if (np.length < 6) { alert('Password must be at least 6 characters.'); return; }
-  try {
-    await Auth.updatePassword(np);
-    alert('Password updated ✓');
-  } catch (e) {
-    alert((e && e.message) || 'Could not change the password.');
-  }
+// Settings panel: account info + password change, no browser prompts.
+function openSettings() {
+  if (document.querySelector('.credits-overlay')) return;
+  const pop = document.getElementById('profilePop');
+  if (pop) pop.classList.remove('open');
+  const email = Auth.email();
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML = '<div class="cp-box cp-narrow st-box">' +
+    '<div class="cp-head"><div class="cp-title">Settings</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="st-sec">Account</div>' +
+    '<div class="st-acct">' +
+      '<span class="st-av"></span>' +
+      '<div class="st-id"><div class="st-name"></div><div class="st-mail"></div></div>' +
+    '</div>' +
+    '<div class="st-sec">Change password</div>' +
+    '<form class="st-form" id="stForm">' +
+      '<input type="password" class="st-in" id="stPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
+      '<button type="submit" class="st-save">Update</button>' +
+    '</form>' +
+    '<div class="cp-note" id="stNote"></div>' +
+  '</div>';
+  ov.querySelector('.st-av').textContent = (name[0] || '·').toUpperCase();
+  ov.querySelector('.st-name').textContent = name;
+  ov.querySelector('.st-mail').textContent = email;
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelector('#stForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const inp = ov.querySelector('#stPw');
+    const note = ov.querySelector('#stNote');
+    const np = inp.value;
+    if (np.length < 6) { note.textContent = 'Password needs at least 6 characters.'; return; }
+    note.textContent = 'Updating…';
+    try {
+      await Auth.updatePassword(np);
+      inp.value = '';
+      note.textContent = 'Password updated ✓';
+    } catch (err) {
+      note.textContent = (err && err.message) || 'Could not change the password.';
+    }
+  };
+  document.body.appendChild(ov);
 }
 
 function initAuthGate() {
