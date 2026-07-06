@@ -1600,11 +1600,20 @@ async function fetchCredits() {
   } catch {}
 }
 
-// ── Membership panel: monthly credits, two tiers ───────────────────────────
+// ── Membership panel: monthly credits, three tiers ─────────────────────────
+// `get` and `feats` stay true to what exists today — more credits at a better
+// rate than one-time top-ups, rollover, every model. No priority queue or
+// early-access claims until those actually ship.
 const MEMBERSHIPS = [
-  { plan: '25', usd: 25, credits: 2000, name: 'Plus' },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular' },
-  { plan: '100', usd: 100, credits: 8000, name: 'Max' },
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus',
+    get: '≈ 1,000 images or ~13 videos a month',
+    feats: ['All video, image &amp; voice models', 'A better rate than one-time top-ups', 'Unused credits roll over', 'Cancel anytime'] },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular',
+    get: '≈ 2,000 images or ~26 videos a month',
+    feats: ['Everything in Plus', 'Double the monthly credits', 'Room for ~26 videos a month', 'Cancel anytime'] },
+  { plan: '100', usd: 100, credits: 8000, name: 'Max',
+    get: '≈ 4,000 images or ~53 videos a month',
+    feats: ['Everything in Pro', '8,000 fresh credits every month', 'Built for heavy, everyday creators', 'Cancel anytime'] },
 ];
 const TOPUPS = [
   { topup: '15', usd: 15, credits: 1070 },
@@ -1616,21 +1625,27 @@ const TOPUPS = [
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  const cards = MEMBERSHIPS.map((p) =>
-    '<button type="button" class="cp-card' + (p.tag ? ' cp-best' : '') + '" data-plan="' + p.plan + '">' +
-      (p.tag ? '<div class="cp-tag">' + p.tag + '</div>' : '') +
-      '<div class="cp-plan">' + p.name + '</div>' +
-      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '<span class="cp-per">/month</span></div>' +
-      '<div class="cp-usd">$' + p.usd + '/mo</div>' +
-    '</button>').join('');
-  const minis = TOPUPS.map((p) =>
-    '<button type="button" class="cp-card cp-mini" data-topup="' + p.topup + '">' +
-      '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
-      '<div class="cp-usd">$' + p.usd + '</div>' +
-    '</button>').join('');
+  ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
+  // Full "Upgrade your plan" page: promo hero + three plan cards with feature
+  // lists, modelled on the pricing mockup and kept in the isibi theme.
+  const cards = MEMBERSHIPS.map((p) => {
+    const rate = '$' + (p.usd / p.credits).toFixed(4).replace(/0+$/, '');
+    return '<button type="button" class="up-card' + (p.tag ? ' best' : '') + '" data-plan="' + p.plan + '">' +
+      (p.tag ? '<div class="up-badge">Most popular</div>' : '') +
+      '<div class="up-pname">' + p.name + '</div>' +
+      '<div class="up-pcred"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + '<small> credits / month</small></div>' +
+      '<div class="up-pget">' + p.get + '</div>' +
+      '<div class="up-priceline">' +
+        '<span class="up-pprice">$' + p.usd + '<small> /mo</small></span>' +
+        '<span class="up-rate">' + rate + ' / credit</span>' +
+      '</div>' +
+      '<ul class="up-feat">' + p.feats.map((f) => '<li>' + f + '</li>').join('') + '</ul>' +
+      '<span class="up-buy">Choose ' + p.name + '</span>' +
+      '<span class="up-buycap">Billed monthly · cancel anytime</span>' +
+    '</button>';
+  }).join('');
   // Top-ups-only view (from the profile menu) is a quiet list — credits left,
-  // price right, hairline separators. The Credits row opens the full shop.
+  // price right, hairline separators.
   const rows = TOPUPS.map((p) =>
     '<button type="button" class="cp-lrow" data-topup="' + p.topup + '">' +
       '<span class="cp-lcr">✦ ' + p.credits.toLocaleString() + '</span>' +
@@ -1640,16 +1655,32 @@ function openCredits(topupsOnly) {
     ? '<div class="cp-head"><div class="cp-title">Top-up credits</div><button type="button" class="cp-close">✕</button></div>' +
       '<div class="cp-list">' + rows + '</div>' +
       '<div class="cp-note" id="cpNote"></div>'
-    : '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
-      '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
-      '<div class="cp-grid">' + cards + '</div>' +
-      '<div class="cp-sec">One-time top-ups</div>' +
-      '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
-      '<div class="cp-note" id="cpNote"></div>';
-  ov.innerHTML = '<div class="cp-box' + (topupsOnly ? ' cp-narrow' : '') + '">' + inner + '</div>';
+    : '<button type="button" class="cp-close up-close">✕</button>' +
+      '<div class="up-promo">' +
+        '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
+        '<span class="up-tag">✦ Launch offer</span>' +
+        '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
+        '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
+        '<div class="up-models">' + ['Veo 3', 'Sora 2', 'Kling 2.5', 'Seedance', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
+        '<button type="button" class="up-hero-cta">Start with Pro →</button>' +
+      '</div>' +
+      '<div class="up-headwrap">' +
+        '<div class="up-eyebrow">Membership</div>' +
+        '<h1 class="up-h1">Upgrade your plan</h1>' +
+        '<p class="up-sub">Fresh credits every month at a better rate than one-time top-ups — unused credits roll over, and you can cancel anytime.</p>' +
+      '</div>' +
+      '<div class="up-grid">' + cards + '</div>' +
+      '<div class="cp-note up-note" id="cpNote"></div>' +
+      '<div class="up-trust"><span>Secure checkout</span><span>Cancel anytime</span><span>Every model included</span><span>Credits roll over</span></div>' +
+      '<div class="up-topnote">Just need a one-off? <button type="button" class="up-topup-link">Grab a one-time top-up →</button></div>';
+  ov.innerHTML = '<div class="cp-box' + (topupsOnly ? ' cp-narrow' : ' cp-wide') + '">' + inner + '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.querySelector('.cp-close').onclick = () => ov.remove();
-  ov.querySelectorAll('.cp-card, .cp-lrow').forEach((c) => {
+  const topupLink = ov.querySelector('.up-topup-link');
+  if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
+  const heroCta = ov.querySelector('.up-hero-cta');
+  if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
+  ov.querySelectorAll('.cp-card, .cp-lrow, .up-card').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
       note.textContent = 'Opening secure checkout…';

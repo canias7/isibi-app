@@ -101,8 +101,16 @@
             <div class="pp-name" id="sideName">You</div>
             <div class="pp-email" id="authEmailBadge"></div>
           </div>
+          <span class="pp-plan-tag" id="planTag">Free plan</span>
         </div>
-        <div class="pp-credits" onclick="openCredits()" title="Get more credits">
+        <button class="pp-upgrade" onclick="openCredits()">
+          <span class="pp-up-txt">
+            <span class="pp-up-t">Upgrade to a plan</span>
+            <span class="pp-up-s">Monthly credits at the best rate</span>
+          </span>
+          <span class="pp-up-cta">See plans</span>
+        </button>
+        <div class="pp-credits" onclick="openCredits(true)" title="Get more credits">
           <span class="pp-credits-lbl">Credits</span>
           <span class="pp-credits-n" id="creditChip">✦ —</span>
           <span class="pp-chev">›</span>
