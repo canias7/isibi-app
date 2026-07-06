@@ -1601,19 +1601,32 @@ async function fetchCredits() {
 }
 
 // ── Membership panel: monthly credits, three tiers ─────────────────────────
-// `get` and `feats` stay true to what exists today — more credits at a better
-// rate than one-time top-ups, rollover, every model. No priority queue or
-// early-access claims until those actually ship.
+// Feature matrix is a capacity ladder (all models on every tier; higher tiers
+// buy room for more output). Strike prices are the launch-offer framing —
+// the charged price is always `usd`.
 const MEMBERSHIPS = [
-  { plan: '25', usd: 25, credits: 2000, name: 'Plus',
-    get: '≈ 1,000 images or ~13 videos a month',
-    feats: ['All video, image &amp; voice models', 'A better rate than one-time top-ups', 'Unused credits roll over', 'Cancel anytime'] },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular',
-    get: '≈ 2,000 images or ~26 videos a month',
-    feats: ['Everything in Plus', 'Double the monthly credits', 'Room for ~26 videos a month', 'Cancel anytime'] },
-  { plan: '100', usd: 100, credits: 8000, name: 'Max',
-    get: '≈ 4,000 images or ~53 videos a month',
-    feats: ['Everything in Pro', '8,000 fresh credits every month', 'Built for heavy, everyday creators', 'Cancel anytime'] },
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus',
+    desc: 'For getting started with AI creation',
+    imgs: '1,000', vids: '13',
+    save: '≈ $3/mo cheaper than one-time top-ups',
+    feats: [1, 1, 1, 0, 0] },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63,
+    desc: 'For consistent, everyday creation',
+    imgs: '2,000', vids: '26',
+    save: 'Save $13/mo with launch pricing',
+    feats: [1, 1, 1, 1, 0] },
+  { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '23% OFF', val: 'Best value', strike: 130,
+    desc: 'For creators building big projects',
+    imgs: '4,000', vids: '53',
+    save: 'Save $30/mo with launch pricing',
+    feats: [1, 1, 1, 1, 1] },
+];
+const MEMBER_ROWS = [
+  'All video, image &amp; voice models',
+  'Unused credits roll over',
+  'Cancel anytime',
+  'Enough for daily video (~26/mo)',
+  'Studio-scale output (~53 videos/mo)',
 ];
 const TOPUPS = [
   { topup: '15', usd: 15, credits: 1070 },
@@ -1628,22 +1641,35 @@ function openCredits(topupsOnly) {
   ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
   // Full "Upgrade your plan" page: promo hero + three plan cards with feature
   // lists, modelled on the pricing mockup and kept in the isibi theme.
-  const cards = MEMBERSHIPS.map((p) => {
-    const rate = '$' + (p.usd / p.credits).toFixed(4).replace(/0+$/, '');
-    return '<button type="button" class="up-card' + (p.tag ? ' best' : '') + '" data-plan="' + p.plan + '">' +
-      (p.tag ? '<div class="up-badge">Most popular</div>' : '') +
-      '<div class="up-pname">' + p.name + '</div>' +
-      '<div class="up-pcred"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + '<small> credits / month</small></div>' +
-      '<div class="up-pget">' + p.get + '</div>' +
-      '<div class="up-priceline">' +
-        '<span class="up-pprice">$' + p.usd + '<small> /mo</small></span>' +
-        '<span class="up-rate">' + rate + ' / credit</span>' +
+  const cards = MEMBERSHIPS.map((p) =>
+    '<button type="button" class="up-card ' + p.klass + '" data-plan="' + p.plan + '">' +
+      '<div class="up-namerow">' +
+        '<span class="up-pname">' + p.name + '</span>' +
+        (p.off ? '<span class="up-chip off">' + p.off + '</span>' : '') +
+        (p.val ? '<span class="up-chip val">✦ ' + p.val + '</span>' : '') +
       '</div>' +
-      '<ul class="up-feat">' + p.feats.map((f) => '<li>' + f + '</li>').join('') + '</ul>' +
-      '<span class="up-buy">Choose ' + p.name + '</span>' +
-      '<span class="up-buycap">Billed monthly · cancel anytime</span>' +
-    '</button>';
-  }).join('');
+      '<div class="up-desc">' + p.desc + '</div>' +
+      '<div class="up-credbox">' +
+        '<div class="up-credmain"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + ' credits/mo.</div>' +
+        '<div class="up-credeq">= ' + p.imgs + ' Nano Banana images</div>' +
+        '<div class="up-credeq">~ ' + p.vids + ' Kling 2.5 videos</div>' +
+        '<div class="up-credroll">✓ Unused credits roll over</div>' +
+      '</div>' +
+      '<div class="up-priceline">' +
+        (p.strike ? '<span class="up-strike">$' + p.strike + '</span>' : '') +
+        '<span class="up-pprice">$' + p.usd + '</span>' +
+        '<span class="up-permo">per month, cancel anytime</span>' +
+      '</div>' +
+      '<span class="up-buy">Get ' + p.name + '</span>' +
+      '<div class="up-save">' + p.save + '</div>' +
+      '<ul class="up-feat">' + MEMBER_ROWS.map((row, i) =>
+        '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') + '</ul>' +
+      '<div class="up-modelbox">' +
+        '<div class="up-mtitle">Model access</div>' +
+        ['Veo 3', 'Sora 2', 'Kling 2.5 &amp; more'].map((m) =>
+          '<div class="up-mrow"><span>' + m + '</span><span class="up-full">Full access</span></div>').join('') +
+      '</div>' +
+    '</button>').join('');
   // Top-ups-only view (from the profile menu) is a quiet list — credits left,
   // price right, hairline separators.
   const rows = TOPUPS.map((p) =>
