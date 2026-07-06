@@ -1555,7 +1555,7 @@ function directorCr() {
 function fmtPrice(usd) {
   return '✦ ' + (directorCr() + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
 }
-function estimatePrice() {
+function estimatePrice(textForAudio) {
   if (mode === 'image') {
     const per = IMAGE_PRICE[model];
     return per == null ? '' : fmtPrice(per * (numImages || 1));
@@ -1563,7 +1563,10 @@ function estimatePrice() {
   if (mode === 'audio') {
     const per = AUDIO_PRICE[model];
     if (per == null) return '';
-    const chars = (document.getElementById('input').value || '').length;
+    // Price on the exact text being quoted (the review card passes the script;
+    // the send button falls back to the live input). Match the server's cap.
+    const raw = textForAudio != null ? textForAudio : (document.getElementById('input').value || '');
+    const chars = Math.min(2000, raw.trim().length);
     return fmtPrice(Math.max(chars, 40) / 1000 * per);
   }
   const p = VIDEO_PRICE[model];
@@ -2074,8 +2077,10 @@ async function startDirector(text) {
   // The director read the message as "run that again": the last prompt was
   // already approved once — straight back into generation, no re-interview.
   if (res.rerun && (activeChat() || {}).lastPrompt) {
-    if (!res.reply) deliverAgent(origin, '🔁 Running it again.');
-    generateMedia(activeChat().lastPrompt, { announce: false });
+    // Plan mode still gets the approval card (settings may have changed since
+    // the last run) — deliverPrompt handles the mode split; Auto runs straight.
+    if (!res.reply && directorMode !== 'plan') deliverAgent(origin, '🔁 Running it again.');
+    deliverPrompt(activeChat().lastPrompt);
     return;
   }
   // Feedback on the previous generation — revise that prompt surgically.
@@ -2132,7 +2137,8 @@ function reviewPrompt(prompt) {
   const actions = document.createElement('div'); actions.className = 'review-actions';
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
-  allow.textContent = 'Generate ' + (estimatePrice() || '✦');
+  // Price the card on the actual prompt/script, not the (now-cleared) input.
+  allow.textContent = 'Generate ' + (estimatePrice(mode === 'audio' ? prompt : undefined) || '✦');
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     actions.remove(); label.textContent = 'Approved ✦';
@@ -2165,6 +2171,12 @@ function send(fromButton) {
   // Lip-sync models are prompt-less — they run off the attachments, not text.
   const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
+  // Voice is capped at 2,000 characters server-side; block over-length scripts
+  // here (keeping the text) instead of letting the tail get silently cut off.
+  if (mode === 'audio' && text.length > 2000) {
+    addMsg('agent', "That's a long one — voice scripts are capped at 2,000 characters (this is " + text.length.toLocaleString() + "). Trim it a little and send again.");
+    return;
+  }
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
   if (promptless) { generateMedia(text); return; }
