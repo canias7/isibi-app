@@ -1601,19 +1601,34 @@ async function fetchCredits() {
 }
 
 // ── Membership panel: monthly credits, three tiers ─────────────────────────
-// `get` and `feats` stay true to what exists today — more credits at a better
-// rate than one-time top-ups, rollover, every model. No priority queue or
-// early-access claims until those actually ship.
+// Feature matrix is a capacity ladder (all models on every tier; higher tiers
+// buy room for more output). Strike prices are the launch-offer framing —
+// the charged price is always `usd`.
 const MEMBERSHIPS = [
-  { plan: '25', usd: 25, credits: 2000, name: 'Plus',
-    get: '≈ 1,000 images or ~13 videos a month',
-    feats: ['All video, image &amp; voice models', 'A better rate than one-time top-ups', 'Unused credits roll over', 'Cancel anytime'] },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', tag: 'Popular',
-    get: '≈ 2,000 images or ~26 videos a month',
-    feats: ['Everything in Plus', 'Double the monthly credits', 'Room for ~26 videos a month', 'Cancel anytime'] },
-  { plan: '100', usd: 100, credits: 8000, name: 'Max',
-    get: '≈ 4,000 images or ~53 videos a month',
-    feats: ['Everything in Pro', '8,000 fresh credits every month', 'Built for heavy, everyday creators', 'Cancel anytime'] },
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
+    desc: 'For getting started with AI creation',
+    imgs: '1,000', vids: '13',
+    save: 'Save $3/mo while the launch offer lasts',
+    feats: [1, 1, 1, 0, 0] },
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
+    desc: 'For consistent, everyday creation',
+    imgs: '2,000', vids: '26',
+    save: 'Save $13/mo while the launch offer lasts',
+    feats: [1, 1, 1, 1, 0] },
+  { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
+    desc: 'For creators building big projects',
+    imgs: '4,000', vids: '53',
+    save: 'Save $33/mo while the launch offer lasts',
+    feats: [1, 1, 1, 1, 1] },
+];
+// Launch-offer countdown target (shown live on the pricing page).
+const OFFER_END = '2026-07-13T23:59:59';
+const MEMBER_ROWS = [
+  'All video, image &amp; voice models',
+  'Unused credits roll over',
+  'Cancel anytime',
+  'Enough for daily video (~26/mo)',
+  'Studio-scale output (~53 videos/mo)',
 ];
 const TOPUPS = [
   { topup: '15', usd: 15, credits: 1070 },
@@ -1628,22 +1643,36 @@ function openCredits(topupsOnly) {
   ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
   // Full "Upgrade your plan" page: promo hero + three plan cards with feature
   // lists, modelled on the pricing mockup and kept in the isibi theme.
-  const cards = MEMBERSHIPS.map((p) => {
-    const rate = '$' + (p.usd / p.credits).toFixed(4).replace(/0+$/, '');
-    return '<button type="button" class="up-card' + (p.tag ? ' best' : '') + '" data-plan="' + p.plan + '">' +
-      (p.tag ? '<div class="up-badge">Most popular</div>' : '') +
-      '<div class="up-pname">' + p.name + '</div>' +
-      '<div class="up-pcred"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + '<small> credits / month</small></div>' +
-      '<div class="up-pget">' + p.get + '</div>' +
-      '<div class="up-priceline">' +
-        '<span class="up-pprice">$' + p.usd + '<small> /mo</small></span>' +
-        '<span class="up-rate">' + rate + ' / credit</span>' +
+  const cards = MEMBERSHIPS.map((p) =>
+    '<button type="button" class="up-card ' + p.klass + '" data-plan="' + p.plan + '">' +
+      (p.pop ? '<div class="up-badge">★ Most popular</div>' : '') +
+      '<div class="up-namerow">' +
+        '<span class="up-pname">' + p.name + '</span>' +
+        (p.off ? '<span class="up-chip off">' + p.off + '</span>' : '') +
+        (p.val ? '<span class="up-chip val">✦ ' + p.val + '</span>' : '') +
       '</div>' +
-      '<ul class="up-feat">' + p.feats.map((f) => '<li>' + f + '</li>').join('') + '</ul>' +
-      '<span class="up-buy">Choose ' + p.name + '</span>' +
-      '<span class="up-buycap">Billed monthly · cancel anytime</span>' +
-    '</button>';
-  }).join('');
+      '<div class="up-desc">' + p.desc + '</div>' +
+      '<div class="up-credbox">' +
+        '<div class="up-credmain"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + ' credits/mo.</div>' +
+        '<div class="up-credeq">= ' + p.imgs + ' Nano Banana images</div>' +
+        '<div class="up-credeq">~ ' + p.vids + ' Kling 2.5 videos</div>' +
+        '<div class="up-credroll">✓ Unused credits roll over</div>' +
+      '</div>' +
+      '<div class="up-priceline">' +
+        (p.strike ? '<span class="up-strike">$' + p.strike + '</span>' : '') +
+        '<span class="up-pprice">$' + p.usd + '</span>' +
+        '<span class="up-permo">per month, cancel anytime</span>' +
+      '</div>' +
+      '<span class="up-buy">Get ' + p.name + '</span>' +
+      '<div class="up-save">' + p.save + '</div>' +
+      '<ul class="up-feat">' + MEMBER_ROWS.map((row, i) =>
+        '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') + '</ul>' +
+      '<div class="up-modelbox">' +
+        '<div class="up-mtitle">Model access</div>' +
+        ['Veo 3', 'Sora 2', 'Kling 2.5 &amp; more'].map((m) =>
+          '<div class="up-mrow"><span>' + m + '</span><span class="up-full">Full access</span></div>').join('') +
+      '</div>' +
+    '</button>').join('');
   // Top-ups-only view (from the profile menu) is a quiet list — credits left,
   // price right, hairline separators.
   const rows = TOPUPS.map((p) =>
@@ -1658,7 +1687,10 @@ function openCredits(topupsOnly) {
     : '<button type="button" class="cp-close up-close">✕</button>' +
       '<div class="up-promo">' +
         '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
-        '<span class="up-tag">✦ Launch offer</span>' +
+        '<div class="up-tagrow">' +
+          '<span class="up-tag">✦ Launch offer — up to 25% off</span>' +
+          '<span class="up-count"><i></i>Ends in <b id="upCountT">—</b></span>' +
+        '</div>' +
         '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
         '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
         '<div class="up-models">' + ['Veo 3', 'Sora 2', 'Kling 2.5', 'Seedance', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
@@ -1680,6 +1712,26 @@ function openCredits(topupsOnly) {
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
   const heroCta = ov.querySelector('.up-hero-cta');
   if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
+  // Live launch-offer countdown; the interval dies with the overlay.
+  const cEl = ov.querySelector('#upCountT');
+  if (cEl) {
+    const end = new Date(OFFER_END).getTime();
+    const two = (n) => String(n).padStart(2, '0');
+    const tick = () => {
+      const ms = end - Date.now();
+      if (ms <= 0) { cEl.textContent = 'soon'; return; }
+      const d = Math.floor(ms / 86400000);
+      const h = Math.floor((ms % 86400000) / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      cEl.textContent = (d ? d + 'd ' : '') + two(h) + ':' + two(m) + ':' + two(s);
+    };
+    tick();
+    const tid = setInterval(() => {
+      if (!document.body.contains(ov)) { clearInterval(tid); return; }
+      tick();
+    }, 1000);
+  }
   ov.querySelectorAll('.cp-card, .cp-lrow, .up-card').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
@@ -2470,16 +2522,51 @@ async function doSignOut() {
   location.reload();
 }
 
-async function changePassword() {
-  const np = prompt('New password (at least 6 characters):');
-  if (np === null) return;
-  if (np.length < 6) { alert('Password must be at least 6 characters.'); return; }
-  try {
-    await Auth.updatePassword(np);
-    alert('Password updated ✓');
-  } catch (e) {
-    alert((e && e.message) || 'Could not change the password.');
-  }
+// Settings panel: account info + password change, no browser prompts.
+function openSettings() {
+  if (document.querySelector('.credits-overlay')) return;
+  const pop = document.getElementById('profilePop');
+  if (pop) pop.classList.remove('open');
+  const email = Auth.email();
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML = '<div class="cp-box cp-narrow st-box">' +
+    '<div class="cp-head"><div class="cp-title">Settings</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="st-sec">Account</div>' +
+    '<div class="st-acct">' +
+      '<span class="st-av"></span>' +
+      '<div class="st-id"><div class="st-name"></div><div class="st-mail"></div></div>' +
+    '</div>' +
+    '<div class="st-sec">Change password</div>' +
+    '<form class="st-form" id="stForm">' +
+      '<input type="password" class="st-in" id="stPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
+      '<button type="submit" class="st-save">Update</button>' +
+    '</form>' +
+    '<div class="cp-note" id="stNote"></div>' +
+  '</div>';
+  ov.querySelector('.st-av').textContent = (name[0] || '·').toUpperCase();
+  ov.querySelector('.st-name').textContent = name;
+  ov.querySelector('.st-mail').textContent = email;
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelector('#stForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const inp = ov.querySelector('#stPw');
+    const note = ov.querySelector('#stNote');
+    const np = inp.value;
+    if (np.length < 6) { note.textContent = 'Password needs at least 6 characters.'; return; }
+    note.textContent = 'Updating…';
+    try {
+      await Auth.updatePassword(np);
+      inp.value = '';
+      note.textContent = 'Password updated ✓';
+    } catch (err) {
+      note.textContent = (err && err.message) || 'Could not change the password.';
+    }
+  };
+  document.body.appendChild(ov);
 }
 
 function initAuthGate() {
