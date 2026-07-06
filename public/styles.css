@@ -390,7 +390,7 @@
 .gen-status-text.flip { animation: gen-flip .45s cubic-bezier(.2, .8, .3, 1) both; }
 @keyframes gen-flip { from { opacity: 0; transform: translateY(7px); } }
 .gen-model {
-  margin-left: auto; flex-shrink: 0; font-size: .7rem; font-weight: 600; color: rgba(237, 234, 243, .42);
+  margin-left: auto; flex-shrink: 0; font-size: .7rem; font-weight: 600; color: rgba(237, 234, 243, .6);
   border: 1px solid var(--line); border-radius: 999px; padding: .16rem .55rem; white-space: nowrap;
 }
 .gen-model:empty { display: none; }
@@ -922,6 +922,15 @@
   }
 }
 
+/* Visible keyboard focus for every interactive control — including the divs
+   that act as buttons (sidebar nav, menu options, chat/shot cards). */
+:focus-visible {
+  outline: 2px solid var(--neon);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+[role="button"], .side-item, .side-logo { cursor: pointer; }
+
 /* ── Chat history list ─────────────────────── */
 .chat-list { margin-top: .4rem; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 2px; }
 .chat-item {
@@ -1030,7 +1039,9 @@
   max-height: 30vh; line-height: 1.4;
 }
 .studio-composer textarea:focus { border-color: rgba(255, 214, 10, .4); }
-.studio-send { width: 40px; height: 40px; flex: none; border-radius: 50%; animation: none; }
+/* Two-class selector so it beats the later single-class `.send` block that
+   would otherwise stretch this into a 126×62 rectangle. */
+.send.studio-send { width: 40px; height: 40px; min-width: 0; flex: none; border-radius: 50%; padding: 0; animation: none; }
 
 .studio-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #08080a; }
 .editor-top { flex: 1; min-height: 0; display: flex; }
@@ -1802,11 +1813,11 @@
   font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.1rem; font-weight: 700;
   color: rgba(237, 234, 243, .35); text-decoration: line-through;
 }
-.t-plus .up-strike { color: rgba(177, 138, 255, .55); }
-.t-pro .up-strike { color: rgba(255, 121, 198, .6); }
-.t-max .up-strike { color: rgba(255, 184, 77, .6); }
+.t-plus .up-strike { color: rgba(177, 138, 255, .72); }
+.t-pro .up-strike { color: rgba(255, 121, 198, .75); }
+.t-max .up-strike { color: rgba(255, 184, 77, .78); }
 .up-pprice { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
-.up-permo { font-size: .72rem; color: rgba(237, 234, 243, .45); }
+.up-permo { font-size: .72rem; color: rgba(237, 234, 243, .62); }
 .up-buy {
   width: 100%; text-align: center; border-radius: 12px; padding: .8rem;
   font-weight: 800; font-size: .95rem; background: #edeaf3; color: #0a0a0b;
@@ -1826,8 +1837,8 @@
 .up-feat li { font-size: .82rem; display: flex; gap: .55rem; align-items: flex-start; line-height: 1.4; }
 .up-feat li.ok { color: #d9d5e2; }
 .up-feat li.ok::before { content: '\2713'; flex: none; font-weight: 900; color: #5ce6a0; }
-.up-feat li.no { color: rgba(237, 234, 243, .32); }
-.up-feat li.no::before { content: '\2715'; flex: none; font-weight: 700; color: rgba(237, 234, 243, .3); }
+.up-feat li.no { color: rgba(237, 234, 243, .52); }
+.up-feat li.no::before { content: '\2715'; flex: none; font-weight: 700; color: rgba(237, 234, 243, .5); }
 /* Model access panel */
 .up-modelbox {
   margin-top: auto; border-radius: 14px; padding: .8rem .95rem;

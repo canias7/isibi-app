@@ -1391,6 +1391,28 @@ function closeLightbox() {
   lightboxEl.querySelector('.lb-stage').innerHTML = ''; // stop playback
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+// Escape closes any open overlay via its own close control (so the welcome
+// modal still records its dismiss, etc.).
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const ov = document.querySelector('.credits-overlay, .gal-overlay');
+  if (!ov) return;
+  const close = ov.querySelector('.up-close, .cp-close, .wm-x, .gal-close');
+  if (close) close.click(); else ov.remove();
+});
+// The sidebar nav + wordmark are divs acting as buttons — make them focusable
+// and operable by keyboard (Enter/Space), with a delegated activator.
+document.querySelectorAll('.side-item, .side-logo').forEach((el) => {
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target;
+  if (el && el.classList && (el.classList.contains('side-item') || el.classList.contains('side-logo'))) {
+    e.preventDefault(); el.click();
+  }
+});
 
 // Progress theater: while fal renders, the status line plays out a film set —
 // one director beat per poll tick (~4s), cycling until the take is done.
@@ -1896,6 +1918,7 @@ const TOPUPS = [
 ];
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
+  document.getElementById('profilePop')?.classList.remove('open'); // don't leave the menu open behind the overlay
   const ov = document.createElement('div');
   ov.className = 'credits-overlay' + (topupsOnly ? '' : ' up-overlay');
   // Full "Upgrade your plan" page: promo hero + three plan cards with feature
@@ -2592,12 +2615,18 @@ function showAuthGate() {
   const gate = document.getElementById('authGate');
   if (!gate) return;
   gate.style.display = 'flex';
+  // Take the app behind the gate out of the tab order so focus can't leak onto
+  // invisible controls behind the sign-in screen.
+  const shell = document.querySelector('.shell');
+  if (shell) shell.inert = true;
   const email = document.getElementById('authEmail');
   if (email) email.focus();
 }
 function hideAuthGate() {
   const gate = document.getElementById('authGate');
   if (gate) gate.style.display = 'none';
+  const shell = document.querySelector('.shell');
+  if (shell) shell.inert = false;
 }
 
 // One flow: email + password → emailed code → in.

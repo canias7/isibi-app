@@ -47,7 +47,7 @@ function sbUid(prefix) { return prefix + Date.now().toString(36) + Math.random()
 // Transient message for Studio (storage/export problems etc.).
 function sbToast(msg) {
   let t = document.getElementById('sbToast');
-  if (!t) { t = document.createElement('div'); t.id = 'sbToast'; t.className = 'sb-toast'; document.body.appendChild(t); }
+  if (!t) { t = document.createElement('div'); t.id = 'sbToast'; t.className = 'sb-toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t); }
   t.textContent = msg; t.classList.add('show');
   clearTimeout(sbToast._t);
   sbToast._t = setTimeout(() => t.classList.remove('show'), 5000);
