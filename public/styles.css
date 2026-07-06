@@ -488,7 +488,23 @@
 
 /* ── Auth gate ─────────────────────────────── */
 /* ── Top-right account / profile menu ───────────────────────────────── */
-.profile { position: fixed; top: 16px; right: 20px; z-index: 70; }
+.profile { position: fixed; top: 16px; right: 20px; z-index: 70; display: flex; align-items: center; gap: .6rem; }
+/* Credits pill: balance + segmented meter (share of the highest balance seen) */
+.cred-pill {
+  display: none; align-items: center; gap: .6rem; cursor: pointer;
+  background: rgba(10, 9, 14, .6); border: 1px solid var(--line-2); border-radius: 999px;
+  padding: .44rem .9rem; color: var(--text);
+  backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  transition: border-color .15s ease, transform .12s ease;
+}
+.cred-pill.show { display: inline-flex; }
+.cred-pill:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-1px); }
+.cred-n { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: .88rem; line-height: 1; }
+.cr-dots { display: inline-flex; gap: 3px; }
+.cr-dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .13); }
+.cr-dots i.on { background: linear-gradient(120deg, #ff79c6, #ffb84d); box-shadow: 0 0 6px rgba(255, 150, 140, .45); }
+.pp-bal .cr-dots { margin-top: .35rem; }
+.pp-bal .cr-dots i { width: 5px; height: 5px; }
 .profile-btn {
   width: 42px; height: 42px; border-radius: 50%; cursor: pointer; padding: 2px;
   background: var(--split); border: none; display: grid; place-items: center;

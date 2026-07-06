@@ -1587,9 +1587,35 @@ function updateSendPrice() {
 }
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────
+// The dot meter shows the balance against the highest balance this browser
+// has seen (plan size / last top-up) — a Higgsfield-style "credits left" bar.
+const CRED_MAX_KEY = 'zephyr_cred_max_v1';
+const CRED_SEGS = 12;
+function renderCredDots(el, frac) {
+  if (!el) return;
+  if (!el.childElementCount) {
+    for (let i = 0; i < CRED_SEGS; i++) el.appendChild(document.createElement('i'));
+  }
+  const on = Math.max(frac > 0 ? 1 : 0, Math.round(frac * CRED_SEGS));
+  [...el.children].forEach((d, i) => d.classList.toggle('on', i < on));
+}
 function setCredits(n) {
+  if (typeof n !== 'number') return;
+  const txt = '✦ ' + n.toLocaleString();
   const el = document.getElementById('creditChip');
-  if (el && typeof n === 'number') el.textContent = '✦ ' + n.toLocaleString();
+  if (el) el.textContent = txt;
+  const pn = document.getElementById('credPillN');
+  if (pn) pn.textContent = txt;
+  let max = n;
+  try {
+    max = Math.max(n, parseInt(localStorage.getItem(CRED_MAX_KEY) || '0', 10) || 0);
+    localStorage.setItem(CRED_MAX_KEY, String(max));
+  } catch {}
+  const frac = max > 0 ? Math.max(0, Math.min(1, n / max)) : 0;
+  renderCredDots(document.getElementById('credDots'), frac);
+  renderCredDots(document.getElementById('credDotsMenu'), frac);
+  const pill = document.getElementById('credPill');
+  if (pill) pill.classList.add('show');
 }
 async function fetchCredits() {
   try {
@@ -2522,7 +2548,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1']
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };

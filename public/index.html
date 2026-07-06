@@ -91,6 +91,10 @@
 
     <!-- Top-right account / profile menu -->
     <div class="profile" id="signOutRow" style="display:none">
+      <button class="cred-pill" id="credPill" onclick="openCredits()" aria-label="Credits" title="Credits">
+        <span class="cred-n" id="credPillN">✦ —</span>
+        <span class="cr-dots" id="credDots"></span>
+      </button>
       <button class="profile-btn" onclick="toggleProfileMenu(event)" aria-label="Account" title="Account">
         <span class="profile-av" id="profileBtnAv">·</span>
       </button>
@@ -107,6 +111,7 @@
           <span class="pp-bal-txt">
             <span class="pp-bal-lbl">Credits</span>
             <span class="pp-bal-n" id="creditChip">✦ —</span>
+            <span class="cr-dots" id="credDotsMenu"></span>
           </span>
           <span class="pp-bal-cta">Top up</span>
         </div>
