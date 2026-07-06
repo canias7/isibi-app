@@ -107,11 +107,12 @@ const AUDIO_USD_PER_1K = {
 // live from 2026-09-01) so nothing changes when the intro pricing ends:
 // Low/Medium run on Haiku (~$0.005/gen ≈ 1 credit sold), High/Ultra/Max on
 // Sonnet (~$0.017–0.022/gen ≈ 2 credits sold).
-function directorCr(effort) {
+function directorCr(effort, director) {
+  if (director === "off") return 0; // prompt help off — no Claude in the loop
   return effort === "high" || effort === "ultra" || effort === "max" ? 2 : 1;
 }
 
-function creditCost(kind, model, { duration, quality, num, chars, effort }) {
+function creditCost(kind, model, { duration, quality, num, chars, effort, director }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -124,7 +125,7 @@ function creditCost(kind, model, { duration, quality, num, chars, effort }) {
       usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
     }
   }
-  return directorCr(effort) + Math.max(1, Math.ceil(usd / CREDIT_USD));
+  return directorCr(effort, director) + Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
 // Deduct credits atomically under the caller's own JWT. Returns the new
@@ -407,6 +408,9 @@ async function handleRequest(request, env, ctx) {
       const genCost = creditCost(genKind, model, {
         duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         effort: typeof body.effort === "string" ? body.effort : "",
+        // Only an explicit "off" waives the director surcharge — absent or
+        // anything else charges it, so old clients never undercharge.
+        director: body.director === "off" ? "off" : "on",
       });
       let balanceAfter;
       try {
@@ -660,6 +664,10 @@ async function handleRequest(request, env, ctx) {
       const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
       // Effort switch: how long and detailed the written prompt should be.
       const effort = ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium";
+      // Prompt-help mode for the ask step: "auto" never asks questions,
+      // "plan" interviews willingly; anything else keeps the legacy
+      // rare-questions behavior (older clients that don't send qmode).
+      const qmode = body.qmode === "auto" || body.qmode === "plan" ? body.qmode : "";
       const effortLine = kind === "audio" ? "" : effort === "low"
         ? `\nEffort: LOW — the user wants a quick take. Keep the prompt to 1-2 tight sentences (30-50 words): subject, action, setting, one style cue. Keep the non-negotiables (camera named, on-screen text pinned) but skip fine detail — let the model improvise the rest.`
         : effort === "high"
@@ -711,7 +719,11 @@ async function handleRequest(request, env, ctx) {
 Leave questions empty either way. When genuinely unsure, set ready=true.`
           : `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false and leave questions empty. Use your reply to warmly invite them to describe what they'd like to create.
-- If they've described something to create: set ready=true. Questions are the exception, not the routine — most requests should get NONE; make the creative calls yourself. Only ask (1-2 max, each with exactly 3 options: a short label + a few-word description) when the request leaves a decision so open you can't write a good prompt without it — no clear subject, or a fork that changes the whole result. When you do ask, phrase it the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".
+${qmode === "auto"
+  ? `- If they've described something to create: set ready=true and leave questions EMPTY — never ask clarifying questions; make every creative call yourself.`
+  : qmode === "plan"
+  ? `- If they've described something to create: set ready=true. The user turned on Plan mode — they want a quick interview before you write the prompt: ask 1-2 questions (each with exactly 3 options: a short label + a few-word description) about the most important open creative forks (mood, setting, style, camera, pacing). Only skip the questions when their request already nails everything down. Phrase each one the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".`
+  : `- If they've described something to create: set ready=true. Questions are the exception, not the routine — most requests should get NONE; make the creative calls yourself. Only ask (1-2 max, each with exactly 3 options: a short label + a few-word description) when the request leaves a decision so open you can't write a good prompt without it — no clear subject, or a fork that changes the whole result. When you do ask, phrase it the way a friend would out loud ("How do you want it to feel?"), NEVER terse labels like "Setting" or "Camera style".`}
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Ask about motion, mood or camera, referencing what you actually see; never ask what the scene looks like" : "a source image to edit (it's in the conversation — look at it). Ask about the change they want, referencing what you actually see; never ask what's already in the picture"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — leave questions empty and use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — leave questions empty and use your reply to acknowledge the fix.
@@ -912,7 +924,7 @@ Context: ${ctxLine}`
         rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
         revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
         questions: (Array.isArray(parsed.questions) ? parsed.questions : [])
-          .slice(0, kind === "audio" ? 0 : 2)
+          .slice(0, kind === "audio" || qmode === "auto" ? 0 : 2)
           .map((q) => ({
             title: String(q.title || "").slice(0, 120),
             options: (Array.isArray(q.options) ? q.options : [])

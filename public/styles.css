@@ -149,6 +149,9 @@
     .composer {
       display: flex; flex-direction: column; align-items: stretch; gap: 1.4rem;
       width: 100%; max-width: 780px; margin: 0 auto;
+      /* Above the attach panel (z2) so drop-up menus stay clickable when
+         the panel sits directly over the composer on narrow screens. */
+      position: relative; z-index: 3;
       background: var(--panel); border: 1px solid var(--line-2);
       border-radius: 24px; padding: 1.35rem 1.35rem 1.1rem 1.5rem;
       box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.10);
@@ -414,7 +417,14 @@
 /* Drops up over the composer, so keep it fully solid to read over the attach row. */
 .model-menu.drop-up.model-drop { min-width: 250px; background: #16161b; }
 
-/* ── Accept-edits chip (top-right beside the textarea; behavior TBD) ── */
+/* ── Prompt-help mode chip (top-right beside the textarea) ── */
+.dir-wrap { flex-shrink: 0; }
+.model-menu.drop-up.dir-menu { min-width: 300px; background: #16161b; left: auto; right: 0; }
+.dir-item { padding: .6rem .8rem; }
+.dir-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
+/* Raw mode: the effort knob has nothing to control — greyed, not clickable. */
+.effort-pick.locked .opt-btn { opacity: .35; cursor: default; }
+.effort-pick.locked .opt-btn:hover { border-color: var(--line-2); color: var(--muted); }
 .accept-chip {
   flex-shrink: 0; display: flex; align-items: center; gap: .45rem;
   background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
