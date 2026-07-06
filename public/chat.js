@@ -1359,6 +1359,19 @@ function closeLightbox() {
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
 
+// Progress theater: while fal renders, the status line plays out a film set —
+// one director beat per poll tick (~4s), cycling until the take is done.
+const THEATER = {
+  video: ['Scouting the location…', 'Setting up the lights…', 'Blocking the shot…', 'Rolling camera…', 'Directing the take…', 'Watching the monitor…', 'Color grading the frames…', 'Cutting the final take…'],
+  image: ['Sketching the composition…', 'Mixing the palette…', 'Setting the lighting…', 'Painting in the details…', 'Sharpening the focus…', 'Adding final touches…'],
+  audio: ['Warming up the voice…', 'Finding the right tone…', 'Recording the take…', 'Listening back…', 'Mastering the sound…'],
+};
+function theaterLine(gen, kind) {
+  const lines = THEATER[kind] || THEATER.video;
+  gen.li = gen.li == null ? 0 : gen.li + 1;
+  return lines[gen.li % lines.length];
+}
+
 // Animated placeholder shown while a generation runs: a shimmering skeleton
 // (or bouncing bars for audio) + a spinning ring and the live status text.
 function makeLoader(kind, aspect) {
@@ -1384,11 +1397,16 @@ function makeLoader(kind, aspect) {
       + '<source src="/loading-ghost.mp4" type="video/mp4" /></video>';
   }
 
+  const prog = document.createElement('div');
+  prog.className = 'gen-prog';
+  prog.innerHTML = '<i></i>';
+
   const status = document.createElement('div');
   status.className = 'gen-status';
-  status.innerHTML = '<span class="gen-spinner"></span><span class="gen-status-text"></span>';
+  status.innerHTML = '<span class="gen-spinner"></span><span class="gen-status-text"></span><span class="gen-model"></span>';
 
   wrap.appendChild(visual);
+  wrap.appendChild(prog);
   wrap.appendChild(status);
   const box = document.getElementById('messages');
   box.appendChild(wrap);
@@ -1406,13 +1424,23 @@ function mountGenLoader() {
   const l = makeLoader(gen.kind, gen.aspect);
   l.el.id = 'genLoader';
   l.setText(gen.text);
+  const gm = l.el.querySelector('.gen-model');
+  if (gm) gm.textContent = gen.model || '';
 }
 function setGenText(chatId, t) {
   const gen = activeGens.get(chatId);
   if (gen) gen.text = t;
   if (chatStore.active === chatId) {
     const el = document.querySelector('#genLoader .gen-status-text');
-    if (el) el.textContent = t;
+    if (el && el.textContent !== t) {
+      el.textContent = t;
+      // retrigger the little rise-in so each new beat visibly lands
+      el.classList.remove('flip');
+      void el.offsetWidth;
+      el.classList.add('flip');
+    }
+    const gm = document.querySelector('#genLoader .gen-model');
+    if (gm) gm.textContent = (gen && gen.model) || '';
   }
 }
 function endGen(chatId) {
@@ -1974,10 +2002,11 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       if (!alive()) return; // cancelled while polling
       state = st.status;
       if (state === 'COMPLETED') break;
+      myGen.model = label;
       setGenText(origin,
         state === 'IN_PROGRESS'
-          ? label + ' is generating your ' + kind + '…'
-          : 'Queued at ' + label + (st.queue_position != null ? ' (#' + st.queue_position + ')' : '') + '…');
+          ? theaterLine(myGen, kind)
+          : 'In the render queue' + (st.queue_position != null ? ' — #' + st.queue_position : '') + '…');
       await new Promise((r) => setTimeout(r, 4000));
       if (!alive()) return;
     }
