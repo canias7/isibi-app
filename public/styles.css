@@ -1015,7 +1015,7 @@
 }
 /* Floats at the top, so the menu drops DOWN and hangs off the left edge. */
 .model-menu.effort-menu { right: auto; left: 0; min-width: 165px; background: #16161b; }
-@media (max-width: 1499px) { .effort-pick { top: 14px; left: 14px; } }
+@media (max-width: 1399px) { .effort-pick { top: 14px; left: 14px; } }
 
 /* ── Attach panel: accordion in the space between sidebar and messages ── */
 .composer-wrap { position: relative; }
@@ -1077,7 +1077,7 @@
 }
 .ap-add { margin-top: .5rem; }
 /* Not enough side room → the panel becomes a block above the composer. */
-@media (max-width: 1499px) {
+@media (max-width: 1399px) {
   .attach-panel {
     position: static; align-self: center; width: 100%; max-width: 780px;
     max-height: 220px; margin: 0 0 .5rem;
@@ -1129,10 +1129,10 @@
 .presets-body { flex: 1; width: 100%; max-width: 1080px; }
 
 /* ── Chat column nudged right of center (box + thread text together) ── */
-/* The wide "floating panel + shifted column" layout only has room at 1500px+,
-   where the mode-switch also goes vertical. Below that the panel is an inline
-   block and the column stays centered — otherwise 1381-1499 strands the panel. */
-@media (min-width: 1500px) {
+/* The wide "floating attach rail + shifted column" layout — the 24" desktop
+   look — needs room for the rail on the left. It fits from ~1400px, so laptops
+   that wide get it too; below that the panel becomes an inline card. */
+@media (min-width: 1400px) {
   .thread-inner,
   .view-home .composer,
   .view-home .drawer-arrow { position: relative; left: 100px; }
