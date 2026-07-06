@@ -388,10 +388,12 @@ function galleryImages() {
   (chatStore.chats || []).forEach((c) => (c.msgs || []).forEach((m) => {
     if (m.t === 'media' && m.kind === 'image' && m.url && !seen.has(m.url)) {
       seen.add(m.url);
-      out.push(m.url);
+      out.push({ url: m.url, at: m.at || 0 });
     }
   }));
-  return out.reverse(); // newest first
+  // Sort by capture time so the genuinely newest image is first, regardless of
+  // which chat it came from.
+  return out.sort((a, b) => b.at - a.at).map((x) => x.url);
 }
 
 function openGalleryPicker() {
@@ -401,14 +403,19 @@ function openGalleryPicker() {
   ov.className = 'gal-overlay';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   const urls = galleryImages();
-  const grid = urls.length
-    ? '<div class="gal-grid">' + urls.map((u) => '<img src="' + u + '" alt="" />').join('') + '</div>'
-    : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>';
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
-    + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>' + grid + '</div>';
-  ov.querySelectorAll('.gal-grid img').forEach((img) => {
-    img.onclick = () => { useGalleryImage(img.src); ov.remove(); };
+    + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>'
+    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>') + '</div>';
+  // Build thumbnails with DOM APIs (never innerHTML) so a stored URL can't
+  // break out of the src attribute and inject markup.
+  const gridEl = ov.querySelector('.gal-grid');
+  if (gridEl) urls.forEach((u) => {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = u;
+    img.onclick = () => { useGalleryImage(u); ov.remove(); };
+    gridEl.appendChild(img);
   });
   document.body.appendChild(ov);
 }
@@ -970,7 +977,16 @@ function newChatEntry() {
 function loadStore() {
   try {
     const s = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-    if (s && Array.isArray(s.chats)) { chatStore = s; }
+    if (s && Array.isArray(s.chats)) {
+      // Drop any corrupted entries (null / missing fields) so one bad row can't
+      // throw later and take the whole app boot down with it.
+      const chats = s.chats.filter((c) => c && typeof c === 'object' && c.id).map((c) => ({
+        ...c,
+        title: typeof c.title === 'string' ? c.title : 'New chat',
+        msgs: Array.isArray(c.msgs) ? c.msgs : [],
+      }));
+      if (chats.length) chatStore = { active: s.active, chats };
+    }
   } catch {}
   // Migrate the old single-thread format into chat #1.
   if (!chatStore.chats.length) {
@@ -1008,6 +1024,14 @@ const syncDirty = new Set();
 const syncDeleted = new Set();
 let syncTimer = null;
 let lastPull = 0;
+let pendingFirstMsg = null; // a ?q= prompt held until a signed-out visitor logs in
+
+// Reschedule a push (used when a flush rejects and the dirty set was requeued),
+// so those edits get another try instead of waiting for the next manual touch.
+function scheduleSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(pushChats, 5000);
+}
 
 function touchSync(chatId) {
   const c = chatStore.chats.find((x) => x.id === chatId);
@@ -1047,19 +1071,24 @@ async function pushChats() {
   }));
   try {
     if (rows.length) {
-      await fetch(SYNC_ENDPOINT + '?on_conflict=user_id,id', {
+      const up = await fetch(SYNC_ENDPOINT + '?on_conflict=user_id,id', {
         method: 'POST',
         headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
         body: JSON.stringify(rows),
       });
+      // A rejected upsert (expired token, 4xx) must requeue — the dirty set was
+      // already cleared, so without this those edits would never sync.
+      if (!up.ok) { ids.forEach((id) => syncDirty.add(id)); scheduleSync(); }
     }
     for (const id of dels) {
-      await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(id), { method: 'DELETE', headers: h });
+      const dr = await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(id), { method: 'DELETE', headers: h });
+      if (!dr.ok) { syncDeleted.add(id); scheduleSync(); }
     }
   } catch {
     // Network hiccup — requeue everything for the next flush.
     ids.forEach((id) => syncDirty.add(id));
     dels.forEach((id) => syncDeleted.add(id));
+    scheduleSync();
   }
 }
 
@@ -1108,7 +1137,12 @@ async function pullChats() {
     }
     persistStore();
     renderChatList();
-    renderThread();
+    // Don't rebuild the active thread out from under a live generation, a
+    // streaming director reply, or a pending review card — that would detach
+    // DOM-only UI mid-flight and throw. The list still reflects the sync.
+    const busy = activeGens.has(chatStore.active) ||
+      document.querySelector('#messages .typing, #messages .review-card, #genLoader');
+    if (!busy) renderThread();
   }
 }
 
@@ -1203,6 +1237,9 @@ function switchChat(id) {
 }
 
 function deleteChat(id) {
+  // Cancel any in-flight generation for this chat first — otherwise its output
+  // would land in storage with no chat to show it (unreachable forever).
+  if (activeGens.has(id)) cancelGen(id);
   chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
@@ -1254,8 +1291,10 @@ function buildMedia(kind, url, prompt) {
     el.controls = true; el.src = url; el.playsInline = true;
   }
   div.appendChild(el);
-  // Free accounts: on-screen mark over the video player.
-  if (kind === 'video' && !isPaid) {
+  // Free accounts: on-screen mark over the video player. Only when we KNOW the
+  // account is free — otherwise refreshVideoBadges() adds it once credits load,
+  // so a paid user never flashes a watermark at boot.
+  if (kind === 'video' && paidKnown && !isPaid) {
     const wm = document.createElement('span');
     wm.className = 'wm-badge';
     wm.textContent = '✦ isibi.ai';
@@ -1446,6 +1485,17 @@ function endGen(chatId) {
   }
   updateSendLock();
 }
+// Soft stop: drop the in-memory run + loader but KEEP the refresh-proof job
+// record, so a run interrupted by a network drop (not a terminal state) is
+// resumed at the next app boot instead of being lost after it was charged.
+function pauseGen(chatId) {
+  activeGens.delete(chatId);
+  if (chatStore.active === chatId) {
+    const el = document.getElementById('genLoader');
+    if (el) el.remove();
+  }
+  updateSendLock();
+}
 
 // ── Refresh-proof generations & gallery saves ──────────────────────────────
 // Every submitted fal job stays on record until it ends, so a closed or
@@ -1488,31 +1538,42 @@ async function watermarkImage(url) {
   const resp = await fetch(url, { mode: 'cors' });
   if (!resp.ok) throw 0;
   const bmp = await createImageBitmap(await resp.blob());
+  // Cap the working size so a huge output can't freeze the tab or blow past the
+  // server's upload cap; generation outputs are well within this anyway.
+  const MAXD = 2560;
+  const scale = Math.min(1, MAXD / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
   const c = document.createElement('canvas');
-  c.width = bmp.width; c.height = bmp.height;
+  c.width = w; c.height = h;
   const g = c.getContext('2d');
-  g.drawImage(bmp, 0, 0);
-  const fs = Math.max(18, Math.round(bmp.width * 0.032));
+  g.drawImage(bmp, 0, 0, w, h);
+  const fs = Math.max(18, Math.round(w * 0.032));
   const pad = Math.round(fs * 0.8);
   g.font = '600 ' + fs + 'px "Space Grotesk", Inter, sans-serif';
   g.textAlign = 'right'; g.textBaseline = 'bottom';
   g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = fs * 0.35;
   g.fillStyle = 'rgba(255,255,255,.82)';
-  g.fillText('✦ isibi.ai', bmp.width - pad, bmp.height - pad);
-  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  g.fillText('✦ isibi.ai', w - pad, h - pad);
+  // JPEG keeps photographic AI outputs small (a full-res PNG can balloon past
+  // the upload cap); quality 0.92 is visually lossless for these.
+  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
   if (!blob) throw 0;
   const buf = new Uint8Array(await blob.arrayBuffer());
   let bin = '';
   for (let i = 0; i < buf.length; i += 0x8000) {
     bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
   }
-  return { kind: 'image', data: btoa(bin), contentType: 'image/png' };
+  return { kind: 'image', data: btoa(bin), contentType: 'image/jpeg' };
 }
 // Save one output: free images get the mark burned in first; any watermark
 // hiccup (CORS, canvas) falls back to saving the clean original — losing the
 // user's paid render over a watermark would be the wrong trade.
 async function saveOutput(u, kind) {
-  if (kind === 'image' && !isPaid) {
+  // Watermark images for known-free accounts. While the paid state is still
+  // unknown we skip the burn and let the server's is_paid gate decide: a
+  // genuinely-free user's raw save 403s → trySave returns null → the pending
+  // -save queue retries later, by which time paidKnown has resolved.
+  if (kind === 'image' && paidKnown && !isPaid) {
     try { return await trySave(u, kind, 3, await watermarkImage(u)); } catch {}
   }
   return trySave(u, kind, 3);
@@ -1666,7 +1727,27 @@ function updateSendPrice() {
 // has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
-let isPaid = false; // has ever purchased — free accounts get watermarks
+// Watermark gating is tri-state: we only mark when the account is KNOWN free.
+// Until /api/credits resolves, `paidKnown` is false and we fail toward "paid"
+// (no watermark) so a slow/failed credits call never defaces a paying user;
+// the server's own is_paid gate on /api/save catches a genuinely-free user.
+let isPaid = false;
+let paidKnown = false;
+// Toggle the on-screen video badge on already-rendered clips once we learn the
+// account's paid state (buildMedia renders none while `paidKnown` is false).
+function refreshVideoBadges() {
+  document.querySelectorAll('.msg.video').forEach((div) => {
+    const has = div.querySelector('.wm-badge');
+    if (paidKnown && !isPaid && !has) {
+      const wm = document.createElement('span');
+      wm.className = 'wm-badge';
+      wm.textContent = '✦ isibi.ai';
+      div.appendChild(wm);
+    } else if ((isPaid || !paidKnown) && has) {
+      has.remove();
+    }
+  });
+}
 function setArcFill(el, frac) {
   if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
 }
@@ -1688,14 +1769,23 @@ function setCredits(n) {
   const pill = document.getElementById('credPill');
   if (pill) pill.classList.add('show');
 }
-async function fetchCredits() {
+async function fetchCredits(attempt) {
   try {
     const r = await apiFetch('/api/credits');
-    if (!r.ok) return;
+    if (!r.ok) throw 0;
     const d = await r.json();
-    if (typeof d.paid === 'boolean') isPaid = d.paid;
+    if (typeof d.paid === 'boolean') {
+      isPaid = d.paid; paidKnown = true; refreshVideoBadges();
+      const pt = document.getElementById('planTag');
+      if (pt) pt.textContent = isPaid ? 'Member' : 'Free plan';
+    }
     if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
-  } catch {}
+  } catch {
+    // Keep trying a few times so the paid flag (and balance) resolve — a
+    // transient failure must not leave a paid user in the "unknown" state.
+    const n = (attempt || 0) + 1;
+    if (n <= 4) setTimeout(() => fetchCredits(n), 1500 * n);
+  }
 }
 
 // One-time welcome banner for fresh accounts: makes the signup grant feel
@@ -1705,6 +1795,7 @@ const WELCOME_KEY = 'zephyr_welcome_v1';
 function maybeShowWelcome(balance) {
   try {
     if (localStorage.getItem(WELCOME_KEY)) return;
+    if (isPaid) return; // never greet a paying member with the free-credits modal
     if (typeof balance !== 'number' || balance <= 0 || balance > 20) return;
     if ((chatStore.chats || []).some((c) => c.msgs && c.msgs.length)) return;
     if (document.querySelector('.credits-overlay')) return;
@@ -1735,32 +1826,38 @@ function maybeShowWelcome(balance) {
 // Feature matrix is a capacity ladder (all models on every tier; higher tiers
 // buy room for more output). Strike prices are the launch-offer framing —
 // the charged price is always `usd`.
+// Output equivalences are DERIVED from the live price tables so they can never
+// drift from what a generation actually costs: a Nano Banana 2 image and a
+// 5-second Kling 3.0 Standard video, each with the default director surcharge.
+const IMG_CR = Math.max(1, Math.ceil(0.08 / CREDIT_USD)) + 1;          // Nano Banana 2 + director
+const VID_CR = Math.max(1, Math.ceil((0.126 * 5) / CREDIT_USD)) + 1;   // Kling 3.0 Std 5s + director
+const roundTo = (n, step) => Math.round(n / step) * step;
+const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
+const estVideos = (cr) => roundTo(cr / VID_CR, 5);
 const MEMBERSHIPS = [
   { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
     desc: 'For getting started with AI creation',
-    imgs: '1,000', vids: '13',
     save: 'Save $3/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 0, 0] },
   { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
     desc: 'For consistent, everyday creation',
-    imgs: '2,000', vids: '26',
     save: 'Save $13/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 1, 0] },
   { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
     desc: 'For creators building big projects',
-    imgs: '4,000', vids: '53',
     save: 'Save $33/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 1, 1] },
 ];
-// Launch-offer countdown target (shown live on the pricing page).
-const OFFER_END = '2026-07-13T23:59:59';
+// Launch offer is a rolling window: it always ends N days out, computed at open
+// time, so the countdown can never freeze into "Ends in soon".
+const OFFER_WINDOW_DAYS = 5;
 const MEMBER_ROWS = [
   'All video, image &amp; voice models',
   'No watermark on your files',
   'Unused credits roll over',
   'Cancel anytime',
-  'Enough for daily video (~26/mo)',
-  'Studio-scale output (~53 videos/mo)',
+  'Room for ~' + estVideos(4000) + ' videos a month',
+  'Studio-scale — ~' + estVideos(8000) + ' videos a month',
 ];
 const TOPUPS = [
   { topup: '15', usd: 15, credits: 1070 },
@@ -1786,8 +1883,8 @@ function openCredits(topupsOnly) {
       '<div class="up-desc">' + p.desc + '</div>' +
       '<div class="up-credbox">' +
         '<div class="up-credmain"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + ' credits/mo.</div>' +
-        '<div class="up-credeq">= ' + p.imgs + ' Nano Banana images</div>' +
-        '<div class="up-credeq">~ ' + p.vids + ' Kling 2.5 videos</div>' +
+        '<div class="up-credeq">≈ ' + estImages(p.credits) + ' Nano Banana images</div>' +
+        '<div class="up-credeq">≈ ' + estVideos(p.credits) + ' Kling 3.0 videos</div>' +
         '<div class="up-credroll">✓ Unused credits roll over</div>' +
       '</div>' +
       '<div class="up-priceline">' +
@@ -1801,7 +1898,7 @@ function openCredits(topupsOnly) {
         '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') + '</ul>' +
       '<div class="up-modelbox">' +
         '<div class="up-mtitle">Model access</div>' +
-        ['Veo 3', 'Sora 2', 'Kling 2.5 &amp; more'].map((m) =>
+        ['Veo 3.1', 'Sora 2', 'Kling 3.0 &amp; more'].map((m) =>
           '<div class="up-mrow"><span>' + m + '</span><span class="up-full">Full access</span></div>').join('') +
       '</div>' +
     '</button>').join('');
@@ -1825,7 +1922,7 @@ function openCredits(topupsOnly) {
         '</div>' +
         '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
         '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
-        '<div class="up-models">' + ['Veo 3', 'Sora 2', 'Kling 2.5', 'Seedance', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
+        '<div class="up-models">' + ['Veo 3.1', 'Sora 2', 'Kling 3.0', 'Seedance 2.0', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
         '<button type="button" class="up-hero-cta">Start with Pro →</button>' +
       '</div>' +
       '<div class="up-headwrap">' +
@@ -1847,11 +1944,18 @@ function openCredits(topupsOnly) {
   // Live launch-offer countdown; the interval dies with the overlay.
   const cEl = ov.querySelector('#upCountT');
   if (cEl) {
-    const end = new Date(OFFER_END).getTime();
+    // Rolling per-browser window: anchor to a stored end date; if it's missing
+    // or already elapsed, start a fresh N-day window. The clock always shows a
+    // real, consistent countdown and never freezes into a broken "soon".
+    const OFFER_KEY = 'zephyr_offer_end_v1';
+    let end = parseInt(localStorage.getItem(OFFER_KEY) || '0', 10) || 0;
+    if (!end || end - Date.now() <= 0) {
+      end = Date.now() + OFFER_WINDOW_DAYS * 86400000;
+      try { localStorage.setItem(OFFER_KEY, String(end)); } catch {}
+    }
     const two = (n) => String(n).padStart(2, '0');
     const tick = () => {
-      const ms = end - Date.now();
-      if (ms <= 0) { cEl.textContent = 'soon'; return; }
+      const ms = Math.max(0, end - Date.now());
       const d = Math.floor(ms / 86400000);
       const h = Math.floor((ms % 86400000) / 3600000);
       const m = Math.floor((ms % 3600000) / 60000);
@@ -1991,7 +2095,7 @@ async function generateMedia(text, opts = {}) {
     if (!alive()) return; // cancelled while submitting
     if (res.status === 402) { // out of credits — nothing was spent
       endGen(origin);
-      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance in the sidebar to get more.');
+      deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance up top to get more.');
       return;
     }
     if (!res.ok || !job.status_url) {
@@ -2024,15 +2128,32 @@ async function generateMedia(text, opts = {}) {
 // deliver into the origin chat.
 async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label, deadline, maxWaitMin, myGen, clearInputs) {
   const alive = () => activeGens.get(origin) === myGen;
+  let softErrors = 0; // consecutive transient poll failures
   try {
     let state = '';
     while (Date.now() < deadline) {
-      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(statusUrl));
-      if (sr.status === 401) {
-        if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
-        return;
+      let sr, st;
+      try {
+        sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(statusUrl));
+        if (sr.status === 401) {
+          if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
+          return;
+        }
+        st = await sr.json();
+        softErrors = 0; // a good tick resets the streak
+      } catch {
+        // Transient network drop: don't kill the run — the record survives, so
+        // the poll simply retries next tick (or resumes at boot). Give up the
+        // in-memory loader only after a sustained outage (~1 min).
+        if (!alive()) return;
+        if (++softErrors >= 15) {
+          pauseGen(origin);
+          deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on fal, and the app will pick it back up automatically.');
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 4000));
+        continue;
       }
-      const st = await sr.json();
       if (!alive()) return; // cancelled while polling
       state = st.status;
       if (state === 'COMPLETED') break;
@@ -2079,8 +2200,10 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       endGen(origin);
       finals.forEach((f) => deliverMedia(origin, kind, f, text));
       if (saveFailed) deliverAgent(origin, '⚠️ Delivered with a temporary link — the gallery copy failed, so I queued a retry for the next time the app opens.');
-      if (clearInputs) {
-        // The inputs were consumed — don't let them ride along on the next prompt.
+      // The inputs were consumed — clear them so they don't ride the next
+      // prompt. Only when the user is still on this chat: a background finish
+      // must not wipe attachments they've since staged in another chat.
+      if (clearInputs && chatStore.active === origin) {
         Object.keys(attachments).forEach((k) => {
           if (attachments[k]) { attachments[k] = null; renderAttach(k); }
         });
@@ -2093,9 +2216,12 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       deliverAgent(origin, '⚠️ The model finished but returned no ' + kind + ' — try again.');
     }
   } catch {
-    if (alive()) deliverAgent(origin, '⚠️ Network hiccup — try again.');
+    // Completed-but-couldn't-fetch-the-result, or any other late failure: the
+    // job is (or was) live on fal and already charged, so keep the record and
+    // let boot-resume finish the delivery rather than dropping a paid render.
+    if (alive()) { pauseGen(origin); deliverAgent(origin, '⚠️ Hit a snag fetching the result — the app will pick it back up automatically.'); }
   } finally {
-    if (alive()) endGen(origin);
+    if (alive()) pauseGen(origin); // never jobClear here — only terminal paths clear
     if (chatStore.active === origin) document.getElementById('input').focus();
   }
 }
@@ -2367,6 +2493,12 @@ function reviewPrompt(prompt) {
   allow.textContent = 'Generate ' + (estimatePrice(mode === 'audio' ? prompt : undefined) || '✦');
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
+    // One generation per chat — if the previous run is still going, keep the
+    // card live so the prompt isn't silently swallowed by the busy guard.
+    if (activeGens.has(chatStore.active)) {
+      label.textContent = "Still finishing the last one — approve again in a moment.";
+      return;
+    }
     actions.remove(); label.textContent = 'Approved ✦';
     // Approval is the signal that this direction is right — commit the brief.
     const c = activeChat();
@@ -2631,6 +2763,8 @@ function enterApp() {
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
+  // A ?q= prompt from a signed-out visitor: run it now that they're in.
+  if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
   // A different account signed in on this browser: drop the previous user's
   // local cache so their chats are never shown to — or re-uploaded under —
   // this account. (Sign-out clears it too; this covers expired-session swaps.)
@@ -2639,7 +2773,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -2665,7 +2799,7 @@ async function doSignOut() {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1']
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   await Auth.signOut();
@@ -2921,7 +3055,10 @@ const params = new URLSearchParams(location.search);
 const firstMsg = params.get('q');
 if (firstMsg) {
   window.history.replaceState({}, '', location.pathname);
+  // If already signed in, run it now; otherwise hold it so enterApp picks it up
+  // once the visitor authenticates, instead of losing the prompt at the gate.
   if (window.Auth && Auth.isSignedIn()) startDirector(firstMsg);
+  else pendingFirstMsg = firstMsg;
 }
 // Back from Stripe: the webhook mints the credits — poll the balance so the
 // chip catches up even if the webhook lands a few seconds after we do.

@@ -7,7 +7,7 @@ Zephyr — an AI image/video/voice generator at https://isibi.ai — dark studio
 - Static frontend in `public/` (plain HTML/CSS/JS, no framework): `index.html` (the Zephyr chatbox — the only page), shared `styles.css` + `chat.js`, `auth.js` (Supabase email/password + email-code sign-in via GoTrue fetch, session in localStorage)
 - `worker.js` — Cloudflare Worker: serves assets, `/api/video` + `/api/image` + `/api/audio` (fal.ai queue, per-kind model allowlists), `/api/direct` (director via ANTHROPIC_API_KEY, tool-use for structured output — Sonnet 5 rejects prefill; effort-routed: Haiku 4.5 writes Low/Medium compose/revise prompts, Sonnet 5 handles High/Ultra/Max plus the ask/error/studio steps), `/api/video/poll` (proxies fal status/result so FAL_KEY stays server-side), `/api/save` (copies finished fal outputs into Supabase Storage `media` bucket using the caller's JWT). All `/api/*` require a Supabase-authenticated user (verified via GoTrue `/auth/v1/user`).
 - Supabase project: fifa-tournament-hub (`ujrqdmmtcptvimazlhom`) — auth + public `media` storage bucket (INSERT-only RLS for authenticated users)
-- Chats persist in localStorage (`zephyr_chats_v1`, 30 chats × 80 msgs); media messages store the permanent Supabase Storage URL
+- Chats persist in localStorage (`zephyr_chats_v1`, 30 chats × 80 msgs) AND sync cross-device to a Supabase `chats` table (pushChats/pullChats); media messages store the permanent Supabase Storage URL
 
 ## Deploy
 
@@ -19,10 +19,14 @@ Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → isibi.
 - The user directs design; don't restyle beyond what's asked.
 - Don't spend fal credits or Workers AI calls on tests without asking first.
 
+## Credits & monetization (live)
+
+Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RPCs (all SECURITY DEFINER, auth-only): `get_credits()` / `use_credits(cost)` (grant **20** credits on first touch), `add_credits(target,amount,cents,ref,mint_key)` (anon+auth, mint-key gated, idempotent on `purchases.ref`), `is_paid()` (has-ever-purchased). Worker: `/api/credits` returns `{balance, paid}`; charge-AFTER-fal-accepts flow (readCredits → fal submit → useCredits → cancelFal on race). `/api/checkout` + `/api/stripe/webhook` exist but 501 until the three Stripe secrets are set. Free accounts (`!is_paid`) get watermarks: images burned in client-side (canvas → JPEG → `/api/save` base64 path, server rejects raw-URL image saves for free users), videos get an on-screen player badge. Pricing page = `openCredits()` (three tiers Plus/Pro/Max, rolling launch-offer countdown); top-ups = `openCredits(true)`. Output equivalences on the cards are computed from the live price tables (`estImages`/`estVideos`) so they can't drift.
+
 ## Backlog (user-triaged, do later)
 
 - Static voice previews — **user adds the files**: drop MP3s at `public/voices/<name>.mp3`, lowercase (rachel.mp3, aria.mp3, sarah.mp3, laura.mp3, charlotte.mp3, alice.mp3, matilda.mp3, jessica.mp3, lily.mp3, roger.mp3, george.mp3, callum.mp3, liam.mp3, will.mp3, brian.mp3, daniel.mp3). The preview button already checks these before spending a TTS call.
-- Gallery page proper (browse/manage all saved media; per-message 🗑 delete exists already)
+- Gallery view is built (browse/filter/download/delete all saved media, per-message 🗑 too). Remaining monetization TODO: server-side video-file watermark burn (fal ffmpeg), Stripe activation + billing-portal ("Cancel anytime"), media bucket size/mime caps.
 
 ## Rate limits
 
