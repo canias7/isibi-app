@@ -688,18 +688,21 @@ async function handleRequest(request, env, ctx) {
     // Current credit balance (creates the row with the signup grant on first touch).
     if (url.pathname === "/api/credits" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
+      const rpcHeaders = {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: request.headers.get("Authorization") || "",
+      };
       try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: request.headers.get("Authorization") || "",
-          },
-          body: "{}",
-        });
+        // paid = has ever purchased; free accounts get watermarked outputs.
+        const [r, p] = await Promise.all([
+          fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, { method: "POST", headers: rpcHeaders, body: "{}" }),
+          fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, { method: "POST", headers: rpcHeaders, body: "{}" }).catch(() => null),
+        ]);
         if (!r.ok) throw 0;
-        return Response.json({ balance: Number(await r.json()) });
+        let paid = false;
+        try { paid = p && p.ok ? (await p.json()) === true : false; } catch {}
+        return Response.json({ balance: Number(await r.json()), paid });
       } catch {
         return Response.json({ error: "credits unavailable" }, { status: 503 });
       }
@@ -1144,17 +1147,36 @@ Context: ${ctxLine}`
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
       const src = typeof body.url === "string" ? body.url : "";
-      if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
-        return Response.json({ error: "invalid url" }, { status: 400 });
+      const b64 = typeof body.data === "string" ? body.data : "";
+      let bytes = null;
+      let ct;
+      if (b64) {
+        // Client-watermarked image bytes (free accounts burn the mark in
+        // before saving). Images only; ~12MB base64 cap.
+        if (b64.length > 12_000_000) return Response.json({ error: "too large" }, { status: 400 });
+        try {
+          const bin = atob(b64);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        } catch {
+          return Response.json({ error: "invalid data" }, { status: 400 });
+        }
+        ct = /^image\/(png|jpeg|webp)$/.test(body.contentType) ? body.contentType : "image/png";
+      } else {
+        if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
+          return Response.json({ error: "invalid url" }, { status: 400 });
+        }
       }
-      let media;
-      try { media = await fetch(src); } catch {
-        return Response.json({ error: "fetch failed" }, { status: 502 });
+      let media = null;
+      if (!bytes) {
+        try { media = await fetch(src); } catch {
+          return Response.json({ error: "fetch failed" }, { status: 502 });
+        }
+        if (!media.ok || !media.body) {
+          return Response.json({ error: "fetch failed" }, { status: 502 });
+        }
+        ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
       }
-      if (!media.ok || !media.body) {
-        return Response.json({ error: "fetch failed" }, { status: 502 });
-      }
-      const ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
       const EXT = {
         "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
         "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov",
@@ -1168,7 +1190,7 @@ Context: ${ctxLine}`
         up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
-          body: media.body,
+          body: bytes || media.body,
         });
       } catch {
         return Response.json({ error: "store failed" }, { status: 502 });

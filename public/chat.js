@@ -1254,6 +1254,13 @@ function buildMedia(kind, url, prompt) {
     el.controls = true; el.src = url; el.playsInline = true;
   }
   div.appendChild(el);
+  // Free accounts: on-screen mark over the video player.
+  if (kind === 'video' && !isPaid) {
+    const wm = document.createElement('span');
+    wm.className = 'wm-badge';
+    wm.textContent = '✦ isibi.ai';
+    div.appendChild(wm);
+  }
 
   const actions = document.createElement('div');
   actions.className = 'media-actions';
@@ -1267,19 +1274,6 @@ function buildMedia(kind, url, prompt) {
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
-  if (kind === 'video' && window.sbAddFromChat) {
-    const st = document.createElement('button');
-    st.className = 'media-btn'; st.type = 'button'; st.title = 'Add to Studio as a shot'; st.textContent = '🎬';
-    st.onclick = async (e) => {
-      e.stopPropagation();
-      st.textContent = '…';
-      const n = await sbAddFromChat(url, prompt || '');
-      st.textContent = '✓';
-      setTimeout(() => { st.textContent = '🎬'; }, 1500);
-      deliverAgent(chatStore.active, 'Added to Studio as shot ' + n + ' of “' + sbProject().title + '” — open Studio to direct it.');
-    };
-    actions.appendChild(st);
-  }
   const del = document.createElement('button');
   del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
@@ -1472,12 +1466,12 @@ function queuePendingSave(url, kind) { savesWrite([...savesLoad().filter((p) => 
 
 // Copy a fal output into permanent Supabase Storage, with bounded retries —
 // a failed copy must never silently become the permanent record.
-async function trySave(url, kind, attempts) {
+async function trySave(url, kind, attempts, payload) {
   for (let i = 0; i < attempts; i++) {
     try {
       const sv = await apiFetch('/api/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, kind }),
+        body: JSON.stringify(payload || { url, kind }),
       });
       if (sv.ok) { const d = await sv.json(); if (d.url) return d.url; }
       if (sv.status === 401) return null; // signed out — retrying now won't help
@@ -1485,6 +1479,43 @@ async function trySave(url, kind, attempts) {
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
   return null;
+}
+
+// ── Free-tier watermark ─────────────────────────────────────────────────────
+// Free accounts (never purchased) get "✦ isibi.ai" burned into image files
+// before they're saved; videos carry an on-screen mark in the player.
+async function watermarkImage(url) {
+  const resp = await fetch(url, { mode: 'cors' });
+  if (!resp.ok) throw 0;
+  const bmp = await createImageBitmap(await resp.blob());
+  const c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height;
+  const g = c.getContext('2d');
+  g.drawImage(bmp, 0, 0);
+  const fs = Math.max(18, Math.round(bmp.width * 0.032));
+  const pad = Math.round(fs * 0.8);
+  g.font = '600 ' + fs + 'px "Space Grotesk", Inter, sans-serif';
+  g.textAlign = 'right'; g.textBaseline = 'bottom';
+  g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = fs * 0.35;
+  g.fillStyle = 'rgba(255,255,255,.82)';
+  g.fillText('✦ isibi.ai', bmp.width - pad, bmp.height - pad);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+  if (!blob) throw 0;
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  }
+  return { kind: 'image', data: btoa(bin), contentType: 'image/png' };
+}
+// Save one output: free images get the mark burned in first; any watermark
+// hiccup (CORS, canvas) falls back to saving the clean original — losing the
+// user's paid render over a watermark would be the wrong trade.
+async function saveOutput(u, kind) {
+  if (kind === 'image' && !isPaid) {
+    try { return await trySave(u, kind, 3, await watermarkImage(u)); } catch {}
+  }
+  return trySave(u, kind, 3);
 }
 
 // Swap a temporary fal URL for its permanent copy wherever it was stored.
@@ -1635,6 +1666,7 @@ function updateSendPrice() {
 // has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
+let isPaid = false; // has ever purchased — free accounts get watermarks
 function setArcFill(el, frac) {
   if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
 }
@@ -1661,6 +1693,7 @@ async function fetchCredits() {
     const r = await apiFetch('/api/credits');
     if (!r.ok) return;
     const d = await r.json();
+    if (typeof d.paid === 'boolean') isPaid = d.paid;
     if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
   } catch {}
 }
@@ -1707,22 +1740,23 @@ const MEMBERSHIPS = [
     desc: 'For getting started with AI creation',
     imgs: '1,000', vids: '13',
     save: 'Save $3/mo while the launch offer lasts',
-    feats: [1, 1, 1, 0, 0] },
+    feats: [1, 1, 1, 1, 0, 0] },
   { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
     desc: 'For consistent, everyday creation',
     imgs: '2,000', vids: '26',
     save: 'Save $13/mo while the launch offer lasts',
-    feats: [1, 1, 1, 1, 0] },
+    feats: [1, 1, 1, 1, 1, 0] },
   { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
     desc: 'For creators building big projects',
     imgs: '4,000', vids: '53',
     save: 'Save $33/mo while the launch offer lasts',
-    feats: [1, 1, 1, 1, 1] },
+    feats: [1, 1, 1, 1, 1, 1] },
 ];
 // Launch-offer countdown target (shown live on the pricing page).
 const OFFER_END = '2026-07-13T23:59:59';
 const MEMBER_ROWS = [
   'All video, image &amp; voice models',
+  'No watermark on your files',
   'Unused credits roll over',
   'Cancel anytime',
   'Enough for daily video (~26/mo)',
@@ -2037,7 +2071,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       const finals = [];
       let saveFailed = false;
       for (const u of urls) {
-        const perm = await trySave(u, kind, 3);
+        const perm = await saveOutput(u, kind);
         if (perm) finals.push(perm);
         else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }

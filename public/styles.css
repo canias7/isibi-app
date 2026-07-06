@@ -378,6 +378,14 @@
   animation: eq .9s ease-in-out infinite;
 }
 @keyframes eq { 0%, 100% { height: 18%; opacity: .55; } 50% { height: 92%; opacity: 1; } }
+/* Free-tier on-screen mark over video players */
+.msg.video, .msg.image { position: relative; }
+.wm-badge {
+  position: absolute; top: 10px; left: 12px; z-index: 2; pointer-events: none;
+  font-family: 'Space Grotesk', Inter, sans-serif; font-size: .72rem; font-weight: 600;
+  color: rgba(255, 255, 255, .78); text-shadow: 0 1px 8px rgba(0, 0, 0, .65);
+  letter-spacing: .02em;
+}
 .gen-status { display: flex; align-items: center; gap: .55rem; color: var(--muted); font-size: .9rem; }
 .gen-status-text.flip { animation: gen-flip .45s cubic-bezier(.2, .8, .3, 1) both; }
 @keyframes gen-flip { from { opacity: 0; transform: translateY(7px); } }
