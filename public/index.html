@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>isibi — Zephyr · Video Generator</title>
+  <title>isibi.ai · Video Generator</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body data-agent="Zephyr">
+<body data-agent="isibi.ai">
 
   <div id="authGate" class="auth-gate">
     <video class="auth-bg-video" autoplay muted loop playsinline
@@ -19,7 +19,7 @@
     </video>
     <div class="auth-card">
       <div class="auth-brand"><span class="logo-mark">i</span> isibi</div>
-      <h1 id="authTitle" class="auth-title">Sign in to Zephyr</h1>
+      <h1 id="authTitle" class="auth-title">Sign in to isibi.ai</h1>
       <p class="auth-sub" id="authSub">Create AI video, images, and voice.</p>
 
       <form id="authForm" class="auth-form">
@@ -156,7 +156,7 @@
               <span class="hh-spark s1">✦</span><span class="hh-spark s2">✦</span><span class="hh-spark s3">✦</span>
             </div>
             <h1 class="hh-title" id="heroTitle">What are we making, <span class="hh-name">you</span>?</h1>
-            <p class="hh-sub">Describe a scene, an image or a voice line — Zephyr writes the full prompt and runs the model for you.</p>
+            <p class="hh-sub">Describe a scene, an image or a voice line — isibi.ai writes the full prompt and runs the model for you.</p>
           </div>
           <div class="thread-inner" id="messages"></div>
         </div>
@@ -222,7 +222,7 @@
         <div class="q-dock" id="qDock"></div>
         <div class="composer">
           <div class="composer-top">
-            <textarea id="input" rows="1" placeholder="Message Zephyr — say anything…" autocomplete="off"
+            <textarea id="input" rows="1" placeholder="Message isibi.ai — say anything…" autocomplete="off"
                    oninput="autoGrow(this)"
                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}"></textarea>
             <span class="opt-wrap dir-wrap">
@@ -292,12 +292,12 @@
       </div>
 
       <div id="viewStudio" class="view view-studio">
-        <!-- 1/4 · Zephyr editor chat -->
+        <!-- 1/4 · isibi.ai editor chat -->
         <aside class="studio-chat">
           <div class="studio-chat-head">
-            <span class="tile zephyr">Z</span>
+            <span class="tile zephyr">i</span>
             <div>
-              <div class="cname">Zephyr · Editor</div>
+              <div class="cname">isibi.ai · Editor</div>
               <div class="cstatus">● tell me how to cut it</div>
             </div>
           </div>
@@ -363,7 +363,7 @@
               </div>
             </div>
             <div class="timeline-track" id="timelineTrack">
-              <div class="timeline-empty">Describe your film to Zephyr — or import a video — and its shots land here.</div>
+              <div class="timeline-empty">Describe your film to isibi.ai — or import a video — and its shots land here.</div>
             </div>
           </div>
         </section>

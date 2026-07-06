@@ -1,4 +1,4 @@
-// ── Zephyr Studio: shot-based projects ─────────────────────────────────────
+// ── isibi.ai Studio: shot-based projects ─────────────────────────────────────
 // A project is an ordered list of SHOTS. Each shot is either one AI
 // generation (prompt → clip) or a slice of an imported video (same source,
 // in/out range from scene detection). The chat drives everything; the
@@ -109,7 +109,7 @@ function sbRender() {
     if (!proj.shots.length) {
       const empty = document.createElement('div');
       empty.className = 'sb-empty';
-      empty.textContent = 'No shots yet. Describe your film to Zephyr on the left — she’ll break it into shots — or import a video below.';
+      empty.textContent = 'No shots yet. Describe your film on the left — isibi.ai breaks it into shots — or import a video below.';
       list.appendChild(empty);
     }
     proj.shots.forEach((s, i) => {
@@ -147,7 +147,7 @@ function sbRender() {
     if (!proj.shots.length) {
       const empty = document.createElement('div');
       empty.className = 'timeline-empty';
-      empty.textContent = 'Describe your film to Zephyr — or import a video — and its shots land here.';
+      empty.textContent = 'Describe your film to isibi.ai — or import a video — and its shots land here.';
       track.appendChild(empty);
     }
     const total = proj.shots.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
@@ -606,7 +606,7 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
   });
 }
 
-// ── Zephyr chat panel ──────────────────────────────────────────────────────
+// ── isibi.ai chat panel ──────────────────────────────────────────────────────
 let sbProgressEl = null;
 function sbStudioNote(text) {
   sbProgressEl = null;
@@ -648,7 +648,7 @@ async function studioSend() {
   inp.value = '';
   sbUserNote(t);
   const proj = sbProject();
-  sbStudioProgress('Zephyr is thinking…');
+  sbStudioProgress('isibi.ai is thinking…');
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

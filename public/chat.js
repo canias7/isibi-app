@@ -595,14 +595,14 @@ function setEffort(level) {
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
 // Prompt-help mode chip (top-right of the composer). Three modes:
-//   auto — Zephyr composes and makes every creative call, never asks
-//   plan — Zephyr interviews first (the question popup), then composes
+//   auto — isibi.ai composes and makes every creative call, never asks
+//   plan — isibi.ai interviews first (the question popup), then composes
 //   off  — raw prompting: the text goes to the model exactly as typed,
 //          and the director surcharge disappears from the price
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
-  auto: { icon: '', label: 'Auto', desc: 'Zephyr writes the prompt and generates right away' },
-  plan: { icon: '', label: 'Plan', desc: 'Zephyr shows you the plan to approve before generating' },
+  auto: { icon: '', label: 'Auto', desc: 'isibi.ai writes the prompt and generates right away' },
+  plan: { icon: '', label: 'Plan', desc: 'isibi.ai shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
@@ -660,14 +660,14 @@ function toggleEffortMenu(e) {
   menu.classList.toggle('open');
 }
 // Raw mode greys the effort picker out — the knob only shapes the prompt
-// Zephyr writes, and in raw mode Zephyr isn't writing one.
+// isibi.ai writes, and in raw mode isibi.ai isn't writing one.
 function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
   if (!pick) return;
   const off = directorMode === 'off';
   pick.classList.toggle('locked', off);
   pick.querySelector('.opt-btn').title = off
-    ? 'Effort applies when Zephyr writes the prompt — turn prompt help back on to use it'
+    ? 'Effort applies when isibi.ai writes the prompt — turn prompt help back on to use it'
     : 'How detailed the written prompt gets';
   if (off) document.getElementById('effortMenu').classList.remove('open');
 }
@@ -903,7 +903,7 @@ function newChat() {
   document.getElementById('input').focus();
 }
 
-// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "Zephyr · 11:03 PM" (agent).
+// Wall-clock caption under a bubble, e.g. "11:03 PM" (user) / "isibi.ai · 11:03 PM" (agent).
 function fmtTime(ts) {
   const d = ts ? new Date(ts) : new Date();
   let h = d.getHours();
@@ -914,7 +914,7 @@ function fmtTime(ts) {
 function msgStamp(kind, ts) {
   const t = document.createElement('div');
   t.className = 'msg-time ' + kind;
-  t.textContent = kind === 'agent' ? 'Zephyr · ' + fmtTime(ts) : fmtTime(ts);
+  t.textContent = kind === 'agent' ? 'isibi.ai · ' + fmtTime(ts) : fmtTime(ts);
   return t;
 }
 
@@ -2058,7 +2058,7 @@ function cancelGen(chatId) {
   deliverAgent(chatId, '⏹ Cancelled — credits for a run are used once it reaches the generator.');
 }
 
-// Failures become a conversation: Zephyr explains what went wrong in plain
+// Failures become a conversation: isibi.ai explains what went wrong in plain
 // words and, when a rewording could fix it, offers a corrected prompt.
 // Returns false if the director can't help so the generic message shows.
 async function explainFailure(origin, kind, genPrompt, job) {
@@ -2282,7 +2282,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
   }
 }
 
-// ── Director flow (Zephyr) ───────────────────────────────────────────────
+// ── Director flow (isibi.ai) ───────────────────────────────────────────────
 // Sonnet 5 drives the director via /api/direct. If the key isn't set (501)
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
@@ -2460,8 +2460,8 @@ async function startDirector(text) {
   const history = directorHistory(); // prior turns only — capture before adding this one
   clearQDock(); // a fresh message supersedes any question still waiting
   addMsg('user', text);
-  const thinking = addMsg('agent typing', 'Zephyr is thinking');
-  // Zephyr's reply streams into a live bubble; the final text is re-delivered
+  const thinking = addMsg('agent typing', 'isibi.ai is thinking');
+  // isibi.ai's reply streams into a live bubble; the final text is re-delivered
   // through the normal path (persisted, stamped) when the stream ends.
   let live = null;
   const onDelta = (d) => {
@@ -2477,9 +2477,9 @@ async function startDirector(text) {
   };
   let res;
   try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
-  // Zephyr's conversational reply (greetings, small talk, or a lead-in).
+  // isibi.ai's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
-  // If the user moved to another chat while Zephyr was thinking, stop here —
+  // If the user moved to another chat while isibi.ai was thinking, stop here —
   // don't pop question cards into the wrong thread.
   if (chatStore.active !== origin) return;
   // The director read the message as "run that again": the last prompt was
@@ -2654,7 +2654,7 @@ function friendlyAuthErr(e) {
 }
 
 const AUTH_TITLES = {
-  in:    { creds: 'Sign in to Zephyr',   code: 'Check your email' },
+  in:    { creds: 'Sign in to isibi.ai',   code: 'Check your email' },
   up:    { creds: 'Create your account', code: 'Check your email' },
   reset: { creds: 'Reset your password', code: 'Check your email', newpass: 'Set a new password' },
 };
