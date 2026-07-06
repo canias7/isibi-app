@@ -188,6 +188,21 @@ const CSP = [
   "connect-src 'self' https://*.supabase.co https://fal.media https://*.fal.media",
 ].join("; ");
 
+// Reduce an upstream (fal/Anthropic) error payload to a short, plain string
+// so the client gets something useful to explain the failure without exposing
+// the provider's raw error object/structure.
+function briefErr(d) {
+  if (typeof d === "string") return d.slice(0, 200);
+  if (!d || typeof d !== "object") return undefined;
+  const m = d.detail ?? d.error ?? d.message;
+  if (typeof m === "string") return m.slice(0, 200);
+  if (Array.isArray(m)) {
+    const s = m.map((x) => x && (x.msg || x.message)).filter(Boolean).join("; ");
+    return s ? s.slice(0, 200) : undefined;
+  }
+  return undefined;
+}
+
 function harden(res) {
   const h = new Headers(res.headers);
   h.set("Content-Security-Policy", CSP);
@@ -459,7 +474,7 @@ async function handleRequest(request, env, ctx) {
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.request_id) {
         return Response.json(
-          { error: "submit failed", detail: data },
+          { error: "submit failed", detail: briefErr(data) },
           { status: 502 }
         );
       }
@@ -951,7 +966,12 @@ Context: ${ctxLine}`
           },
           body: JSON.stringify({
             model: dirModel,
-            max_tokens: 1500,
+            // The ask step has thinking off and writes a short reply, so 1500
+            // is plenty. The prompt-writing steps run Sonnet with adaptive
+            // thinking, which shares the budget with a 250-330-word Max prompt
+            // — give them headroom so thinking can't truncate the tool output.
+            // max_tokens is a ceiling, not a target: unused tokens aren't billed.
+            max_tokens: step === "ask" ? 1500 : 4000,
             // Chat replies should feel instant; on the Sonnet prompt-writing
             // steps thinking stays on (adaptive), where it earns its latency.
             // Haiku ignores the omission — it simply runs without thinking.
@@ -963,8 +983,8 @@ Context: ${ctxLine}`
             messages: turns,
           }),
         });
-      } catch (e) {
-        return Response.json({ error: "director request failed", detail: String(e) }, { status: 502 });
+      } catch {
+        return Response.json({ error: "director request failed" }, { status: 502 });
       }
 
       // Streaming ask: forward Zephyr's reply as it's written, then the
@@ -1013,10 +1033,10 @@ Context: ${ctxLine}`
       }
 
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
+      if (!r.ok) return Response.json({ error: "director error" }, { status: 502 });
 
       const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
-      if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
+      if (!parsed) return Response.json({ error: "director no output" }, { status: 502 });
 
       if (step === "ask") return Response.json(shapeAsk(parsed));
       if (step === "error") {
@@ -1050,9 +1070,14 @@ Context: ${ctxLine}`
       if (!/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/[^/?#]+\/cancel$/.test(target)) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
-      const data = await r.text();
-      return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
+      if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+      try {
+        const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        const data = await r.text();
+        return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
+      } catch {
+        return Response.json({ error: "cancel failed" }, { status: 502 });
+      }
     }
 
     // Copies a finished fal output into Supabase Storage so chats keep a
@@ -1069,7 +1094,10 @@ Context: ${ctxLine}`
       if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const media = await fetch(src);
+      let media;
+      try { media = await fetch(src); } catch {
+        return Response.json({ error: "fetch failed" }, { status: 502 });
+      }
       if (!media.ok || !media.body) {
         return Response.json({ error: "fetch failed" }, { status: 502 });
       }
@@ -1082,11 +1110,16 @@ Context: ${ctxLine}`
       const kindExt = body.kind === "image" ? "png" : body.kind === "audio" ? "mp3" : "mp4";
       const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${EXT[ct] || kindExt}`;
       const token = (request.headers.get("Authorization") || "").slice(7);
-      const up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
-        body: media.body,
-      });
+      let up;
+      try {
+        up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
+          body: media.body,
+        });
+      } catch {
+        return Response.json({ error: "store failed" }, { status: 502 });
+      }
       if (!up.ok) return Response.json({ error: "store failed" }, { status: 502 });
       return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${path}` });
     }
@@ -1098,13 +1131,16 @@ Context: ${ctxLine}`
       if (!target.startsWith("https://queue.fal.run/")) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const r = await fetch(target, {
-        headers: { Authorization: `Key ${env.FAL_KEY}` },
-      });
-      return new Response(await r.text(), {
-        status: r.status,
-        headers: { "Content-Type": "application/json" },
-      });
+      if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+      try {
+        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        return new Response(await r.text(), {
+          status: r.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch {
+        return Response.json({ error: "poll failed" }, { status: 502 });
+      }
     }
 
     return env.ASSETS.fetch(request);

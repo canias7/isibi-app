@@ -335,6 +335,10 @@ function clearAttach(ev, kind) {
 // as the old inline pickers), and clear anything a model can't use.
 function updateAttachVisibility() {
   const caps = (currentOpts() && currentOpts().caps) || {};
+  // No slots for this model → hide the whole panel, don't leave an empty box.
+  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end);
+  const panel = document.getElementById('attachPanel');
+  if (panel) panel.style.display = anySlot ? '' : 'none';
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
     const btn = attachBtn(kind);
     if (!btn) return;
@@ -2385,6 +2389,8 @@ function enterApp() {
       syncDirty.clear(); syncDeleted.clear();
       loadStore();
       renderChatList(); renderThread();
+      // Studio holds its projects in memory too — reset it from the wiped store.
+      if (typeof sbResetForAccountSwitch === 'function') sbResetForAccountSwitch();
     }
     try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
   }
