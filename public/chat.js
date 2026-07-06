@@ -598,7 +598,6 @@ function renderDirChip() {
   if (!el) return;
   const m = DIR_MODES[directorMode];
   el.innerHTML = '<span class="ae-icon">' + esc(m.icon) + '</span><span class="ae-label">' + m.label + '</span>';
-  el.classList.toggle('on', directorMode !== 'off');
   document.querySelectorAll('#dirMenu .dir-item').forEach((i) =>
     i.classList.toggle('selected', i.dataset.mode === directorMode));
 }
