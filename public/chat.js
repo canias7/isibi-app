@@ -588,8 +588,8 @@ function setEffort(level) {
 //          and the director surcharge disappears from the price
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
-  auto: { icon: '⚡', label: 'Auto', desc: 'Zephyr writes the prompt and generates right away' },
-  plan: { icon: '💬', label: 'Plan', desc: 'Zephyr shows you the plan to approve before generating' },
+  auto: { icon: '', label: 'Auto', desc: 'Zephyr writes the prompt and generates right away' },
+  plan: { icon: '', label: 'Plan', desc: 'Zephyr shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
@@ -597,7 +597,8 @@ function renderDirChip() {
   const el = document.getElementById('dirModeChip');
   if (!el) return;
   const m = DIR_MODES[directorMode];
-  el.innerHTML = '<span class="ae-icon">' + esc(m.icon) + '</span><span class="ae-label">' + m.label + '</span>';
+  el.innerHTML = (m.icon ? '<span class="ae-icon">' + esc(m.icon) + '</span>' : '') +
+    '<span class="ae-label">' + m.label + '</span>';
   document.querySelectorAll('#dirMenu .dir-item').forEach((i) =>
     i.classList.toggle('selected', i.dataset.mode === directorMode));
 }
@@ -623,7 +624,7 @@ function toggleDirMenu(e) {
     const it = document.createElement('div');
     it.className = 'model-item dir-item';
     it.dataset.mode = key;
-    it.innerHTML = '<span class="txt"><b>' + esc(m.icon) + ' ' + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span>';
+    it.innerHTML = '<span class="txt"><b>' + (m.icon ? esc(m.icon) + ' ' : '') + m.label + '</b><small>' + m.desc + '</small></span><span class="check">✓</span>';
     it.onclick = () => setDirectorMode(key);
     menu.appendChild(it);
   }
