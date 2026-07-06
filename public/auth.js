@@ -84,14 +84,36 @@ const Auth = (() => {
     return adopt(await gotrue('verify', { type: type || 'email', email, token }));
   }
 
+  // A single in-flight refresh is shared by all callers — the poll loop, sync,
+  // and credits fetch can all land in the expiry window at once, and firing
+  // parallel refreshes with the same rotating token trips GoTrue's reuse
+  // detection and revokes the whole family.
+  let refreshing = null;
   async function refresh() {
     if (!session || !session.refresh_token) return null;
-    try {
-      return adopt(await gotrue('token?grant_type=refresh_token', {
-        refresh_token: session.refresh_token,
-      }));
-    } catch { saveSession(null); return null; }
+    if (refreshing) return refreshing;
+    const rt = session.refresh_token;
+    refreshing = (async () => {
+      try {
+        return adopt(await gotrue('token?grant_type=refresh_token', { refresh_token: rt }));
+      } catch (e) {
+        // Only a genuine auth rejection (GoTrue HTTP error) invalidates the
+        // session. A network failure (fetch throws a TypeError) leaves it
+        // intact so a later call can retry instead of hard-signing-out.
+        if (e && e.name === 'TypeError') return null;
+        saveSession(null);
+        return null;
+      } finally { refreshing = null; }
+    })();
+    return refreshing;
   }
+
+  // Another tab may rotate the token; adopt its session so this tab doesn't
+  // later refresh with a now-revoked token and sign everyone out.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== SESSION_KEY) return;
+    try { session = e.newValue ? JSON.parse(e.newValue) : null; } catch { session = null; }
+  });
 
   // Returns a valid access token, refreshing first if it's within a minute of expiry.
   async function accessToken() {

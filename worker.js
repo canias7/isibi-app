@@ -128,8 +128,12 @@ function creditCost(kind, model, { duration, quality, num, chars, effort, direct
     else if (p.audioPer5s != null) usd = p.audioPer5s * Math.ceil(secs / 5);
     else if (p.flat != null) usd = p.flat;
     else {
-      const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s["720p"];
-      usd = (rate != null ? rate : 0.4) * (duration || p.d || 5);
+      // Unknown quality never undercharges: fall back to def, else the highest
+      // listed tier (not 720p, which could be cheaper than what fal renders).
+      const tiers = Object.values(p.s).filter((n) => typeof n === "number");
+      const maxTier = tiers.length ? Math.max(...tiers) : 0.4;
+      const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : maxTier;
+      usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
   }
   return directorCr(effort, director) + Math.max(1, Math.ceil(usd / CREDIT_USD));
@@ -454,9 +458,11 @@ async function handleRequest(request, env, ctx) {
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
       // Driving-audio length for the audio-billed video models (fal charges by
-      // it). Trust the client's measured duration, but floor it by a lenient
-      // size-derived bound (~3 Mbps) so a tampered short claim can't underpay a
-      // big clip, and reject anything over the cap so we never undercharge fal.
+      // it). Trust the client's measured duration, but floor it by a size-derived
+      // lower bound: a file of N bytes can't be shorter than N*8 / (highest
+      // plausible bitrate for its format), so a tampered short claim can't
+      // underpay a big clip. The bitrate cap is per-format and set ABOVE any
+      // real encode, so honest uploads (incl. uncompressed WAV) never overpay.
       let audioSeconds = 0;
       if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
         const claimed = Number(body.audioDuration);
@@ -465,7 +471,11 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ error: `audio clip too long — max ${AUDIO_DRIVE_MAX_S}s for lip-sync` }, { status: 400 });
         }
         const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
-        const floorSec = bytes ? (bytes * 8) / 3_000_000 : 0; // lenient size floor (~3 Mbps) vs under-claims
+        // Uncompressed PCM/WAV runs ~1.5 Mbps; lossy (mp3/aac/opus/ogg) tops out
+        // near 320 kbps — cap at 384 kbps so the floor is tight but never over.
+        const isPcm = /^data:audio\/(wav|x-wav|wave|pcm|aiff|x-aiff|basic)/i.test(audio || "");
+        const maxBitrate = isPcm ? 1_536_000 : 384_000;
+        const floorSec = bytes ? (bytes * 8) / maxBitrate : 0;
         // A real client always measures and sends the duration; a missing one
         // is treated as the cap so a tampered request can never undercharge.
         audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
@@ -657,8 +667,10 @@ async function handleRequest(request, env, ctx) {
         }
       }
       // Memberships mint on every PAID INVOICE — the first charge and each
-      // monthly renewal both arrive here, idempotent on the invoice id.
-      if (event.type === "invoice.paid" || event.type === "invoice.payment_succeeded") {
+      // monthly renewal both arrive here. Handle ONLY invoice.paid (Stripe
+      // also emits invoice.payment_succeeded for the same invoice; listening to
+      // both would call add_credits twice — safe via the ref UNIQUE, but wasteful).
+      if (event.type === "invoice.paid") {
         const inv = event.data && event.data.object;
         // Subscription metadata's location varies by Stripe API version.
         const meta =
@@ -1161,10 +1173,33 @@ Context: ${ctxLine}`
         } catch {
           return Response.json({ error: "invalid data" }, { status: 400 });
         }
-        ct = /^image\/(png|jpeg|webp)$/.test(body.contentType) ? body.contentType : "image/png";
+        // Verify the bytes are actually an image by magic number — the storage
+        // bucket must not become arbitrary-file hosting. PNG / JPEG / WEBP only.
+        const isPng = bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+        const isJpg = bytes.length > 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+        const isWebp = bytes.length > 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+          bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+        if (!isPng && !isJpg && !isWebp) {
+          return Response.json({ error: "not an image" }, { status: 400 });
+        }
+        ct = isPng ? "image/png" : isJpg ? "image/jpeg" : "image/webp";
       } else {
         if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
           return Response.json({ error: "invalid url" }, { status: 400 });
+        }
+        // Free accounts must watermark images before saving — block the raw-URL
+        // save path for their images so the client-side burn can't be skipped.
+        if (body.kind === "image") {
+          let paid = false;
+          try {
+            const p = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+              body: "{}",
+            });
+            paid = p.ok ? (await p.json()) === true : false;
+          } catch { paid = false; }
+          if (!paid) return Response.json({ error: "watermark required" }, { status: 403 });
         }
       }
       let media = null;

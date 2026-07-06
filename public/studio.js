@@ -16,6 +16,8 @@ let sbBusy = false;         // an export or generation batch is running
 // the now-wiped storage, so Studio never shows the old account's work.
 function sbResetForAccountSwitch() {
   sb = { active: null, projects: [] };
+  sbSelected = null; sbPlaying = null;
+  if (typeof sbPreviewClear === 'function') sbPreviewClear(); // wipe the old user's video from the stage
   sbLoad();   // storage was just cleared → creates a fresh default project
   sbRender();
 }
@@ -593,25 +595,6 @@ async function studioSend() {
   } catch (e) {
     sbStudioNote('I couldn’t reach the director — try that again in a moment.');
   }
-}
-
-// ── Chat → Studio bridge ───────────────────────────────────────────────────
-// Called from chat.js media cards: pushes a generated video into the active
-// project as a ready shot.
-async function sbAddFromChat(url, prompt) {
-  sbLoad();
-  const proj = sbProject();
-  const s = {
-    id: 's' + Date.now(),
-    title: (prompt || 'From chat').slice(0, 40),
-    prompt: prompt || '',
-    status: 'ready', src: 'gen', url, thumb: null, in: null, out: null, dur: 0,
-  };
-  proj.shots.push(s);
-  await sbThumb(s).catch(() => {});
-  sbSave();
-  if (document.getElementById('viewStudio').classList.contains('active')) sbRender();
-  return sbProject().shots.length;
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────
