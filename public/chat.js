@@ -1613,7 +1613,7 @@ const TOPUPS = [
   { topup: '75', usd: 75, credits: 5350 },
   { topup: '100', usd: 100, credits: 7140 },
 ];
-function openCredits() {
+function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
   ov.className = 'credits-overlay';
@@ -1629,14 +1629,20 @@ function openCredits() {
       '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
       '<div class="cp-usd">$' + p.usd + '</div>' +
     '</button>').join('');
-  ov.innerHTML = '<div class="cp-box">' +
-    '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
-    '<div class="cp-grid">' + cards + '</div>' +
-    '<div class="cp-sec">One-time top-ups</div>' +
-    '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
-    '<div class="cp-note" id="cpNote"></div>' +
-    '</div>';
+  // The profile "Top-up credits" button opens just the one-time packs; the
+  // Credits row opens the full membership shop.
+  const inner = topupsOnly
+    ? '<div class="cp-head"><div class="cp-title">Top-up credits</div><button type="button" class="cp-close">✕</button></div>' +
+      '<div class="cp-sub">One-time credits — no subscription, never expire. A quick image is a few credits; most videos run 40–600.</div>' +
+      '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
+      '<div class="cp-note" id="cpNote"></div>'
+    : '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
+      '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
+      '<div class="cp-grid">' + cards + '</div>' +
+      '<div class="cp-sec">One-time top-ups</div>' +
+      '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
+      '<div class="cp-note" id="cpNote"></div>';
+  ov.innerHTML = '<div class="cp-box">' + inner + '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   ov.querySelectorAll('.cp-card').forEach((c) => {
