@@ -212,6 +212,7 @@ async function awDecode(dataUrl) {
     actx.close();
   } catch { awPeaks = null; awDur = 0; }
   renderAttach('audio');
+  updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
 }
 
 // Live visualization: while playing, an analyser drives the bars with the
@@ -326,6 +327,7 @@ function clearAttach(ev, kind) {
     if (extraImages.length) attachments.image = extraImages.shift();
     renderExtraImages();
   }
+  if (kind === 'audio') { awDur = 0; awPeaks = null; updateSendPrice(); } // reset lip-sync price
   renderAttach(kind);
 }
 
@@ -333,6 +335,10 @@ function clearAttach(ev, kind) {
 // as the old inline pickers), and clear anything a model can't use.
 function updateAttachVisibility() {
   const caps = (currentOpts() && currentOpts().caps) || {};
+  // No slots for this model → hide the whole panel, don't leave an empty box.
+  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end);
+  const panel = document.getElementById('attachPanel');
+  if (panel) panel.style.display = anySlot ? '' : 'none';
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
     const btn = attachBtn(kind);
     if (!btn) return;
@@ -1517,8 +1523,8 @@ const VIDEO_PRICE = {
   'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
   'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
-  'fal-ai/bytedance/omnihuman':                   { flat: 1.40 },  // charged as ~10s of audio
-  'fal-ai/kling-video/lipsync/audio-to-video':    { flat: 0.042 }, // three 5-second increments
+  'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
+  'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_PRICE = { // $ per image
   'fal-ai/flux-2-pro': 0.03,
@@ -1549,7 +1555,7 @@ function directorCr() {
 function fmtPrice(usd) {
   return '✦ ' + (directorCr() + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
 }
-function estimatePrice() {
+function estimatePrice(textForAudio) {
   if (mode === 'image') {
     const per = IMAGE_PRICE[model];
     return per == null ? '' : fmtPrice(per * (numImages || 1));
@@ -1557,11 +1563,20 @@ function estimatePrice() {
   if (mode === 'audio') {
     const per = AUDIO_PRICE[model];
     if (per == null) return '';
-    const chars = (document.getElementById('input').value || '').length;
+    // Price on the exact text being quoted (the review card passes the script;
+    // the send button falls back to the live input). Match the server's cap.
+    const raw = textForAudio != null ? textForAudio : (document.getElementById('input').value || '');
+    const chars = Math.min(2000, raw.trim().length);
     return fmtPrice(Math.max(chars, 40) / 1000 * per);
   }
   const p = VIDEO_PRICE[model];
   if (!p) return '';
+  // Audio-driven models bill by the attached clip's length (awDur, seconds).
+  if (p.audioPerSec != null || p.audioPer5s != null) {
+    const secs = Math.max(1, Math.min(60, Math.round(awDur || 0)));
+    const usd = p.audioPerSec != null ? p.audioPerSec * secs : p.audioPer5s * Math.ceil(secs / 5);
+    return fmtPrice(usd);
+  }
   if (p.flat != null) return fmtPrice(p.flat);
   const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
   return rate == null ? '' : fmtPrice(rate * (duration || 5));
@@ -1657,11 +1672,10 @@ function cancelGen(chatId) {
     }).catch(() => {});
   }
   endGen(chatId);
-  // Queued jobs die free on fal; anything already rendering may still bill.
-  const wasRendering = /generating/i.test(gen.text || '');
-  deliverAgent(chatId, wasRendering
-    ? '⏹ Cancelled — it was already rendering, so fal may still charge for this one.'
-    : '⏹ Cancelled before it started — no charge.');
+  // Credits are charged the moment fal accepts the job, so a run that already
+  // reached the generator was charged; only a stop during the brief submit
+  // window (before it was sent) escapes the charge.
+  deliverAgent(chatId, '⏹ Cancelled — credits for a run are used once it reaches the generator.');
 }
 
 // Failures become a conversation: Zephyr explains what went wrong in plain
@@ -1732,6 +1746,7 @@ async function generateMedia(text, opts = {}) {
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
         audio: attachments.audio || undefined,
+        audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
@@ -2062,8 +2077,10 @@ async function startDirector(text) {
   // The director read the message as "run that again": the last prompt was
   // already approved once — straight back into generation, no re-interview.
   if (res.rerun && (activeChat() || {}).lastPrompt) {
-    if (!res.reply) deliverAgent(origin, '🔁 Running it again.');
-    generateMedia(activeChat().lastPrompt, { announce: false });
+    // Plan mode still gets the approval card (settings may have changed since
+    // the last run) — deliverPrompt handles the mode split; Auto runs straight.
+    if (!res.reply && directorMode !== 'plan') deliverAgent(origin, '🔁 Running it again.');
+    deliverPrompt(activeChat().lastPrompt);
     return;
   }
   // Feedback on the previous generation — revise that prompt surgically.
@@ -2120,7 +2137,8 @@ function reviewPrompt(prompt) {
   const actions = document.createElement('div'); actions.className = 'review-actions';
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
-  allow.textContent = 'Generate ' + (estimatePrice() || '✦');
+  // Price the card on the actual prompt/script, not the (now-cleared) input.
+  allow.textContent = 'Generate ' + (estimatePrice(mode === 'audio' ? prompt : undefined) || '✦');
   deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     actions.remove(); label.textContent = 'Approved ✦';
@@ -2153,6 +2171,12 @@ function send(fromButton) {
   // Lip-sync models are prompt-less — they run off the attachments, not text.
   const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
+  // Voice is capped at 2,000 characters server-side; block over-length scripts
+  // here (keeping the text) instead of letting the tail get silently cut off.
+  if (mode === 'audio' && text.length > 2000) {
+    addMsg('agent', "That's a long one — voice scripts are capped at 2,000 characters (this is " + text.length.toLocaleString() + "). Trim it a little and send again.");
+    return;
+  }
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
   if (promptless) { generateMedia(text); return; }
@@ -2356,8 +2380,11 @@ function enterApp() {
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
   const nameEl = document.getElementById('sideName');
   if (nameEl) nameEl.textContent = name;
+  const initial = (name[0] || '·').toUpperCase();
   const av = document.getElementById('sideAvatar');
-  if (av) av.textContent = (name[0] || '·').toUpperCase();
+  if (av) av.textContent = initial;
+  const btnAv = document.getElementById('profileBtnAv');
+  if (btnAv) btnAv.textContent = initial;
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
@@ -2376,6 +2403,8 @@ function enterApp() {
       syncDirty.clear(); syncDeleted.clear();
       loadStore();
       renderChatList(); renderThread();
+      // Studio holds its projects in memory too — reset it from the wiped store.
+      if (typeof sbResetForAccountSwitch === 'function') sbResetForAccountSwitch();
     }
     try { localStorage.setItem('zephyr_owner_v1', uid); } catch {}
   }
@@ -2568,7 +2597,17 @@ document.addEventListener('click', (e) => {
   const dd = document.getElementById('navDd');
   const menu = document.getElementById('navDdMenu');
   if (menu && menu.classList.contains('open') && dd && !dd.contains(e.target)) menu.classList.remove('open');
+  const prof = document.getElementById('signOutRow');
+  const pop = document.getElementById('profilePop');
+  if (pop && pop.classList.contains('open') && prof && !prof.contains(e.target)) pop.classList.remove('open');
 });
+
+// Top-right account menu.
+function toggleProfileMenu(e) {
+  e.stopPropagation();
+  const pop = document.getElementById('profilePop');
+  if (pop) pop.classList.toggle('open');
+}
 
 // ── Studio lives in studio.js (shot-based projects) ──
 

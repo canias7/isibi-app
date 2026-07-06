@@ -86,21 +86,33 @@
         <div id="chatList" class="chat-list"></div>
       </div>
 
-      <div class="side-foot" id="signOutRow" style="display:none">
-        <div class="side-credits" id="creditChip" onclick="openCredits()" title="Your credits — tap to get more">✦ —</div>
-        <div class="side-user">
-          <div class="side-avatar" id="sideAvatar">·</div>
-          <div class="side-user-meta">
-            <div class="side-name" id="sideName">You</div>
-            <div class="side-email" id="authEmailBadge"></div>
+      <!-- Account moved to the top-right profile menu (see #profile). -->
+    </aside>
+
+    <!-- Top-right account / profile menu -->
+    <div class="profile" id="signOutRow" style="display:none">
+      <button class="profile-btn" onclick="toggleProfileMenu(event)" aria-label="Account" title="Account">
+        <span class="profile-av" id="profileBtnAv">·</span>
+      </button>
+      <div class="profile-pop" id="profilePop">
+        <div class="pp-head">
+          <span class="pp-av" id="sideAvatar">·</span>
+          <div class="pp-id">
+            <div class="pp-name" id="sideName">You</div>
+            <div class="pp-email" id="authEmailBadge"></div>
           </div>
         </div>
-        <div class="side-foot-btns">
-          <button class="side-signout" onclick="changePassword()">Password</button>
-          <button class="side-signout" onclick="doSignOut()">Sign out</button>
+        <div class="pp-credits" onclick="openCredits()" title="Get more credits">
+          <span class="pp-credits-lbl">Credits</span>
+          <span class="pp-credits-n" id="creditChip">✦ —</span>
+          <span class="pp-chev">›</span>
         </div>
+        <button class="pp-row pp-cta" onclick="openCredits()"><span class="pp-ico">✦</span><span class="pp-txt">Top-up credits</span><span class="pp-get">Get</span></button>
+        <div class="pp-sep"></div>
+        <button class="pp-row" onclick="changePassword()"><span class="pp-ico">⚙</span><span class="pp-txt">Change password</span></button>
+        <button class="pp-row pp-out" onclick="doSignOut()"><span class="pp-ico">⎋</span><span class="pp-txt">Sign out</span></button>
       </div>
-    </aside>
+    </div>
 
     <main class="main">
 

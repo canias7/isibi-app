@@ -81,8 +81,8 @@ const VIDEO_USD = {
   "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
   "xai/grok-imagine-video/text-to-video":         { s: { "480p": 0.05, "720p": 0.07, def: 0.07 }, d: 6 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
-  "fal-ai/bytedance/omnihuman":                   { flat: 1.40 },  // fal bills on audio length; ~10s assumed
-  "fal-ai/kling-video/lipsync/audio-to-video":    { flat: 0.042 }, // three 5-second increments
+  "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
+  "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_USD = {
   "fal-ai/flux-2-pro": 0.03,
@@ -112,13 +112,20 @@ function directorCr(effort, director) {
   return effort === "high" || effort === "ultra" || effort === "max" ? 2 : 1;
 }
 
-function creditCost(kind, model, { duration, quality, num, chars, effort, director }) {
+// Audio-driven video models (OmniHuman, Kling LipSync) are billed by fal on
+// the driving clip's real length, so we cap and charge by measured seconds.
+const AUDIO_DRIVE_MAX_S = 60;
+
+function creditCost(kind, model, { duration, quality, num, chars, effort, director, audioSeconds }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
   else {
     const p = VIDEO_USD[model];
+    const secs = Math.max(1, Math.min(AUDIO_DRIVE_MAX_S, Math.round(audioSeconds || 0)));
     if (!p) usd = 3; // unlisted video model: charge high, never undercharge
+    else if (p.audioPerSec != null) usd = p.audioPerSec * secs;
+    else if (p.audioPer5s != null) usd = p.audioPer5s * Math.ceil(secs / 5);
     else if (p.flat != null) usd = p.flat;
     else {
       const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s["720p"];
@@ -142,6 +149,34 @@ async function useCredits(authHeader, cost) {
   });
   if (!r.ok) throw new Error("credits rpc " + r.status);
   return Number(await r.json());
+}
+
+// Read the caller's balance without deducting (used to reject a broke user
+// before we spend any fal money). get_credits also does the one-time signup
+// grant on first touch, same as use_credits. Throws if the ledger is down.
+async function readCredits(authHeader) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeader,
+    },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error("credits rpc " + r.status);
+  return Number(await r.json());
+}
+
+// Best-effort cancel of a just-submitted fal job — used when we submitted but
+// then couldn't charge, so a failed debit never yields a free generation.
+async function cancelFal(data, env) {
+  try {
+    const u = String((data && data.status_url) || "").replace(/\/status$/, "/cancel");
+    if (/^https:\/\/queue\.fal\.run\//.test(u) && env.FAL_KEY) {
+      await fetch(u, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+    }
+  } catch {}
 }
 
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
@@ -180,6 +215,21 @@ const CSP = [
   "media-src 'self' blob: https://*.supabase.co https://fal.media https://*.fal.media",
   "connect-src 'self' https://*.supabase.co https://fal.media https://*.fal.media",
 ].join("; ");
+
+// Reduce an upstream (fal/Anthropic) error payload to a short, plain string
+// so the client gets something useful to explain the failure without exposing
+// the provider's raw error object/structure.
+function briefErr(d) {
+  if (typeof d === "string") return d.slice(0, 200);
+  if (!d || typeof d !== "object") return undefined;
+  const m = d.detail ?? d.error ?? d.message;
+  if (typeof m === "string") return m.slice(0, 200);
+  if (Array.isArray(m)) {
+    const s = m.map((x) => x && (x.msg || x.message)).filter(Boolean).join("; ");
+    return s ? s.slice(0, 200) : undefined;
+  }
+  return undefined;
+}
 
 function harden(res) {
   const h = new Headers(res.headers);
@@ -403,40 +453,84 @@ async function handleRequest(request, env, ctx) {
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
-      // Everything validated — charge credits, then spend fal money.
-      // Fail closed: if the ledger can't be reached, we don't generate.
+      // Driving-audio length for the audio-billed video models (fal charges by
+      // it). Trust the client's measured duration, but floor it by a lenient
+      // size-derived bound (~3 Mbps) so a tampered short claim can't underpay a
+      // big clip, and reject anything over the cap so we never undercharge fal.
+      let audioSeconds = 0;
+      if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
+        const claimed = Number(body.audioDuration);
+        const hasClaim = Number.isFinite(claimed) && claimed > 0;
+        if (hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
+          return Response.json({ error: `audio clip too long — max ${AUDIO_DRIVE_MAX_S}s for lip-sync` }, { status: 400 });
+        }
+        const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
+        const floorSec = bytes ? (bytes * 8) / 3_000_000 : 0; // lenient size floor (~3 Mbps) vs under-claims
+        // A real client always measures and sends the duration; a missing one
+        // is treated as the cap so a tampered request can never undercharge.
+        audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+      }
+
       const genCost = creditCost(genKind, model, {
         duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         effort: typeof body.effort === "string" ? body.effort : "",
         // Only an explicit "off" waives the director surcharge — absent or
         // anything else charges it, so old clients never undercharge.
         director: body.director === "off" ? "off" : "on",
+        audioSeconds,
       });
+
+      // Charge AFTER fal accepts the job, so a rejected or failed submit never
+      // burns the user's credits. First a balance pre-check — rejects a broke
+      // user before we spend any fal money (fail closed: ledger down → 503).
+      let balance;
+      try {
+        balance = await readCredits(request.headers.get("Authorization") || "");
+      } catch {
+        return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
+      }
+      if (!(balance >= genCost)) {
+        return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
+      // Submit to fal. A network error here means nothing was charged.
+      let r;
+      try {
+        r = await fetch(`https://queue.fal.run/${endpoint}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${env.FAL_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        });
+      } catch {
+        return Response.json({ error: "submit failed" }, { status: 502 });
+      }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.request_id) {
+        return Response.json(
+          { error: "submit failed", detail: briefErr(data) },
+          { status: 502 }
+        );
+      }
+
+      // fal accepted → debit now. The atomic use_credits is the real gate: the
+      // pre-check above can race with a concurrent generation, so if the balance
+      // dropped below cost in between, cancel the just-queued job (fal doesn't
+      // bill a cancelled-while-queued job) rather than give it away free.
       let balanceAfter;
       try {
         balanceAfter = await useCredits(request.headers.get("Authorization") || "", genCost);
       } catch {
+        if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
         return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
       }
       if (!(balanceAfter >= 0)) {
+        if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
       }
 
-      const r = await fetch(`https://queue.fal.run/${endpoint}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${env.FAL_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.request_id) {
-        return Response.json(
-          { error: "submit failed", detail: data },
-          { status: 502 }
-        );
-      }
       return Response.json({
         request_id: data.request_id,
         status_url: data.status_url,
@@ -925,7 +1019,12 @@ Context: ${ctxLine}`
           },
           body: JSON.stringify({
             model: dirModel,
-            max_tokens: 1500,
+            // The ask step has thinking off and writes a short reply, so 1500
+            // is plenty. The prompt-writing steps run Sonnet with adaptive
+            // thinking, which shares the budget with a 250-330-word Max prompt
+            // — give them headroom so thinking can't truncate the tool output.
+            // max_tokens is a ceiling, not a target: unused tokens aren't billed.
+            max_tokens: step === "ask" ? 1500 : 4000,
             // Chat replies should feel instant; on the Sonnet prompt-writing
             // steps thinking stays on (adaptive), where it earns its latency.
             // Haiku ignores the omission — it simply runs without thinking.
@@ -937,8 +1036,8 @@ Context: ${ctxLine}`
             messages: turns,
           }),
         });
-      } catch (e) {
-        return Response.json({ error: "director request failed", detail: String(e) }, { status: 502 });
+      } catch {
+        return Response.json({ error: "director request failed" }, { status: 502 });
       }
 
       // Streaming ask: forward Zephyr's reply as it's written, then the
@@ -987,10 +1086,10 @@ Context: ${ctxLine}`
       }
 
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) return Response.json({ error: "director error", detail: data }, { status: 502 });
+      if (!r.ok) return Response.json({ error: "director error" }, { status: 502 });
 
       const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
-      if (!parsed) return Response.json({ error: "director no output", detail: data }, { status: 502 });
+      if (!parsed) return Response.json({ error: "director no output" }, { status: 502 });
 
       if (step === "ask") return Response.json(shapeAsk(parsed));
       if (step === "error") {
@@ -1024,9 +1123,14 @@ Context: ${ctxLine}`
       if (!/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/[^/?#]+\/cancel$/.test(target)) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
-      const data = await r.text();
-      return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
+      if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+      try {
+        const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        const data = await r.text();
+        return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
+      } catch {
+        return Response.json({ error: "cancel failed" }, { status: 502 });
+      }
     }
 
     // Copies a finished fal output into Supabase Storage so chats keep a
@@ -1043,7 +1147,10 @@ Context: ${ctxLine}`
       if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const media = await fetch(src);
+      let media;
+      try { media = await fetch(src); } catch {
+        return Response.json({ error: "fetch failed" }, { status: 502 });
+      }
       if (!media.ok || !media.body) {
         return Response.json({ error: "fetch failed" }, { status: 502 });
       }
@@ -1056,11 +1163,16 @@ Context: ${ctxLine}`
       const kindExt = body.kind === "image" ? "png" : body.kind === "audio" ? "mp3" : "mp4";
       const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${EXT[ct] || kindExt}`;
       const token = (request.headers.get("Authorization") || "").slice(7);
-      const up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
-        body: media.body,
-      });
+      let up;
+      try {
+        up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
+          body: media.body,
+        });
+      } catch {
+        return Response.json({ error: "store failed" }, { status: 502 });
+      }
       if (!up.ok) return Response.json({ error: "store failed" }, { status: 502 });
       return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${path}` });
     }
@@ -1072,13 +1184,16 @@ Context: ${ctxLine}`
       if (!target.startsWith("https://queue.fal.run/")) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
-      const r = await fetch(target, {
-        headers: { Authorization: `Key ${env.FAL_KEY}` },
-      });
-      return new Response(await r.text(), {
-        status: r.status,
-        headers: { "Content-Type": "application/json" },
-      });
+      if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+      try {
+        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        return new Response(await r.text(), {
+          status: r.status,
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch {
+        return Response.json({ error: "poll failed" }, { status: 502 });
+      }
     }
 
     return env.ASSETS.fetch(request);

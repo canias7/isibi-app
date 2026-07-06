@@ -11,6 +11,15 @@ let sbSelected = null;      // selected shot id
 let sbPlaying = null;       // {ids, idx} while playing the whole film
 let sbBusy = false;         // an export or generation batch is running
 
+// Account switched on this browser (expired session → different login without
+// a reload): drop the previous user's projects from memory and rebuild from
+// the now-wiped storage, so Studio never shows the old account's work.
+function sbResetForAccountSwitch() {
+  sb = { active: null, projects: [] };
+  sbLoad();   // storage was just cleared → creates a fresh default project
+  sbRender();
+}
+
 function sbLoad() {
   try {
     const raw = JSON.parse(localStorage.getItem(SB_KEY) || 'null');
