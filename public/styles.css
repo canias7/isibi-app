@@ -223,7 +223,10 @@
 /* Wide screens: the switch stacks vertically INSIDE the box's left edge,
    vertically centered; the content shifts right to make room, so the
    chatbox keeps its height. Narrow screens keep the inline pill. */
-@media (min-width: 1500px) {
+/* The vertical mode-switch (tucked into the composer's left edge) frees the
+   control row so the send button stays inline — apply it on laptops too, not
+   just 24" desktops, so narrow screens don't have to wrap the send button. */
+@media (min-width: 1100px) {
   .view-home .composer { position: relative; padding-left: 122px; }
   .view-home .composer-row .mode-switch {
     flex-direction: column;
@@ -966,7 +969,7 @@
 
 /* Mode switch → pill; active tab takes the gradient. */
 .mode-switch { border-radius: 99px; }
-@media (min-width: 1500px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
+@media (min-width: 1100px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
 .mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
 /* Account avatar → dark chip (matches the mockup). */
@@ -1079,9 +1082,11 @@
     position: static; align-self: center; width: 100%; max-width: 780px;
     max-height: 220px; margin: 0 0 .5rem;
   }
-  /* Below 1500px the mode-switch stays in the row, so the four controls don't
-     fit one line. Let the send button drop to a full-width bar instead of
-     orphaning it at the right edge. */
+}
+/* Below 1100px the mode-switch can't tuck into the composer's left edge, so
+   the four controls won't fit one line — drop the send to a full-width bar
+   rather than orphaning it at the right edge. */
+@media (max-width: 1099px) {
   .composer-row { row-gap: .7rem; }
   .composer-row .send { flex: 1 1 100%; margin-left: 0; min-width: 0; }
 }
