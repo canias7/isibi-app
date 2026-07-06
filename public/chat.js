@@ -1609,23 +1609,22 @@ function maybeShowWelcome(balance) {
     if (localStorage.getItem(WELCOME_KEY)) return;
     if (typeof balance !== 'number' || balance <= 0 || balance > 20) return;
     if ((chatStore.chats || []).some((c) => c.msgs && c.msgs.length)) return;
-    if (document.getElementById('welcomeCard')) return;
-    const home = document.querySelector('.home-screen');
-    if (!home) return;
-    const card = document.createElement('div');
-    card.className = 'welcome-card';
-    card.id = 'welcomeCard';
-    card.innerHTML = '<span class="wc-star">✦</span>' +
-      '<span class="wc-txt">' +
-        '<span class="wc-t">Welcome to isibi — ' + balance + ' free credits, on us</span>' +
-        '<span class="wc-s">Try a few images or a voice line. Ready for video? Plans start at $25/mo.</span>' +
-      '</span>' +
-      '<button type="button" class="wc-cta">See plans</button>' +
-      '<button type="button" class="wc-x" aria-label="Dismiss">✕</button>';
-    const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} card.remove(); };
-    card.querySelector('.wc-x').onclick = dismiss;
-    card.querySelector('.wc-cta').onclick = () => { dismiss(); openCredits(); };
-    home.prepend(card);
+    if (document.querySelector('.credits-overlay')) return;
+    const ov = document.createElement('div');
+    ov.className = 'credits-overlay welcome-ov';
+    ov.innerHTML = '<div class="wm-box">' +
+      '<div class="wm-star">✦</div>' +
+      '<h2 class="wm-title">Welcome to isibi</h2>' +
+      '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
+      '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $25/mo.</p>' +
+      '<button type="button" class="wm-cta">See plans</button>' +
+      '<button type="button" class="wm-skip">Start creating</button>' +
+    '</div>';
+    const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} ov.remove(); };
+    ov.onclick = (e) => { if (e.target === ov) dismiss(); };
+    ov.querySelector('.wm-skip').onclick = dismiss;
+    ov.querySelector('.wm-cta').onclick = () => { dismiss(); openCredits(); };
+    document.body.appendChild(ov);
   } catch {}
 }
 
