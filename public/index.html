@@ -147,7 +147,21 @@
       <div class="home-slide" id="homeSlide">
       <div class="home-screen">
       <section class="chat active">
-        <div class="thread"><div class="thread-inner" id="messages"></div></div>
+        <div class="thread">
+          <div class="home-hero" id="homeHero">
+            <div class="hh-orb"></div>
+            <span class="hh-spark s1">✦</span><span class="hh-spark s2">✦</span><span class="hh-spark s3">✦</span>
+            <h1 class="hh-title">What are we making, <span class="hh-name" id="heroName">you</span>?</h1>
+            <p class="hh-sub">Describe a scene, an image or a voice line — Zephyr writes the full prompt and runs the model for you.</p>
+            <div class="hh-chips">
+              <button type="button" class="hh-chip" data-mode="video" data-prompt="A slow cinematic drone shot over a neon-lit city at night, rain glistening on the streets"><b>Video</b>Neon city in the rain</button>
+              <button type="button" class="hh-chip" data-mode="image" data-prompt="A portrait of an astronaut standing in a sunflower field at golden hour, film grain"><b>Image</b>Astronaut at golden hour</button>
+              <button type="button" class="hh-chip" data-mode="video" data-prompt="Macro shot of a tiny dragon hatching from a glowing crystal egg, shallow depth of field"><b>Video</b>Dragon hatching, macro</button>
+              <button type="button" class="hh-chip" data-mode="audio" data-prompt="Welcome to isibi — where your ideas become video."><b>Voice</b>Try a voice line</button>
+            </div>
+          </div>
+          <div class="thread-inner" id="messages"></div>
+        </div>
       </section>
 
       <div class="opt-wrap effort-pick">

@@ -919,6 +919,7 @@ function addMsg(kind, text) {
   } else {
     div.textContent = text;
   }
+  toggleHomeHero(false);
   const box = document.getElementById('messages');
   box.appendChild(div);
   if (kind === 'user' || kind === 'agent') {
@@ -1151,6 +1152,25 @@ function renderThread() {
   // its send button locked; other chats stay free to send.
   mountGenLoader();
   updateSendLock();
+  toggleHomeHero(!(chat && chat.msgs.length));
+}
+
+// Empty-state hero: greeting + starter chips, shown only while the active
+// chat has no messages yet.
+function toggleHomeHero(show) {
+  const hero = document.getElementById('homeHero');
+  if (hero) hero.classList.toggle('gone', !show);
+}
+function initHomeHero() {
+  document.querySelectorAll('.hh-chip').forEach((c) => {
+    c.onclick = () => {
+      setMode(c.dataset.mode);
+      const inp = document.getElementById('input');
+      inp.value = c.dataset.prompt;
+      inp.focus();
+      if (typeof updateSendPrice === 'function') updateSendPrice();
+    };
+  });
 }
 
 function renderChatList() {
@@ -2527,6 +2547,9 @@ function enterApp() {
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
   const nameEl = document.getElementById('sideName');
   if (nameEl) nameEl.textContent = name;
+  const heroName = document.getElementById('heroName');
+  if (heroName) heroName.textContent = name;
+  initHomeHero();
   const initial = (name[0] || '·').toUpperCase();
   const av = document.getElementById('sideAvatar');
   if (av) av.textContent = initial;
