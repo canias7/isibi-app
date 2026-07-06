@@ -1227,7 +1227,14 @@ function deliverAgent(chatId, text) {
 }
 function deliverMedia(chatId, kind, url, prompt) {
   saveToChat(chatId, { t: 'media', kind, url, at: Date.now(), prompt: prompt ? String(prompt).slice(0, 300) : undefined });
-  if (chatStore.active === chatId) threadAppend(buildMedia(kind, url, prompt));
+  if (chatStore.active === chatId) {
+    // Fresh generations land with a soft gradient pulse (live only — saved
+    // media re-renders without it).
+    const el = buildMedia(kind, url, prompt);
+    el.classList.add('landed');
+    el.addEventListener('animationend', () => el.classList.remove('landed'), { once: true });
+    threadAppend(el);
+  }
 }
 
 // ── Generated media: element + download + full-screen actions ──
@@ -2536,8 +2543,23 @@ function enterApp() {
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
   const nameEl = document.getElementById('sideName');
   if (nameEl) nameEl.textContent = name;
-  const heroName = document.getElementById('heroName');
-  if (heroName) heroName.textContent = name;
+  // Hero greeting follows the clock — late night / morning / day / evening.
+  const ht = document.getElementById('heroTitle');
+  if (ht) {
+    const h = new Date().getHours();
+    const [pre, post] =
+      h < 5 ? ['Late night session, ', '?'] :
+      h < 12 ? ['Morning, ', ' — what are we making?'] :
+      h < 18 ? ['What are we making, ', '?'] :
+      ['Evening, ', ' — what are we making?'];
+    ht.textContent = '';
+    ht.append(pre);
+    const span = document.createElement('span');
+    span.className = 'hh-name';
+    span.textContent = name;
+    ht.appendChild(span);
+    ht.append(post);
+  }
   const initial = (name[0] || '·').toUpperCase();
   const av = document.getElementById('sideAvatar');
   if (av) av.textContent = initial;
@@ -2811,6 +2833,24 @@ renderAttach('audio');
 loadStore();
 renderChatList();
 renderThread();
+
+// Hero ambience drifts gently toward the cursor (rAF-throttled).
+(function initHeroParallax() {
+  const amb = document.getElementById('hhAmb');
+  const area = document.querySelector('.view-home .thread');
+  if (!amb || !area) return;
+  let raf = 0;
+  area.addEventListener('mousemove', (e) => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      const r = area.getBoundingClientRect();
+      const dx = (e.clientX - r.left) / r.width - .5;
+      const dy = (e.clientY - r.top) / r.height - .5;
+      amb.style.transform = 'translate(' + (dx * 28).toFixed(1) + 'px, ' + (dy * 20).toFixed(1) + 'px)';
+    });
+  });
+})();
 
 initAuthGate();
 
