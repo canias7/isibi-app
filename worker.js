@@ -151,6 +151,34 @@ async function useCredits(authHeader, cost) {
   return Number(await r.json());
 }
 
+// Read the caller's balance without deducting (used to reject a broke user
+// before we spend any fal money). get_credits also does the one-time signup
+// grant on first touch, same as use_credits. Throws if the ledger is down.
+async function readCredits(authHeader) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: authHeader,
+    },
+    body: "{}",
+  });
+  if (!r.ok) throw new Error("credits rpc " + r.status);
+  return Number(await r.json());
+}
+
+// Best-effort cancel of a just-submitted fal job — used when we submitted but
+// then couldn't charge, so a failed debit never yields a free generation.
+async function cancelFal(data, env) {
+  try {
+    const u = String((data && data.status_url) || "").replace(/\/status$/, "/cancel");
+    if (/^https:\/\/queue\.fal\.run\//.test(u) && env.FAL_KEY) {
+      await fetch(u, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+    }
+  } catch {}
+}
+
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
 async function authUser(request) {
   const header = request.headers.get("Authorization") || "";
@@ -443,8 +471,6 @@ async function handleRequest(request, env, ctx) {
         audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
       }
 
-      // Everything validated — charge credits, then spend fal money.
-      // Fail closed: if the ledger can't be reached, we don't generate.
       const genCost = creditCost(genKind, model, {
         duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         effort: typeof body.effort === "string" ? body.effort : "",
@@ -453,24 +479,34 @@ async function handleRequest(request, env, ctx) {
         director: body.director === "off" ? "off" : "on",
         audioSeconds,
       });
-      let balanceAfter;
+
+      // Charge AFTER fal accepts the job, so a rejected or failed submit never
+      // burns the user's credits. First a balance pre-check — rejects a broke
+      // user before we spend any fal money (fail closed: ledger down → 503).
+      let balance;
       try {
-        balanceAfter = await useCredits(request.headers.get("Authorization") || "", genCost);
+        balance = await readCredits(request.headers.get("Authorization") || "");
       } catch {
         return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
       }
-      if (!(balanceAfter >= 0)) {
+      if (!(balance >= genCost)) {
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
       }
 
-      const r = await fetch(`https://queue.fal.run/${endpoint}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${env.FAL_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(input),
-      });
+      // Submit to fal. A network error here means nothing was charged.
+      let r;
+      try {
+        r = await fetch(`https://queue.fal.run/${endpoint}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Key ${env.FAL_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(input),
+        });
+      } catch {
+        return Response.json({ error: "submit failed" }, { status: 502 });
+      }
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.request_id) {
         return Response.json(
@@ -478,6 +514,23 @@ async function handleRequest(request, env, ctx) {
           { status: 502 }
         );
       }
+
+      // fal accepted → debit now. The atomic use_credits is the real gate: the
+      // pre-check above can race with a concurrent generation, so if the balance
+      // dropped below cost in between, cancel the just-queued job (fal doesn't
+      // bill a cancelled-while-queued job) rather than give it away free.
+      let balanceAfter;
+      try {
+        balanceAfter = await useCredits(request.headers.get("Authorization") || "", genCost);
+      } catch {
+        if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
+        return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 });
+      }
+      if (!(balanceAfter >= 0)) {
+        if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
+        return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
       return Response.json({
         request_id: data.request_id,
         status_url: data.status_url,

@@ -1669,11 +1669,10 @@ function cancelGen(chatId) {
     }).catch(() => {});
   }
   endGen(chatId);
-  // Queued jobs die free on fal; anything already rendering may still bill.
-  const wasRendering = /generating/i.test(gen.text || '');
-  deliverAgent(chatId, wasRendering
-    ? '⏹ Cancelled — it was already rendering, so fal may still charge for this one.'
-    : '⏹ Cancelled before it started — no charge.');
+  // Credits are charged the moment fal accepts the job, so a run that already
+  // reached the generator was charged; only a stop during the brief submit
+  // window (before it was sent) escapes the charge.
+  deliverAgent(chatId, '⏹ Cancelled — credits for a run are used once it reaches the generator.');
 }
 
 // Failures become a conversation: Zephyr explains what went wrong in plain
