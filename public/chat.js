@@ -1633,7 +1633,7 @@ function openCredits(topupsOnly) {
     return '<button type="button" class="up-card' + (p.tag ? ' best' : '') + '" data-plan="' + p.plan + '">' +
       (p.tag ? '<div class="up-badge">Most popular</div>' : '') +
       '<div class="up-pname">' + p.name + '</div>' +
-      '<div class="up-pcred">✦ ' + p.credits.toLocaleString() + '<small> credits / month</small></div>' +
+      '<div class="up-pcred"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + '<small> credits / month</small></div>' +
       '<div class="up-pget">' + p.get + '</div>' +
       '<div class="up-priceline">' +
         '<span class="up-pprice">$' + p.usd + '<small> /mo</small></span>' +
@@ -1657,9 +1657,12 @@ function openCredits(topupsOnly) {
       '<div class="cp-note" id="cpNote"></div>'
     : '<button type="button" class="cp-close up-close">✕</button>' +
       '<div class="up-promo">' +
+        '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
         '<span class="up-tag">✦ Launch offer</span>' +
-        '<h2 class="up-promo-h">Every model, one balance.</h2>' +
-        '<p class="up-promo-p">Video, image and voice — Veo, Sora, Seedance, Kling, Nano Banana, ElevenLabs and more, all from a single credit balance. Unused credits roll over every month.</p>' +
+        '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
+        '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
+        '<div class="up-models">' + ['Veo 3', 'Sora 2', 'Kling 2.5', 'Seedance', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
+        '<button type="button" class="up-hero-cta">Start with Pro →</button>' +
       '</div>' +
       '<div class="up-headwrap">' +
         '<div class="up-eyebrow">Membership</div>' +
@@ -1675,6 +1678,8 @@ function openCredits(topupsOnly) {
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   const topupLink = ov.querySelector('.up-topup-link');
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
+  const heroCta = ov.querySelector('.up-hero-cta');
+  if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
   ov.querySelectorAll('.cp-card, .cp-lrow, .up-card').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
