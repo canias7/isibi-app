@@ -1076,8 +1076,8 @@
 /* Not enough side room → the panel becomes a block above the composer. */
 @media (max-width: 1499px) {
   .attach-panel {
-    position: static; width: auto; max-height: 220px;
-    margin: 0 1.5rem .5rem;
+    position: static; align-self: center; width: 100%; max-width: 780px;
+    max-height: 220px; margin: 0 0 .5rem;
   }
 }
 
