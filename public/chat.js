@@ -2377,6 +2377,7 @@ async function directorAsk(text, history, onDelta) {
         ready: !!final.ready,
         rerun: !!final.rerun,
         revise: !!final.revise,
+        needsWeb: !!final.needsWeb,
       };
     }
     const data = await res.json();
@@ -2385,6 +2386,7 @@ async function directorAsk(text, history, onDelta) {
       ready: !!data.ready,
       rerun: !!data.rerun,
       revise: !!data.revise,
+      needsWeb: !!data.needsWeb,
     };
   } catch { return localAsk(text); }
 }
@@ -2409,7 +2411,7 @@ async function directorRevise(feedback) {
   } catch { return prev ? prev + ' ' + feedback : feedback; }
 }
 
-async function directorCompose(text, answers) {
+async function directorCompose(text, answers, webFacts) {
   if (mode === 'audio') return text; // voice: speak the words as given
   pendingBrief = null;
   try {
@@ -2417,6 +2419,7 @@ async function directorCompose(text, answers) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
+        webFacts: webFacts || undefined,
         history: directorHistory(), ...directorContext(), ...(await directorImage()),
       }),
     });
@@ -2502,20 +2505,58 @@ async function startDirector(text) {
     deliverPrompt(prompt);
     return;
   }
-  // A creative request — compose the prompt for review.
-  if (res.ready) composeAndReview(text, []);
+  // A creative request — compose the prompt for review. If the director
+  // flagged it as needing current real-world facts, research the web first.
+  if (res.ready) composeAndReview(text, [], res.needsWeb);
   // Otherwise (greeting / small talk): the reply alone is the whole turn.
 }
 
-async function composeAndReview(text, answers) {
+async function composeAndReview(text, answers, needsWeb) {
   const origin = chatStore.active;
+  // Web-search first when the request depends on current real-world facts
+  // (latest products, real specs). Failures degrade to no facts.
+  let webFacts = '';
+  if (needsWeb) {
+    const looking = addMsg('agent typing', 'Looking it up on the web');
+    let research = { facts: '', sources: [] };
+    try { research = await directorResearch(text); } finally { looking.remove(); }
+    if (chatStore.active !== origin) return;
+    webFacts = research.facts || '';
+    if (research.sources && research.sources.length) {
+      const names = [...new Set(research.sources
+        .map((s) => { try { return new URL(s.url).hostname.replace(/^www\./, ''); } catch { return s.title || 'source'; } }))]
+        .slice(0, 3);
+      deliverAgent(origin, '🔎 Checked the web — ' + names.join(', '));
+      if (chatStore.active !== origin) return;
+    }
+  }
   const thinking = addMsg('agent typing', 'Writing the prompt');
   let prompt;
-  try { prompt = await directorCompose(text, answers); } finally { thinking.remove(); }
+  try { prompt = await directorCompose(text, answers, webFacts); } finally { thinking.remove(); }
   // The user moved to another chat while the prompt was being written —
   // don't pop the review card into the wrong thread.
   if (chatStore.active !== origin) return;
   deliverPrompt(prompt);
+}
+
+// Live web search: gathers current real-world facts for the prompt writer.
+// Returns { facts, sources }; on any failure returns empties so compose runs.
+async function directorResearch(text) {
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'research', kind: mode, prompt: text,
+        history: directorHistory(), ...directorContext(),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    return {
+      facts: String(data.facts || '').slice(0, 2000),
+      sources: Array.isArray(data.sources) ? data.sources.slice(0, 5) : [],
+    };
+  } catch { return { facts: '', sources: [] }; }
 }
 
 // Mode split: Plan pops the finished paragraph into the chat for approval;
