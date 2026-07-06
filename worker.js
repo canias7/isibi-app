@@ -668,15 +668,18 @@ async function handleRequest(request, env, ctx) {
       // "plan" interviews willingly; anything else keeps the legacy
       // rare-questions behavior (older clients that don't send qmode).
       const qmode = body.qmode === "auto" || body.qmode === "plan" ? body.qmode : "";
+      // Effort sets DEPTH, never a recipe: no level prescribes which areas to
+      // cover, so two prompts at the same level read like two different
+      // directors, not one template.
       const effortLine = kind === "audio" ? "" : effort === "low"
-        ? `\nEffort: LOW — the user wants a quick take. Keep the prompt to 1-2 tight sentences (30-50 words): subject, action, setting, one style cue. Keep the non-negotiables (camera named, on-screen text pinned) but skip fine detail — let the model improvise the rest.`
+        ? `\nEffort: LOW — a quick take. 1-2 tight sentences (30-50 words): the idea at its purest — subject, action, setting, one defining style note. Keep the non-negotiables (camera named, on-screen text pinned) and let the model improvise everything else.`
         : effort === "high"
-        ? `\nEffort: HIGH — the user wants real craft. Write 120-180 words: precise composition and camera work, lighting, palette, texture, atmosphere, and the timing of each beat. Every sentence must add new concrete visual information — detail, never filler.`
+        ? `\nEffort: HIGH — real craft, 120-180 words. Go deep on whatever THIS shot needs most — that might be light, motion, texture, framing, mood, timing, or something else entirely; you choose, the shot decides. Every sentence must add new concrete visual information. Never pad, and never run through a checklist.`
         : effort === "ultra"
-        ? `\nEffort: ULTRA HIGH — 180-250 words. Everything a HIGH prompt covers (camera, lighting, palette, texture, atmosphere, beat timing), plus: name the lens and framing (wide or long, centered or thirds, negative space); build the scene in explicit layers — a foreground element, the subject, a living background${kind === "video" ? " — so camera moves read three-dimensional" : ""}; direct the subject's expression and body language; ${kind === "video" ? "give every motion weight and momentum; " : ""}add background life; and call one deliberate color grade. Every sentence must add new concrete visual information — detail, never filler.`
+        ? `\nEffort: ULTRA HIGH — 180-250 words of serious direction. Pick the few dimensions that matter most to this particular shot and develop them until they're vivid and specific; leave the rest to the model. Different requests deserve different obsessions — never write the same shape of prompt twice.`
         : effort === "max"
-        ? `\nEffort: MAX — 250-330 words, the full director's treatment. Everything ULTRA HIGH covers, plus: film stock or medium emulation, era and season${kind === "video" ? `, speed treatment if it serves the shot (slow motion, timelapse), and what the opening and closing frames each hold. If the target model generates audio (Veo, Sora), direct the soundscape too — ambience, two or three key sounds, any spoken line` : ", and where the viewer's eye lands first, second and third"}. Touch every area a director could — but never pad: if an area adds nothing to THIS shot, spend those words deepening the ones that do.`
-        : `\nEffort: MEDIUM — one tight paragraph, roughly 60-100 words: enough craft to direct the shot without over-constraining the model.`;
+        ? `\nEffort: MAX — 250-330 words, the full director's treatment. Go as deep as this shot deserves, wherever it deserves it: whatever a great director would fixate on for THIS ${kind === "video" ? "scene" : "image"}, fixate on that. There is no required list of topics — two MAX prompts for two different ideas should read like two different directors at work. Depth over coverage: never pad, never template.`
+        : `\nEffort: MEDIUM — one tight paragraph, roughly 60-100 words: enough direction to land the shot without over-constraining the model.`;
 
       // Different model families respond to different prompt styles.
       const familyHint = /seedance/.test(genModel)
