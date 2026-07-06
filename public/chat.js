@@ -1596,7 +1596,36 @@ async function fetchCredits() {
     const r = await apiFetch('/api/credits');
     if (!r.ok) return;
     const d = await r.json();
-    if (typeof d.balance === 'number') setCredits(d.balance);
+    if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
+  } catch {}
+}
+
+// One-time welcome banner for fresh accounts: makes the signup grant feel
+// intentional and points at the plans. Shows only while the account still
+// looks new (grant-sized balance, no chat history), until dismissed.
+const WELCOME_KEY = 'zephyr_welcome_v1';
+function maybeShowWelcome(balance) {
+  try {
+    if (localStorage.getItem(WELCOME_KEY)) return;
+    if (typeof balance !== 'number' || balance <= 0 || balance > 20) return;
+    if ((chatStore.chats || []).some((c) => c.msgs && c.msgs.length)) return;
+    if (document.getElementById('welcomeCard')) return;
+    const home = document.querySelector('.home-screen');
+    if (!home) return;
+    const card = document.createElement('div');
+    card.className = 'welcome-card';
+    card.id = 'welcomeCard';
+    card.innerHTML = '<span class="wc-star">✦</span>' +
+      '<span class="wc-txt">' +
+        '<span class="wc-t">Welcome to isibi — ' + balance + ' free credits, on us</span>' +
+        '<span class="wc-s">Try a few images or a voice line. Ready for video? Plans start at $25/mo.</span>' +
+      '</span>' +
+      '<button type="button" class="wc-cta">See plans</button>' +
+      '<button type="button" class="wc-x" aria-label="Dismiss">✕</button>';
+    const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} card.remove(); };
+    card.querySelector('.wc-x').onclick = dismiss;
+    card.querySelector('.wc-cta').onclick = () => { dismiss(); openCredits(); };
+    home.prepend(card);
   } catch {}
 }
 
