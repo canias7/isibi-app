@@ -1274,19 +1274,6 @@ function buildMedia(kind, url, prompt) {
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
-  if (kind === 'video' && window.sbAddFromChat) {
-    const st = document.createElement('button');
-    st.className = 'media-btn'; st.type = 'button'; st.title = 'Add to Studio as a shot'; st.textContent = '🎬';
-    st.onclick = async (e) => {
-      e.stopPropagation();
-      st.textContent = '…';
-      const n = await sbAddFromChat(url, prompt || '');
-      st.textContent = '✓';
-      setTimeout(() => { st.textContent = '🎬'; }, 1500);
-      deliverAgent(chatStore.active, 'Added to Studio as shot ' + n + ' of “' + sbProject().title + '” — open Studio to direct it.');
-    };
-    actions.appendChild(st);
-  }
   const del = document.createElement('button');
   del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
