@@ -2380,8 +2380,11 @@ function enterApp() {
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
   const nameEl = document.getElementById('sideName');
   if (nameEl) nameEl.textContent = name;
+  const initial = (name[0] || '·').toUpperCase();
   const av = document.getElementById('sideAvatar');
-  if (av) av.textContent = (name[0] || '·').toUpperCase();
+  if (av) av.textContent = initial;
+  const btnAv = document.getElementById('profileBtnAv');
+  if (btnAv) btnAv.textContent = initial;
   const so = document.getElementById('signOutRow');
   if (so) so.style.display = '';
   document.getElementById('input').focus();
@@ -2594,7 +2597,17 @@ document.addEventListener('click', (e) => {
   const dd = document.getElementById('navDd');
   const menu = document.getElementById('navDdMenu');
   if (menu && menu.classList.contains('open') && dd && !dd.contains(e.target)) menu.classList.remove('open');
+  const prof = document.getElementById('signOutRow');
+  const pop = document.getElementById('profilePop');
+  if (pop && pop.classList.contains('open') && prof && !prof.contains(e.target)) pop.classList.remove('open');
 });
+
+// Top-right account menu.
+function toggleProfileMenu(e) {
+  e.stopPropagation();
+  const pop = document.getElementById('profilePop');
+  if (pop) pop.classList.toggle('open');
+}
 
 // ── Studio lives in studio.js (shot-based projects) ──
 
