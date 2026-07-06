@@ -1400,6 +1400,23 @@
   margin: 1.1rem 0 .55rem; font-size: .72rem; font-weight: 700;
   letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
 }
+/* Top-ups-only view: quiet list (design E) */
+.cp-box.cp-narrow { width: min(92vw, 440px); }
+.cp-narrow .cp-list { margin-top: .3rem; }
+.cp-lrow {
+  width: 100%; display: flex; align-items: baseline; gap: 1rem; text-align: left;
+  background: none; border: none; border-top: 1px solid var(--line-2);
+  color: var(--text); font-family: inherit; cursor: pointer; padding: .85rem .2rem;
+  transition: opacity .12s ease;
+}
+.cp-lrow:first-child { border-top: none; }
+.cp-lrow:hover { opacity: .72; }
+.cp-lcr { font-size: 1.02rem; font-weight: 600; }
+.cp-lusd {
+  margin-left: auto; font-size: 1.02rem; font-weight: 700;
+  background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
 .cp-grid-5 { grid-template-columns: repeat(5, 1fr); gap: .45rem; }
 .cp-mini { padding: .6rem .3rem; border-radius: 11px; }
 .cp-mini .cp-credits { font-size: .78rem; }
