@@ -47,7 +47,7 @@ function sbUid(prefix) { return prefix + Date.now().toString(36) + Math.random()
 // Transient message for Studio (storage/export problems etc.).
 function sbToast(msg) {
   let t = document.getElementById('sbToast');
-  if (!t) { t = document.createElement('div'); t.id = 'sbToast'; t.className = 'sb-toast'; document.body.appendChild(t); }
+  if (!t) { t = document.createElement('div'); t.id = 'sbToast'; t.className = 'sb-toast'; t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite'); document.body.appendChild(t); }
   t.textContent = msg; t.classList.add('show');
   clearTimeout(sbToast._t);
   sbToast._t = setTimeout(() => t.classList.remove('show'), 5000);
@@ -251,6 +251,43 @@ function sbPlayShot(s, next) {
   else v.onended = null;
 }
 
+// ── Preview transport (the toolbar buttons around the stage) ────────────────
+// The native <video controls> already handles scrub/volume; these add
+// shot-to-shot navigation and quick play/fullscreen/speed on top.
+function sbCurIndex() {
+  const shots = sbProject().shots;
+  const i = shots.findIndex((s) => s.id === sbSelected);
+  return { shots, i };
+}
+function sbPrevShot() { const { shots, i } = sbCurIndex(); const j = i > 0 ? i - 1 : (i < 0 ? shots.length - 1 : 0); if (shots[j]) sbSelect(shots[j].id); }
+function sbNextShot() { const { shots, i } = sbCurIndex(); const j = i < shots.length - 1 ? i + 1 : 0; if (shots[j]) sbSelect(shots[j].id); }
+function sbTogglePlay() {
+  const v = document.querySelector('#previewStage video');
+  if (!v) { const { shots } = sbCurIndex(); const first = shots.find((s) => s.url); if (first) sbSelect(first.id); return; }
+  if (v.paused) v.play().catch(() => {}); else v.pause();
+}
+function sbFullscreenPreview() {
+  const v = document.querySelector('#previewStage video');
+  if (v && v.requestFullscreen) v.requestFullscreen().catch(() => {});
+}
+function sbToggleMute() {
+  const v = document.querySelector('#previewStage video');
+  if (!v) return;
+  v.muted = !v.muted;
+  const b = document.getElementById('sbVolBtn');
+  if (b) b.textContent = v.muted ? '🔇' : '🔊';
+}
+const SB_SPEEDS = [1, 1.5, 2, 0.5];
+let sbSpeedIdx = 0;
+function sbCycleSpeed() {
+  sbSpeedIdx = (sbSpeedIdx + 1) % SB_SPEEDS.length;
+  const r = SB_SPEEDS[sbSpeedIdx];
+  const v = document.querySelector('#previewStage video');
+  if (v) v.playbackRate = r;
+  const b = document.getElementById('sbSpeedBtn');
+  if (b) { b.textContent = r + '×'; b.title = 'Speed: ' + r + '×'; }
+}
+
 function sbSelect(id) {
   sbSelected = id;
   sbPlaying = null;
@@ -393,9 +430,20 @@ async function sbGenerateShot(s) {
     if (res.status === 402) throw new Error('not enough credits for this shot');
     if (!res.ok || !job.status_url) throw new Error(JSON.stringify(job));
     if (typeof job.balance === 'number' && typeof setCredits === 'function') setCredits(job.balance);
+    let softFails = 0;
     for (let waited = 0; waited < 12 * 60 * 1000; waited += 4000) {
-      const st = await (await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url))).json();
+      let st;
+      try {
+        st = await (await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url))).json();
+        softFails = 0;
+      } catch {
+        // Tolerate a transient blip; only give up after a sustained outage.
+        if (++softFails >= 15) throw new Error('lost the connection while rendering');
+        await new Promise((r) => setTimeout(r, 4000)); continue;
+      }
       if (st.status === 'COMPLETED') break;
+      // Fail fast on a model error instead of polling out the 12-minute budget.
+      if (st.status === 'ERROR' || st.status === 'FAILED') throw new Error('the model failed on this shot');
       sbStudioProgress('Shot ' + idx + ': ' + (st.status === 'IN_PROGRESS' ? 'generating…' : 'queued…'));
       await new Promise((r) => setTimeout(r, 4000));
     }

@@ -332,9 +332,8 @@
               <div class="preview-toolbar">
                 <span class="pt-title">My Movie</span>
                 <div class="pt-spacer"></div>
-                <button class="pt-icon" title="Crop">▢</button>
-                <button class="pt-icon" title="Speed">⏱</button>
-                <button class="pt-icon" title="Volume">🔊</button>
+                <button class="pt-icon" id="sbSpeedBtn" title="Playback speed" onclick="sbCycleSpeed()">1×</button>
+                <button class="pt-icon" id="sbVolBtn" title="Mute" onclick="sbToggleMute()">🔊</button>
               </div>
               <div class="preview-stage" id="previewStage">
                 <div class="preview-empty">
@@ -342,12 +341,12 @@
                 </div>
               </div>
               <div class="preview-controls">
-                <button class="pc-btn" title="Back">⏮</button>
-                <button class="pc-btn pc-play" title="Play">▶</button>
-                <button class="pc-btn" title="Forward">⏭</button>
+                <button class="pc-btn" title="Previous shot" onclick="sbPrevShot()">⏮</button>
+                <button class="pc-btn pc-play" title="Play / pause" onclick="sbTogglePlay()">▶</button>
+                <button class="pc-btn" title="Next shot" onclick="sbNextShot()">⏭</button>
                 <span class="timecode" id="studioTimecode">00:00 / 00:00</span>
                 <div class="pc-spacer"></div>
-                <button class="pc-btn" title="Full screen">⤢</button>
+                <button class="pc-btn" title="Full screen" onclick="sbFullscreenPreview()">⤢</button>
               </div>
             </div>
           </div>

@@ -101,6 +101,10 @@ const Auth = (() => {
         // session. A network failure (fetch throws a TypeError) leaves it
         // intact so a later call can retry instead of hard-signing-out.
         if (e && e.name === 'TypeError') return null;
+        // Another tab may have rotated the token while this refresh was in
+        // flight — then GoTrue rejects our now-stale `rt` as reuse, but the
+        // session in storage is the fresh valid one. Don't wipe it.
+        if (session && session.refresh_token && session.refresh_token !== rt) return null;
         saveSession(null);
         return null;
       } finally { refreshing = null; }
@@ -108,17 +112,22 @@ const Auth = (() => {
     return refreshing;
   }
 
-  // Another tab may rotate the token; adopt its session so this tab doesn't
-  // later refresh with a now-revoked token and sign everyone out.
+  // Another tab may rotate the token, sign in, or sign out. Adopt its session
+  // so this tab doesn't later refresh with a revoked token — and if the
+  // signed-in state flipped (in↔out), reload so the UI matches (the gate
+  // appears on sign-out, the app on sign-in) instead of lagging until a 401.
   window.addEventListener('storage', (e) => {
     if (e.key !== SESSION_KEY) return;
+    const had = !!session;
     try { session = e.newValue ? JSON.parse(e.newValue) : null; } catch { session = null; }
+    if (had !== !!session) location.reload();
   });
 
-  // Returns a valid access token, refreshing first if it's within a minute of expiry.
+  // Returns a valid access token, refreshing first if it's within a minute of
+  // expiry — or if the expiry is missing/invalid (fail toward a refresh).
   async function accessToken() {
     if (!session) return null;
-    if (session.expires_at && Date.now() > session.expires_at - 60000) {
+    if (!session.expires_at || Date.now() > session.expires_at - 60000) {
       await refresh();
     }
     return session ? session.access_token : null;
