@@ -91,6 +91,18 @@
 
     <!-- Top-right account / profile menu -->
     <div class="profile" id="signOutRow" style="display:none">
+      <button class="cred-pill" id="credPill" onclick="openCredits()" aria-label="Credits" title="Credits">
+        <svg class="cr-arc" viewBox="0 0 30 17" aria-hidden="true">
+          <defs>
+            <linearGradient id="crGrad" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0" stop-color="#ff79c6"/><stop offset="1" stop-color="#ffb84d"/>
+            </linearGradient>
+          </defs>
+          <path class="cr-arc-bg" d="M 3 15 A 12 12 0 0 1 27 15"/>
+          <path class="cr-arc-fg" id="credArc" d="M 3 15 A 12 12 0 0 1 27 15"/>
+        </svg>
+        <span class="cred-n" id="credPillN">✦ —</span>
+      </button>
       <button class="profile-btn" onclick="toggleProfileMenu(event)" aria-label="Account" title="Account">
         <span class="profile-av" id="profileBtnAv">·</span>
       </button>
@@ -106,7 +118,13 @@
         <div class="pp-bal" onclick="openCredits(true)" title="Get more credits" role="button" tabindex="0">
           <span class="pp-bal-txt">
             <span class="pp-bal-lbl">Credits</span>
-            <span class="pp-bal-n" id="creditChip">✦ —</span>
+            <span class="pp-bal-row">
+              <span class="pp-bal-n" id="creditChip">✦ —</span>
+              <svg class="cr-arc" viewBox="0 0 30 17" aria-hidden="true">
+                <path class="cr-arc-bg" d="M 3 15 A 12 12 0 0 1 27 15"/>
+                <path class="cr-arc-fg" id="credArcMenu" d="M 3 15 A 12 12 0 0 1 27 15"/>
+              </svg>
+            </span>
           </span>
           <span class="pp-bal-cta">Top up</span>
         </div>

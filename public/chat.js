@@ -1587,16 +1587,70 @@ function updateSendPrice() {
 }
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────
+// The arc gauge shows the balance against the highest balance this browser
+// has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
+const CRED_MAX_KEY = 'zephyr_cred_max_v1';
+const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
+function setArcFill(el, frac) {
+  if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
+}
 function setCredits(n) {
+  if (typeof n !== 'number') return;
+  const txt = '✦ ' + n.toLocaleString();
   const el = document.getElementById('creditChip');
-  if (el && typeof n === 'number') el.textContent = '✦ ' + n.toLocaleString();
+  if (el) el.textContent = txt;
+  const pn = document.getElementById('credPillN');
+  if (pn) pn.textContent = txt;
+  let max = n;
+  try {
+    max = Math.max(n, parseInt(localStorage.getItem(CRED_MAX_KEY) || '0', 10) || 0);
+    localStorage.setItem(CRED_MAX_KEY, String(max));
+  } catch {}
+  const frac = max > 0 ? Math.max(0, Math.min(1, n / max)) : 0;
+  setArcFill(document.getElementById('credArc'), frac);
+  setArcFill(document.getElementById('credArcMenu'), frac);
+  const pill = document.getElementById('credPill');
+  if (pill) pill.classList.add('show');
 }
 async function fetchCredits() {
   try {
     const r = await apiFetch('/api/credits');
     if (!r.ok) return;
     const d = await r.json();
-    if (typeof d.balance === 'number') setCredits(d.balance);
+    if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
+  } catch {}
+}
+
+// One-time welcome banner for fresh accounts: makes the signup grant feel
+// intentional and points at the plans. Shows only while the account still
+// looks new (grant-sized balance, no chat history), until dismissed.
+const WELCOME_KEY = 'zephyr_welcome_v1';
+function maybeShowWelcome(balance) {
+  try {
+    if (localStorage.getItem(WELCOME_KEY)) return;
+    if (typeof balance !== 'number' || balance <= 0 || balance > 20) return;
+    if ((chatStore.chats || []).some((c) => c.msgs && c.msgs.length)) return;
+    if (document.querySelector('.credits-overlay')) return;
+    const ov = document.createElement('div');
+    ov.className = 'credits-overlay welcome-ov';
+    ov.innerHTML = '<div class="wm-box">' +
+      '<button type="button" class="wm-x" aria-label="Close">✕</button>' +
+      '<div class="wm-star">✦</div>' +
+      '<h2 class="wm-title">Welcome to isibi</h2>' +
+      '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
+      '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $25/mo.</p>' +
+      '<button type="button" class="wm-cta">Start generating</button>' +
+    '</div>';
+    const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} ov.remove(); };
+    ov.onclick = (e) => { if (e.target === ov) dismiss(); };
+    ov.querySelector('.wm-x').onclick = dismiss;
+    ov.querySelector('.wm-cta').onclick = () => {
+      dismiss();
+      showView('home');
+      const inp = document.getElementById('input');
+      if (inp) inp.focus();
+    };
+    document.body.appendChild(ov);
   } catch {}
 }
 
@@ -2489,7 +2543,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1']
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };

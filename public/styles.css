@@ -488,7 +488,28 @@
 
 /* ── Auth gate ─────────────────────────────── */
 /* ── Top-right account / profile menu ───────────────────────────────── */
-.profile { position: fixed; top: 16px; right: 20px; z-index: 70; }
+.profile { position: fixed; top: 16px; right: 20px; z-index: 70; display: flex; align-items: center; gap: .6rem; }
+/* Credits pill: balance + segmented meter (share of the highest balance seen) */
+.cred-pill {
+  display: none; align-items: center; gap: .6rem; cursor: pointer;
+  background: rgba(10, 9, 14, .6); border: 1px solid var(--line-2); border-radius: 999px;
+  padding: .44rem .9rem; color: var(--text);
+  backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%);
+  transition: border-color .15s ease, transform .12s ease;
+}
+.cred-pill.show { display: inline-flex; }
+.cred-pill:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-1px); }
+.cred-n { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: .88rem; line-height: 1; }
+.cr-arc { width: 30px; height: 17px; flex: none; }
+.cr-arc-bg { fill: none; stroke: rgba(255, 255, 255, .12); stroke-width: 3; stroke-linecap: round; }
+.cr-arc-fg {
+  fill: none; stroke: url(#crGrad); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 37.7; stroke-dashoffset: 37.7;
+  transition: stroke-dashoffset .6s ease;
+  filter: drop-shadow(0 0 3px rgba(255, 150, 140, .5));
+}
+.pp-bal-row { display: flex; align-items: center; gap: .6rem; }
+.pp-bal-row .cr-arc { margin-top: 2px; }
 .profile-btn {
   width: 42px; height: 42px; border-radius: 50%; cursor: pointer; padding: 2px;
   background: var(--split); border: none; display: grid; place-items: center;
@@ -604,6 +625,44 @@
   transition: transform .12s ease;
 }
 .st-save:hover { transform: translateY(-1px); }
+
+/* One-time welcome modal for fresh accounts (signup grant) */
+.welcome-ov { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: up-fade .22s ease both; }
+.wm-box {
+  position: relative; overflow: hidden; width: min(92vw, 430px); text-align: center;
+  background:
+    radial-gradient(130% 90% at 50% 0%, rgba(255, 121, 198, .13), transparent 55%),
+    radial-gradient(120% 90% at 85% 100%, rgba(255, 184, 77, .08), transparent 60%),
+    var(--panel);
+  border: 1px solid rgba(255, 170, 110, .32); border-radius: 24px;
+  padding: 2.1rem 1.9rem 1.9rem;
+  box-shadow: 0 40px 110px rgba(0, 0, 0, .65), inset 0 1px 0 rgba(255, 255, 255, .08);
+  animation: up-pop .34s cubic-bezier(.2, .9, .3, 1.1) both;
+}
+.wm-star {
+  font-size: 2.1rem; line-height: 1;
+  background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 6px 20px rgba(255, 121, 198, .45));
+}
+.wm-title { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.55rem; font-weight: 700; letter-spacing: -.01em; margin: .65rem 0 .15rem; }
+.wm-grant {
+  font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.05rem; font-weight: 700;
+  background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.wm-sub { color: var(--muted); font-size: .88rem; line-height: 1.55; margin: .75rem auto 1.35rem; max-width: 330px; }
+.wm-cta {
+  width: 100%; background: var(--split); color: #0a0a0b; border: none; border-radius: 13px;
+  padding: .8rem; font-weight: 800; font-size: .95rem; cursor: pointer;
+  box-shadow: 0 12px 32px rgba(255, 121, 198, .28); transition: transform .12s ease;
+}
+.wm-cta:hover { transform: translateY(-1px); }
+.wm-x {
+  position: absolute; top: .8rem; right: .8rem; z-index: 1;
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line); border-radius: 999px;
+  color: var(--muted); font-size: .85rem; cursor: pointer; padding: 0;
+}
+.wm-x:hover { color: var(--text); border-color: var(--line-2); }
 
 .side-foot { margin-top: auto; padding: .75rem .5rem .3rem; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: .6rem; }
 .side-user { display: flex; align-items: center; gap: .6rem; padding: 0 .2rem; }
