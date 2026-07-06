@@ -1445,11 +1445,13 @@ function makeLoader(kind, aspect) {
   } else {
     visual = document.createElement('div');
     visual.className = 'gen-shimmer';
-    visual.style.aspectRatio = aspect || ratioAspect(ratio);
-    // The ghost loop plays inside the frame; the poster covers the first beat.
-    visual.innerHTML = '<video autoplay muted loop playsinline poster="/loading-ghost.webp">'
-      + '<source src="/loading-ghost.webm" type="video/webm" />'
-      + '<source src="/loading-ghost.mp4" type="video/mp4" /></video>';
+    const ar = aspect || ratioAspect(ratio);
+    visual.style.aspectRatio = ar;
+    // A single scan line sweeps a coordinate grid — the frame being "scanned in".
+    const arLabel = String(ar || '').replace(/\s*\/\s*/, ':');
+    visual.innerHTML = '<i class="gen-scanline"></i>'
+      + '<span class="gen-scan-tag tl">SCAN</span>'
+      + (arLabel ? '<span class="gen-scan-tag br">' + arLabel + '</span>' : '');
   }
 
   const prog = document.createElement('div');

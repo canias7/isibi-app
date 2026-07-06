@@ -336,42 +336,34 @@
 .gen-shimmer {
   position: relative; overflow: hidden;
   width: 420px; max-width: 100%; border-radius: 12px;
-  border: 1px solid rgba(255, 170, 110, .35);
-  background: #101016;
-  animation: gen-breathe 2.6s ease-in-out infinite;
-}
-.gen-shimmer video {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; z-index: 0;
-}
-.gen-shimmer::before {
-  content: ''; position: absolute; inset: -40%; z-index: 1;
-  mix-blend-mode: screen; opacity: .55;
+  border: 1px solid rgba(255, 255, 255, .09);
   background:
-    radial-gradient(38% 45% at 30% 35%, rgba(255, 121, 198, .26), transparent 70%),
-    radial-gradient(42% 48% at 72% 68%, rgba(255, 184, 77, .22), transparent 70%),
-    radial-gradient(30% 36% at 55% 25%, rgba(168, 85, 247, .16), transparent 70%);
-  filter: blur(26px);
-  animation: gen-aurora 7s ease-in-out infinite alternate;
+    radial-gradient(circle, rgba(255, 255, 255, .055) 1px, transparent 1.5px) 0 0 / 24px 24px,
+    #09070e;
 }
-.gen-shimmer::after {
-  content: ''; position: absolute; inset: 0; z-index: 2;
-  background: linear-gradient(115deg,
-    transparent 32%, rgba(255, 255, 255, .07) 46%, rgba(255, 255, 255, .13) 50%,
-    rgba(255, 255, 255, .07) 54%, transparent 68%);
-  background-size: 240% 100%;
-  animation: gen-sweep 2.2s ease-in-out infinite;
+/* one crisp gradient line sweeps top→bottom, scanning the frame into being */
+.gen-scanline {
+  position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 2;
+  filter: blur(.3px);
+  background: linear-gradient(90deg, transparent, #ff9ad4 35%, #ffc888 65%, transparent);
+  box-shadow: 0 0 16px rgba(255, 170, 150, .55);
+  animation: gen-scandown 2.4s cubic-bezier(.5, 0, .5, 1) infinite;
 }
-@keyframes gen-aurora {
-  0%   { transform: translate3d(-6%, -4%, 0) rotate(-3deg) scale(1); }
-  50%  { transform: translate3d(5%, 6%, 0) rotate(2deg) scale(1.12); }
-  100% { transform: translate3d(-3%, 4%, 0) rotate(-2deg) scale(1.05); }
+@keyframes gen-scandown {
+  0%   { top: 6%;  opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { top: 94%; opacity: 0; }
 }
-@keyframes gen-sweep { from { background-position: 210% 0; } to { background-position: -110% 0; } }
-@keyframes gen-breathe {
-  0%, 100% { border-color: rgba(255, 121, 198, .32); box-shadow: 0 0 22px rgba(255, 121, 198, .07); }
-  50%      { border-color: rgba(255, 184, 77, .45);  box-shadow: 0 0 30px rgba(255, 184, 77, .12); }
+/* tiny instrument readouts in the corners */
+.gen-scan-tag {
+  position: absolute; z-index: 3; pointer-events: none;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px; letter-spacing: .5px; color: rgba(255, 255, 255, .32);
 }
+.gen-scan-tag.tl { left: 12px; top: 10px; }
+.gen-scan-tag.br { right: 12px; bottom: 10px; }
+@media (prefers-reduced-motion: reduce) { .gen-scanline { animation: none; top: 50%; } }
 .gen-bars { display: flex; align-items: center; gap: 4px; height: 46px; padding: 0 .2rem; }
 .gen-bars span {
   width: 5px; height: 22%; border-radius: 3px; background: var(--neon);
