@@ -1605,22 +1605,24 @@ async function fetchCredits() {
 // buy room for more output). Strike prices are the launch-offer framing —
 // the charged price is always `usd`.
 const MEMBERSHIPS = [
-  { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus',
+  { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
     desc: 'For getting started with AI creation',
     imgs: '1,000', vids: '13',
-    save: '≈ $3/mo cheaper than one-time top-ups',
+    save: 'Save $3/mo while the launch offer lasts',
     feats: [1, 1, 1, 0, 0] },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63,
+  { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
     desc: 'For consistent, everyday creation',
     imgs: '2,000', vids: '26',
-    save: 'Save $13/mo with launch pricing',
+    save: 'Save $13/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 0] },
-  { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '23% OFF', val: 'Best value', strike: 130,
+  { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
     desc: 'For creators building big projects',
     imgs: '4,000', vids: '53',
-    save: 'Save $30/mo with launch pricing',
+    save: 'Save $33/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 1] },
 ];
+// Launch-offer countdown target (shown live on the pricing page).
+const OFFER_END = '2026-07-13T23:59:59';
 const MEMBER_ROWS = [
   'All video, image &amp; voice models',
   'Unused credits roll over',
@@ -1643,6 +1645,7 @@ function openCredits(topupsOnly) {
   // lists, modelled on the pricing mockup and kept in the isibi theme.
   const cards = MEMBERSHIPS.map((p) =>
     '<button type="button" class="up-card ' + p.klass + '" data-plan="' + p.plan + '">' +
+      (p.pop ? '<div class="up-badge">★ Most popular</div>' : '') +
       '<div class="up-namerow">' +
         '<span class="up-pname">' + p.name + '</span>' +
         (p.off ? '<span class="up-chip off">' + p.off + '</span>' : '') +
@@ -1684,7 +1687,10 @@ function openCredits(topupsOnly) {
     : '<button type="button" class="cp-close up-close">✕</button>' +
       '<div class="up-promo">' +
         '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
-        '<span class="up-tag">✦ Launch offer</span>' +
+        '<div class="up-tagrow">' +
+          '<span class="up-tag">✦ Launch offer — up to 25% off</span>' +
+          '<span class="up-count"><i></i>Ends in <b id="upCountT">—</b></span>' +
+        '</div>' +
         '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
         '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
         '<div class="up-models">' + ['Veo 3', 'Sora 2', 'Kling 2.5', 'Seedance', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
@@ -1706,6 +1712,26 @@ function openCredits(topupsOnly) {
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
   const heroCta = ov.querySelector('.up-hero-cta');
   if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
+  // Live launch-offer countdown; the interval dies with the overlay.
+  const cEl = ov.querySelector('#upCountT');
+  if (cEl) {
+    const end = new Date(OFFER_END).getTime();
+    const two = (n) => String(n).padStart(2, '0');
+    const tick = () => {
+      const ms = end - Date.now();
+      if (ms <= 0) { cEl.textContent = 'soon'; return; }
+      const d = Math.floor(ms / 86400000);
+      const h = Math.floor((ms % 86400000) / 3600000);
+      const m = Math.floor((ms % 3600000) / 60000);
+      const s = Math.floor((ms % 60000) / 1000);
+      cEl.textContent = (d ? d + 'd ' : '') + two(h) + ':' + two(m) + ':' + two(s);
+    };
+    tick();
+    const tid = setInterval(() => {
+      if (!document.body.contains(ov)) { clearInterval(tid); return; }
+      tick();
+    }, 1000);
+  }
   ov.querySelectorAll('.cp-card, .cp-lrow, .up-card').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
