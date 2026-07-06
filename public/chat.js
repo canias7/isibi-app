@@ -1613,7 +1613,7 @@ const TOPUPS = [
   { topup: '75', usd: 75, credits: 5350 },
   { topup: '100', usd: 100, credits: 7140 },
 ];
-function openCredits() {
+function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   const ov = document.createElement('div');
   ov.className = 'credits-overlay';
@@ -1629,17 +1629,27 @@ function openCredits() {
       '<div class="cp-credits">✦ ' + p.credits.toLocaleString() + '</div>' +
       '<div class="cp-usd">$' + p.usd + '</div>' +
     '</button>').join('');
-  ov.innerHTML = '<div class="cp-box">' +
-    '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
-    '<div class="cp-grid">' + cards + '</div>' +
-    '<div class="cp-sec">One-time top-ups</div>' +
-    '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
-    '<div class="cp-note" id="cpNote"></div>' +
-    '</div>';
+  // Top-ups-only view (from the profile menu) is a quiet list — credits left,
+  // price right, hairline separators. The Credits row opens the full shop.
+  const rows = TOPUPS.map((p) =>
+    '<button type="button" class="cp-lrow" data-topup="' + p.topup + '">' +
+      '<span class="cp-lcr">✦ ' + p.credits.toLocaleString() + '</span>' +
+      '<span class="cp-lusd">$' + p.usd + '</span>' +
+    '</button>').join('');
+  const inner = topupsOnly
+    ? '<div class="cp-head"><div class="cp-title">Top-up credits</div><button type="button" class="cp-close">✕</button></div>' +
+      '<div class="cp-list">' + rows + '</div>' +
+      '<div class="cp-note" id="cpNote"></div>'
+    : '<div class="cp-head"><div class="cp-title">Membership</div><button type="button" class="cp-close">✕</button></div>' +
+      '<div class="cp-sub">Fresh credits every month at the best rate — unused credits roll over. Cancel anytime. A quick image is a few credits; most videos run 40–600.</div>' +
+      '<div class="cp-grid">' + cards + '</div>' +
+      '<div class="cp-sec">One-time top-ups</div>' +
+      '<div class="cp-grid cp-grid-5">' + minis + '</div>' +
+      '<div class="cp-note" id="cpNote"></div>';
+  ov.innerHTML = '<div class="cp-box' + (topupsOnly ? ' cp-narrow' : '') + '">' + inner + '</div>';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.querySelector('.cp-close').onclick = () => ov.remove();
-  ov.querySelectorAll('.cp-card').forEach((c) => {
+  ov.querySelectorAll('.cp-card, .cp-lrow').forEach((c) => {
     c.onclick = async () => {
       const note = document.getElementById('cpNote');
       note.textContent = 'Opening secure checkout…';
