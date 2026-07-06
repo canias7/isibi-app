@@ -1587,17 +1587,12 @@ function updateSendPrice() {
 }
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────
-// The dot meter shows the balance against the highest balance this browser
-// has seen (plan size / last top-up) — a Higgsfield-style "credits left" bar.
+// The arc gauge shows the balance against the highest balance this browser
+// has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
-const CRED_SEGS = 12;
-function renderCredDots(el, frac) {
-  if (!el) return;
-  if (!el.childElementCount) {
-    for (let i = 0; i < CRED_SEGS; i++) el.appendChild(document.createElement('i'));
-  }
-  const on = Math.max(frac > 0 ? 1 : 0, Math.round(frac * CRED_SEGS));
-  [...el.children].forEach((d, i) => d.classList.toggle('on', i < on));
+const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
+function setArcFill(el, frac) {
+  if (el) el.style.strokeDashoffset = (CRED_ARC_LEN * (1 - frac)).toFixed(2);
 }
 function setCredits(n) {
   if (typeof n !== 'number') return;
@@ -1612,8 +1607,8 @@ function setCredits(n) {
     localStorage.setItem(CRED_MAX_KEY, String(max));
   } catch {}
   const frac = max > 0 ? Math.max(0, Math.min(1, n / max)) : 0;
-  renderCredDots(document.getElementById('credDots'), frac);
-  renderCredDots(document.getElementById('credDotsMenu'), frac);
+  setArcFill(document.getElementById('credArc'), frac);
+  setArcFill(document.getElementById('credArcMenu'), frac);
   const pill = document.getElementById('credPill');
   if (pill) pill.classList.add('show');
 }

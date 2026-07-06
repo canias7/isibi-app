@@ -500,11 +500,16 @@
 .cred-pill.show { display: inline-flex; }
 .cred-pill:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-1px); }
 .cred-n { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: .88rem; line-height: 1; }
-.cr-dots { display: inline-flex; gap: 3px; }
-.cr-dots i { width: 6px; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, .13); }
-.cr-dots i.on { background: linear-gradient(120deg, #ff79c6, #ffb84d); box-shadow: 0 0 6px rgba(255, 150, 140, .45); }
-.pp-bal .cr-dots { margin-top: .35rem; }
-.pp-bal .cr-dots i { width: 5px; height: 5px; }
+.cr-arc { width: 30px; height: 17px; flex: none; }
+.cr-arc-bg { fill: none; stroke: rgba(255, 255, 255, .12); stroke-width: 3; stroke-linecap: round; }
+.cr-arc-fg {
+  fill: none; stroke: url(#crGrad); stroke-width: 3; stroke-linecap: round;
+  stroke-dasharray: 37.7; stroke-dashoffset: 37.7;
+  transition: stroke-dashoffset .6s ease;
+  filter: drop-shadow(0 0 3px rgba(255, 150, 140, .5));
+}
+.pp-bal-row { display: flex; align-items: center; gap: .6rem; }
+.pp-bal-row .cr-arc { margin-top: 2px; }
 .profile-btn {
   width: 42px; height: 42px; border-radius: 50%; cursor: pointer; padding: 2px;
   background: var(--split); border: none; display: grid; place-items: center;
