@@ -1079,6 +1079,11 @@
     position: static; align-self: center; width: 100%; max-width: 780px;
     max-height: 220px; margin: 0 0 .5rem;
   }
+  /* Below 1500px the mode-switch stays in the row, so the four controls don't
+     fit one line. Let the send button drop to a full-width bar instead of
+     orphaning it at the right edge. */
+  .composer-row { row-gap: .7rem; }
+  .composer-row .send { flex: 1 1 100%; margin-left: 0; min-width: 0; }
 }
 
 /* ── Chatbox lifted; arrow beneath slides down to the Presets screen ── */
