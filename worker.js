@@ -247,7 +247,7 @@ function harden(res) {
 }
 
 // Pull the (possibly still-growing) "reply" string out of a partial tool-input
-// JSON buffer, so the ask step can stream Zephyr's reply as Sonnet writes it.
+// JSON buffer, so the ask step can stream isibi's reply as Sonnet writes it.
 function extractReplyPrefix(buf) {
   const m = buf.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/);
   if (!m) return "";
@@ -829,11 +829,11 @@ async function handleRequest(request, env, ctx) {
         : "";
       const system = step === "ask"
         ? (kind === "audio"
-          ? `You are Zephyr, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
+          ? `You are isibi, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
 - Greeting, small talk, or a question aimed at you ("hey", "how are you", "why are you running"): set ready=false and use your reply to chat back and invite them to type the words they want voiced.
 - Words meant to be spoken aloud (a script, a line, a message, a caption): set ready=true. Their text will be voiced EXACTLY as written — never rewrite it and never ask clarifying questions.
 When genuinely unsure, set ready=true.`
-          : `You are Zephyr, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
+          : `You are isibi, a warm, easygoing creative director for an AI ${kind} generator, having a natural chat with the user. Always write a short, friendly reply in your own voice (1-2 sentences, like texting a creative friend). Then decide what they need:
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create: set ready=true. Never ask clarifying questions — make every creative call yourself.
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
@@ -841,7 +841,7 @@ Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user a
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
 - both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "studio"
-        ? `You are Zephyr, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
+        ? `You are isibi, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
 
 Current shots (JSON): ${JSON.stringify(shotsCtx)}
 ${brief ? `Project brief: "${brief}"` : "No project brief yet."}
@@ -854,9 +854,9 @@ Rules:
 - generate (n, or "all" for every draft) ONLY when the user explicitly asks to generate/run/make the shots — generation costs money; never trigger it uninvited.
 - reply: short and friendly, reference shots by number. If the user is just chatting or asking, reply with no actions.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "error"
-        ? `You are Zephyr, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
+        ? `You are isibi, a warm creative director for an AI ${kind} studio. The user's generation just failed. From the raw pipeline error, explain in 1-2 friendly plain-language sentences what went wrong and what to do next — no jargon, no error codes, never blame the user. If — and ONLY if — rewording the prompt could fix it (content filter, prompt rejected as invalid), also return fixedPrompt: the failed prompt minimally reworded to avoid the trigger while keeping the creative intent. For balance, quota, timeout or model-availability problems, return no fixedPrompt.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "revise"
-        ? `You are the prompt writer for Zephyr, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
+        ? `You are the prompt writer for isibi, an AI ${kind} studio. The user generated a ${kind} with the previous prompt below and wants it adjusted. Rewrite the prompt applying ONLY what their feedback asks — keep every untouched part as close to word-for-word as possible, so the change is surgical, not a fresh rewrite. Return a single paragraph, nothing but the prompt.
 
 Fix patterns:
 - Mangled or morphing on-screen text → pin it harder: all text stays exactly as printed, never changing.
@@ -870,7 +870,7 @@ ${prevPrompt}
 ${briefLine}
 Context: ${ctxLine}`
         : kind === "video"
-        ? `You are the prompt writer for Zephyr, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
+        ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
 
 Craft rules:
 - One continuous shot. Describe a single scene with continuous action — no cuts, montages or scene changes unless the user asked for them.
@@ -887,7 +887,7 @@ Example of the register (never copy its content): "Fixed camera, no camera movem
 ${effortLine}${briefLine}
 Context: ${ctxLine}`
         : kind === "image"
-        ? `You are the prompt writer for Zephyr, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
+        ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
 
 Craft rules:
 - Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
@@ -897,7 +897,7 @@ ${hasImage ? `- A source image IS attached (it's in the conversation — look at
 - ${familyHint}` : ""}
 ${effortLine}${briefLine}
 Context: ${ctxLine}`
-        : `You are the prompt writer for Zephyr, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
+        : `You are the prompt writer for isibi, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`
@@ -935,7 +935,7 @@ Context: ${ctxLine}`
             input_schema: {
               type: "object",
               properties: {
-                reply: { type: "string", description: "a short, friendly conversational message in Zephyr's voice" },
+                reply: { type: "string", description: "a short, friendly conversational message in isibi's voice" },
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
@@ -1059,7 +1059,7 @@ Context: ${ctxLine}`
         return Response.json({ error: "director request failed" }, { status: 502 });
       }
 
-      // Streaming ask: forward Zephyr's reply as it's written, then the
+      // Streaming ask: forward isibi's reply as it's written, then the
       // full parsed payload as a final "done" event.
       if (wantStream && r.ok && r.body) {
         const { readable, writable } = new TransformStream();
