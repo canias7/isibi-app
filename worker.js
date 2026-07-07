@@ -1399,14 +1399,24 @@ Context: ${ctxLine}`
       const titleTag = decodeEntities((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "").trim();
       const name = (meta("og:title") || meta("twitter:title") || titleTag).slice(0, 120);
       const site = (meta("og:site_name") || host.replace(/^www\./, "")).slice(0, 80);
-      const images = [...new Set([...allMeta("og:image"), ...allMeta("og:image:secure_url"), ...allMeta("twitter:image")])]
-        .map((s) => { try { return new URL(s, u).toString(); } catch { return null; } })
-        .filter((s) => s && /^https?:\/\//i.test(s))
-        .slice(0, 6);
+      // Scrape exactly ONE product image: prefer OpenGraph/Twitter, then
+      // <link rel="image_src">, then the first sizeable content <img>.
+      const abs = (s) => { try { return new URL(s, u).toString(); } catch { return null; } };
+      const ok = (s) => s && /^https?:\/\//i.test(s);
+      let image = allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).find(ok) || "";
+      if (!image) {
+        const href = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
+        if (href) { const a = abs(href[1]); if (ok(a)) image = a; }
+      }
+      if (!image) {
+        const cand = [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/ig)].map((m) => abs(m[1]))
+          .find((s) => ok(s) && !/sprite|logo|icon|placeholder|favicon|1x1|pixel|badge/i.test(s));
+        if (cand) image = cand;
+      }
       const price = meta("product:price:amount") || meta("og:price:amount") || "";
       const currency = meta("product:price:currency") || meta("og:price:currency") || "";
-      if (!name && !images.length) return Response.json({ error: "no product info" }, { status: 422 });
-      return Response.json({ name: name || site, site, image: images[0] || "", images, price, currency });
+      if (!name && !image) return Response.json({ error: "no product info" }, { status: 422 });
+      return Response.json({ name: name || site, site, image, price, currency });
     }
 
     return env.ASSETS.fetch(request);

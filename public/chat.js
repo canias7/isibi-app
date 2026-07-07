@@ -3115,7 +3115,8 @@ async function addProductFromUrl(url) {
     });
     if (!res.ok) throw 0;
     const data = await res.json();
-    const p = { id: prUid(), name: data.name || 'Product', desc: '', image: data.image || '', images: Array.isArray(data.images) ? data.images.slice(0, 6) : [], site: data.site || '', at: Date.now() };
+    const img = data.image || '';
+    const p = { id: prUid(), name: data.name || 'Product', desc: '', image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
     const list = loadProducts(); list.unshift(p); saveProducts(list);
     renderProductGrid();
   } catch {
