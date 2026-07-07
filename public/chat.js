@@ -3167,6 +3167,72 @@ function renderLanding() {
   });
 }
 
+// ── Avatar: talking-avatar workspace. Empty state offers "Generate with AI"
+// or "Import"; imported/saved avatars show in a grid (zephyr_avatars_v1). ──
+const AVATARS_KEY = 'zephyr_avatars_v1';
+function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
+function saveAvatars(list) { try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+
+function renderAvatar() {
+  const view = document.getElementById('viewAvatar');
+  if (!view) return;
+  const avatars = loadAvatars();
+  if (!avatars.length) {
+    view.innerHTML =
+      '<div class="av-page av-empty">' +
+        '<div class="av-hero"><h1>Create your avatar</h1>' +
+          '<p>Generate a talking avatar with AI, or import your own portrait.</p></div>' +
+        '<div class="av-choices">' +
+          '<button type="button" class="av-choice" data-act="generate"><span class="av-choice-ico">✨</span>' +
+            '<span class="av-choice-t">Generate with AI</span>' +
+            '<span class="av-choice-s">Describe a person and isibi creates the avatar.</span></button>' +
+          '<button type="button" class="av-choice" data-act="import"><span class="av-choice-ico">⬆</span>' +
+            '<span class="av-choice-t">Import</span>' +
+            '<span class="av-choice-s">Upload your own portrait photo.</span></button>' +
+        '</div>' +
+      '</div>';
+  } else {
+    view.innerHTML =
+      '<div class="av-page">' +
+        '<div class="av-top"><h1>Your avatars</h1>' +
+          '<div class="av-top-btns">' +
+            '<button type="button" class="av-mini" data-act="generate">✨ Generate</button>' +
+            '<button type="button" class="av-mini" data-act="import">⬆ Import</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="av-grid">' + avatars.map((a) =>
+          '<div class="av-card" data-id="' + esc(a.id) + '">' +
+            (a.image ? '<div class="av-thumb"><img src="' + esc(a.image) + '" alt="" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
+            '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
+            '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
+          '</div>').join('') + '</div>' +
+      '</div>';
+  }
+  view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => {
+    showView('home');
+    if (typeof setMode === 'function') setMode('image');
+    const i = document.getElementById('input');
+    if (i) { i.value = 'A photorealistic front-facing portrait of a person, neutral expression, soft studio lighting, plain background.'; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
+  }; });
+  view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
+  view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
+}
+
+function importAvatar() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const image = await downscaleImage(f, 720);
+    const list = loadAvatars();
+    list.unshift({ id: prUid(), name: (f.name || 'Avatar').replace(/\.[^.]+$/, '').slice(0, 60), image, at: Date.now() });
+    saveAvatars(list);
+    renderAvatar();
+  };
+  inp.click();
+}
+
 // ── Products: save a product from a store link or a manual upload, then reuse
 // it across generations. Stored locally for now (zephyr_products_v1). ──
 const PRODUCTS_KEY = 'zephyr_products_v1';
@@ -3477,6 +3543,7 @@ function showView(name) {
   if (name === 'landing') renderLanding();
   if (name === 'gallery') renderGallery();
   if (name === 'products') renderProducts();
+  if (name === 'avatar') renderAvatar();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
