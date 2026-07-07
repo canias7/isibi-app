@@ -3188,7 +3188,7 @@ const AV_SECTIONS = [
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
   { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
-    opts: ['#f2e3d5', '#e6c8a8', '#d0a06f', '#a86f43', '#7a4a26', '#4a2c17'] },
+    opts: [{ v: 'Fair', c: '#f2e3d5' }, { v: 'Light', c: '#e6c8a8' }, { v: 'Medium', c: '#d0a06f' }, { v: 'Tan', c: '#a86f43' }, { v: 'Brown', c: '#7a4a26' }, { v: 'Deep', c: '#4a2c17' }] },
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
     opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
   { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
@@ -3197,7 +3197,7 @@ const AV_SECTIONS = [
   { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
     opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
-    opts: ['#1a1a1a', '#3b2417', '#6b4226', '#b07b3e', '#d9b26a', '#a3502a', '#9a9a9a', '#e8e3d3', '#ff79c6', '#4a7fd6'] },
+    opts: [{ v: 'Black', c: '#1a1a1a' }, { v: 'Dark brown', c: '#3b2417' }, { v: 'Brown', c: '#6b4226' }, { v: 'Light brown', c: '#b07b3e' }, { v: 'Blonde', c: '#d9b26a' }, { v: 'Auburn', c: '#a3502a' }, { v: 'Grey', c: '#9a9a9a' }, { v: 'Platinum', c: '#e8e3d3' }, { v: 'Pink', c: '#ff79c6' }, { v: 'Blue', c: '#4a7fd6' }] },
   { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
     opts: [{ v: 'Slim' }, { v: 'Lean' }, { v: 'Athletic' }, { v: 'Muscular' }, { v: 'Curvy' }, { v: 'Heavy' }, { v: 'Skinny' }] },
 ];
@@ -3278,8 +3278,8 @@ function renderAvatarCreator(view) {
           '<span class="ab-img-l">' + esc(o.v) + '</span>' +
         '</button>').join('') + '</div>';
     } else if (s.type === 'swatch') {
-      body = '<div class="ab-swatches">' + s.opts.map((c) =>
-        '<button type="button" class="ab-swatch' + (sel === c ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(c) + '" style="background:' + esc(c) + '" aria-label="' + esc(c) + '"></button>').join('') + '</div>';
+      body = '<div class="ab-swatches">' + s.opts.map((o) =>
+        '<button type="button" class="ab-swatch' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
     } else if (s.type === 'slider') {
       const val = sel != null ? sel : s.def;
       body = '<div class="ab-slider">' +
@@ -3357,7 +3357,7 @@ function renderAvatarCreator(view) {
         return;
       }
       const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
-      acSel[s.key] = s.type === 'swatch' ? opt : opt.v;
+      acSel[s.key] = opt.v;
       if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', x.dataset.v === String(acSel[s.key]))); setCount(sec); }
     });
   };
@@ -3369,10 +3369,13 @@ function buildAvatarPrompt() {
   if (s.gender) b.push(s.gender.toLowerCase());
   if (s.age) b.push(s.age + ' years old');
   if (s.ethnicity) b.push('of ' + s.ethnicity + ' origin');
-  if (s.hair === 'Bald') b.push('bald');
-  else if (s.hair) b.push(s.hair.toLowerCase() + ' hair');
-  if (s.facial && s.facial !== 'None') b.push('with a ' + s.facial.toLowerCase());
   if (s.body) b.push(s.body.toLowerCase() + ' build');
+  if (s.skin) b.push(s.skin.toLowerCase() + ' skin');
+  if (s.hair === 'Bald') b.push('bald');
+  else if (s.hair || s.haircolor) {
+    b.push((s.haircolor ? s.haircolor.toLowerCase() + ' ' : '') + (s.hair ? s.hair.toLowerCase() + ' ' : '') + 'hair');
+  }
+  if (s.facial && s.facial !== 'None') b.push('with a ' + s.facial.toLowerCase());
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
