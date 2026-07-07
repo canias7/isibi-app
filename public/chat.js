@@ -594,6 +594,12 @@ function setEffort(level) {
   document.getElementById('effortMenu').classList.remove('open');
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
+// Web search (Settings toggle). When on, a request the director judges to
+// need current real-world facts triggers a billed web-search step before the
+// prompt is written. Default on; users can switch it off in Settings.
+const WEBSEARCH_KEY = 'zephyr_websearch';
+function webSearchOn() { return localStorage.getItem(WEBSEARCH_KEY) !== '0'; }
+function setWebSearch(on) { localStorage.setItem(WEBSEARCH_KEY, on ? '1' : '0'); }
 // Prompt-help mode chip (top-right of the composer). Three modes:
 //   auto — isibi.ai composes and makes every creative call, never asks
 //   plan — isibi.ai interviews first (the question popup), then composes
@@ -2514,9 +2520,10 @@ async function startDirector(text) {
 async function composeAndReview(text, answers, needsWeb) {
   const origin = chatStore.active;
   // Web-search first when the request depends on current real-world facts
-  // (latest products, real specs). Failures degrade to no facts.
+  // (latest products, real specs) — unless the user turned it off in Settings.
+  // Failures degrade to no facts.
   let webFacts = '';
-  if (needsWeb) {
+  if (needsWeb && webSearchOn()) {
     const looking = addMsg('agent typing', 'Looking it up on the web');
     let research = { facts: '', sources: [] };
     try { research = await directorResearch(text); } finally { looking.remove(); }
@@ -2912,7 +2919,7 @@ async function doSignOut() {
   location.reload();
 }
 
-// Settings panel: account info + password change, no browser prompts.
+// Settings panel: account, preferences, password — no browser prompts.
 function openSettings() {
   if (document.querySelector('.credits-overlay')) return;
   const pop = document.getElementById('profilePop');
@@ -2920,27 +2927,78 @@ function openSettings() {
   const email = Auth.email();
   const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
+  const planTxt = paidKnown ? (isPaid ? 'Member' : 'Free') : '';
+  const balTxt = (document.getElementById('creditChip') || {}).textContent || '✦ —';
+
+  const dirSeg = ['auto', 'plan', 'off'].map((k) =>
+    '<button type="button" class="st-seg-btn' + (directorMode === k ? ' on' : '') + '" data-mode="' + k + '">' +
+      DIR_MODES[k].label + '</button>').join('');
+
   const ov = document.createElement('div');
   ov.className = 'credits-overlay';
   ov.innerHTML = '<div class="cp-box cp-narrow st-box">' +
     '<div class="cp-head"><div class="cp-title">Settings</div><button type="button" class="cp-close">✕</button></div>' +
+
     '<div class="st-sec">Account</div>' +
     '<div class="st-acct">' +
       '<span class="st-av"></span>' +
       '<div class="st-id"><div class="st-name"></div><div class="st-mail"></div></div>' +
+      (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
     '</div>' +
-    '<div class="st-sec">Change password</div>' +
+    '<button type="button" class="st-link" id="stCredits">' +
+      '<span class="st-link-t">Credits &amp; plan</span>' +
+      '<span class="st-link-v">' + balTxt + ' <span class="st-chev">›</span></span>' +
+    '</button>' +
+
+    '<div class="st-sec">Preferences</div>' +
+    '<div class="st-row">' +
+      '<div class="st-row-txt"><div class="st-row-t">Web search</div>' +
+      '<div class="st-row-s">Let isibi look up current facts — newest products, real details — when a prompt needs them.</div></div>' +
+      '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="stWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
+    '</div>' +
+    '<div class="st-row st-row-col">' +
+      '<div class="st-row-txt"><div class="st-row-t">Prompt assist</div>' +
+      '<div class="st-row-s">How isibi turns your idea into a generation prompt.</div></div>' +
+      '<div class="st-seg" id="stDir">' + dirSeg + '</div>' +
+    '</div>' +
+
+    '<div class="st-sec">Password</div>' +
     '<form class="st-form" id="stForm">' +
       '<input type="password" class="st-in" id="stPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
       '<button type="submit" class="st-save">Update</button>' +
     '</form>' +
     '<div class="cp-note" id="stNote"></div>' +
+
+    '<button type="button" class="st-signout" id="stSignout">Sign out</button>' +
   '</div>';
+
   ov.querySelector('.st-av').textContent = (name[0] || '·').toUpperCase();
   ov.querySelector('.st-name').textContent = name;
   ov.querySelector('.st-mail').textContent = email;
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   ov.querySelector('.cp-close').onclick = () => ov.remove();
+
+  // Credits & plan → pricing page
+  ov.querySelector('#stCredits').onclick = () => { ov.remove(); openCredits(); };
+
+  // Web-search toggle
+  ov.querySelector('#stWeb').onclick = (e) => {
+    const btn = e.currentTarget;
+    const on = !btn.classList.contains('on');
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    setWebSearch(on);
+  };
+
+  // Prompt-assist segmented control — mirrors the composer chip
+  ov.querySelector('#stDir').onclick = (e) => {
+    const b = e.target.closest('.st-seg-btn');
+    if (!b) return;
+    setDirectorMode(b.dataset.mode);
+    ov.querySelectorAll('.st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
+  };
+
+  // Change password
   ov.querySelector('#stForm').onsubmit = async (e) => {
     e.preventDefault();
     const inp = ov.querySelector('#stPw');
@@ -2956,6 +3014,14 @@ function openSettings() {
       note.textContent = (err && err.message) || 'Could not change the password.';
     }
   };
+
+  // Sign out
+  ov.querySelector('#stSignout').onclick = () => { ov.remove(); doSignOut(); };
+
+  // Esc closes
+  const onKey = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+
   document.body.appendChild(ov);
 }
 

@@ -684,6 +684,63 @@
   transition: transform .12s ease;
 }
 .st-save:hover { transform: translateY(-1px); }
+.st-box { max-height: 88vh; overflow-y: auto; }
+.st-id { flex: 1; }
+/* plan badge in the account row */
+.st-plan {
+  margin-left: auto; flex-shrink: 0; font-size: .68rem; font-weight: 700; letter-spacing: .04em;
+  text-transform: uppercase; padding: .22rem .55rem; border-radius: 999px;
+  color: var(--muted); border: 1px solid var(--line-2);
+}
+.st-plan.paid { color: #0a0a0b; background: var(--split); border-color: transparent; }
+/* Credits & plan link */
+.st-link {
+  width: 100%; display: flex; align-items: center; justify-content: space-between; gap: .8rem;
+  margin-top: .5rem; background: var(--panel-2); border: 1px solid var(--line-2);
+  border-radius: 12px; padding: .7rem .85rem; cursor: pointer; color: var(--text); font: inherit;
+  transition: border-color .12s ease;
+}
+.st-link:hover { border-color: rgba(255, 170, 110, .45); }
+.st-link-t { font-weight: 600; font-size: .9rem; }
+.st-link-v { display: inline-flex; align-items: center; gap: .4rem; font-size: .86rem; color: var(--muted); font-weight: 600; }
+.st-chev { font-size: 1.1rem; line-height: 1; opacity: .6; }
+/* preference rows */
+.st-row { display: flex; align-items: center; gap: .8rem; padding: .75rem .3rem; }
+.st-row + .st-row { border-top: 1px solid var(--line); }
+.st-row-col { flex-direction: column; align-items: stretch; gap: .6rem; }
+.st-row-txt { flex: 1; min-width: 0; }
+.st-row-t { font-weight: 600; font-size: .9rem; }
+.st-row-s { font-size: .76rem; color: var(--muted); line-height: 1.4; margin-top: .12rem; }
+/* toggle switch */
+.st-switch {
+  position: relative; flex: 0 0 42px; width: 42px; height: 24px; border-radius: 999px;
+  background: var(--line-2); border: 1px solid var(--line); cursor: pointer; padding: 0;
+  transition: background .16s ease, border-color .16s ease;
+}
+.st-switch.on { background: var(--split); border-color: transparent; }
+.st-knob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .45); transition: transform .16s ease;
+}
+.st-switch.on .st-knob { transform: translateX(18px); }
+.st-switch:focus-visible { outline: 2px solid rgba(255, 170, 110, .7); outline-offset: 2px; }
+/* segmented control */
+.st-seg { display: flex; gap: .3rem; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 11px; padding: 3px; }
+.st-seg-btn {
+  flex: 1; padding: .5rem; border: none; background: none; color: var(--muted);
+  font: inherit; font-size: .84rem; font-weight: 600; border-radius: 8px; cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.st-seg-btn:hover { color: var(--text); }
+.st-seg-btn.on { background: var(--split); color: #0a0a0b; }
+/* sign out */
+.st-signout {
+  width: 100%; margin-top: 1rem; padding: .65rem; border-radius: 11px;
+  background: none; border: 1px solid var(--line-2); color: var(--muted);
+  font: inherit; font-size: .88rem; font-weight: 600; cursor: pointer;
+  transition: color .12s ease, border-color .12s ease;
+}
+.st-signout:hover { color: #ff6b8a; border-color: rgba(255, 107, 138, .45); }
 
 /* One-time welcome modal for fresh accounts (signup grant) */
 .welcome-ov { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: up-fade .22s ease both; }
