@@ -3403,6 +3403,65 @@ function acGenerate() {
   if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
 }
 
+// ── Memory: a small "space" on the Builder page where isibi.ai remembers your
+// context (brand, style, preferences) so you don't repeat yourself. A floating
+// dock button opens it; entries persist locally (zephyr_memory_v1). ──
+const MEMORY_KEY = 'zephyr_memory_v1';
+function memRead() {
+  try { const a = JSON.parse(localStorage.getItem(MEMORY_KEY) || '[]'); return Array.isArray(a) ? a : []; }
+  catch (e) { return []; }
+}
+function memWrite(list) {
+  try { localStorage.setItem(MEMORY_KEY, JSON.stringify(list.slice(0, 50))); } catch (e) {}
+}
+function memUid() { return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function openMemory() {
+  renderMemory();
+  const sp = document.getElementById('memSpace'), sc = document.getElementById('memScrim'), fab = document.getElementById('memFab');
+  if (sp) { sp.classList.add('open'); sp.setAttribute('aria-hidden', 'false'); }
+  if (sc) sc.classList.add('show');
+  if (fab) fab.classList.add('hidden');
+  setTimeout(() => { const i = document.getElementById('memInput'); if (i) i.focus(); }, 160);
+}
+function closeMemory() {
+  const sp = document.getElementById('memSpace'), sc = document.getElementById('memScrim'), fab = document.getElementById('memFab');
+  if (sp) { sp.classList.remove('open'); sp.setAttribute('aria-hidden', 'true'); }
+  if (sc) sc.classList.remove('show');
+  if (fab) fab.classList.remove('hidden');
+}
+function memAdd() {
+  const i = document.getElementById('memInput'); if (!i) return;
+  const t = i.value.trim(); if (!t) return;
+  const list = memRead(); list.unshift({ id: memUid(), t: t });
+  memWrite(list);
+  i.value = ''; if (typeof autoGrow === 'function') autoGrow(i); i.focus();
+  renderMemory();
+}
+function memRemove(id) { memWrite(memRead().filter((m) => m.id !== id)); renderMemory(); }
+function updateMemBadge() {
+  const b = document.getElementById('memFabBadge'); if (!b) return;
+  const n = memRead().length;
+  b.textContent = n > 9 ? '9+' : String(n);
+  b.classList.toggle('show', n > 0);
+}
+function renderMemory() {
+  updateMemBadge();
+  const wrap = document.getElementById('memList'); if (!wrap) return;
+  const list = memRead();
+  if (!list.length) {
+    wrap.innerHTML = '<div class="mem-empty"><span class="mem-empty-ico">✦</span>' +
+      '<p>Nothing remembered yet.</p>' +
+      '<p class="mem-empty-sub">Add a note about your brand, audience or the look you like — isibi.ai will keep it in mind.</p></div>';
+    return;
+  }
+  wrap.innerHTML = list.map((m) =>
+    '<div class="mem-item"><span class="mem-item-t">' + esc(m.t) + '</span>' +
+    '<button class="mem-item-x" onclick="memRemove(\'' + m.id + '\')" aria-label="Remove" title="Remove">✕</button></div>'
+  ).join('');
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', updateMemBadge);
+else updateMemBadge();
+
 // ── Products: save a product from a store link or a manual upload, then reuse
 // it across generations. Stored locally for now (zephyr_products_v1). ──
 const PRODUCTS_KEY = 'zephyr_products_v1';
