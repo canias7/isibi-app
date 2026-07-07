@@ -217,7 +217,10 @@ const CSP = [
   "object-src 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  // No 'unsafe-inline' for scripts: all handlers are wired via addEventListener
+  // (data-act hooks), so a would-be HTML injection can't execute as script.
+  // style-src keeps 'unsafe-inline' for the handful of inline style attributes.
+  "script-src 'self'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",

@@ -281,9 +281,11 @@ function renderAudioSlot(btn) {
     const dur = Math.round(awDur || 0);
     const meta = (awName || 'audio') + (dur ? ' · ' + Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0') : '');
     btn.innerHTML = awBarsHtml(awPeaks || awPlaceholder(0.25), true)
-      + '<span class="aw-play" onclick="awToggle(event)">▶</span>'
+      + '<span class="aw-play">▶</span>'
       + '<span class="aw-meta">' + meta + '</span>'
-      + '<span class="x" onclick="clearAttach(event, \'audio\')">×</span>';
+      + '<span class="x">×</span>';
+    const play = btn.querySelector('.aw-play'); if (play) play.onclick = awToggle;
+    const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, 'audio');
   } else {
     btn.classList.remove('has');
     cancelAnimationFrame(awRaf);
@@ -304,7 +306,8 @@ function renderAttach(kind) {
     const preview = kind === 'clip'
       ? '<span class="audio-chip">🎬 clip</span>'
       : '<img src="' + attachments[kind] + '" alt="" />';
-    btn.innerHTML = preview + '<span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
+    btn.innerHTML = preview + '<span class="x">×</span>';
+    const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
     btn.classList.remove('has');
     btn.innerHTML = ATTACH_LABELS[kind];
@@ -405,8 +408,10 @@ function openGalleryPicker() {
   const urls = galleryImages();
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
-    + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>'
+    + '<button class="gal-close">×</button></div>'
     + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>') + '</div>';
+  const closeBtn = ov.querySelector('.gal-close');
+  if (closeBtn) closeBtn.onclick = () => ov.remove();
   // Build thumbnails with DOM APIs (never innerHTML) so a stored URL can't
   // break out of the src attribute and inject markup.
   const gridEl = ov.querySelector('.gal-grid');
@@ -3740,7 +3745,76 @@ function toggleProfileMenu(e) {
 
 // ── Studio lives in studio.js (shot-based projects) ──
 
+// ── Declarative event wiring (CSP-safe) ───────────────────────────────────
+// The HTML carries data-act / data-change / data-input / data-keydown hooks
+// instead of inline on* handlers, so the CSP can drop script-src 'unsafe-inline'.
+// Listeners are attached directly to each element (not document-delegated) to
+// preserve the stopPropagation() semantics the menu toggles rely on. Handlers
+// are resolved from these tables at click time, so studio.js globals referenced
+// below are fine even though studio.js loads after this file.
+const CLICK_ACTIONS = {
+  'view': (e, el) => showView(el.dataset.view),
+  'new-chat': () => newChat(),
+  'credits': () => openCredits(),
+  'credits-topup': () => openCredits(true),
+  'profile-menu': (e) => toggleProfileMenu(e),
+  'nav-menu': (e) => toggleNavMenu(e),
+  'sign-out': () => doSignOut(),
+  'effort-menu': (e) => toggleEffortMenu(e),
+  'set-effort': (e, el) => setEffort(el.dataset.effort),
+  'ap-row': (e, el) => toggleApRow(el.dataset.row),
+  'img-src': (e, el) => openImgSrc(el.dataset.src, e),
+  'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
+  'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
+  'dir-menu': (e) => toggleDirMenu(e),
+  'set-mode': (e, el) => setMode(el.dataset.mode),
+  'model-menu': (e) => toggleModelMenu(e),
+  'opt-settings': (e) => toggleOpt(e, 'settings'),
+  'send': () => send(true),
+  'presets-open': () => togglePresets(true),
+  'presets-close': () => togglePresets(false),
+  'gal-filter': (e, el) => setGalFilter(el.dataset.f),
+  'gal-sort': () => toggleGalSort(),
+  'studio-send': () => studioSend(),
+  'sb-speed': () => sbCycleSpeed(),
+  'sb-mute': () => sbToggleMute(),
+  'sb-prev': () => sbPrevShot(),
+  'sb-play': () => sbTogglePlay(),
+  'sb-next': () => sbNextShot(),
+  'sb-fs': () => sbFullscreenPreview(),
+  'sb-playall': () => sbPlayAll(),
+  'sb-export': () => sbExport(),
+};
+const CHANGE_ACTIONS = {
+  'attach': (e, el) => onAttach(el.dataset.attach, el),
+  'attach-extra': (e, el) => onAttachExtra(el),
+  'sb-project': (e, el) => sbSwitchProject(el.value),
+};
+const INPUT_ACTIONS = {
+  'search': () => renderChatList(),
+  'autogrow': (e, el) => autoGrow(el),
+};
+const KEYDOWN_ACTIONS = {
+  'send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } },
+  'studio-send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); studioSend(); } },
+  'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
+};
+function wireActions(root) {
+  const scope = root || document;
+  const bind = (attr, evt, table) => scope.querySelectorAll('[' + attr + ']').forEach((el) => {
+    const flag = '_w_' + evt;
+    if (el[flag]) return; el[flag] = true;
+    const fn = table[el.getAttribute(attr)];
+    if (fn) el.addEventListener(evt, (e) => fn(e, el));
+  });
+  bind('data-act', 'click', CLICK_ACTIONS);
+  bind('data-change', 'change', CHANGE_ACTIONS);
+  bind('data-input', 'input', INPUT_ACTIONS);
+  bind('data-keydown', 'keydown', KEYDOWN_ACTIONS);
+}
+
 // Init
+wireActions();
 buildMenu();
 buildOptMenus();
 renderAttach('audio');
