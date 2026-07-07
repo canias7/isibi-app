@@ -227,8 +227,11 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
-  "media-src 'self' blob: https://*.supabase.co https://fal.media https://*.fal.media",
-  "connect-src 'self' https://*.supabase.co https://fal.media https://*.fal.media",
+  // data: is needed so the client can decode an attached audio clip's data-URL
+  // (measures its real duration → correct lip-sync billing) and play it back.
+  // These directives don't govern scripts, so this doesn't weaken script-src.
+  "media-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
+  "connect-src 'self' data: https://*.supabase.co https://fal.media https://*.fal.media",
 ].join("; ");
 
 // Reduce an upstream (fal/Anthropic) error payload to a short, plain string
@@ -308,6 +311,22 @@ function parseIPv4(h) {
   if (Number.isInteger(n) && n >= 0 && n <= 0xffffffff) return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
   return null;
 }
+// Extract the embedded IPv4 from an IPv4-mapped (::ffff:…) or NAT64 (64:ff9b::…)
+// IPv6 host, in dotted OR the hex form new URL() normalizes to (::ffff:7f00:1).
+function embeddedIPv4(h) {
+  const dotted = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (dotted) return parseIPv4(dotted[1]);
+  if (/(^|:)ffff:[0-9a-f]{1,4}(:[0-9a-f]{1,4})?$/i.test(h) || /^64:ff9b:/i.test(h)) {
+    const g = h.split(":").filter((x) => x !== "");
+    const last = g.slice(-2).map((x) => parseInt(x, 16));
+    const w1 = last.length === 2 ? last[0] : 0;
+    const w2 = last.length === 2 ? last[1] : last[0];
+    if (Number.isInteger(w1) && Number.isInteger(w2) && w1 <= 0xffff && w2 <= 0xffff) {
+      return [(w1 >> 8) & 255, w1 & 255, (w2 >> 8) & 255, w2 & 255];
+    }
+  }
+  return null;
+}
 function hostIsBlocked(rawHost) {
   let h = (rawHost || "").toLowerCase().trim();
   if (!h) return true;
@@ -319,8 +338,8 @@ function hostIsBlocked(rawHost) {
     if (h === "::1" || h === "::") return true;       // loopback / unspecified
     if (/^fe[89ab]/.test(h)) return true;            // link-local fe80::/10
     if (/^f[cd]/.test(h)) return true;               // unique-local fc00::/7
-    const m = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/); // ::ffff:a.b.c.d
-    if (m) { const ip = parseIPv4(m[1]); if (ip && ipv4Blocked(ip)) return true; }
+    const embedded = embeddedIPv4(h);                // IPv4-mapped / NAT64 (dotted or hex-normalized)
+    if (embedded && ipv4Blocked(embedded)) return true;
     return false;                                    // other public IPv6
   }
   const ip = parseIPv4(h);
@@ -392,6 +411,15 @@ function watermarkImageBytes(imgBytes, badgeBytes) {
   } finally {
     img.free(); badge.free(); if (scaled) scaled.free();
   }
+}
+// Detect an image by magic bytes (PNG / JPEG / WEBP), returning its media type
+// or null — never trust an upstream Content-Type for the watermark decision.
+function sniffImageType(b) {
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+      b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return "image/webp";
+  return null;
 }
 async function isPaidUser(request) {
   try {
@@ -761,6 +789,7 @@ async function handleRequest(request, env, ctx) {
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body: form.toString(),
+          signal: AbortSignal.timeout(15000),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok || !data.url) return Response.json({ error: "checkout failed" }, { status: 502 });
@@ -866,8 +895,8 @@ async function handleRequest(request, env, ctx) {
       try {
         // paid = has ever purchased; free accounts get watermarked outputs.
         const [r, p] = await Promise.all([
-          fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, { method: "POST", headers: rpcHeaders, body: "{}" }),
-          fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, { method: "POST", headers: rpcHeaders, body: "{}" }).catch(() => null),
+          fetch(`${SUPABASE_URL}/rest/v1/rpc/get_credits`, { method: "POST", headers: rpcHeaders, body: "{}", signal: AbortSignal.timeout(10000) }),
+          fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, { method: "POST", headers: rpcHeaders, body: "{}", signal: AbortSignal.timeout(10000) }).catch(() => null),
         ]);
         if (!r.ok) throw 0;
         let paid = false;
@@ -1444,22 +1473,33 @@ Context: ${ctxLine}`
         }
         ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
       }
-      // Free accounts get the "✦ isibi.ai" mark burned in server-side — for ANY
-      // image, on either path, keyed off the REAL media type (not the client's
-      // `kind`). The client no longer has to be trusted to mark its own output;
-      // fail closed if watermarking errors rather than store a clean image.
-      if ((ct || "").toLowerCase().startsWith("image/") && !(await isPaidUser(request))) {
+      // Free accounts get the "✦ isibi.ai" mark burned in server-side. The
+      // decision is driven by SNIFFED magic bytes, never the client `kind` or
+      // the upstream Content-Type (a fal image served as octet-stream must not
+      // dodge the mark). Only content whose CT is clearly video/audio streams
+      // without buffering; everything else is buffered and sniffed for free
+      // users. Fails closed on watermark error rather than storing a clean image.
+      const ctLower = (ct || "").toLowerCase();
+      const clearlyNotImage = ctLower.startsWith("video/") || ctLower.startsWith("audio/");
+      if (!clearlyNotImage && !(await isPaidUser(request))) {
         let raw = bytes;
         if (!raw) {
           try { raw = new Uint8Array(await media.arrayBuffer()); } catch { return Response.json({ error: "fetch failed" }, { status: 502 }); }
         }
         if (raw.length > 25_000_000) return Response.json({ error: "too large" }, { status: 400 });
-        try {
-          bytes = watermarkImageBytes(raw, await wmBadgeBytes(env, request));
-          ct = "image/jpeg";
-          media = null; // storing the watermarked bytes now, not the stream
-        } catch {
-          return Response.json({ error: "watermark failed" }, { status: 502 });
+        const imgType = sniffImageType(raw);
+        if (imgType) {
+          try {
+            bytes = watermarkImageBytes(raw, await wmBadgeBytes(env, request));
+            ct = "image/jpeg";
+            media = null; // storing the watermarked bytes now, not the stream
+          } catch {
+            return Response.json({ error: "watermark failed" }, { status: 502 });
+          }
+        } else {
+          // Ambiguous CT that isn't actually an image (e.g. a video served as
+          // octet-stream) — store the buffered bytes as-is, no mark.
+          bytes = raw; media = null;
         }
       }
       const EXT = {

@@ -274,7 +274,7 @@ function awToggle(ev) {
       awPlayer.onpause = () => { awStopViz(); awIcon(); };
       awPlayer.onended = () => { awStopViz(); awIcon(); };
     }
-    awPlayer.play();
+    awPlayer.play().catch(() => {}); // a clip the browser can't decode shouldn't throw
   }
   awIcon();
 }
@@ -829,7 +829,7 @@ async function previewVoice(name, btn) {
         out = await rr.json();
         break;
       }
-      if (st.status === 'FAILED' || st.status === 'ERROR') break; // don't spin the full 90s on a dead job
+      if (['FAILED', 'ERROR', 'CANCELED', 'CANCELLED'].includes(st.status)) break; // don't spin the full 90s on a dead job
       await new Promise((r) => setTimeout(r, 1500));
     }
     const url = out && (out.audio?.url || out.audio_url || out.audio_file?.url || out.data?.audio?.url);
@@ -1249,12 +1249,17 @@ async function pullChats() {
       local.lastPrompt = r.last_prompt || undefined;
       // Merge, don't wholesale-replace: a remote that "wins" only by a skewed
       // clock must not drop messages this device has and the remote lacks.
+      let gainedLocal = false;
       if (Array.isArray(r.msgs)) {
         const merged = mergeMsgs(r.msgs, local.msgs);
-        if (merged.length > r.msgs.length) syncDirty.add(local.id); // added local-only msgs → push the union up
+        gainedLocal = merged.length > r.msgs.length; // we hold messages the server lacked
         local.msgs = merged;
       }
-      local.updatedAt = remoteAt;
+      // If we merged in local-only messages, advance the timestamp so the union
+      // actually propagates — reusing remoteAt would look "in sync" everywhere
+      // else and the merge would never reach other devices.
+      if (gainedLocal) { local.updatedAt = Date.now(); syncDirty.add(local.id); }
+      else local.updatedAt = remoteAt;
       local.synced = true;
       changed = true;
     } else if ((local.updatedAt || 0) > remoteAt) {
@@ -1402,7 +1407,7 @@ function saveToChat(chatId, item) {
 }
 function deliverAgent(chatId, text) {
   if (chatStore.active === chatId) addMsg('agent', text);
-  else saveToChat(chatId, { t: 'agent', text });
+  else saveToChat(chatId, { t: 'agent', text, ts: Date.now() }); // stamp so re-render/merge keys are unique
 }
 function deliverMedia(chatId, kind, url, prompt) {
   saveToChat(chatId, { t: 'media', kind, url, at: Date.now(), prompt: prompt ? String(prompt).slice(0, 300) : undefined });
@@ -2291,8 +2296,24 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       try {
         sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(statusUrl));
         if (sr.status === 401) {
-          if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign in again; the job may still finish on fal.'); }
+          // Session expired mid-render — KEEP the record so boot-resume (after
+          // re-sign-in) finishes the paid render instead of dropping it.
+          if (alive()) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign back in and the app will pick this up.'); }
           return;
+        }
+        if (!sr.ok) {
+          // 404/410 = fal no longer has this job (expired/cancelled) → terminal.
+          if (sr.status === 404 || sr.status === 410) {
+            if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ This render is no longer available on fal — please try again.'); }
+            return;
+          }
+          // Any other non-OK (proxy 502, upstream 5xx) is a transient tick, like
+          // a network drop — count it so a JSON error body can't spin the loader
+          // to the deadline.
+          if (!alive()) return;
+          if (++softErrors >= 15) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on fal, and the app will pick it back up automatically.'); return; }
+          await new Promise((r) => setTimeout(r, 4000));
+          continue;
         }
         st = await sr.json();
         softErrors = 0; // a good tick resets the streak
@@ -2316,7 +2337,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // fal reached a terminal failure — stop now instead of spinning the
       // loader until the deadline. The job is dead; clear the record so it
       // isn't re-polled at boot.
-      if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED') {
+      if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED' || state === 'CANCELLED') {
         endGen(origin);
         deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.');
         return;
@@ -2358,7 +2379,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // a failed result-fetch burned the claim and the paid render was dropped on
     // boot-resume. Another tab that already delivered this job wins the claim;
     // we stop without clearing so the winner's record management stands.
-    if (!claimDelivery(statusUrl)) { pauseGen(origin); return; }
+    if (!claimDelivery(statusUrl)) { jobBumpTries(origin); pauseGen(origin); return; } // bump so a dead claim doesn't re-poll forever
     if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
@@ -2720,6 +2741,10 @@ function buildReviewCard(prompt, cardMode) {
     }
     clearReviews();
     actions.remove(); label.textContent = 'Approved ✦';
+    // Generate with the KIND this card was composed for, not whatever mode the
+    // composer happens to be in now (mode resets to 'video' on reload) — else an
+    // approved voice line would run as a video and bill at video rates.
+    if (m !== mode) setMode(m);
     // Approval is the signal that this direction is right — commit the brief.
     const c = activeChat();
     if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
@@ -3878,8 +3903,8 @@ const INPUT_ACTIONS = {
   'autogrow': (e, el) => autoGrow(el),
 };
 const KEYDOWN_ACTIONS = {
-  'send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } },
-  'studio-send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); studioSend(); } },
+  'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },
+  'studio-send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); studioSend(); } },
   'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
 };
 function wireActions(root) {
