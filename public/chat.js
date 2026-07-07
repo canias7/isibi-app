@@ -656,8 +656,69 @@ function toggleDirMenu(e) {
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
 function togglePresets(open) {
+  if (open) renderPresets();
   document.getElementById('homeSlide').classList.toggle('show-presets', open);
   document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
+}
+
+// Preset categories shown as top tabs on the Presets screen. Each card drops a
+// ready-to-edit starter prompt into the composer (and sets the mode).
+const PRESET_CATS = [
+  { key: 'marketing', label: 'Marketing', items: [
+    { label: 'Product hero ad', kind: 'video', desc: 'Slick 360° commercial of your product.', prompt: 'Cinematic product commercial of [your product] on a clean seamless backdrop, slow 360° turntable, dramatic key light with soft rim, glossy reflections, shallow depth of field, premium tech-ad aesthetic, 4K.' },
+    { label: 'UGC testimonial', kind: 'video', desc: 'Authentic selfie-style hype.', prompt: 'Handheld selfie-style UGC video of a person enthusiastically showing [your product] to the camera in natural daylight, casual and authentic, talking to camera, vertical 9:16.' },
+    { label: 'Sale announcement', kind: 'image', desc: 'Bold promo graphic with a headline.', prompt: 'Bold promotional graphic announcing a sale for [your product], big punchy headline reading "50% OFF", vibrant brand colors, clean modern layout, high contrast, social-ready.' },
+    { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.', prompt: 'Lifestyle photograph of [your product] in use in a bright, aspirational setting, natural light, editorial styling, soft shadows, magazine quality.' },
+  ] },
+  { key: 'cinematic', label: 'Cinematic', items: [
+    { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.', prompt: 'Sweeping cinematic drone shot over [location] at golden hour, volumetric light, anamorphic lens flares, epic scale, filmic color grade, 24fps.' },
+    { label: 'Slow-mo hero', kind: 'video', desc: 'Dramatic slow-motion close-up.', prompt: 'Ultra slow-motion cinematic close-up of [subject], dramatic side lighting, shallow depth of field, dust particles drifting in the air, moody film grain.' },
+    { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.', prompt: 'Film-noir cinematic still, [subject] in a rain-slicked neon alley at night, high-contrast chiaroscuro lighting, teal and amber palette, atmospheric haze.' },
+  ] },
+  { key: 'product', label: 'Product', items: [
+    { label: 'Studio pack shot', kind: 'image', desc: 'Clean e-commerce white-bg shot.', prompt: 'Clean studio product photograph of [your product] on white seamless, soft even lighting, crisp reflections, centered composition, e-commerce ready.' },
+    { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.', prompt: '[Your product] floating and slowly rotating in a dark studio void, dramatic rim lighting, soft reflections gliding across the surface, premium look.' },
+    { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.', prompt: 'Extreme macro photograph of [your product] showing fine texture and material detail, razor-thin depth of field, controlled specular highlights.' },
+  ] },
+  { key: 'social', label: 'Social', items: [
+    { label: 'Reel intro', kind: 'video', desc: 'Fast vertical hook with text.', prompt: 'Fast-paced vertical 9:16 social intro, punchy text animation reading "NEW DROP", energetic camera moves, trendy quick transitions, bold brand colors.' },
+    { label: 'Story background', kind: 'image', desc: '9:16 background with text room.', prompt: 'Eye-catching 9:16 story background with abstract gradient shapes and space for text, on-brand pink and amber palette, modern and clean.' },
+    { label: 'Carousel cover', kind: 'image', desc: 'Scroll-stopping post cover.', prompt: 'Scroll-stopping square social post cover for [topic], bold headline text, high-contrast layout, clean modern design.' },
+  ] },
+  { key: 'portrait', label: 'Portrait', items: [
+    { label: 'Studio headshot', kind: 'image', desc: 'Corporate-clean headshot.', prompt: 'Professional studio headshot portrait, soft key light with subtle rim, neutral background, sharp eyes, natural skin tones, corporate-clean.' },
+    { label: 'Cinematic portrait', kind: 'image', desc: 'Moody single-light portrait.', prompt: 'Cinematic character portrait, dramatic single-source lighting, shallow depth of field, moody color grade, subtle film grain.' },
+    { label: 'Fashion editorial', kind: 'image', desc: 'Magazine-cover styling.', prompt: 'High-fashion editorial portrait, bold styling, studio strobe lighting, striking pose, magazine cover quality.' },
+  ] },
+  { key: 'anime', label: 'Anime', items: [
+    { label: 'Anime key art', kind: 'image', desc: 'Vibrant cel-shaded hero art.', prompt: 'Vibrant anime illustration of [character], dynamic pose, cel-shaded, detailed background, studio-quality key art.' },
+    { label: 'Chibi sticker', kind: 'image', desc: 'Cute flat-color sticker.', prompt: 'Cute chibi anime sticker of [character], thick outline, flat colors, expressive face, simple background.' },
+    { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.', prompt: 'Anime-style animated scene of [subject] with gentle ambient motion, hair and clothes swaying, soft parallax background; preserve the art style exactly, no smoothing.' },
+  ] },
+];
+let presetCat = 'marketing';
+function renderPresets() {
+  const body = document.getElementById('presetsBody');
+  if (!body) return;
+  const tabs = PRESET_CATS.map((c) =>
+    '<button type="button" class="pt-tab' + (c.key === presetCat ? ' active' : '') + '" data-cat="' + c.key + '">' + esc(c.label) + '</button>').join('');
+  const cat = PRESET_CATS.find((c) => c.key === presetCat) || PRESET_CATS[0];
+  const cards = cat.items.map((it, i) =>
+    '<button type="button" class="pt-card" data-i="' + i + '">' +
+      '<span class="pt-kind">' + esc(it.kind || 'video') + '</span>' +
+      '<span class="pt-card-t">' + esc(it.label) + '</span>' +
+      '<span class="pt-card-s">' + esc(it.desc || '') + '</span>' +
+    '</button>').join('');
+  body.innerHTML = '<div class="pt-tabs">' + tabs + '</div><div class="pt-grid">' + cards + '</div>';
+  body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; renderPresets(); }; });
+  body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });
+}
+function usePreset(it) {
+  if (!it) return;
+  if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
+  togglePresets(false);
+  const input = document.getElementById('input');
+  if (input) { input.value = it.prompt; if (typeof autoGrow === 'function') autoGrow(input); input.focus(); }
 }
 
 function toggleEffortMenu(e) {

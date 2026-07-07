@@ -1483,6 +1483,28 @@
   font-size: 1.45rem; font-weight: 700; letter-spacing: -.02em;
 }
 .presets-body { flex: 1; width: 100%; max-width: 1080px; }
+/* Preset category tabs + cards */
+.pt-tabs { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; margin: .3rem 0 1.7rem; }
+.pt-tab {
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--muted);
+  font: inherit; font-weight: 600; font-size: .88rem; padding: .5rem 1.1rem;
+  border-radius: 999px; cursor: pointer; transition: color .12s ease, background .12s ease, border-color .12s ease;
+}
+.pt-tab:hover { color: var(--text); }
+.pt-tab.active { background: var(--split); color: #0a0a0b; border-color: transparent; }
+.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+.pt-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; text-align: left;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 14px; padding: 1rem 1.05rem;
+  cursor: pointer; transition: border-color .12s ease, transform .12s ease;
+}
+.pt-card:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-2px); }
+.pt-kind {
+  font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
+  border: 1px solid var(--line-2); border-radius: 999px; padding: .12rem .5rem;
+}
+.pt-card-t { font-size: .95rem; font-weight: 600; color: var(--text); }
+.pt-card-s { font-size: .8rem; color: var(--muted); line-height: 1.4; }
 
 /* ── Chat column nudged right of center (box + thread text together) ── */
 /* The wide "floating attach rail + shifted column" layout — the 24" desktop
