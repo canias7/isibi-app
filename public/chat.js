@@ -2978,6 +2978,8 @@ function enterApp() {
   // and re-copy any media whose gallery save failed.
   resumeJobs();
   retryPendingSaves();
+  // Open on the Home landing (also hides the Builder-only chat list, etc.).
+  showView('landing');
 }
 
 async function doSignOut() {
@@ -3097,6 +3099,308 @@ function renderSettings() {
   };
 
   view.querySelector('#spSignout').onclick = () => doSignOut();
+}
+
+// Netflix-style model showcase rows on the Home landing. Each row is a model
+// name + a horizontal strip of example videos. Drop URLs into `videos` (they
+// can be /public paths or remote URLs) and they replace the placeholder tiles.
+const MODEL_ROWS = [
+  { model: 'Seedance 2.0 4K', videos: [] },
+  { model: 'Veo 3.1', videos: [] },
+  { model: 'Kling 3.0', videos: [] },
+  { model: 'Sora 2', videos: [] },
+  { model: 'Hailuo 02', videos: [] },
+];
+// ── Home landing / dashboard: greeting, quick actions, model rows, recent. ──
+function renderLanding() {
+  const view = document.getElementById('viewLanding');
+  if (!view) return;
+  const email = Auth.email();
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'there';
+  const h = new Date().getHours();
+  const greet = h < 5 ? 'Late night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+
+  const recent = (typeof galleryItems === 'function' ? galleryItems() : []).slice(0, 8);
+  const recentHtml = recent.length
+    ? '<div class="lp-sec">Recent creations</div><div class="lp-recent">' +
+      recent.map((it) => '<button type="button" class="lp-rec" data-go="gallery">' +
+        (it.kind === 'image'
+          ? '<img src="' + esc(it.url) + '" alt="" loading="lazy" />'
+          : it.kind === 'audio'
+          ? '<span class="lp-rec-audio">🎙</span>'
+          : '<video src="' + esc(it.url) + '" muted preload="metadata"></video>') +
+      '</button>').join('') + '</div>'
+    : '';
+
+  const nfHtml = MODEL_ROWS.map((row) => {
+    const cards = (row.videos && row.videos.length ? row.videos : [null, null, null, null, null, null])
+      .map((v, i) => v
+        ? '<div class="nf-card"><video src="' + esc(v) + '" muted loop playsinline preload="metadata"></video></div>'
+        : '<div class="nf-card nf-ph nf-ph' + (i % 3) + '"><span class="nf-play">▶</span></div>').join('');
+    return '<div class="nf-row">' +
+      '<div class="nf-head"><h2 class="nf-title">' + esc(row.model) + '</h2>' +
+        '<button type="button" class="nf-all">See all <span class="nf-all-c">›</span></button></div>' +
+      '<div class="nf-track">' + cards + '</div></div>';
+  }).join('');
+
+  view.innerHTML =
+    '<div class="lp-page">' +
+      '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
+        '<p>Pick up where you left off, or start something new.</p></div>' +
+      nfHtml + recentHtml +
+    '</div>';
+
+  const go = (what) => {
+    if (what === 'create') { showView('home'); const i = document.getElementById('input'); if (i) i.focus(); }
+    else if (what === 'presets') { showView('home'); togglePresets(true); }
+    else showView(what);
+  };
+  view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
+  view.querySelectorAll('.nf-all').forEach((b) => { b.onclick = () => showView('gallery'); });
+  // Netflix-style hover-to-play; click goes fullscreen.
+  view.querySelectorAll('.nf-card video').forEach((v) => {
+    const card = v.closest('.nf-card');
+    card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
+    card.addEventListener('mouseleave', () => { try { v.pause(); v.currentTime = 0; } catch (e) {} });
+    card.addEventListener('click', () => { if (v.requestFullscreen) v.requestFullscreen().catch(() => {}); });
+  });
+}
+
+// ── Avatar: talking-avatar workspace. Empty state offers "Generate with AI"
+// or "Import"; imported/saved avatars show in a grid (zephyr_avatars_v1). ──
+const AVATARS_KEY = 'zephyr_avatars_v1';
+function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
+function saveAvatars(list) { try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+
+// Avatar-creator state. avatarMode: 'list' (empty state / grid) or 'create'
+// (the generator screen — avatar preview in the middle, body-part options on
+// the right). AV_PARTS is a placeholder set of options, replaced with the
+// real parts later. Avatars generate with Nano Banana Pro.
+const AVATAR_MODEL = 'fal-ai/nano-banana-pro';
+let avatarMode = 'list';
+const acSel = {};   // key -> selected value
+const acOpen = {};  // key -> section expanded?
+// Right-side "Builder" sections. Types: 'cards' (label + optional icon),
+// 'images' (label + image tile), 'swatch' (color dots). Placeholder content —
+// swap for the real sections/options later. opts.img adds a real photo tile.
+const AV_SECTIONS = [
+  { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
+    opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
+  { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
+    opts: [{ v: 'Fair', c: '#f2e3d5' }, { v: 'Light', c: '#e6c8a8' }, { v: 'Medium', c: '#d0a06f' }, { v: 'Tan', c: '#a86f43' }, { v: 'Brown', c: '#7a4a26' }, { v: 'Deep', c: '#4a2c17' }] },
+  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
+    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
+  { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
+  { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
+    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
+  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
+    opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
+  { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
+    opts: [{ v: 'Black', c: '#1a1a1a' }, { v: 'Dark brown', c: '#3b2417' }, { v: 'Brown', c: '#6b4226' }, { v: 'Light brown', c: '#b07b3e' }, { v: 'Blonde', c: '#d9b26a' }, { v: 'Auburn', c: '#a3502a' }, { v: 'Grey', c: '#9a9a9a' }, { v: 'Platinum', c: '#e8e3d3' }, { v: 'Pink', c: '#ff79c6' }, { v: 'Blue', c: '#4a7fd6' }] },
+  { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
+    opts: [{ v: 'Slim' }, { v: 'Lean' }, { v: 'Athletic' }, { v: 'Muscular' }, { v: 'Curvy' }, { v: 'Heavy' }, { v: 'Skinny' }] },
+];
+
+function renderAvatar() {
+  const view = document.getElementById('viewAvatar');
+  if (!view) return;
+  if (avatarMode === 'create') { renderAvatarCreator(view); return; }
+  const avatars = loadAvatars();
+  if (!avatars.length) {
+    view.innerHTML =
+      '<div class="av-page av-empty">' +
+        '<div class="av-hero"><h1>Create your avatar</h1>' +
+          '<p>Generate a talking avatar with AI, or import your own portrait.</p></div>' +
+        '<div class="av-choices">' +
+          '<button type="button" class="av-choice" data-act="generate"><span class="av-choice-ico">✨</span>' +
+            '<span class="av-choice-t">Generate with AI</span>' +
+            '<span class="av-choice-s">Describe a person and isibi creates the avatar.</span></button>' +
+          '<button type="button" class="av-choice" data-act="import"><span class="av-choice-ico">⬆</span>' +
+            '<span class="av-choice-t">Import</span>' +
+            '<span class="av-choice-s">Upload your own portrait photo.</span></button>' +
+        '</div>' +
+      '</div>';
+  } else {
+    view.innerHTML =
+      '<div class="av-page">' +
+        '<div class="av-top"><h1>Your avatars</h1>' +
+          '<div class="av-top-btns">' +
+            '<button type="button" class="av-mini" data-act="generate">✨ Generate</button>' +
+            '<button type="button" class="av-mini" data-act="import">⬆ Import</button>' +
+          '</div>' +
+        '</div>' +
+        '<div class="av-grid">' + avatars.map((a) =>
+          '<div class="av-card" data-id="' + esc(a.id) + '">' +
+            (a.image ? '<div class="av-thumb"><img src="' + esc(a.image) + '" alt="" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
+            '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
+            '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
+          '</div>').join('') + '</div>' +
+      '</div>';
+  }
+  view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => { avatarMode = 'create'; renderAvatar(); }; });
+  view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
+  view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
+}
+
+function importAvatar() {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    const image = await downscaleImage(f, 720);
+    const list = loadAvatars();
+    list.unshift({ id: prUid(), name: (f.name || 'Avatar').replace(/\.[^.]+$/, '').slice(0, 60), image, at: Date.now() });
+    saveAvatars(list);
+    renderAvatar();
+  };
+  inp.click();
+}
+
+// The avatar generator screen: preview in the middle, a "Builder" panel of
+// body-part options on the right (Higgsfield-style). Generates with Nano
+// Banana Pro.
+function renderAvatarCreator(view) {
+  const secHtml = AV_SECTIONS.map((s) => {
+    const open = acOpen[s.key] !== false; // default expanded
+    const sel = acSel[s.key];
+    let body = '';
+    const has = (v) => Array.isArray(sel) && sel.includes(v); // multi-select per category
+    if (s.type === 'cards') {
+      body = '<div class="ab-cards">' + s.opts.map((o) =>
+        '<button type="button" class="ab-card' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
+        '</button>').join('') + '</div>';
+    } else if (s.type === 'images') {
+      body = '<div class="ab-imgs">' + s.opts.map((o, i) =>
+        '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          (o.img ? '<img src="' + esc(o.img) + '" alt="" />' : '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>') +
+          '<span class="ab-img-l">' + esc(o.v) + '</span>' +
+        '</button>').join('') + '</div>';
+    } else if (s.type === 'swatch') {
+      body = '<div class="ab-swatches">' + s.opts.map((o) =>
+        '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
+    } else if (s.type === 'slider') {
+      const val = sel != null ? sel : s.def;
+      body = '<div class="ab-slider">' +
+        '<div class="ab-slider-top"><span class="ab-range-val" data-valfor="' + s.key + '">' + val + '</span></div>' +
+        '<input type="range" class="ab-range" data-k="' + s.key + '" min="' + s.min + '" max="' + s.max + '" value="' + val + '" />' +
+      '</div>';
+    }
+    const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
+    return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
+      '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
+        '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
+      '<div class="ab-sec-body">' + body + '</div>' +
+    '</div>';
+  }).join('');
+
+  view.innerHTML =
+    '<div class="ac-page">' +
+      '<button type="button" class="ac-back" id="acBack">← Avatars</button>' +
+      '<div class="ac-main">' +
+        '<div class="ac-stage">' +
+          '<div class="ac-preview" id="acPreview">' +
+            '<span class="ac-ph-ico">🖼️</span>' +
+            '<div class="ac-ph-txt">Your avatar lives here.<br>Design it on the right, then generate.</div>' +
+            '<span class="ac-tag">Human</span>' +
+          '</div>' +
+          '<div class="ac-actions">' +
+            '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
+            '<button type="button" class="ac-gen" id="acGen">Generate avatar ✦</button>' +
+          '</div>' +
+        '</div>' +
+        '<aside class="ac-builder">' +
+          '<div class="ab-top"><span class="ab-top-t">Builder</span><button type="button" class="ab-reset" id="acReset">Reset</button></div>' +
+          secHtml +
+        '</aside>' +
+      '</div>' +
+    '</div>';
+
+  const setCount = (sec) => {
+    const c = sec.querySelector('.ab-sec-cnt'); if (!c) return;
+    const k = sec.dataset.sec, v = acSel[k], def = AV_SECTIONS.find((x) => x.key === k);
+    c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (Array.isArray(v) && v.length ? ' · ' + v.length : '');
+  };
+  view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
+  view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
+    acSel[r.dataset.k] = +r.value;
+    const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = r.value;
+    setCount(r.closest('.ab-sec'));
+  }; });
+  view.querySelectorAll('.ab-sec-h').forEach((h) => { h.onclick = () => {
+    const sec = h.closest('.ab-sec'); acOpen[sec.dataset.sec] = sec.classList.toggle('open');
+  }; });
+  view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
+    const k = el.dataset.k, v = el.dataset.v;
+    const arr = Array.isArray(acSel[k]) ? acSel[k].slice() : [];
+    const i = arr.indexOf(v);
+    if (i >= 0) arr.splice(i, 1); else arr.push(v);
+    acSel[k] = arr.length ? arr : undefined;
+    el.classList.toggle('on', arr.indexOf(v) >= 0);
+    setCount(el.closest('.ab-sec'));
+  }; });
+  view.querySelector('#acReset').onclick = () => {
+    Object.keys(acSel).forEach((k) => delete acSel[k]);
+    view.querySelectorAll('.ac-builder .on').forEach((x) => x.classList.remove('on'));
+    view.querySelectorAll('.ab-range').forEach((r) => {
+      const def = (AV_SECTIONS.find((s) => s.key === r.dataset.k) || {}).def;
+      if (def != null) { r.value = def; const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = def; }
+    });
+    view.querySelectorAll('.ab-sec').forEach((sec) => setCount(sec));
+  };
+  view.querySelector('#acShuffle').onclick = () => {
+    AV_SECTIONS.forEach((s) => {
+      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
+      if (s.type === 'slider') {
+        const v = s.min + Math.floor(Math.random() * (s.max - s.min + 1));
+        acSel[s.key] = v;
+        if (sec) { const r = sec.querySelector('.ab-range'); if (r) r.value = v; const lbl = sec.querySelector('[data-valfor="' + s.key + '"]'); if (lbl) lbl.textContent = v; setCount(sec); }
+        return;
+      }
+      const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
+      acSel[s.key] = [opt.v];
+      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', acSel[s.key].indexOf(x.dataset.v) >= 0)); setCount(sec); }
+    });
+  };
+  view.querySelector('#acGen').onclick = () => acGenerate();
+}
+
+function buildAvatarPrompt() {
+  const s = acSel, b = [];
+  const arr = (k) => (Array.isArray(s[k]) ? s[k] : s[k] != null ? [s[k]] : []);
+  const lc = (a) => a.map((x) => String(x).toLowerCase());
+  const join = (a) => {
+    if (!a.length) return '';
+    if (a.length === 1) return a[0];
+    if (a.length === 2) return a[0] + ' and ' + a[1];
+    return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  };
+  const gender = arr('gender'); if (gender.length) b.push(join(lc(gender)));
+  if (s.age) b.push(s.age + ' years old');
+  const eth = arr('ethnicity'); if (eth.length) b.push('of ' + join(eth) + (eth.length > 1 ? ' mixed origin' : ' origin'));
+  const body = arr('body'); if (body.length) b.push(join(lc(body)) + ' build');
+  const skin = arr('skin'); if (skin.length) b.push(join(lc(skin)) + ' skin');
+  const hair = arr('hair'), haircolor = arr('haircolor');
+  const hairStyles = hair.filter((h) => h !== 'Bald');
+  if (hair.some((h) => h === 'Bald') && !hairStyles.length) b.push('bald');
+  else if (hairStyles.length || haircolor.length) {
+    b.push((haircolor.length ? join(lc(haircolor)) + ' ' : '') + (hairStyles.length ? join(lc(hairStyles)) + ' ' : '') + 'hair');
+  }
+  const facial = arr('facial').filter((f) => f !== 'None');
+  if (facial.length) b.push('with a ' + join(lc(facial)));
+  const who = b.length ? 'a ' + b.join(', ') : 'a person';
+  return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
+}
+
+function acGenerate() {
+  const prompt = buildAvatarPrompt();
+  try { selectedModels.image = AVATAR_MODEL; } catch (e) {}
+  showView('home');
+  if (typeof setMode === 'function') setMode('image');
+  const i = document.getElementById('input');
+  if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
 }
 
 // ── Products: save a product from a store link or a manual upload, then reuse
@@ -3401,13 +3705,15 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  if (name === 'landing') renderLanding();
   if (name === 'gallery') renderGallery();
   if (name === 'products') renderProducts();
+  if (name === 'avatar') renderAvatar();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));

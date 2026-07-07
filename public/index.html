@@ -51,23 +51,28 @@
         <span class="nav-dd-icon">☰</span><b id="navDdLabel">Studio</b><span class="nav-dd-caret">▾</span>
       </button>
       <div class="nav-dd-menu" id="navDdMenu">
-        <button class="nav-dd-item" data-view="home" onclick="showView('home')"><span class="tile home">⌂</span><span>Home</span></button>
+        <button class="nav-dd-item" data-view="landing" onclick="showView('landing')"><span class="tile home">⌂</span><span>Home</span></button>
+        <button class="nav-dd-item" data-view="home" onclick="showView('home')"><span class="tile nav-builder">✨</span><span>Builder</span></button>
         <button class="nav-dd-item" data-view="projects" onclick="showView('projects')"><span class="tile nav-proj">🗂</span><span>Projects</span></button>
         <button class="nav-dd-item" data-view="gallery" onclick="showView('gallery')"><span class="tile nav-gal">🖼</span><span>Gallery</span></button>
         <button class="nav-dd-item active" data-view="studio" onclick="showView('studio')"><span class="tile nav-studio">🎬</span><span>Studio</span></button>
         <button class="nav-dd-item" data-view="products" onclick="showView('products')"><span class="tile nav-products">📦</span><span>Products</span></button>
+        <button class="nav-dd-item" data-view="avatar" onclick="showView('avatar')"><span class="tile nav-avatar">🧑</span><span>Avatar</span></button>
       </div>
     </div>
   </header>
 
   <div class="shell">
     <aside class="sidebar">
-      <div class="side-logo" onclick="showView('home')"><span class="logo-mark">i</span><span>isibi</span></div>
+      <div class="side-logo" onclick="showView('landing')"><span class="logo-mark">i</span><span>isibi</span></div>
 
       <div class="side-label">Workspace</div>
       <div class="side-nav">
-        <div class="side-item active" data-view="home" onclick="showView('home')">
+        <div class="side-item active" data-view="landing" onclick="showView('landing')">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg></span><span>Home</span>
+        </div>
+        <div class="side-item" data-view="home" onclick="showView('home')">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 12-12"/><path d="M15 5l4 4"/><path d="M18 2l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"/></svg></span><span>Builder</span>
         </div>
         <div class="side-item" data-view="projects" onclick="showView('projects')">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span>Projects</span>
@@ -80,6 +85,9 @@
         </div>
         <div class="side-item" data-view="products" onclick="showView('products')">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span><span>Products</span>
+        </div>
+        <div class="side-item" data-view="avatar" onclick="showView('avatar')">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></span><span>Avatar</span>
         </div>
       </div>
 
@@ -149,7 +157,10 @@
 
     <main class="main">
 
-      <div id="viewHome" class="view view-home active">
+      <!-- Home landing/dashboard (built by renderLanding) -->
+      <div id="viewLanding" class="view view-landing active"></div>
+
+      <div id="viewHome" class="view view-home">
       <div class="home-slide" id="homeSlide">
       <div class="home-screen">
       <section class="chat active">
@@ -279,6 +290,9 @@
 
       <!-- Products page (built by renderProducts) -->
       <div id="viewProducts" class="view view-products"></div>
+
+      <!-- Avatar page (built by renderAvatar) -->
+      <div id="viewAvatar" class="view view-avatar"></div>
 
       <div id="viewGallery" class="view view-gallery">
         <div class="gallery-head">
