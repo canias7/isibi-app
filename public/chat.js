@@ -3189,13 +3189,16 @@ const AV_SECTIONS = [
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
   { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
     opts: ['#f2e3d5', '#e6c8a8', '#d0a06f', '#a86f43', '#7a4a26', '#4a2c17'] },
-  // --- the rest come next, per your list ---
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
     opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
-  { key: 'ctype', label: 'Character Type', icon: '🧠', type: 'cards',
-    opts: [{ v: 'Human', ico: '🧑' }, { v: 'Stylized', ico: '🎨' }] },
+  { key: 'age', label: 'Age', icon: '🎂', type: 'cards',
+    opts: [{ v: 'Teens' }, { v: '20s' }, { v: '30s' }, { v: '40s' }, { v: '50s' }, { v: '60+' }] },
   { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
-    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Buzz' }, { v: 'Bald' }] },
+    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
+  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
+    opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
+  { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
+    opts: ['#1a1a1a', '#3b2417', '#6b4226', '#b07b3e', '#d9b26a', '#a3502a', '#9a9a9a', '#e8e3d3', '#ff79c6', '#4a7fd6'] },
 ];
 
 function renderAvatar() {
@@ -3337,11 +3340,11 @@ function renderAvatarCreator(view) {
 function buildAvatarPrompt() {
   const s = acSel, b = [];
   if (s.gender) b.push(s.gender.toLowerCase());
-  if (s.age) b.push('in their ' + s.age);
+  if (s.age) b.push('aged ' + s.age.toLowerCase());
   if (s.ethnicity) b.push('of ' + s.ethnicity + ' origin');
-  if (s.hair && s.hair !== 'Bald') b.push(s.hair.toLowerCase() + ' hair');
   if (s.hair === 'Bald') b.push('bald');
-  if (s.skin) b.push('skin tone ' + s.skin);
+  else if (s.hair) b.push(s.hair.toLowerCase() + ' hair');
+  if (s.facial && s.facial !== 'None') b.push('with a ' + s.facial.toLowerCase());
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
