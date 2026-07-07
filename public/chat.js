@@ -3198,6 +3198,8 @@ const AV_SECTIONS = [
     opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
     opts: ['#1a1a1a', '#3b2417', '#6b4226', '#b07b3e', '#d9b26a', '#a3502a', '#9a9a9a', '#e8e3d3', '#ff79c6', '#4a7fd6'] },
+  { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
+    opts: [{ v: 'Slim' }, { v: 'Lean' }, { v: 'Athletic' }, { v: 'Muscular' }, { v: 'Curvy' }, { v: 'Heavy' }, { v: 'Skinny' }] },
 ];
 
 function renderAvatar() {
@@ -3370,6 +3372,7 @@ function buildAvatarPrompt() {
   if (s.hair === 'Bald') b.push('bald');
   else if (s.hair) b.push(s.hair.toLowerCase() + ' hair');
   if (s.facial && s.facial !== 'None') b.push('with a ' + s.facial.toLowerCase());
+  if (s.body) b.push(s.body.toLowerCase() + ' build');
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
