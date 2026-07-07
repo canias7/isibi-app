@@ -771,7 +771,9 @@ async function handleRequest(request, env, ctx) {
     }
 
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
-      if (!env.STRIPE_WEBHOOK_SECRET || !env.CREDITS_MINT_SECRET) {
+      // add_credits is now REVOKEd from anon/authenticated, so the webhook must
+      // call it with the service_role key — require that secret too.
+      if (!env.STRIPE_WEBHOOK_SECRET || !env.CREDITS_MINT_SECRET || !env.SUPABASE_SERVICE_KEY) {
         return Response.json({ error: "not configured" }, { status: 501 });
       }
       const raw = await request.text();
@@ -811,11 +813,12 @@ async function handleRequest(request, env, ctx) {
         if (s && s.mode === "payment" && s.payment_status === "paid" && s.id && uid && credits > 0) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
             body: JSON.stringify({
               target: uid, amount: credits, cents: s.amount_total || 0,
               purchase_ref: s.id, mint_key: env.CREDITS_MINT_SECRET,
             }),
+            signal: AbortSignal.timeout(10000),
           });
           if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
         }
@@ -838,11 +841,12 @@ async function handleRequest(request, env, ctx) {
         if (uid && credits > 0 && paid && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
-            headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
             body: JSON.stringify({
               target: uid, amount: credits, cents: inv.amount_paid || 0,
               purchase_ref: inv.id, mint_key: env.CREDITS_MINT_SECRET,
             }),
+            signal: AbortSignal.timeout(10000),
           });
           // Non-2xx → 500 so Stripe retries the delivery.
           if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
