@@ -3185,14 +3185,15 @@ const acOpen = {};  // key -> section expanded?
 // 'images' (label + image tile), 'swatch' (color dots). Placeholder content —
 // swap for the real sections/options later. opts.img adds a real photo tile.
 const AV_SECTIONS = [
-  { key: 'ctype', label: 'Character Type', icon: '🧠', type: 'cards',
-    opts: [{ v: 'Human', ico: '🧑' }, { v: 'Stylized', ico: '🎨' }] },
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
-  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
-    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
   { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
     opts: ['#f2e3d5', '#e6c8a8', '#d0a06f', '#a86f43', '#7a4a26', '#4a2c17'] },
+  // --- the rest come next, per your list ---
+  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
+    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
+  { key: 'ctype', label: 'Character Type', icon: '🧠', type: 'cards',
+    opts: [{ v: 'Human', ico: '🧑' }, { v: 'Stylized', ico: '🎨' }] },
   { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
     opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Buzz' }, { v: 'Bald' }] },
 ];
