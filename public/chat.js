@@ -2978,6 +2978,8 @@ function enterApp() {
   // and re-copy any media whose gallery save failed.
   resumeJobs();
   retryPendingSaves();
+  // Open on the Home landing (also hides the Builder-only chat list, etc.).
+  showView('landing');
 }
 
 async function doSignOut() {
@@ -3097,6 +3099,54 @@ function renderSettings() {
   };
 
   view.querySelector('#spSignout').onclick = () => doSignOut();
+}
+
+// ── Home landing / dashboard: greeting, quick actions, recent creations. ──
+function renderLanding() {
+  const view = document.getElementById('viewLanding');
+  if (!view) return;
+  const email = Auth.email();
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'there';
+  const h = new Date().getHours();
+  const greet = h < 5 ? 'Late night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+
+  const actions = [
+    { go: 'create', ico: '✨', t: 'Start creating', s: 'Describe a scene and generate' },
+    { go: 'products', ico: '📦', t: 'Add a product', s: 'Turn products into ads' },
+    { go: 'presets', ico: '🎬', t: 'Browse presets', s: 'Marketing, cinematic & more' },
+    { go: 'gallery', ico: '🖼', t: 'Your gallery', s: 'Everything you’ve made' },
+  ];
+  const recent = (typeof galleryItems === 'function' ? galleryItems() : []).slice(0, 8);
+  const recentHtml = recent.length
+    ? '<div class="lp-sec">Recent creations</div><div class="lp-recent">' +
+      recent.map((it) => '<button type="button" class="lp-rec" data-go="gallery">' +
+        (it.kind === 'image'
+          ? '<img src="' + esc(it.url) + '" alt="" loading="lazy" />'
+          : it.kind === 'audio'
+          ? '<span class="lp-rec-audio">🎙</span>'
+          : '<video src="' + esc(it.url) + '" muted preload="metadata"></video>') +
+      '</button>').join('') + '</div>'
+    : '';
+
+  view.innerHTML =
+    '<div class="lp-page">' +
+      '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
+        '<p>Pick up where you left off, or start something new.</p></div>' +
+      '<div class="lp-actions">' +
+        actions.map((a) => '<button type="button" class="lp-card" data-go="' + a.go + '">' +
+          '<span class="lp-ico">' + a.ico + '</span>' +
+          '<span class="lp-t">' + a.t + '</span>' +
+          '<span class="lp-s">' + a.s + '</span></button>').join('') +
+      '</div>' + recentHtml +
+    '</div>';
+
+  const go = (what) => {
+    if (what === 'create') { showView('home'); const i = document.getElementById('input'); if (i) i.focus(); }
+    else if (what === 'presets') { showView('home'); togglePresets(true); }
+    else showView(what);
+  };
+  view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
 }
 
 // ── Products: save a product from a store link or a manual upload, then reuse
@@ -3401,11 +3451,12 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  if (name === 'landing') renderLanding();
   if (name === 'gallery') renderGallery();
   if (name === 'products') renderProducts();
   if (name === 'settings') renderSettings();
