@@ -808,7 +808,7 @@
 .pr-load-s { font-size: .76rem; color: var(--muted); }
 .pr-error .pr-load-t { color: #ff9ab0; }
 /* Create Product modal */
-.pr-modal { max-width: 660px; width: 100%; }
+.pr-modal { max-width: 660px; width: 100%; background: rgba(19, 18, 26, .92); }
 .pr-modal-body { display: flex; gap: 1.3rem; }
 .pr-upload { flex: 0 0 240px; aspect-ratio: 1; border-radius: 14px; border: 1.5px dashed var(--line-2); background: var(--panel-2); display: grid; place-items: center; cursor: pointer; overflow: hidden; transition: border-color .12s ease; }
 .pr-upload:hover { border-color: rgba(255, 170, 110, .5); }
