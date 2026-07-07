@@ -1,0 +1,8 @@
+{
+  "name": "isibi-app",
+  "private": true,
+  "description": "Worker dependencies (bundled by wrangler at deploy). The app itself is plain static files in public/.",
+  "dependencies": {
+    "@cf-wasm/photon": "^0.3.6"
+  }
+}

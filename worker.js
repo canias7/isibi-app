@@ -1,3 +1,8 @@
+// Photon (WASM) for server-side image watermarking — the workerd build
+// instantiates the wasm synchronously on import, so the functions are ready to
+// call. Bundled by wrangler at deploy (see package.json).
+import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
+
 const VIDEO_MODELS = new Set([
   "bytedance/seedance-2.0/text-to-video",
   "bytedance/seedance-2.0/fast/text-to-video",
@@ -340,6 +345,50 @@ function b64FromBuffer(ab) {
   let bin = "";
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return btoa(bin);
+}
+
+// ── Free-tier watermark, burned server-side ────────────────────────────────
+// The "✦ isibi.ai" badge PNG lives in public/; fetched once per isolate via the
+// ASSETS binding and cached. Composited bottom-right, scaled to ~26% of the
+// image width (matching the client's width-relative mark).
+let _wmBadge = null;
+async function wmBadgeBytes(env, request) {
+  if (_wmBadge) return _wmBadge;
+  const r = await env.ASSETS.fetch(new URL("/wm-badge.png", request.url));
+  if (!r.ok) throw new Error("badge missing");
+  _wmBadge = new Uint8Array(await r.arrayBuffer());
+  return _wmBadge;
+}
+// Returns watermarked JPEG bytes (Uint8Array). Throws on decode failure so the
+// caller can fail closed rather than store an un-watermarked image.
+function watermarkImageBytes(imgBytes, badgeBytes) {
+  const img = PhotonImage.new_from_byteslice(imgBytes);
+  const badge = PhotonImage.new_from_byteslice(badgeBytes);
+  let scaled = null;
+  try {
+    const iw = img.get_width(), ih = img.get_height();
+    const targetW = Math.max(80, Math.min(Math.round(iw * 0.26), iw));
+    const bw = badge.get_width(), bh = badge.get_height();
+    scaled = resize(badge, targetW, Math.max(1, Math.round(bh * (targetW / bw))), SamplingFilter.Lanczos3);
+    const sw = scaled.get_width(), sh = scaled.get_height();
+    const pad = Math.round(iw * 0.02);
+    const x = Math.max(0, iw - sw - pad), y = Math.max(0, ih - sh - pad);
+    watermark(img, scaled, BigInt(x), BigInt(y));
+    return img.get_bytes_jpeg(90);
+  } finally {
+    img.free(); badge.free(); if (scaled) scaled.free();
+  }
+}
+async function isPaidUser(request) {
+  try {
+    const p = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: "{}",
+      signal: AbortSignal.timeout(8000),
+    });
+    return p.ok ? (await p.json()) === true : false;
+  } catch { return false; }
 }
 
 export default {
@@ -1371,20 +1420,23 @@ Context: ${ctxLine}`
           return Response.json({ error: "fetch failed" }, { status: 502 });
         }
         ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
-        // Free accounts must not store an un-watermarked IMAGE via the raw-URL
-        // path — gate on the ACTUAL fetched media type, not the client-supplied
-        // `kind` (which could be omitted or set to "video" to slip a PNG through).
-        if (ct.toLowerCase().startsWith("image/")) {
-          let paid = false;
-          try {
-            const p = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-              body: "{}",
-            });
-            paid = p.ok ? (await p.json()) === true : false;
-          } catch { paid = false; }
-          if (!paid) return Response.json({ error: "watermark required" }, { status: 403 });
+      }
+      // Free accounts get the "✦ isibi.ai" mark burned in server-side — for ANY
+      // image, on either path, keyed off the REAL media type (not the client's
+      // `kind`). The client no longer has to be trusted to mark its own output;
+      // fail closed if watermarking errors rather than store a clean image.
+      if ((ct || "").toLowerCase().startsWith("image/") && !(await isPaidUser(request))) {
+        let raw = bytes;
+        if (!raw) {
+          try { raw = new Uint8Array(await media.arrayBuffer()); } catch { return Response.json({ error: "fetch failed" }, { status: 502 }); }
+        }
+        if (raw.length > 25_000_000) return Response.json({ error: "too large" }, { status: 400 });
+        try {
+          bytes = watermarkImageBytes(raw, await wmBadgeBytes(env, request));
+          ct = "image/jpeg";
+          media = null; // storing the watermarked bytes now, not the stream
+        } catch {
+          return Response.json({ error: "watermark failed" }, { status: 502 });
         }
       }
       const EXT = {

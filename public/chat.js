@@ -1658,51 +1658,13 @@ async function trySave(url, kind, attempts, payload) {
   return null;
 }
 
-// ── Free-tier watermark ─────────────────────────────────────────────────────
-// Free accounts (never purchased) get "✦ isibi.ai" burned into image files
-// before they're saved; videos carry an on-screen mark in the player.
-async function watermarkImage(url) {
-  const resp = await fetch(url, { mode: 'cors' });
-  if (!resp.ok) throw 0;
-  const bmp = await createImageBitmap(await resp.blob());
-  // Cap the working size so a huge output can't freeze the tab or blow past the
-  // server's upload cap; generation outputs are well within this anyway.
-  const MAXD = 2560;
-  const scale = Math.min(1, MAXD / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const g = c.getContext('2d');
-  g.drawImage(bmp, 0, 0, w, h);
-  const fs = Math.max(18, Math.round(w * 0.032));
-  const pad = Math.round(fs * 0.8);
-  g.font = '600 ' + fs + 'px "Space Grotesk", Inter, sans-serif';
-  g.textAlign = 'right'; g.textBaseline = 'bottom';
-  g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = fs * 0.35;
-  g.fillStyle = 'rgba(255,255,255,.82)';
-  g.fillText('✦ isibi.ai', w - pad, h - pad);
-  // JPEG keeps photographic AI outputs small (a full-res PNG can balloon past
-  // the upload cap); quality 0.92 is visually lossless for these.
-  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
-  if (!blob) throw 0;
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < buf.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-  }
-  return { kind: 'image', data: btoa(bin), contentType: 'image/jpeg' };
-}
-// Save one output: free images get the mark burned in first; any watermark
-// hiccup (CORS, canvas) falls back to saving the clean original — losing the
-// user's paid render over a watermark would be the wrong trade.
+// Save one output: free-account images are watermarked server-side by /api/save
+// (see worker.js). The client hands over the fal URL and the returned permanent
+// copy — the one the app then displays — already carries the mark.
 async function saveOutput(u, kind) {
-  // Watermark images for known-free accounts. While the paid state is still
-  // unknown we skip the burn and let the server's is_paid gate decide: a
-  // genuinely-free user's raw save 403s → trySave returns null → the pending
-  // -save queue retries later, by which time paidKnown has resolved.
-  if (kind === 'image' && paidKnown && !isPaid) {
-    try { return await trySave(u, kind, 3, await watermarkImage(u)); } catch {}
-  }
+  // Free-account images are watermarked server-side by /api/save now (the mark
+  // is burned into the stored copy the app then displays), so the client just
+  // hands over the URL — no canvas burn, no client-trust to bypass.
   return trySave(u, kind, 3);
 }
 
@@ -1735,9 +1697,7 @@ async function retryPendingSaves() {
   const keep = [];
   for (const p of list) {
     if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
-    // Re-enter saveOutput (not raw trySave) so a free account's image still gets
-    // watermarked on retry — the server now 403s a raw free-image save, so a
-    // bare retry would loop forever and lose the image.
+    // saveOutput just posts the URL; the server watermarks free-account images.
     const perm = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
     else keep.push(p);
@@ -1861,10 +1821,10 @@ function updateSendPrice() {
 // has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
-// Watermark gating is tri-state: we only mark when the account is KNOWN free.
-// Until /api/credits resolves, `paidKnown` is false and we fail toward "paid"
-// (no watermark) so a slow/failed credits call never defaces a paying user;
-// the server's own is_paid gate on /api/save catches a genuinely-free user.
+// The on-screen VIDEO badge is tri-state: shown only when the account is KNOWN
+// free. Until /api/credits resolves, `paidKnown` is false and we fail toward
+// "paid" (no badge) so a slow/failed credits call never defaces a paying user.
+// (Image watermarks don't depend on this — the server burns them on /api/save.)
 let isPaid = false;
 let paidKnown = false;
 // Toggle the on-screen video badge on already-rendered clips once we learn the
