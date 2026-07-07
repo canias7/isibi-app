@@ -594,6 +594,14 @@ function setEffort(level) {
   document.getElementById('effortMenu').classList.remove('open');
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
 }
+// Web search (Settings toggle). When on, a request the director judges to
+// need current real-world facts triggers a billed web-search step before the
+// prompt is written. Default on; users can switch it off in Settings.
+const WEBSEARCH_KEY = 'zephyr_websearch';
+function webSearchOn() { return localStorage.getItem(WEBSEARCH_KEY) !== '0'; }
+function setWebSearch(on) { localStorage.setItem(WEBSEARCH_KEY, on ? '1' : '0'); }
+// Shown in Settings → About.
+const APP_VERSION = '1.0.0';
 // Prompt-help mode chip (top-right of the composer). Three modes:
 //   auto — isibi.ai composes and makes every creative call, never asks
 //   plan — isibi.ai interviews first (the question popup), then composes
@@ -648,8 +656,79 @@ function toggleDirMenu(e) {
 // Arrow under the chatbox — slides the whole view down to the Presets screen
 // (and back up from its own arrow).
 function togglePresets(open) {
+  if (open) renderPresets();
   document.getElementById('homeSlide').classList.toggle('show-presets', open);
   document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
+}
+
+// Preset categories shown as top tabs on the Presets screen. Each card drops a
+// ready-to-edit starter prompt into the composer (and sets the mode).
+const PRESET_CATS = [
+  { key: 'marketing', label: 'Marketing', items: [
+    { label: 'Product hero ad', kind: 'video', desc: 'Slick 360° commercial of your product.', prompt: 'Cinematic product commercial of [your product] on a clean seamless backdrop, slow 360° turntable, dramatic key light with soft rim, glossy reflections, shallow depth of field, premium tech-ad aesthetic, 4K.' },
+    { label: 'UGC testimonial', kind: 'video', desc: 'Authentic selfie-style hype.', prompt: 'Handheld selfie-style UGC video of a person enthusiastically showing [your product] to the camera in natural daylight, casual and authentic, talking to camera, vertical 9:16.' },
+    { label: 'Sale announcement', kind: 'image', desc: 'Bold promo graphic with a headline.', prompt: 'Bold promotional graphic announcing a sale for [your product], big punchy headline reading "50% OFF", vibrant brand colors, clean modern layout, high contrast, social-ready.' },
+    { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.', prompt: 'Lifestyle photograph of [your product] in use in a bright, aspirational setting, natural light, editorial styling, soft shadows, magazine quality.' },
+  ] },
+  { key: 'cinematic', label: 'Cinematic', items: [
+    { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.', prompt: 'Sweeping cinematic drone shot over [location] at golden hour, volumetric light, anamorphic lens flares, epic scale, filmic color grade, 24fps.' },
+    { label: 'Slow-mo hero', kind: 'video', desc: 'Dramatic slow-motion close-up.', prompt: 'Ultra slow-motion cinematic close-up of [subject], dramatic side lighting, shallow depth of field, dust particles drifting in the air, moody film grain.' },
+    { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.', prompt: 'Film-noir cinematic still, [subject] in a rain-slicked neon alley at night, high-contrast chiaroscuro lighting, teal and amber palette, atmospheric haze.' },
+  ] },
+  { key: 'product', label: 'Product', items: [
+    { label: 'Studio pack shot', kind: 'image', desc: 'Clean e-commerce white-bg shot.', prompt: 'Clean studio product photograph of [your product] on white seamless, soft even lighting, crisp reflections, centered composition, e-commerce ready.' },
+    { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.', prompt: '[Your product] floating and slowly rotating in a dark studio void, dramatic rim lighting, soft reflections gliding across the surface, premium look.' },
+    { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.', prompt: 'Extreme macro photograph of [your product] showing fine texture and material detail, razor-thin depth of field, controlled specular highlights.' },
+  ] },
+  { key: 'social', label: 'Social', items: [
+    { label: 'Reel intro', kind: 'video', desc: 'Fast vertical hook with text.', prompt: 'Fast-paced vertical 9:16 social intro, punchy text animation reading "NEW DROP", energetic camera moves, trendy quick transitions, bold brand colors.' },
+    { label: 'Story background', kind: 'image', desc: '9:16 background with text room.', prompt: 'Eye-catching 9:16 story background with abstract gradient shapes and space for text, on-brand pink and amber palette, modern and clean.' },
+    { label: 'Carousel cover', kind: 'image', desc: 'Scroll-stopping post cover.', prompt: 'Scroll-stopping square social post cover for [topic], bold headline text, high-contrast layout, clean modern design.' },
+  ] },
+  { key: 'portrait', label: 'Portrait', items: [
+    { label: 'Studio headshot', kind: 'image', desc: 'Corporate-clean headshot.', prompt: 'Professional studio headshot portrait, soft key light with subtle rim, neutral background, sharp eyes, natural skin tones, corporate-clean.' },
+    { label: 'Cinematic portrait', kind: 'image', desc: 'Moody single-light portrait.', prompt: 'Cinematic character portrait, dramatic single-source lighting, shallow depth of field, moody color grade, subtle film grain.' },
+    { label: 'Fashion editorial', kind: 'image', desc: 'Magazine-cover styling.', prompt: 'High-fashion editorial portrait, bold styling, studio strobe lighting, striking pose, magazine cover quality.' },
+  ] },
+  { key: 'anime', label: 'Anime', items: [
+    { label: 'Anime key art', kind: 'image', desc: 'Vibrant cel-shaded hero art.', prompt: 'Vibrant anime illustration of [character], dynamic pose, cel-shaded, detailed background, studio-quality key art.' },
+    { label: 'Chibi sticker', kind: 'image', desc: 'Cute flat-color sticker.', prompt: 'Cute chibi anime sticker of [character], thick outline, flat colors, expressive face, simple background.' },
+    { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.', prompt: 'Anime-style animated scene of [subject] with gentle ambient motion, hair and clothes swaying, soft parallax background; preserve the art style exactly, no smoothing.' },
+  ] },
+];
+let presetCat = 'marketing';
+function renderPresets() {
+  const body = document.getElementById('presetsBody');
+  if (!body) return;
+  const tabs = PRESET_CATS.map((c) =>
+    '<button type="button" class="pt-tab' + (c.key === presetCat ? ' active' : '') + '" data-cat="' + c.key + '">' + esc(c.label) + '</button>').join('');
+  const cat = PRESET_CATS.find((c) => c.key === presetCat) || PRESET_CATS[0];
+  const kindIco = (k) => (k === 'image' ? '🖼' : k === 'audio' ? '🎙' : '🎬');
+  const cards = cat.items.map((it, i) => {
+    const prev = (Array.isArray(it.previews) && it.previews.length ? it.previews.slice(0, 3) : [null, null, null])
+      .map((p, k) => p
+        ? '<span class="pt-prev"><img src="' + esc(p) + '" alt="" loading="lazy" /></span>'
+        : '<span class="pt-prev pt-prev-ph pt-ph' + (k % 3) + '"></span>').join('');
+    return '<button type="button" class="pt-card" data-i="' + i + '">' +
+      '<span class="pt-previews">' + prev + '</span>' +
+      '<span class="pt-foot">' +
+        '<span class="pt-ico">' + kindIco(it.kind) + '</span>' +
+        '<span class="pt-meta"><span class="pt-card-t">' + esc(it.label) + '</span>' +
+        '<span class="pt-card-s">' + esc(it.desc || '') + '</span></span>' +
+        '<span class="pt-try">Try</span>' +
+      '</span>' +
+    '</button>';
+  }).join('');
+  body.innerHTML = '<div class="pt-tabs">' + tabs + '</div><div class="pt-grid">' + cards + '</div>';
+  body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; renderPresets(); }; });
+  body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });
+}
+function usePreset(it) {
+  if (!it) return;
+  if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
+  togglePresets(false);
+  const input = document.getElementById('input');
+  if (input) { input.value = it.prompt; if (typeof autoGrow === 'function') autoGrow(input); input.focus(); }
 }
 
 function toggleEffortMenu(e) {
@@ -1445,11 +1524,13 @@ function makeLoader(kind, aspect) {
   } else {
     visual = document.createElement('div');
     visual.className = 'gen-shimmer';
-    visual.style.aspectRatio = aspect || ratioAspect(ratio);
-    // The ghost loop plays inside the frame; the poster covers the first beat.
-    visual.innerHTML = '<video autoplay muted loop playsinline poster="/loading-ghost.webp">'
-      + '<source src="/loading-ghost.webm" type="video/webm" />'
-      + '<source src="/loading-ghost.mp4" type="video/mp4" /></video>';
+    const ar = aspect || ratioAspect(ratio);
+    visual.style.aspectRatio = ar;
+    // A single scan line sweeps a coordinate grid — the frame being "scanned in".
+    const arLabel = String(ar || '').replace(/\s*\/\s*/, ':');
+    visual.innerHTML = '<i class="gen-scanline"></i>'
+      + '<span class="gen-scan-tag tl">SCAN</span>'
+      + (arLabel ? '<span class="gen-scan-tag br">' + arLabel + '</span>' : '');
   }
 
   const prog = document.createElement('div');
@@ -2375,6 +2456,7 @@ async function directorAsk(text, history, onDelta) {
         ready: !!final.ready,
         rerun: !!final.rerun,
         revise: !!final.revise,
+        needsWeb: !!final.needsWeb,
       };
     }
     const data = await res.json();
@@ -2383,6 +2465,7 @@ async function directorAsk(text, history, onDelta) {
       ready: !!data.ready,
       rerun: !!data.rerun,
       revise: !!data.revise,
+      needsWeb: !!data.needsWeb,
     };
   } catch { return localAsk(text); }
 }
@@ -2407,7 +2490,7 @@ async function directorRevise(feedback) {
   } catch { return prev ? prev + ' ' + feedback : feedback; }
 }
 
-async function directorCompose(text, answers) {
+async function directorCompose(text, answers, webFacts) {
   if (mode === 'audio') return text; // voice: speak the words as given
   pendingBrief = null;
   try {
@@ -2415,6 +2498,7 @@ async function directorCompose(text, answers) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
+        webFacts: webFacts || undefined,
         history: directorHistory(), ...directorContext(), ...(await directorImage()),
       }),
     });
@@ -2500,20 +2584,59 @@ async function startDirector(text) {
     deliverPrompt(prompt);
     return;
   }
-  // A creative request — compose the prompt for review.
-  if (res.ready) composeAndReview(text, []);
+  // A creative request — compose the prompt for review. If the director
+  // flagged it as needing current real-world facts, research the web first.
+  if (res.ready) composeAndReview(text, [], res.needsWeb);
   // Otherwise (greeting / small talk): the reply alone is the whole turn.
 }
 
-async function composeAndReview(text, answers) {
+async function composeAndReview(text, answers, needsWeb) {
   const origin = chatStore.active;
+  // Web-search first when the request depends on current real-world facts
+  // (latest products, real specs) — unless the user turned it off in Settings.
+  // Failures degrade to no facts.
+  let webFacts = '';
+  if (needsWeb && webSearchOn()) {
+    const looking = addMsg('agent typing', 'Looking it up on the web');
+    let research = { facts: '', sources: [] };
+    try { research = await directorResearch(text); } finally { looking.remove(); }
+    if (chatStore.active !== origin) return;
+    webFacts = research.facts || '';
+    if (research.sources && research.sources.length) {
+      const names = [...new Set(research.sources
+        .map((s) => { try { return new URL(s.url).hostname.replace(/^www\./, ''); } catch { return s.title || 'source'; } }))]
+        .slice(0, 3);
+      deliverAgent(origin, '🔎 Checked the web — ' + names.join(', '));
+      if (chatStore.active !== origin) return;
+    }
+  }
   const thinking = addMsg('agent typing', 'Writing the prompt');
   let prompt;
-  try { prompt = await directorCompose(text, answers); } finally { thinking.remove(); }
+  try { prompt = await directorCompose(text, answers, webFacts); } finally { thinking.remove(); }
   // The user moved to another chat while the prompt was being written —
   // don't pop the review card into the wrong thread.
   if (chatStore.active !== origin) return;
   deliverPrompt(prompt);
+}
+
+// Live web search: gathers current real-world facts for the prompt writer.
+// Returns { facts, sources }; on any failure returns empties so compose runs.
+async function directorResearch(text) {
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'research', kind: mode, prompt: text,
+        history: directorHistory(), ...directorContext(),
+      }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    return {
+      facts: String(data.facts || '').slice(0, 2000),
+      sources: Array.isArray(data.sources) ? data.sources.slice(0, 5) : [],
+    };
+  } catch { return { facts: '', sources: [] }; }
 }
 
 // Mode split: Plan pops the finished paragraph into the chat for approval;
@@ -2869,39 +2992,98 @@ async function doSignOut() {
   location.reload();
 }
 
-// Settings panel: account info + password change, no browser prompts.
-function openSettings() {
-  if (document.querySelector('.credits-overlay')) return;
-  const pop = document.getElementById('profilePop');
-  if (pop) pop.classList.remove('open');
+// Settings page — a plain, conventional settings view (grouped list rows),
+// rebuilt each time it opens so account/credits/prefs are current.
+function renderSettings() {
+  const view = document.getElementById('viewSettings');
+  if (!view) return;
   const email = Auth.email();
   const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
-  const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  ov.innerHTML = '<div class="cp-box cp-narrow st-box">' +
-    '<div class="cp-head"><div class="cp-title">Settings</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="st-sec">Account</div>' +
-    '<div class="st-acct">' +
-      '<span class="st-av"></span>' +
-      '<div class="st-id"><div class="st-name"></div><div class="st-mail"></div></div>' +
-    '</div>' +
-    '<div class="st-sec">Change password</div>' +
-    '<form class="st-form" id="stForm">' +
-      '<input type="password" class="st-in" id="stPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
-      '<button type="submit" class="st-save">Update</button>' +
-    '</form>' +
-    '<div class="cp-note" id="stNote"></div>' +
-  '</div>';
-  ov.querySelector('.st-av').textContent = (name[0] || '·').toUpperCase();
-  ov.querySelector('.st-name').textContent = name;
-  ov.querySelector('.st-mail').textContent = email;
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.querySelector('.cp-close').onclick = () => ov.remove();
-  ov.querySelector('#stForm').onsubmit = async (e) => {
+  const planTxt = paidKnown ? (isPaid ? 'Member' : 'Free') : '';
+  const balTxt = (document.getElementById('creditChip') || {}).textContent || '✦ —';
+
+  view.innerHTML =
+    '<div class="settings-page">' +
+      '<div class="sp-title">Settings</div>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Account</div>' +
+        '<div class="sp-list">' +
+          '<div class="sp-item">' +
+            '<span class="sp-acct-l"><span class="st-av">' + esc((name[0] || '·').toUpperCase()) + '</span>' +
+              '<span class="sp-item-l"><span class="sp-item-t">' + esc(name) + '</span>' +
+              '<span class="sp-item-s">' + esc(email) + '</span></span></span>' +
+            (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
+          '</div>' +
+          '<button type="button" class="sp-item sp-tap" id="spCredits">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Credits &amp; plan</span></span>' +
+            '<span class="sp-item-r">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Preferences</div>' +
+        '<div class="sp-list">' +
+          '<div class="sp-item">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Web search</span>' +
+            '<span class="sp-item-s">Look up current facts when a prompt needs them.</span></span>' +
+            '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="spWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Password</div>' +
+        '<div class="sp-list">' +
+          '<form class="sp-item sp-form" id="spForm">' +
+            '<input type="password" class="st-in" id="spPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
+            '<button type="submit" class="st-save">Update</button>' +
+          '</form>' +
+        '</div>' +
+        '<div class="cp-note sp-note" id="spNote"></div>' +
+      '</div>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">About</div>' +
+        '<div class="sp-list">' +
+          '<a class="sp-item sp-tap" href="mailto:hello@isibi.ai?subject=isibi%20feedback">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Help &amp; feedback</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<a class="sp-item sp-tap" href="/terms.html" target="_blank" rel="noopener">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Terms of Service</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<a class="sp-item sp-tap" href="/privacy.html" target="_blank" rel="noopener">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Privacy Policy</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<div class="sp-item">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Version</span></span>' +
+            '<span class="sp-item-r">' + APP_VERSION + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+
+      '<button type="button" class="sp-signout" id="spSignout">Sign out</button>' +
+    '</div>';
+
+  view.querySelector('#spCredits').onclick = () => openCredits();
+
+  view.querySelector('#spWeb').onclick = (e) => {
+    const btn = e.currentTarget;
+    const on = !btn.classList.contains('on');
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+    setWebSearch(on);
+  };
+
+  view.querySelector('#spForm').onsubmit = async (e) => {
     e.preventDefault();
-    const inp = ov.querySelector('#stPw');
-    const note = ov.querySelector('#stNote');
+    const inp = view.querySelector('#spPw');
+    const note = view.querySelector('#spNote');
     const np = inp.value;
     if (np.length < 6) { note.textContent = 'Password needs at least 6 characters.'; return; }
     note.textContent = 'Updating…';
@@ -2913,7 +3095,190 @@ function openSettings() {
       note.textContent = (err && err.message) || 'Could not change the password.';
     }
   };
+
+  view.querySelector('#spSignout').onclick = () => doSignOut();
+}
+
+// ── Products: save a product from a store link or a manual upload, then reuse
+// it across generations. Stored locally for now (zephyr_products_v1). ──
+const PRODUCTS_KEY = 'zephyr_products_v1';
+function loadProducts() { try { return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); } catch { return []; } }
+function saveProducts(list) { try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+function renderProducts() {
+  const view = document.getElementById('viewProducts');
+  if (!view) return;
+  view.innerHTML =
+    '<div class="products-page">' +
+      '<div class="pr-head"><h1>Add your product</h1>' +
+        '<p>Add a link or upload an image to use your product across generations.</p></div>' +
+      '<div class="pr-add">' +
+        '<div class="pr-url">' +
+          '<span class="pr-url-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span>' +
+          '<input id="prUrl" type="url" placeholder="www.yourproduct.com" autocomplete="off" spellcheck="false" />' +
+          '<button type="button" class="pr-url-go" id="prUrlGo" aria-label="Add product">→</button>' +
+        '</div>' +
+        '<span class="pr-or">or</span>' +
+        '<button type="button" class="pr-manual" id="prManual">Create manually</button>' +
+      '</div>' +
+      '<div class="pr-grid" id="prGrid"></div>' +
+    '</div>';
+  renderProductGrid();
+  const urlInput = view.querySelector('#prUrl');
+  const go = () => { const v = urlInput.value.trim(); if (v) addProductFromUrl(v); };
+  view.querySelector('#prUrlGo').onclick = go;
+  urlInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  view.querySelector('#prManual').onclick = () => openCreateProduct();
+}
+
+function renderProductGrid() {
+  const grid = document.getElementById('prGrid');
+  if (!grid) return;
+  const products = loadProducts();
+  grid.innerHTML = products.map((p) =>
+    '<div class="pr-card" data-id="' + esc(p.id) + '">' +
+      (p.image
+        ? '<div class="pr-thumb"><img src="' + esc(p.image) + '" alt="" loading="lazy" /></div>'
+        : '<div class="pr-thumb pr-thumb-empty">📦</div>') +
+      '<button class="pr-menu-btn" aria-label="Options">⋯</button>' +
+      '<div class="pr-menu">' +
+        '<button data-act="gen">Generate ad</button>' +
+        '<button data-act="del" class="pr-menu-del">Remove</button>' +
+      '</div>' +
+      '<div class="pr-name">' + esc(p.name || 'Product') + '</div>' +
+    '</div>').join('');
+  grid.querySelectorAll('.pr-card').forEach((card) => {
+    const id = card.dataset.id;
+    card.querySelector('.pr-menu-btn').onclick = (e) => { e.stopPropagation(); toggleProductMenu(card); };
+    card.querySelector('[data-act="gen"]').onclick = (e) => { e.stopPropagation(); startProductAd(id); };
+    card.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeProduct(id); };
+  });
+}
+
+function toggleProductMenu(card) {
+  const open = card.classList.contains('menu-open');
+  document.querySelectorAll('.pr-card.menu-open').forEach((c) => c.classList.remove('menu-open'));
+  if (!open) {
+    card.classList.add('menu-open');
+    const close = (e) => { if (!card.contains(e.target)) { card.classList.remove('menu-open'); document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+}
+
+function removeProduct(id) {
+  saveProducts(loadProducts().filter((p) => p.id !== id));
+  renderProductGrid();
+}
+
+async function addProductFromUrl(url) {
+  const grid = document.getElementById('prGrid');
+  if (!grid) return;
+  const inp = document.getElementById('prUrl'); if (inp) inp.value = '';
+  const loader = document.createElement('div');
+  loader.className = 'pr-card pr-loading';
+  loader.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">Creating product</div><div class="pr-load-s">It takes a few seconds</div>';
+  grid.insertBefore(loader, grid.firstChild);
+  try {
+    const res = await apiFetch('/api/product/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    const img = data.image || '';
+    const p = { id: prUid(), name: data.name || 'Product', desc: '', image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
+    const list = loadProducts(); list.unshift(p); saveProducts(list);
+    renderProductGrid();
+  } catch {
+    loader.className = 'pr-card pr-loading pr-error';
+    loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">Try “Create manually” instead.</div>';
+    setTimeout(() => loader.remove(), 4500);
+  }
+}
+
+function downscaleImage(file, max) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const src = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * scale));
+      c.height = Math.max(1, Math.round(img.height * scale));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(src);
+      try { resolve(c.toDataURL('image/jpeg', 0.85)); } catch { resolve(''); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(src); resolve(''); };
+    img.src = src;
+  });
+}
+
+function openCreateProduct() {
+  if (document.querySelector('.credits-overlay')) return;
+  let imgData = '';
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML = '<div class="cp-box pr-modal">' +
+    '<div class="cp-head"><div class="cp-title">Create product</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="pr-modal-body">' +
+      '<label class="pr-upload" id="prUpload">' +
+        '<input type="file" accept="image/*" id="prFile" hidden />' +
+        '<div class="pr-upload-inner" id="prUploadInner">' +
+          '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image</div><div class="pr-upload-sub">PNG or JPG</div>' +
+        '</div>' +
+      '</label>' +
+      '<div class="pr-fields">' +
+        '<label class="pr-flabel">Product name <span class="pr-req">*</span></label>' +
+        '<input class="pr-in" id="prName" placeholder="Enter product name" autocomplete="off" required />' +
+        '<label class="pr-flabel">Description</label>' +
+        '<textarea class="pr-ta" id="prDesc" placeholder="Describe your product"></textarea>' +
+        '<button type="button" class="pr-create" id="prCreate" disabled>Create product</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
   document.body.appendChild(ov);
+  const fileInput = ov.querySelector('#prFile');
+  const inner = ov.querySelector('#prUploadInner');
+  const nameInp = ov.querySelector('#prName');
+  const descInp = ov.querySelector('#prDesc');
+  const createBtn = ov.querySelector('#prCreate');
+  // Product name is required to save; the image is optional.
+  const refresh = () => { createBtn.disabled = !nameInp.value.trim(); };
+  fileInput.onchange = async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    imgData = await downscaleImage(f, 720);
+    if (imgData) inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />';
+    refresh();
+  };
+  nameInp.oninput = refresh;
+  createBtn.onclick = () => {
+    if (createBtn.disabled) return;
+    const p = { id: prUid(), name: nameInp.value.trim().slice(0, 120), desc: descInp.value.trim().slice(0, 500), image: imgData, images: imgData ? [imgData] : [], site: '', at: Date.now() };
+    const list = loadProducts(); list.unshift(p); saveProducts(list);
+    ov.remove();
+    renderProducts();
+  };
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  const onKey = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+  setTimeout(() => nameInp.focus(), 30);
+}
+
+// Start an ad from a saved product: drop into the composer prefilled.
+function startProductAd(id) {
+  const p = loadProducts().find((x) => x.id === id);
+  if (!p) return;
+  showView('home');
+  const input = document.getElementById('input');
+  if (input) {
+    input.value = 'Create a polished, scroll-stopping ad for ' + (p.name || 'my product') + (p.desc ? ' — ' + p.desc : '') + '.';
+    if (typeof autoGrow === 'function') autoGrow(input);
+    input.focus();
+  }
 }
 
 function initAuthGate() {
@@ -3036,12 +3401,14 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio' };
+const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
   if (name === 'gallery') renderGallery();
+  if (name === 'products') renderProducts();
+  if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   const lbl = document.getElementById('navDdLabel');

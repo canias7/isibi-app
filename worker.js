@@ -257,6 +257,15 @@ function extractReplyPrefix(buf) {
   try { return JSON.parse('"' + s + '"'); } catch { return ""; }
 }
 
+// Minimal HTML-entity decoder for scraped <meta>/<title> text.
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;|&#0?39;|&#x27;/gi, "'").replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(+n); } catch { return ""; } })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -734,7 +743,7 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      let step = ["compose", "revise", "error", "studio"].includes(body.step) ? body.step : "ask";
+      let step = ["compose", "revise", "error", "studio", "research"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
@@ -747,6 +756,86 @@ async function handleRequest(request, env, ctx) {
       // The chat's running creative brief — per-chat taste memory, maintained
       // by the composer and committed by the client on approval.
       const brief = kind !== "audio" && typeof body.brief === "string" ? body.brief.trim().slice(0, 600) : "";
+      // Facts gathered by a prior web-search (research) step, folded into
+      // prompt writing so "the newest X" is depicted as the real current thing.
+      const webFacts = kind !== "audio" && typeof body.webFacts === "string" ? body.webFacts.trim().slice(0, 2000) : "";
+
+      // ── Web-search research step ──────────────────────────────────────────
+      // Fires only when the ask step judged the request depends on current
+      // real-world facts. Uses Anthropic's server-side web_search tool to
+      // gather them, then returns a short factual brief + its sources. The
+      // compose step folds the brief in for accuracy. Charged per search
+      // (~$0.01 each), so it is gated behind that judgment and capped by
+      // max_uses; any failure degrades gracefully to "no facts".
+      if (step === "research") {
+        const rHistory = Array.isArray(body.history)
+          ? body.history
+              .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string")
+              .slice(-6)
+              .map((h) => ({ role: h.role, content: h.text.slice(0, 400) }))
+          : [];
+        const rTurns = [];
+        for (const h of rHistory) {
+          const last = rTurns[rTurns.length - 1];
+          if (last && last.role === h.role) last.content += "\n" + h.content;
+          else rTurns.push({ ...h });
+        }
+        while (rTurns.length && rTurns[0].role !== "user") rTurns.shift();
+        const askText = `Request: ${prompt}`;
+        const lastR = rTurns[rTurns.length - 1];
+        if (lastR && lastR.role === "user") lastR.content += "\n" + askText;
+        else rTurns.push({ role: "user", content: askText });
+
+        const rSystem = `You are the fact-checker for isibi, an AI ${kind} studio's prompt writer. The user's creative request depends on real-world facts that may have changed since your training. Use web_search to find the SPECIFIC, CURRENT facts needed to depict the subject accurately — the exact current product name and generation, notable design and visual details, colors or materials, key specs, and relevant dates. Keep it to 1-3 focused searches. Then reply with a SHORT factual brief: only the concrete facts that affect what to show, in a few plain sentences. No preamble, no markdown, and do NOT write a generation prompt.`;
+
+        let searchMsgs = rTurns;
+        let facts = "";
+        const sources = [];
+        // The web_search server loop can pause mid-search (stop_reason
+        // "pause_turn"); resend the assistant turn unchanged to continue.
+        for (let round = 0; round < 4; round++) {
+          let rr;
+          try {
+            rr = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": env.ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "claude-sonnet-5",
+                max_tokens: 1024,
+                system: rSystem,
+                tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
+                messages: searchMsgs,
+              }),
+            });
+          } catch {
+            return Response.json({ facts: "", sources: [] });
+          }
+          const rdata = await rr.json().catch(() => ({}));
+          if (!rr.ok) return Response.json({ facts: "", sources: [] });
+          const content = Array.isArray(rdata.content) ? rdata.content : [];
+          for (const c of content) {
+            if (c.type === "text" && typeof c.text === "string") facts += c.text;
+            if (c.type === "web_search_tool_result" && Array.isArray(c.content)) {
+              for (const s of c.content) {
+                if (s && s.type === "web_search_result" && s.url) {
+                  sources.push({ url: String(s.url).slice(0, 300), title: String(s.title || "").slice(0, 160) });
+                }
+              }
+            }
+          }
+          if (rdata.stop_reason === "pause_turn") { searchMsgs = searchMsgs.concat([{ role: "assistant", content }]); continue; }
+          break;
+        }
+        const seen = new Set();
+        const uniqSources = [];
+        for (const s of sources) { if (!seen.has(s.url)) { seen.add(s.url); uniqSources.push(s); } if (uniqSources.length >= 5) break; }
+        return Response.json({ facts: facts.trim().slice(0, 2000), sources: uniqSources });
+      }
+
       // Studio: the project's current shot list, summarized by the client.
       const shotsCtx = Array.isArray(body.shots)
         ? body.shots.slice(0, 40).map((s) => ({
@@ -827,6 +916,9 @@ async function handleRequest(request, env, ctx) {
       const briefLine = brief
         ? `\nThis chat's running creative brief: "${brief}" — stay consistent with it unless this request changes direction.`
         : "";
+      const factsLine = webFacts
+        ? `\nVerified current facts (from a live web search — treat as ground truth and depict accordingly, do not contradict them): ${webFacts}`
+        : "";
       const system = step === "ask"
         ? (kind === "audio"
           ? `You are isibi, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
@@ -884,7 +976,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}
+${effortLine}${briefLine}${factsLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -895,7 +987,7 @@ Craft rules:
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
 ${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
 - ${familyHint}` : ""}
-${effortLine}${briefLine}
+${effortLine}${briefLine}${factsLine}
 Context: ${ctxLine}`
         : `You are the prompt writer for isibi, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
@@ -939,6 +1031,7 @@ Context: ${ctxLine}`
                 ready: { type: "boolean", description: "true if the user has given an actual thing to create; false for greetings or small talk" },
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
+                needsWeb: { type: "boolean", description: "true ONLY if depicting this accurately needs current, real-world facts you may not reliably know — the newest/latest named products, recent events, real specs, prices, dates, or specific real people/places; false for generic or imaginative creative requests" },
               },
               required: ["reply", "ready"],
             },
@@ -1017,6 +1110,7 @@ Context: ${ctxLine}`
         ready: !!parsed.ready,
         rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
         revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
+        needsWeb: !!parsed.needsWeb && kind !== "audio",
       });
 
       const wantStream = body.stream === true && step === "ask";
@@ -1255,6 +1349,74 @@ Context: ${ctxLine}`
       } catch {
         return Response.json({ error: "poll failed" }, { status: 502 });
       }
+    }
+
+    // Scan a product URL: fetch the page server-side (no CORS) and pull the
+    // product's name + images from OpenGraph / product meta, so the Products
+    // tab can create a product from a store link.
+    if (url.pathname === "/api/product/scan" && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      let target = typeof body.url === "string" ? body.url.trim() : "";
+      if (!target) return Response.json({ error: "no url" }, { status: 400 });
+      if (!/^https?:\/\//i.test(target)) target = "https://" + target;
+      let u;
+      try { u = new URL(target); } catch { return Response.json({ error: "invalid url" }, { status: 400 }); }
+      if (u.protocol !== "http:" && u.protocol !== "https:") return Response.json({ error: "invalid url" }, { status: 400 });
+      const host = u.hostname.toLowerCase();
+      // Basic SSRF guard — no localhost, private ranges, or cloud metadata.
+      if (host === "localhost" || host.endsWith(".internal") || host === "metadata.google.internal" ||
+          /^(127\.|0\.|10\.|169\.254\.|192\.168\.|::1)/.test(host) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+        return Response.json({ error: "blocked" }, { status: 400 });
+      }
+      let html = "";
+      try {
+        const r = await fetch(u.toString(), {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; isibiBot/1.0; +https://isibi.ai)", "Accept": "text/html,application/xhtml+xml" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return Response.json({ error: "fetch failed" }, { status: 502 });
+        const buf = await r.arrayBuffer();
+        html = new TextDecoder("utf-8").decode(new Uint8Array(buf).subarray(0, 1_500_000));
+      } catch {
+        return Response.json({ error: "fetch failed" }, { status: 502 });
+      }
+      const allMeta = (prop) => {
+        const re = new RegExp('<meta[^>]+(?:property|name)=["\\\']' + prop + '["\\\'][^>]*>', "ig");
+        const out = []; let m;
+        while ((m = re.exec(html)) && out.length < 8) {
+          const c = m[0].match(/content=["']([^"']*)["']/i);
+          if (c && c[1]) out.push(decodeEntities(c[1]).trim());
+        }
+        return out;
+      };
+      const meta = (prop) => allMeta(prop)[0] || "";
+      const titleTag = decodeEntities((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "").trim();
+      const name = (meta("og:title") || meta("twitter:title") || titleTag).slice(0, 120);
+      const site = (meta("og:site_name") || host.replace(/^www\./, "")).slice(0, 80);
+      // Scrape exactly ONE product image: prefer OpenGraph/Twitter, then
+      // <link rel="image_src">, then the first sizeable content <img>.
+      const abs = (s) => { try { return new URL(s, u).toString(); } catch { return null; } };
+      const ok = (s) => s && /^https?:\/\//i.test(s);
+      let image = allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).find(ok) || "";
+      if (!image) {
+        const href = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
+        if (href) { const a = abs(href[1]); if (ok(a)) image = a; }
+      }
+      if (!image) {
+        const cand = [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/ig)].map((m) => abs(m[1]))
+          .find((s) => ok(s) && !/sprite|logo|icon|placeholder|favicon|1x1|pixel|badge/i.test(s));
+        if (cand) image = cand;
+      }
+      const price = meta("product:price:amount") || meta("og:price:amount") || "";
+      const currency = meta("product:price:currency") || meta("og:price:currency") || "";
+      if (!name && !image) return Response.json({ error: "no product info" }, { status: 422 });
+      return Response.json({ name: name || site, site, image, price, currency });
     }
 
     return env.ASSETS.fetch(request);
