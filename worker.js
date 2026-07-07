@@ -155,6 +155,7 @@ async function useCredits(authHeader, cost) {
       Authorization: authHeader,
     },
     body: JSON.stringify({ cost }),
+    signal: AbortSignal.timeout(10000),
   });
   if (!r.ok) throw new Error("credits rpc " + r.status);
   return Number(await r.json());
@@ -172,6 +173,7 @@ async function readCredits(authHeader) {
       Authorization: authHeader,
     },
     body: "{}",
+    signal: AbortSignal.timeout(10000),
   });
   if (!r.ok) throw new Error("credits rpc " + r.status);
   return Number(await r.json());
@@ -183,7 +185,7 @@ async function cancelFal(data, env) {
   try {
     const u = String((data && data.status_url) || "").replace(/\/status$/, "/cancel");
     if (/^https:\/\/queue\.fal\.run\//.test(u) && env.FAL_KEY) {
-      await fetch(u, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+      await fetch(u, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(8000) });
     }
   } catch {}
 }
@@ -196,6 +198,7 @@ async function authUser(request) {
   try {
     const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
       headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+      signal: AbortSignal.timeout(10000),
     });
     if (!r.ok) return null;
     const user = await r.json();
@@ -350,6 +353,14 @@ function b64FromBuffer(ab) {
   return btoa(bin);
 }
 
+// Reject an obviously-oversized body by Content-Length before parsing it — a
+// generous backstop (attachments are already capped client-side), not a tight
+// limit. Returns a 413 Response, or null to proceed.
+function tooLargeBody(request, maxBytes) {
+  const len = Number(request.headers.get("content-length") || 0);
+  return len > maxBytes ? Response.json({ error: "payload too large" }, { status: 413 }) : null;
+}
+
 // ── Free-tier watermark, burned server-side ────────────────────────────────
 // The "✦ isibi.ai" badge PNG lives in public/; fetched once per isolate via the
 // ASSETS binding and cached. Composited bottom-right, scaled to ~26% of the
@@ -412,6 +423,7 @@ async function handleRequest(request, env, ctx) {
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
       }
+      const tl = tooLargeBody(request, 100_000_000); if (tl) return tl; // ~100MB backstop
       let body;
       try {
         body = await request.json();
@@ -650,6 +662,7 @@ async function handleRequest(request, env, ctx) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(input),
+          signal: AbortSignal.timeout(30000),
         });
       } catch {
         return Response.json({ error: "submit failed" }, { status: 502 });
@@ -867,6 +880,7 @@ async function handleRequest(request, env, ctx) {
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
+      const tl = tooLargeBody(request, 60_000_000); if (tl) return tl; // director carries at most one image
       let body;
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
@@ -938,6 +952,7 @@ async function handleRequest(request, env, ctx) {
                 tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 4 }],
                 messages: searchMsgs,
               }),
+              signal: AbortSignal.timeout(120000),
             });
           } catch {
             return Response.json({ facts: "", sources: [] });
@@ -1276,6 +1291,7 @@ Context: ${ctxLine}`
             tool_choice: { type: "tool", name: tool.name },
             messages: turns,
           }),
+          signal: AbortSignal.timeout(120000),
         });
       } catch {
         return Response.json({ error: "director request failed" }, { status: 502 });
@@ -1366,7 +1382,7 @@ Context: ${ctxLine}`
       }
       if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
       try {
-        const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        const r = await fetch(target, { method: "PUT", headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
         const data = await r.text();
         return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
       } catch {
@@ -1456,6 +1472,7 @@ Context: ${ctxLine}`
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
           body: bytes || media.body,
+          signal: AbortSignal.timeout(30000),
         });
       } catch {
         return Response.json({ error: "store failed" }, { status: 502 });
@@ -1473,7 +1490,7 @@ Context: ${ctxLine}`
       }
       if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
       try {
-        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` } });
+        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(15000) });
         return new Response(await r.text(), {
           status: r.status,
           headers: { "Content-Type": "application/json" },
