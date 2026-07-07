@@ -600,6 +600,8 @@ function setEffort(level) {
 const WEBSEARCH_KEY = 'zephyr_websearch';
 function webSearchOn() { return localStorage.getItem(WEBSEARCH_KEY) !== '0'; }
 function setWebSearch(on) { localStorage.setItem(WEBSEARCH_KEY, on ? '1' : '0'); }
+// Shown in Settings → About.
+const APP_VERSION = '1.0.0';
 // Prompt-help mode chip (top-right of the composer). Three modes:
 //   auto — isibi.ai composes and makes every creative call, never asks
 //   plan — isibi.ai interviews first (the question popup), then composes
@@ -2970,6 +2972,28 @@ function renderSettings() {
           '</form>' +
         '</div>' +
         '<div class="cp-note sp-note" id="spNote"></div>' +
+      '</div>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">About</div>' +
+        '<div class="sp-list">' +
+          '<a class="sp-item sp-tap" href="mailto:hello@isibi.ai?subject=isibi%20feedback">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Help &amp; feedback</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<a class="sp-item sp-tap" href="/terms.html" target="_blank" rel="noopener">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Terms of Service</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<a class="sp-item sp-tap" href="/privacy.html" target="_blank" rel="noopener">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Privacy Policy</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</a>' +
+          '<div class="sp-item">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Version</span></span>' +
+            '<span class="sp-item-r">' + APP_VERSION + '</span>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
 
       '<button type="button" class="sp-signout" id="spSignout">Sign out</button>' +

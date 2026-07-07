@@ -759,8 +759,8 @@
 .sp-item-s { display: block; font-size: .78rem; color: var(--muted); margin-top: .12rem; line-height: 1.4; }
 .sp-item-r { display: inline-flex; align-items: center; gap: .4rem; flex-shrink: 0; color: var(--muted); font-weight: 600; font-size: .88rem; }
 .sp-acct-l { display: flex; align-items: center; gap: .7rem; min-width: 0; }
-button.sp-tap { width: 100%; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: background .12s ease; }
-button.sp-tap:hover { background: var(--panel-2); }
+.sp-tap { width: 100%; background: none; color: var(--text); font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: background .12s ease; }
+.sp-tap:hover { background: var(--panel-2); }
 .sp-form { gap: .5rem; }
 .sp-note { margin: .5rem .2rem 0; }
 .sp-signout {
