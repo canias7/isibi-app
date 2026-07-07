@@ -703,12 +703,22 @@ function renderPresets() {
   const tabs = PRESET_CATS.map((c) =>
     '<button type="button" class="pt-tab' + (c.key === presetCat ? ' active' : '') + '" data-cat="' + c.key + '">' + esc(c.label) + '</button>').join('');
   const cat = PRESET_CATS.find((c) => c.key === presetCat) || PRESET_CATS[0];
-  const cards = cat.items.map((it, i) =>
-    '<button type="button" class="pt-card" data-i="' + i + '">' +
-      '<span class="pt-kind">' + esc(it.kind || 'video') + '</span>' +
-      '<span class="pt-card-t">' + esc(it.label) + '</span>' +
-      '<span class="pt-card-s">' + esc(it.desc || '') + '</span>' +
-    '</button>').join('');
+  const kindIco = (k) => (k === 'image' ? '🖼' : k === 'audio' ? '🎙' : '🎬');
+  const cards = cat.items.map((it, i) => {
+    const prev = (Array.isArray(it.previews) && it.previews.length ? it.previews.slice(0, 3) : [null, null, null])
+      .map((p, k) => p
+        ? '<span class="pt-prev"><img src="' + esc(p) + '" alt="" loading="lazy" /></span>'
+        : '<span class="pt-prev pt-prev-ph pt-ph' + (k % 3) + '"></span>').join('');
+    return '<button type="button" class="pt-card" data-i="' + i + '">' +
+      '<span class="pt-previews">' + prev + '</span>' +
+      '<span class="pt-foot">' +
+        '<span class="pt-ico">' + kindIco(it.kind) + '</span>' +
+        '<span class="pt-meta"><span class="pt-card-t">' + esc(it.label) + '</span>' +
+        '<span class="pt-card-s">' + esc(it.desc || '') + '</span></span>' +
+        '<span class="pt-try">Try</span>' +
+      '</span>' +
+    '</button>';
+  }).join('');
   body.innerHTML = '<div class="pt-tabs">' + tabs + '</div><div class="pt-grid">' + cards + '</div>';
   body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; renderPresets(); }; });
   body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });

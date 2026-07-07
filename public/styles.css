@@ -1492,19 +1492,30 @@
 }
 .pt-tab:hover { color: var(--text); }
 .pt-tab.active { background: var(--split); color: #0a0a0b; border-color: transparent; }
-.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.1rem; }
 .pt-card {
-  display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; text-align: left;
-  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 14px; padding: 1rem 1.05rem;
-  cursor: pointer; transition: border-color .12s ease, transform .12s ease;
+  display: block; padding: 0; overflow: hidden; text-align: left; cursor: pointer;
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px;
+  transition: border-color .12s ease, transform .12s ease;
 }
 .pt-card:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-2px); }
-.pt-kind {
-  font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted);
-  border: 1px solid var(--line-2); border-radius: 999px; padding: .12rem .5rem;
+.pt-previews { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.pt-prev { position: relative; aspect-ratio: 3 / 4; overflow: hidden; background: #17161d; }
+.pt-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pt-prev-ph::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(60% 45% at 50% 22%, rgba(255, 255, 255, .22), transparent 70%);
 }
-.pt-card-t { font-size: .95rem; font-weight: 600; color: var(--text); }
-.pt-card-s { font-size: .8rem; color: var(--muted); line-height: 1.4; }
+.pt-ph0 { background: linear-gradient(150deg, #ff79c6, #ffb84d); }
+.pt-ph1 { background: linear-gradient(150deg, #a06cff, #ff79c6); }
+.pt-ph2 { background: linear-gradient(150deg, #ffb84d, #ff7a5b); }
+.pt-foot { display: flex; align-items: center; gap: .6rem; padding: .7rem .8rem; }
+.pt-ico { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--panel); font-size: .95rem; }
+.pt-meta { flex: 1; min-width: 0; }
+.pt-card-t { display: block; font-size: .92rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-card-s { display: block; font-size: .76rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pt-try { flex: 0 0 auto; background: var(--split); color: #0a0a0b; font-weight: 700; font-size: .82rem; padding: .42rem .95rem; border-radius: 8px; }
+.pt-card:hover .pt-try { filter: brightness(1.06); }
 
 /* ── Chat column nudged right of center (box + thread text together) ── */
 /* The wide "floating attach rail + shifted column" layout — the 24" desktop
