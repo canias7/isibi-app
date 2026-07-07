@@ -3121,12 +3121,6 @@ function renderLanding() {
   const h = new Date().getHours();
   const greet = h < 5 ? 'Late night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 
-  const actions = [
-    { go: 'create', ico: '✨', t: 'Start creating', s: 'Describe a scene and generate' },
-    { go: 'products', ico: '📦', t: 'Add a product', s: 'Turn products into ads' },
-    { go: 'presets', ico: '🎬', t: 'Browse presets', s: 'Marketing, cinematic & more' },
-    { go: 'gallery', ico: '🖼', t: 'Your gallery', s: 'Everything you’ve made' },
-  ];
   const recent = (typeof galleryItems === 'function' ? galleryItems() : []).slice(0, 8);
   const recentHtml = recent.length
     ? '<div class="lp-sec">Recent creations</div><div class="lp-recent">' +
@@ -3152,12 +3146,7 @@ function renderLanding() {
     '<div class="lp-page">' +
       '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
         '<p>Pick up where you left off, or start something new.</p></div>' +
-      '<div class="lp-actions">' +
-        actions.map((a) => '<button type="button" class="lp-card" data-go="' + a.go + '">' +
-          '<span class="lp-ico">' + a.ico + '</span>' +
-          '<span class="lp-t">' + a.t + '</span>' +
-          '<span class="lp-s">' + a.s + '</span></button>').join('') +
-      '</div>' + nfHtml + recentHtml +
+      nfHtml + recentHtml +
     '</div>';
 
   const go = (what) => {
