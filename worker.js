@@ -257,6 +257,15 @@ function extractReplyPrefix(buf) {
   try { return JSON.parse('"' + s + '"'); } catch { return ""; }
 }
 
+// Minimal HTML-entity decoder for scraped <meta>/<title> text.
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;|&#0?39;|&#x27;/gi, "'").replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(+n); } catch { return ""; } })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1340,6 +1349,64 @@ Context: ${ctxLine}`
       } catch {
         return Response.json({ error: "poll failed" }, { status: 502 });
       }
+    }
+
+    // Scan a product URL: fetch the page server-side (no CORS) and pull the
+    // product's name + images from OpenGraph / product meta, so the Products
+    // tab can create a product from a store link.
+    if (url.pathname === "/api/product/scan" && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      let target = typeof body.url === "string" ? body.url.trim() : "";
+      if (!target) return Response.json({ error: "no url" }, { status: 400 });
+      if (!/^https?:\/\//i.test(target)) target = "https://" + target;
+      let u;
+      try { u = new URL(target); } catch { return Response.json({ error: "invalid url" }, { status: 400 }); }
+      if (u.protocol !== "http:" && u.protocol !== "https:") return Response.json({ error: "invalid url" }, { status: 400 });
+      const host = u.hostname.toLowerCase();
+      // Basic SSRF guard — no localhost, private ranges, or cloud metadata.
+      if (host === "localhost" || host.endsWith(".internal") || host === "metadata.google.internal" ||
+          /^(127\.|0\.|10\.|169\.254\.|192\.168\.|::1)/.test(host) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+        return Response.json({ error: "blocked" }, { status: 400 });
+      }
+      let html = "";
+      try {
+        const r = await fetch(u.toString(), {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; isibiBot/1.0; +https://isibi.ai)", "Accept": "text/html,application/xhtml+xml" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return Response.json({ error: "fetch failed" }, { status: 502 });
+        const buf = await r.arrayBuffer();
+        html = new TextDecoder("utf-8").decode(new Uint8Array(buf).subarray(0, 1_500_000));
+      } catch {
+        return Response.json({ error: "fetch failed" }, { status: 502 });
+      }
+      const allMeta = (prop) => {
+        const re = new RegExp('<meta[^>]+(?:property|name)=["\\\']' + prop + '["\\\'][^>]*>', "ig");
+        const out = []; let m;
+        while ((m = re.exec(html)) && out.length < 8) {
+          const c = m[0].match(/content=["']([^"']*)["']/i);
+          if (c && c[1]) out.push(decodeEntities(c[1]).trim());
+        }
+        return out;
+      };
+      const meta = (prop) => allMeta(prop)[0] || "";
+      const titleTag = decodeEntities((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "").trim();
+      const name = (meta("og:title") || meta("twitter:title") || titleTag).slice(0, 120);
+      const site = (meta("og:site_name") || host.replace(/^www\./, "")).slice(0, 80);
+      const images = [...new Set([...allMeta("og:image"), ...allMeta("og:image:secure_url"), ...allMeta("twitter:image")])]
+        .map((s) => { try { return new URL(s, u).toString(); } catch { return null; } })
+        .filter((s) => s && /^https?:\/\//i.test(s))
+        .slice(0, 6);
+      const price = meta("product:price:amount") || meta("og:price:amount") || "";
+      const currency = meta("product:price:currency") || meta("og:price:currency") || "";
+      if (!name && !images.length) return Response.json({ error: "no product info" }, { status: 422 });
+      return Response.json({ name: name || site, site, image: images[0] || "", images, price, currency });
     }
 
     return env.ASSETS.fetch(request);

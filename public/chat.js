@@ -3028,6 +3028,186 @@ function renderSettings() {
   view.querySelector('#spSignout').onclick = () => doSignOut();
 }
 
+// ── Products: save a product from a store link or a manual upload, then reuse
+// it across generations. Stored locally for now (zephyr_products_v1). ──
+const PRODUCTS_KEY = 'zephyr_products_v1';
+function loadProducts() { try { return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); } catch { return []; } }
+function saveProducts(list) { try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+function renderProducts() {
+  const view = document.getElementById('viewProducts');
+  if (!view) return;
+  view.innerHTML =
+    '<div class="products-page">' +
+      '<div class="pr-head"><h1>Add your product</h1>' +
+        '<p>Add a link or upload an image to use your product across generations.</p></div>' +
+      '<div class="pr-add">' +
+        '<div class="pr-url">' +
+          '<span class="pr-url-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span>' +
+          '<input id="prUrl" type="url" placeholder="www.yourproduct.com" autocomplete="off" spellcheck="false" />' +
+          '<button type="button" class="pr-url-go" id="prUrlGo" aria-label="Add product">→</button>' +
+        '</div>' +
+        '<span class="pr-or">or</span>' +
+        '<button type="button" class="pr-manual" id="prManual">Create manually</button>' +
+      '</div>' +
+      '<div class="pr-grid" id="prGrid"></div>' +
+    '</div>';
+  renderProductGrid();
+  const urlInput = view.querySelector('#prUrl');
+  const go = () => { const v = urlInput.value.trim(); if (v) addProductFromUrl(v); };
+  view.querySelector('#prUrlGo').onclick = go;
+  urlInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+  view.querySelector('#prManual').onclick = () => openCreateProduct();
+}
+
+function renderProductGrid() {
+  const grid = document.getElementById('prGrid');
+  if (!grid) return;
+  const products = loadProducts();
+  grid.innerHTML = products.map((p) =>
+    '<div class="pr-card" data-id="' + esc(p.id) + '">' +
+      (p.image
+        ? '<div class="pr-thumb"><img src="' + esc(p.image) + '" alt="" loading="lazy" /></div>'
+        : '<div class="pr-thumb pr-thumb-empty">📦</div>') +
+      '<button class="pr-menu-btn" aria-label="Options">⋯</button>' +
+      '<div class="pr-menu">' +
+        '<button data-act="gen">Generate ad</button>' +
+        '<button data-act="del" class="pr-menu-del">Remove</button>' +
+      '</div>' +
+      '<div class="pr-name">' + esc(p.name || 'Product') + '</div>' +
+    '</div>').join('');
+  grid.querySelectorAll('.pr-card').forEach((card) => {
+    const id = card.dataset.id;
+    card.querySelector('.pr-menu-btn').onclick = (e) => { e.stopPropagation(); toggleProductMenu(card); };
+    card.querySelector('[data-act="gen"]').onclick = (e) => { e.stopPropagation(); startProductAd(id); };
+    card.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeProduct(id); };
+  });
+}
+
+function toggleProductMenu(card) {
+  const open = card.classList.contains('menu-open');
+  document.querySelectorAll('.pr-card.menu-open').forEach((c) => c.classList.remove('menu-open'));
+  if (!open) {
+    card.classList.add('menu-open');
+    const close = (e) => { if (!card.contains(e.target)) { card.classList.remove('menu-open'); document.removeEventListener('click', close); } };
+    setTimeout(() => document.addEventListener('click', close), 0);
+  }
+}
+
+function removeProduct(id) {
+  saveProducts(loadProducts().filter((p) => p.id !== id));
+  renderProductGrid();
+}
+
+async function addProductFromUrl(url) {
+  const grid = document.getElementById('prGrid');
+  if (!grid) return;
+  const inp = document.getElementById('prUrl'); if (inp) inp.value = '';
+  const loader = document.createElement('div');
+  loader.className = 'pr-card pr-loading';
+  loader.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">Creating product</div><div class="pr-load-s">It takes a few seconds</div>';
+  grid.insertBefore(loader, grid.firstChild);
+  try {
+    const res = await apiFetch('/api/product/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw 0;
+    const data = await res.json();
+    const p = { id: prUid(), name: data.name || 'Product', desc: '', image: data.image || '', images: Array.isArray(data.images) ? data.images.slice(0, 6) : [], site: data.site || '', at: Date.now() };
+    const list = loadProducts(); list.unshift(p); saveProducts(list);
+    renderProductGrid();
+  } catch {
+    loader.className = 'pr-card pr-loading pr-error';
+    loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">Try “Create manually” instead.</div>';
+    setTimeout(() => loader.remove(), 4500);
+  }
+}
+
+function downscaleImage(file, max) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    const src = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * scale));
+      c.height = Math.max(1, Math.round(img.height * scale));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(src);
+      try { resolve(c.toDataURL('image/jpeg', 0.85)); } catch { resolve(''); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(src); resolve(''); };
+    img.src = src;
+  });
+}
+
+function openCreateProduct() {
+  if (document.querySelector('.credits-overlay')) return;
+  let imgData = '';
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML = '<div class="cp-box pr-modal">' +
+    '<div class="cp-head"><div class="cp-title">Create product</div><button type="button" class="cp-close">✕</button></div>' +
+    '<div class="pr-modal-body">' +
+      '<label class="pr-upload" id="prUpload">' +
+        '<input type="file" accept="image/*" id="prFile" hidden />' +
+        '<div class="pr-upload-inner" id="prUploadInner">' +
+          '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image</div><div class="pr-upload-sub">PNG or JPG</div>' +
+        '</div>' +
+      '</label>' +
+      '<div class="pr-fields">' +
+        '<label class="pr-flabel">Product name</label>' +
+        '<input class="pr-in" id="prName" placeholder="Enter product name" autocomplete="off" />' +
+        '<label class="pr-flabel">Description</label>' +
+        '<textarea class="pr-ta" id="prDesc" placeholder="Describe your product"></textarea>' +
+        '<button type="button" class="pr-create" id="prCreate" disabled>Create product</button>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+  document.body.appendChild(ov);
+  const fileInput = ov.querySelector('#prFile');
+  const inner = ov.querySelector('#prUploadInner');
+  const nameInp = ov.querySelector('#prName');
+  const descInp = ov.querySelector('#prDesc');
+  const createBtn = ov.querySelector('#prCreate');
+  const refresh = () => { createBtn.disabled = !(nameInp.value.trim() && imgData); };
+  fileInput.onchange = async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    imgData = await downscaleImage(f, 720);
+    if (imgData) inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />';
+    refresh();
+  };
+  nameInp.oninput = refresh;
+  createBtn.onclick = () => {
+    if (createBtn.disabled) return;
+    const p = { id: prUid(), name: nameInp.value.trim().slice(0, 120), desc: descInp.value.trim().slice(0, 500), image: imgData, images: imgData ? [imgData] : [], site: '', at: Date.now() };
+    const list = loadProducts(); list.unshift(p); saveProducts(list);
+    ov.remove();
+    renderProducts();
+  };
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  const onKey = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
+  setTimeout(() => nameInp.focus(), 30);
+}
+
+// Start an ad from a saved product: drop into the composer prefilled.
+function startProductAd(id) {
+  const p = loadProducts().find((x) => x.id === id);
+  if (!p) return;
+  showView('home');
+  const input = document.getElementById('input');
+  if (input) {
+    input.value = 'Create a polished, scroll-stopping ad for ' + (p.name || 'my product') + (p.desc ? ' — ' + p.desc : '') + '.';
+    if (typeof autoGrow === 'function') autoGrow(input);
+    input.focus();
+  }
+}
+
 function initAuthGate() {
   const form = document.getElementById('authForm');
   if (form) form.addEventListener('submit', (e) => { e.preventDefault(); submitAuth(); });
@@ -3154,6 +3334,7 @@ function showView(name) {
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
   if (name === 'gallery') renderGallery();
+  if (name === 'products') renderProducts();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));

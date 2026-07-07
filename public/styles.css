@@ -772,6 +772,66 @@
 .sp-signout:hover { color: #ff6b8a; border-color: rgba(255, 107, 138, .4); }
 @media (max-width: 900px) { .view-settings.active { padding: 1.5rem 1rem 2.5rem; } }
 
+/* ── Products page ── */
+.view-products.active { flex-direction: column; overflow-y: auto; padding: 2.4rem 2rem 3rem; }
+.products-page { width: 100%; max-width: 900px; margin: 0 auto; }
+.pr-head h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; text-transform: uppercase; }
+.pr-head p { color: var(--muted); font-size: .92rem; margin-top: .35rem; max-width: 460px; }
+.pr-add { display: flex; align-items: center; gap: .85rem; margin: 1.6rem 0 1.9rem; flex-wrap: wrap; }
+.pr-url { display: flex; align-items: center; gap: .55rem; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 12px; padding: .2rem .2rem .2rem .8rem; min-width: 280px; flex: 1; max-width: 420px; }
+.pr-url:focus-within { border-color: rgba(255, 170, 110, .5); }
+.pr-url-ico { color: var(--muted); display: inline-flex; }
+.pr-url-ico svg { width: 16px; height: 16px; }
+.pr-url input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .9rem; padding: .55rem 0; }
+.pr-url input::placeholder { color: rgba(237, 234, 243, .4); }
+.pr-url-go { flex-shrink: 0; width: 36px; height: 36px; border-radius: 9px; border: none; background: var(--split); color: #0a0a0b; font-size: 1.1rem; font-weight: 700; cursor: pointer; display: grid; place-items: center; transition: transform .12s ease; }
+.pr-url-go:hover { transform: translateY(-1px); }
+.pr-or { color: var(--muted); font-size: .9rem; }
+.pr-manual { background: #fff; color: #0a0a0b; border: none; border-radius: 11px; padding: .62rem 1.1rem; font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer; transition: transform .12s ease; }
+.pr-manual:hover { transform: translateY(-1px); }
+.pr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 1.1rem; }
+.pr-card { position: relative; }
+.pr-thumb { position: relative; aspect-ratio: 1; border-radius: 14px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--line-2); }
+.pr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pr-thumb-empty { display: grid; place-items: center; font-size: 2rem; opacity: .5; }
+.pr-name { margin-top: .55rem; font-size: .88rem; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-menu-btn { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(10, 9, 14, .6); backdrop-filter: blur(6px); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease; }
+.pr-card:hover .pr-menu-btn, .pr-card.menu-open .pr-menu-btn { opacity: 1; }
+.pr-menu { position: absolute; top: 40px; right: 8px; z-index: 5; display: none; flex-direction: column; min-width: 130px; background: #17161d; border: 1px solid var(--line-2); border-radius: 10px; padding: .3rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.pr-card.menu-open .pr-menu { display: flex; }
+.pr-menu button { background: none; border: none; color: var(--text); font: inherit; font-size: .85rem; text-align: left; padding: .5rem .6rem; border-radius: 7px; cursor: pointer; }
+.pr-menu button:hover { background: var(--panel-2); }
+.pr-menu-del:hover { color: #ff6b8a; }
+.pr-loading { aspect-ratio: 1; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .25rem; text-align: center; padding: 1rem; }
+.pr-ring { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .14); border-top-color: #ff9ad4; animation: spin .8s linear infinite; margin-bottom: .5rem; }
+.pr-load-t { font-size: .88rem; font-weight: 600; }
+.pr-load-s { font-size: .76rem; color: var(--muted); }
+.pr-error .pr-load-t { color: #ff9ab0; }
+/* Create Product modal */
+.pr-modal { max-width: 660px; width: 100%; }
+.pr-modal-body { display: flex; gap: 1.3rem; }
+.pr-upload { flex: 0 0 240px; aspect-ratio: 1; border-radius: 14px; border: 1.5px dashed var(--line-2); background: var(--panel-2); display: grid; place-items: center; cursor: pointer; overflow: hidden; transition: border-color .12s ease; }
+.pr-upload:hover { border-color: rgba(255, 170, 110, .5); }
+.pr-upload-inner { text-align: center; color: var(--muted); padding: 1rem; }
+.pr-upload-ico { font-size: 1.5rem; margin-bottom: .4rem; }
+.pr-upload-t { font-size: .88rem; font-weight: 600; color: var(--text); }
+.pr-upload-sub { font-size: .74rem; margin-top: .15rem; }
+.pr-upload-img { width: 100%; height: 100%; object-fit: cover; }
+.pr-fields { flex: 1; display: flex; flex-direction: column; }
+.pr-flabel { font-size: .8rem; font-weight: 600; color: var(--muted); margin-bottom: .35rem; }
+.pr-in, .pr-ta { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; padding: .6rem .75rem; color: var(--text); font: inherit; font-size: .9rem; outline: none; transition: border-color .12s ease; }
+.pr-in:focus, .pr-ta:focus { border-color: rgba(255, 170, 110, .5); }
+.pr-in { margin-bottom: 1rem; }
+.pr-ta { resize: none; height: 92px; margin-bottom: 1.1rem; line-height: 1.4; }
+.pr-create { margin-top: auto; background: var(--split); color: #0a0a0b; border: none; border-radius: 11px; padding: .7rem; font: inherit; font-weight: 700; font-size: .92rem; cursor: pointer; transition: transform .12s ease; }
+.pr-create:hover:not(:disabled) { transform: translateY(-1px); }
+.pr-create:disabled { opacity: .45; cursor: default; }
+@media (max-width: 640px) {
+  .view-products.active { padding: 1.5rem 1rem 2.5rem; }
+  .pr-modal-body { flex-direction: column; }
+  .pr-upload { flex-basis: auto; width: 100%; max-width: 260px; margin: 0 auto; }
+}
+
 /* One-time welcome modal for fresh accounts (signup grant) */
 .welcome-ov { backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: up-fade .22s ease both; }
 .wm-box {
