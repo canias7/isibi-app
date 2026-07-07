@@ -3101,7 +3101,17 @@ function renderSettings() {
   view.querySelector('#spSignout').onclick = () => doSignOut();
 }
 
-// ── Home landing / dashboard: greeting, quick actions, recent creations. ──
+// Netflix-style model showcase rows on the Home landing. Each row is a model
+// name + a horizontal strip of example videos. Drop URLs into `videos` (they
+// can be /public paths or remote URLs) and they replace the placeholder tiles.
+const MODEL_ROWS = [
+  { model: 'Seedance 2.0 4K', videos: [] },
+  { model: 'Veo 3.1', videos: [] },
+  { model: 'Kling 3.0', videos: [] },
+  { model: 'Sora 2', videos: [] },
+  { model: 'Hailuo 02', videos: [] },
+];
+// ── Home landing / dashboard: greeting, quick actions, model rows, recent. ──
 function renderLanding() {
   const view = document.getElementById('viewLanding');
   if (!view) return;
@@ -3129,6 +3139,15 @@ function renderLanding() {
       '</button>').join('') + '</div>'
     : '';
 
+  const nfHtml = MODEL_ROWS.map((row) => {
+    const cards = (row.videos && row.videos.length ? row.videos : [null, null, null, null, null, null])
+      .map((v, i) => v
+        ? '<div class="nf-card"><video src="' + esc(v) + '" muted loop playsinline preload="metadata"></video></div>'
+        : '<div class="nf-card nf-ph nf-ph' + (i % 3) + '"><span class="nf-play">▶</span></div>').join('');
+    return '<div class="nf-row"><h2 class="nf-title">' + esc(row.model) + '</h2>' +
+      '<div class="nf-track">' + cards + '</div></div>';
+  }).join('');
+
   view.innerHTML =
     '<div class="lp-page">' +
       '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
@@ -3138,7 +3157,7 @@ function renderLanding() {
           '<span class="lp-ico">' + a.ico + '</span>' +
           '<span class="lp-t">' + a.t + '</span>' +
           '<span class="lp-s">' + a.s + '</span></button>').join('') +
-      '</div>' + recentHtml +
+      '</div>' + nfHtml + recentHtml +
     '</div>';
 
   const go = (what) => {
@@ -3147,6 +3166,13 @@ function renderLanding() {
     else showView(what);
   };
   view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
+  // Netflix-style hover-to-play; click goes fullscreen.
+  view.querySelectorAll('.nf-card video').forEach((v) => {
+    const card = v.closest('.nf-card');
+    card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
+    card.addEventListener('mouseleave', () => { try { v.pause(); v.currentTime = 0; } catch (e) {} });
+    card.addEventListener('click', () => { if (v.requestFullscreen) v.requestFullscreen().catch(() => {}); });
+  });
 }
 
 // ── Products: save a product from a store link or a manual upload, then reuse
