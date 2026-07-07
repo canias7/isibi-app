@@ -2919,11 +2919,13 @@ async function doSignOut() {
   location.reload();
 }
 
-// Settings panel: account, preferences, password — no browser prompts.
-function openSettings() {
-  if (document.querySelector('.credits-overlay')) return;
-  const pop = document.getElementById('profilePop');
-  if (pop) pop.classList.remove('open');
+// Full Settings page (a view, like Home/Gallery), rebuilt each time it opens
+// so account, credits and preference state are always current.
+const EFFORT_ORDER = ['low', 'medium', 'high', 'ultra', 'max'];
+const EFFORT_SHORT = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra', max: 'Max' };
+function renderSettings() {
+  const view = document.getElementById('viewSettings');
+  if (!view) return;
   const email = Auth.email();
   const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
@@ -2933,56 +2935,65 @@ function openSettings() {
   const dirSeg = ['auto', 'plan', 'off'].map((k) =>
     '<button type="button" class="st-seg-btn' + (directorMode === k ? ' on' : '') + '" data-mode="' + k + '">' +
       DIR_MODES[k].label + '</button>').join('');
+  const effSeg = EFFORT_ORDER.map((k) =>
+    '<button type="button" class="st-seg-btn' + (effort === k ? ' on' : '') + '" data-eff="' + k + '">' +
+      EFFORT_SHORT[k] + '</button>').join('');
 
-  const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  ov.innerHTML = '<div class="cp-box cp-narrow st-box">' +
-    '<div class="cp-head"><div class="cp-title">Settings</div><button type="button" class="cp-close">✕</button></div>' +
+  view.innerHTML =
+    '<div class="settings-page">' +
+      '<div class="sp-head"><div class="sp-title">Settings</div>' +
+        '<div class="sp-sub">Your account and how isibi works.</div></div>' +
 
-    '<div class="st-sec">Account</div>' +
-    '<div class="st-acct">' +
-      '<span class="st-av"></span>' +
-      '<div class="st-id"><div class="st-name"></div><div class="st-mail"></div></div>' +
-      (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
-    '</div>' +
-    '<button type="button" class="st-link" id="stCredits">' +
-      '<span class="st-link-t">Credits &amp; plan</span>' +
-      '<span class="st-link-v">' + balTxt + ' <span class="st-chev">›</span></span>' +
-    '</button>' +
+      '<section class="sp-card">' +
+        '<div class="sp-h">Account</div>' +
+        '<div class="st-acct">' +
+          '<span class="st-av">' + esc((name[0] || '·').toUpperCase()) + '</span>' +
+          '<div class="st-id"><div class="st-name">' + esc(name) + '</div><div class="st-mail">' + esc(email) + '</div></div>' +
+          (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
+        '</div>' +
+        '<button type="button" class="st-link" id="spCredits">' +
+          '<span class="st-link-t">Credits &amp; plan</span>' +
+          '<span class="st-link-v">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
+        '</button>' +
+      '</section>' +
 
-    '<div class="st-sec">Preferences</div>' +
-    '<div class="st-row">' +
-      '<div class="st-row-txt"><div class="st-row-t">Web search</div>' +
-      '<div class="st-row-s">Let isibi look up current facts — newest products, real details — when a prompt needs them.</div></div>' +
-      '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="stWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
-    '</div>' +
-    '<div class="st-row st-row-col">' +
-      '<div class="st-row-txt"><div class="st-row-t">Prompt assist</div>' +
-      '<div class="st-row-s">How isibi turns your idea into a generation prompt.</div></div>' +
-      '<div class="st-seg" id="stDir">' + dirSeg + '</div>' +
-    '</div>' +
+      '<section class="sp-card">' +
+        '<div class="sp-h">Preferences</div>' +
+        '<div class="st-row">' +
+          '<div class="st-row-txt"><div class="st-row-t">Web search</div>' +
+          '<div class="st-row-s">Let isibi look up current facts — newest products, real details — when a prompt needs them.</div></div>' +
+          '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="spWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
+        '</div>' +
+        '<div class="st-row st-row-col">' +
+          '<div class="st-row-txt"><div class="st-row-t">Prompt assist</div>' +
+          '<div class="st-row-s">How isibi turns your idea into a generation prompt.</div></div>' +
+          '<div class="st-seg" id="spDir">' + dirSeg + '</div>' +
+        '</div>' +
+        '<div class="st-row st-row-col">' +
+          '<div class="st-row-txt"><div class="st-row-t">Default detail</div>' +
+          '<div class="st-row-s">How deep the written prompt goes by default. Higher levels cost a little more.</div></div>' +
+          '<div class="st-seg" id="spEff">' + effSeg + '</div>' +
+        '</div>' +
+      '</section>' +
 
-    '<div class="st-sec">Password</div>' +
-    '<form class="st-form" id="stForm">' +
-      '<input type="password" class="st-in" id="stPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
-      '<button type="submit" class="st-save">Update</button>' +
-    '</form>' +
-    '<div class="cp-note" id="stNote"></div>' +
+      '<section class="sp-card">' +
+        '<div class="sp-h">Security</div>' +
+        '<form class="st-form" id="spForm">' +
+          '<input type="password" class="st-in" id="spPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
+          '<button type="submit" class="st-save">Update</button>' +
+        '</form>' +
+        '<div class="cp-note" id="spNote"></div>' +
+      '</section>' +
 
-    '<button type="button" class="st-signout" id="stSignout">Sign out</button>' +
-  '</div>';
+      '<section class="sp-card">' +
+        '<div class="sp-h">Session</div>' +
+        '<button type="button" class="st-signout" id="spSignout">Sign out</button>' +
+      '</section>' +
+    '</div>';
 
-  ov.querySelector('.st-av').textContent = (name[0] || '·').toUpperCase();
-  ov.querySelector('.st-name').textContent = name;
-  ov.querySelector('.st-mail').textContent = email;
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  view.querySelector('#spCredits').onclick = () => openCredits();
 
-  // Credits & plan → pricing page
-  ov.querySelector('#stCredits').onclick = () => { ov.remove(); openCredits(); };
-
-  // Web-search toggle
-  ov.querySelector('#stWeb').onclick = (e) => {
+  view.querySelector('#spWeb').onclick = (e) => {
     const btn = e.currentTarget;
     const on = !btn.classList.contains('on');
     btn.classList.toggle('on', on);
@@ -2990,19 +3001,22 @@ function openSettings() {
     setWebSearch(on);
   };
 
-  // Prompt-assist segmented control — mirrors the composer chip
-  ov.querySelector('#stDir').onclick = (e) => {
-    const b = e.target.closest('.st-seg-btn');
-    if (!b) return;
+  // Prompt-assist and Default-detail segmented controls mirror the composer.
+  view.querySelector('#spDir').onclick = (e) => {
+    const b = e.target.closest('.st-seg-btn'); if (!b) return;
     setDirectorMode(b.dataset.mode);
-    ov.querySelectorAll('.st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
+    view.querySelectorAll('#spDir .st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
+  };
+  view.querySelector('#spEff').onclick = (e) => {
+    const b = e.target.closest('.st-seg-btn'); if (!b) return;
+    setEffort(b.dataset.eff);
+    view.querySelectorAll('#spEff .st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
   };
 
-  // Change password
-  ov.querySelector('#stForm').onsubmit = async (e) => {
+  view.querySelector('#spForm').onsubmit = async (e) => {
     e.preventDefault();
-    const inp = ov.querySelector('#stPw');
-    const note = ov.querySelector('#stNote');
+    const inp = view.querySelector('#spPw');
+    const note = view.querySelector('#spNote');
     const np = inp.value;
     if (np.length < 6) { note.textContent = 'Password needs at least 6 characters.'; return; }
     note.textContent = 'Updating…';
@@ -3015,14 +3029,7 @@ function openSettings() {
     }
   };
 
-  // Sign out
-  ov.querySelector('#stSignout').onclick = () => { ov.remove(); doSignOut(); };
-
-  // Esc closes
-  const onKey = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } };
-  document.addEventListener('keydown', onKey);
-
-  document.body.appendChild(ov);
+  view.querySelector('#spSignout').onclick = () => doSignOut();
 }
 
 function initAuthGate() {
@@ -3145,12 +3152,13 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio' };
+const VIEW_LABELS = { home: 'Home', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
   if (name === 'gallery') renderGallery();
+  if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   const lbl = document.getElementById('navDdLabel');
