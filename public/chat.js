@@ -3158,8 +3158,8 @@ function openCreateProduct() {
         '</div>' +
       '</label>' +
       '<div class="pr-fields">' +
-        '<label class="pr-flabel">Product name</label>' +
-        '<input class="pr-in" id="prName" placeholder="Enter product name" autocomplete="off" />' +
+        '<label class="pr-flabel">Product name <span class="pr-req">*</span></label>' +
+        '<input class="pr-in" id="prName" placeholder="Enter product name" autocomplete="off" required />' +
         '<label class="pr-flabel">Description</label>' +
         '<textarea class="pr-ta" id="prDesc" placeholder="Describe your product"></textarea>' +
         '<button type="button" class="pr-create" id="prCreate" disabled>Create product</button>' +
@@ -3172,7 +3172,8 @@ function openCreateProduct() {
   const nameInp = ov.querySelector('#prName');
   const descInp = ov.querySelector('#prDesc');
   const createBtn = ov.querySelector('#prCreate');
-  const refresh = () => { createBtn.disabled = !(nameInp.value.trim() && imgData); };
+  // Product name is required to save; the image is optional.
+  const refresh = () => { createBtn.disabled = !nameInp.value.trim(); };
   fileInput.onchange = async () => {
     const f = fileInput.files && fileInput.files[0];
     if (!f) return;
