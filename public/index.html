@@ -55,6 +55,7 @@
         <button class="nav-dd-item" data-view="projects" onclick="showView('projects')"><span class="tile nav-proj">🗂</span><span>Projects</span></button>
         <button class="nav-dd-item" data-view="gallery" onclick="showView('gallery')"><span class="tile nav-gal">🖼</span><span>Gallery</span></button>
         <button class="nav-dd-item active" data-view="studio" onclick="showView('studio')"><span class="tile nav-studio">🎬</span><span>Studio</span></button>
+        <button class="nav-dd-item" data-view="products" onclick="showView('products')"><span class="tile nav-products">📦</span><span>Products</span></button>
       </div>
     </div>
   </header>
@@ -76,6 +77,9 @@
         </div>
         <div class="side-item" data-view="studio" onclick="showView('studio')">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg></span><span>Studio</span>
+        </div>
+        <div class="side-item" data-view="products" onclick="showView('products')">
+          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span><span>Products</span>
         </div>
       </div>
 
@@ -270,6 +274,15 @@
           <div class="empty-icon">🗂</div>
           <h2>Projects</h2>
           <p>Your saved projects will live here.</p>
+        </div>
+      </div>
+
+      <div id="viewProducts" class="view view-empty">
+        <div class="empty-view">
+          <div class="empty-icon">📦</div>
+          <h2>Products</h2>
+          <p>Add your products and turn them into polished ads — pick a format and isibi writes the prompt and generates the creative for every channel.</p>
+          <button class="empty-cta" onclick="showView('home')">Start an ad</button>
         </div>
       </div>
 
