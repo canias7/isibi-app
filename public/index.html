@@ -279,40 +279,15 @@
       </div>
       </div><!-- /home-slide -->
 
-      <!-- Memory: a floating dock button + a slide-in space where isibi.ai
-           remembers your context (brand, style, preferences) across generations -->
-      <button class="mem-fab" id="memFab" onclick="openMemory()" title="Memory" aria-label="Open Memory">
+      <!-- Memory: a floating dock button on the Builder page that opens the
+           Memory "space" (viewMemory) -->
+      <button class="mem-fab" id="memFab" onclick="showView('memory')" title="Memory" aria-label="Open Memory">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12 5a3 3 0 0 0-5.4-1.8A2.5 2.5 0 0 0 4 6.5 2.5 2.5 0 0 0 3 11a2.5 2.5 0 0 0 1.6 3.4A2.5 2.5 0 0 0 7 18a3 3 0 0 0 5 1"/>
           <path d="M12 5a3 3 0 0 1 5.4-1.8A2.5 2.5 0 0 1 20 6.5 2.5 2.5 0 0 1 21 11a2.5 2.5 0 0 1-1.6 3.4A2.5 2.5 0 0 1 17 18a3 3 0 0 1-5 1"/>
           <path d="M12 5v14"/>
         </svg>
-        <span class="mem-fab-badge" id="memFabBadge"></span>
       </button>
-      <div class="mem-scrim" id="memScrim" onclick="closeMemory()"></div>
-      <aside class="mem-space" id="memSpace" aria-hidden="true">
-        <div class="mem-head">
-          <div class="mem-head-t">
-            <span class="mem-ico">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 5a3 3 0 0 0-5.4-1.8A2.5 2.5 0 0 0 4 6.5 2.5 2.5 0 0 0 3 11a2.5 2.5 0 0 0 1.6 3.4A2.5 2.5 0 0 0 7 18a3 3 0 0 0 5 1"/>
-                <path d="M12 5a3 3 0 0 1 5.4-1.8A2.5 2.5 0 0 1 20 6.5 2.5 2.5 0 0 1 21 11a2.5 2.5 0 0 1-1.6 3.4A2.5 2.5 0 0 1 17 18a3 3 0 0 1-5 1"/>
-                <path d="M12 5v14"/>
-              </svg>
-            </span>
-            Memory
-          </div>
-          <button class="mem-x" onclick="closeMemory()" aria-label="Close memory">✕</button>
-        </div>
-        <p class="mem-sub">Things isibi.ai keeps in mind for you — your brand, audience, and the look you like. Add a note once and it reuses it across generations, so you don't have to repeat yourself.</p>
-        <div class="mem-add">
-          <textarea id="memInput" rows="1" placeholder="e.g. My brand colors are teal & cream, always 9:16…" autocomplete="off"
-                    oninput="autoGrow(this)"
-                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();memAdd();}"></textarea>
-          <button class="mem-add-btn" onclick="memAdd()">Add</button>
-        </div>
-        <div class="mem-list" id="memList"></div>
-      </aside>
       </div><!-- /viewHome -->
 
       <div id="viewProjects" class="view view-empty">
@@ -328,6 +303,30 @@
 
       <!-- Avatar page (built by renderAvatar) -->
       <div id="viewAvatar" class="view view-avatar"></div>
+
+      <!-- Memory: a placeholder "space" the floating Builder button opens -->
+      <div id="viewMemory" class="view view-memory">
+        <button class="ms-back" onclick="showView('home')" aria-label="Back to Builder">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Builder
+        </button>
+        <div class="ms-amb" aria-hidden="true">
+          <div class="ms-orb"></div>
+          <span class="ms-spark s1">✦</span><span class="ms-spark s2">✦</span>
+          <span class="ms-spark s3">✦</span><span class="ms-spark s4">✦</span><span class="ms-spark s5">✦</span>
+        </div>
+        <div class="ms-center">
+          <span class="ms-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 5a3 3 0 0 0-5.4-1.8A2.5 2.5 0 0 0 4 6.5 2.5 2.5 0 0 0 3 11a2.5 2.5 0 0 0 1.6 3.4A2.5 2.5 0 0 0 7 18a3 3 0 0 0 5 1"/>
+              <path d="M12 5a3 3 0 0 1 5.4-1.8A2.5 2.5 0 0 1 20 6.5 2.5 2.5 0 0 1 21 11a2.5 2.5 0 0 1-1.6 3.4A2.5 2.5 0 0 1 17 18a3 3 0 0 1-5 1"/>
+              <path d="M12 5v14"/>
+            </svg>
+          </span>
+          <h1 class="ms-title">Memory</h1>
+          <p class="ms-sub">Your space.</p>
+        </div>
+      </div>
 
       <div id="viewGallery" class="view view-gallery">
         <div class="gallery-head">
