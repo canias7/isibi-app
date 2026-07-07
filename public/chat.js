@@ -2919,10 +2919,8 @@ async function doSignOut() {
   location.reload();
 }
 
-// Full Settings page (a view, like Home/Gallery), rebuilt each time it opens
-// so account, credits and preference state are always current.
-const EFFORT_ORDER = ['low', 'medium', 'high', 'ultra', 'max'];
-const EFFORT_SHORT = { low: 'Low', medium: 'Medium', high: 'High', ultra: 'Ultra', max: 'Max' };
+// Settings page — a plain, conventional settings view (grouped list rows),
+// rebuilt each time it opens so account/credits/prefs are current.
 function renderSettings() {
   const view = document.getElementById('viewSettings');
   if (!view) return;
@@ -2932,63 +2930,49 @@ function renderSettings() {
   const planTxt = paidKnown ? (isPaid ? 'Member' : 'Free') : '';
   const balTxt = (document.getElementById('creditChip') || {}).textContent || '✦ —';
 
-  const dirSeg = ['auto', 'plan', 'off'].map((k) =>
-    '<button type="button" class="st-seg-btn' + (directorMode === k ? ' on' : '') + '" data-mode="' + k + '">' +
-      DIR_MODES[k].label + '</button>').join('');
-  const effSeg = EFFORT_ORDER.map((k) =>
-    '<button type="button" class="st-seg-btn' + (effort === k ? ' on' : '') + '" data-eff="' + k + '">' +
-      EFFORT_SHORT[k] + '</button>').join('');
-
   view.innerHTML =
     '<div class="settings-page">' +
-      '<div class="sp-head"><div class="sp-title">Settings</div>' +
-        '<div class="sp-sub">Your account and how isibi works.</div></div>' +
+      '<div class="sp-title">Settings</div>' +
 
-      '<section class="sp-card">' +
-        '<div class="sp-h">Account</div>' +
-        '<div class="st-acct">' +
-          '<span class="st-av">' + esc((name[0] || '·').toUpperCase()) + '</span>' +
-          '<div class="st-id"><div class="st-name">' + esc(name) + '</div><div class="st-mail">' + esc(email) + '</div></div>' +
-          (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Account</div>' +
+        '<div class="sp-list">' +
+          '<div class="sp-item">' +
+            '<span class="sp-acct-l"><span class="st-av">' + esc((name[0] || '·').toUpperCase()) + '</span>' +
+              '<span class="sp-item-l"><span class="sp-item-t">' + esc(name) + '</span>' +
+              '<span class="sp-item-s">' + esc(email) + '</span></span></span>' +
+            (planTxt ? '<span class="st-plan' + (isPaid ? ' paid' : '') + '">' + planTxt + '</span>' : '') +
+          '</div>' +
+          '<button type="button" class="sp-item sp-tap" id="spCredits">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Credits &amp; plan</span></span>' +
+            '<span class="sp-item-r">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
+          '</button>' +
         '</div>' +
-        '<button type="button" class="st-link" id="spCredits">' +
-          '<span class="st-link-t">Credits &amp; plan</span>' +
-          '<span class="st-link-v">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
-        '</button>' +
-      '</section>' +
+      '</div>' +
 
-      '<section class="sp-card">' +
-        '<div class="sp-h">Preferences</div>' +
-        '<div class="st-row">' +
-          '<div class="st-row-txt"><div class="st-row-t">Web search</div>' +
-          '<div class="st-row-s">Let isibi look up current facts — newest products, real details — when a prompt needs them.</div></div>' +
-          '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="spWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Preferences</div>' +
+        '<div class="sp-list">' +
+          '<div class="sp-item">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Web search</span>' +
+            '<span class="sp-item-s">Look up current facts when a prompt needs them.</span></span>' +
+            '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="spWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
+          '</div>' +
         '</div>' +
-        '<div class="st-row st-row-col">' +
-          '<div class="st-row-txt"><div class="st-row-t">Prompt assist</div>' +
-          '<div class="st-row-s">How isibi turns your idea into a generation prompt.</div></div>' +
-          '<div class="st-seg" id="spDir">' + dirSeg + '</div>' +
-        '</div>' +
-        '<div class="st-row st-row-col">' +
-          '<div class="st-row-txt"><div class="st-row-t">Default detail</div>' +
-          '<div class="st-row-s">How deep the written prompt goes by default. Higher levels cost a little more.</div></div>' +
-          '<div class="st-seg" id="spEff">' + effSeg + '</div>' +
-        '</div>' +
-      '</section>' +
+      '</div>' +
 
-      '<section class="sp-card">' +
-        '<div class="sp-h">Security</div>' +
-        '<form class="st-form" id="spForm">' +
-          '<input type="password" class="st-in" id="spPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
-          '<button type="submit" class="st-save">Update</button>' +
-        '</form>' +
-        '<div class="cp-note" id="spNote"></div>' +
-      '</section>' +
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Password</div>' +
+        '<div class="sp-list">' +
+          '<form class="sp-item sp-form" id="spForm">' +
+            '<input type="password" class="st-in" id="spPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
+            '<button type="submit" class="st-save">Update</button>' +
+          '</form>' +
+        '</div>' +
+        '<div class="cp-note sp-note" id="spNote"></div>' +
+      '</div>' +
 
-      '<section class="sp-card">' +
-        '<div class="sp-h">Session</div>' +
-        '<button type="button" class="st-signout" id="spSignout">Sign out</button>' +
-      '</section>' +
+      '<button type="button" class="sp-signout" id="spSignout">Sign out</button>' +
     '</div>';
 
   view.querySelector('#spCredits').onclick = () => openCredits();
@@ -2999,18 +2983,6 @@ function renderSettings() {
     btn.classList.toggle('on', on);
     btn.setAttribute('aria-checked', on ? 'true' : 'false');
     setWebSearch(on);
-  };
-
-  // Prompt-assist and Default-detail segmented controls mirror the composer.
-  view.querySelector('#spDir').onclick = (e) => {
-    const b = e.target.closest('.st-seg-btn'); if (!b) return;
-    setDirectorMode(b.dataset.mode);
-    view.querySelectorAll('#spDir .st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
-  };
-  view.querySelector('#spEff').onclick = (e) => {
-    const b = e.target.closest('.st-seg-btn'); if (!b) return;
-    setEffort(b.dataset.eff);
-    view.querySelectorAll('#spEff .st-seg-btn').forEach((x) => x.classList.toggle('on', x === b));
   };
 
   view.querySelector('#spForm').onsubmit = async (e) => {
