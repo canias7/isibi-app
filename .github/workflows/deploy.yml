@@ -10,6 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The Worker imports @cf-wasm/photon (server-side image watermarking);
+      # install deps so wrangler can bundle it at deploy.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
       - name: Deploy with Wrangler
         uses: cloudflare/wrangler-action@v3
         with:

@@ -801,7 +801,9 @@ async function previewVoice(name, btn) {
     const res = await apiFetch('/api/audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name }),
+      // director:'off' — a preview runs no prompt writer, so it must not pay the
+      // director surcharge on top of the TTS credit.
+      body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name, director: 'off' }),
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) throw new Error('start');
@@ -816,6 +818,7 @@ async function previewVoice(name, btn) {
         out = await rr.json();
         break;
       }
+      if (st.status === 'FAILED' || st.status === 'ERROR') break; // don't spin the full 90s on a dead job
       await new Promise((r) => setTimeout(r, 1500));
     }
     const url = out && (out.audio?.url || out.audio_url || out.audio_file?.url || out.data?.audio?.url);
@@ -1655,51 +1658,13 @@ async function trySave(url, kind, attempts, payload) {
   return null;
 }
 
-// ── Free-tier watermark ─────────────────────────────────────────────────────
-// Free accounts (never purchased) get "✦ isibi.ai" burned into image files
-// before they're saved; videos carry an on-screen mark in the player.
-async function watermarkImage(url) {
-  const resp = await fetch(url, { mode: 'cors' });
-  if (!resp.ok) throw 0;
-  const bmp = await createImageBitmap(await resp.blob());
-  // Cap the working size so a huge output can't freeze the tab or blow past the
-  // server's upload cap; generation outputs are well within this anyway.
-  const MAXD = 2560;
-  const scale = Math.min(1, MAXD / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
-  const c = document.createElement('canvas');
-  c.width = w; c.height = h;
-  const g = c.getContext('2d');
-  g.drawImage(bmp, 0, 0, w, h);
-  const fs = Math.max(18, Math.round(w * 0.032));
-  const pad = Math.round(fs * 0.8);
-  g.font = '600 ' + fs + 'px "Space Grotesk", Inter, sans-serif';
-  g.textAlign = 'right'; g.textBaseline = 'bottom';
-  g.shadowColor = 'rgba(0,0,0,.55)'; g.shadowBlur = fs * 0.35;
-  g.fillStyle = 'rgba(255,255,255,.82)';
-  g.fillText('✦ isibi.ai', w - pad, h - pad);
-  // JPEG keeps photographic AI outputs small (a full-res PNG can balloon past
-  // the upload cap); quality 0.92 is visually lossless for these.
-  const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.92));
-  if (!blob) throw 0;
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < buf.length; i += 0x8000) {
-    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-  }
-  return { kind: 'image', data: btoa(bin), contentType: 'image/jpeg' };
-}
-// Save one output: free images get the mark burned in first; any watermark
-// hiccup (CORS, canvas) falls back to saving the clean original — losing the
-// user's paid render over a watermark would be the wrong trade.
+// Save one output: free-account images are watermarked server-side by /api/save
+// (see worker.js). The client hands over the fal URL and the returned permanent
+// copy — the one the app then displays — already carries the mark.
 async function saveOutput(u, kind) {
-  // Watermark images for known-free accounts. While the paid state is still
-  // unknown we skip the burn and let the server's is_paid gate decide: a
-  // genuinely-free user's raw save 403s → trySave returns null → the pending
-  // -save queue retries later, by which time paidKnown has resolved.
-  if (kind === 'image' && paidKnown && !isPaid) {
-    try { return await trySave(u, kind, 3, await watermarkImage(u)); } catch {}
-  }
+  // Free-account images are watermarked server-side by /api/save now (the mark
+  // is burned into the stored copy the app then displays), so the client just
+  // hands over the URL — no canvas burn, no client-trust to bypass.
   return trySave(u, kind, 3);
 }
 
@@ -1732,9 +1697,7 @@ async function retryPendingSaves() {
   const keep = [];
   for (const p of list) {
     if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
-    // Re-enter saveOutput (not raw trySave) so a free account's image still gets
-    // watermarked on retry — the server now 403s a raw free-image save, so a
-    // bare retry would loop forever and lose the image.
+    // saveOutput just posts the URL; the server watermarks free-account images.
     const perm = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
     else keep.push(p);
@@ -1858,10 +1821,10 @@ function updateSendPrice() {
 // has seen (plan size / last top-up) — a fuel gauge that drains as you spend.
 const CRED_MAX_KEY = 'zephyr_cred_max_v1';
 const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
-// Watermark gating is tri-state: we only mark when the account is KNOWN free.
-// Until /api/credits resolves, `paidKnown` is false and we fail toward "paid"
-// (no watermark) so a slow/failed credits call never defaces a paying user;
-// the server's own is_paid gate on /api/save catches a genuinely-free user.
+// The on-screen VIDEO badge is tri-state: shown only when the account is KNOWN
+// free. Until /api/credits resolves, `paidKnown` is false and we fail toward
+// "paid" (no badge) so a slow/failed credits call never defaces a paying user.
+// (Image watermarks don't depend on this — the server burns them on /api/save.)
 let isPaid = false;
 let paidKnown = false;
 // Toggle the on-screen video badge on already-rendered clips once we learn the
@@ -2290,6 +2253,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       if (!alive()) return; // cancelled while polling
       state = st.status;
       if (state === 'COMPLETED') break;
+      // fal reached a terminal failure — stop now instead of spinning the
+      // loader until the deadline. The job is dead; clear the record so it
+      // isn't re-polled at boot.
+      if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED') {
+        endGen(origin);
+        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.');
+        return;
+      }
       myGen.model = label;
       setGenText(origin,
         state === 'IN_PROGRESS'
@@ -2300,14 +2271,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     }
 
     if (state !== 'COMPLETED') {
-      endGen(origin);
-      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai.');
+      // Ran past the deadline but the job is still live on fal (and already
+      // charged). Keep the refresh-proof record — bounded by tries — so
+      // boot-resume gets it, rather than clearing a paid render here.
+      jobBumpTries(origin);
+      pauseGen(origin);
+      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai; the app will pick it back up automatically.');
       return;
     }
-
-    // Another tab of this account may be polling the same resumed job — claim
-    // it so the result is saved and shown exactly once, not duplicated.
-    if (!claimDelivery(statusUrl)) { endGen(origin); return; }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
     const out = await rr.json();
@@ -2323,6 +2294,11 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
       if (single) urls = [single];
     }
+    // Claim delivery only now that the result is in hand: claiming earlier meant
+    // a failed result-fetch burned the claim and the paid render was dropped on
+    // boot-resume. Another tab that already delivered this job wins the claim;
+    // we stop without clearing so the winner's record management stands.
+    if (!claimDelivery(statusUrl)) { pauseGen(origin); return; }
     if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
@@ -2530,7 +2506,7 @@ function localCompose(text, answers) {
 }
 
 function esc(s) {
-  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function threadAppend(el) {
@@ -2956,7 +2932,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -2970,6 +2946,7 @@ function enterApp() {
   }
   // Run a ?q= prompt only AFTER the account-switch wipe above — otherwise it
   // would land in the outgoing account's chat and be discarded by the reset.
+  const ranFirstMsg = !!pendingFirstMsg;
   if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
@@ -2978,8 +2955,9 @@ function enterApp() {
   // and re-copy any media whose gallery save failed.
   resumeJobs();
   retryPendingSaves();
-  // Open on the Home landing (also hides the Builder-only chat list, etc.).
-  showView('landing');
+  // Open on the Builder when a ?q= prompt is running (so its reply/loader is
+  // visible), otherwise on the Home landing.
+  showView(ranFirstMsg ? 'home' : 'landing');
 }
 
 async function doSignOut() {
@@ -2987,7 +2965,7 @@ async function doSignOut() {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   await Auth.signOut();
@@ -3403,6 +3381,9 @@ function acGenerate() {
   if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
 }
 
+// ── Memory: a floating dock button on the Builder page opens the Memory
+// "space" (viewMemory) — a placeholder page for now. ──
+
 // ── Products: save a product from a store link or a manual upload, then reuse
 // it across generations. Stored locally for now (zephyr_products_v1). ──
 const PRODUCTS_KEY = 'zephyr_products_v1';
@@ -3705,7 +3686,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', memory: 'Memory', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));

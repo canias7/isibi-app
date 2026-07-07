@@ -278,6 +278,16 @@
         <div class="presets-body" id="presetsBody"></div>
       </div>
       </div><!-- /home-slide -->
+
+      <!-- Memory: a floating dock button on the Builder page that opens the
+           Memory "space" (viewMemory) -->
+      <button class="mem-fab" id="memFab" onclick="showView('memory')" title="Memory" aria-label="Open Memory">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 5a3 3 0 0 0-5.4-1.8A2.5 2.5 0 0 0 4 6.5 2.5 2.5 0 0 0 3 11a2.5 2.5 0 0 0 1.6 3.4A2.5 2.5 0 0 0 7 18a3 3 0 0 0 5 1"/>
+          <path d="M12 5a3 3 0 0 1 5.4-1.8A2.5 2.5 0 0 1 20 6.5 2.5 2.5 0 0 1 21 11a2.5 2.5 0 0 1-1.6 3.4A2.5 2.5 0 0 1 17 18a3 3 0 0 1-5 1"/>
+          <path d="M12 5v14"/>
+        </svg>
+      </button>
       </div><!-- /viewHome -->
 
       <div id="viewProjects" class="view view-empty">
@@ -293,6 +303,30 @@
 
       <!-- Avatar page (built by renderAvatar) -->
       <div id="viewAvatar" class="view view-avatar"></div>
+
+      <!-- Memory: a placeholder "space" the floating Builder button opens -->
+      <div id="viewMemory" class="view view-memory">
+        <button class="ms-back" onclick="showView('home')" aria-label="Back to Builder">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          Builder
+        </button>
+        <div class="ms-amb" aria-hidden="true">
+          <div class="ms-orb"></div>
+          <span class="ms-spark s1">✦</span><span class="ms-spark s2">✦</span>
+          <span class="ms-spark s3">✦</span><span class="ms-spark s4">✦</span><span class="ms-spark s5">✦</span>
+        </div>
+        <div class="ms-center">
+          <span class="ms-ico">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 5a3 3 0 0 0-5.4-1.8A2.5 2.5 0 0 0 4 6.5 2.5 2.5 0 0 0 3 11a2.5 2.5 0 0 0 1.6 3.4A2.5 2.5 0 0 0 7 18a3 3 0 0 0 5 1"/>
+              <path d="M12 5a3 3 0 0 1 5.4-1.8A2.5 2.5 0 0 1 20 6.5 2.5 2.5 0 0 1 21 11a2.5 2.5 0 0 1-1.6 3.4A2.5 2.5 0 0 1 17 18a3 3 0 0 1-5 1"/>
+              <path d="M12 5v14"/>
+            </svg>
+          </span>
+          <h1 class="ms-title">Memory</h1>
+          <p class="ms-sub">Your space.</p>
+        </div>
+      </div>
 
       <div id="viewGallery" class="view view-gallery">
         <div class="gallery-head">
