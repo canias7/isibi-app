@@ -118,7 +118,7 @@ function sbRender() {
       card.draggable = true;
       card.dataset.id = s.id;
       const thumb = s.thumb
-        ? '<img class="sb-thumb" src="' + s.thumb + '" alt="" />'
+        ? '<img class="sb-thumb" src="' + (typeof esc === 'function' ? esc(s.thumb) : s.thumb) + '" alt="" />'
         : '<span class="sb-thumb sb-thumb-empty">' + (s.status === 'generating' ? '⏳' : '🎬') + '</span>';
       card.innerHTML =
         '<span class="sb-num">' + (i + 1) + '</span>' + thumb +
@@ -528,8 +528,15 @@ async function sbExport() {
     const dest = ac.createMediaStreamDestination();
     const stream = canvas.captureStream(30);
     if (dest.stream.getAudioTracks().length) stream.addTrack(dest.stream.getAudioTracks()[0]);
-    const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus' : 'video/webm';
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });
+    // Pick a container the browser can actually record. Chrome keeps webm/vp9;
+    // Safari has no webm MediaRecorder, so fall through to mp4 (else its
+    // constructor throws). Last resort: let the browser choose its default.
+    const CANDS = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4;codecs=h264,aac', 'video/mp4'];
+    let mime = '';
+    for (const c of CANDS) { if (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(c)) { mime = c; break; } }
+    let rec;
+    try { rec = new MediaRecorder(stream, mime ? { mimeType: mime, videoBitsPerSecond: 6_000_000 } : { videoBitsPerSecond: 6_000_000 }); }
+    catch (e) { rec = new MediaRecorder(stream); }
     const parts = [];
     rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
     const done = new Promise((ok) => { rec.onstop = ok; });
@@ -547,11 +554,15 @@ async function sbExport() {
     await done;
     ac.close().catch(() => {});
     if (!ok) { sbStudioNote('Export failed — none of the shots could be read (they may still be uploading, or blocked by the browser).'); return; }
-    const blob = new Blob(parts, { type: 'video/webm' });
+    // Match the file to what the recorder actually produced (webm on Chrome,
+    // mp4 on Safari) so the download opens cleanly.
+    const outType = ((rec.mimeType || mime || 'video/webm').split(';')[0]) || 'video/webm';
+    const ext = outType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
+    const blob = new Blob(parts, { type: outType });
     const a = document.createElement('a');
     const objUrl = URL.createObjectURL(blob);
     a.href = objUrl;
-    a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.webm';
+    a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.' + ext;
     a.click();
     setTimeout(() => URL.revokeObjectURL(objUrl), 10000); // free the blob after the download starts
     sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +

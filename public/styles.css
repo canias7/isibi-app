@@ -330,7 +330,7 @@
   display: flex; flex-direction: column; gap: .65rem;
   background: none; border: none; padding: 0;
 }
-/* Dreaming frame: the isibi ghost loop plays inside the placeholder,
+/* Dreaming frame: the scan-line loader plays inside the placeholder, a
    pink/amber aurora tint above it, a light sweep gliding across, and a
    softly breathing gradient border. */
 .gen-shimmer {
@@ -1630,7 +1630,6 @@
 .lp-hero { margin-bottom: 1.8rem; }
 .lp-hero h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
 .lp-hero p { color: var(--muted); font-size: .95rem; margin-top: .35rem; }
-.lp-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 1rem; }
 .lp-card {
   display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; text-align: left;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; padding: 1.1rem 1.15rem;

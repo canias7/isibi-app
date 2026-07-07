@@ -170,7 +170,11 @@ function onAttach(kind, inputEl) {
   const reader = new FileReader();
   reader.onload = () => {
     attachments[kind] = reader.result;
-    if (kind === 'audio') { awName = (file.name || 'audio').replace(/[<>&"]/g, ''); awDecode(reader.result); }
+    if (kind === 'audio') {
+      awName = (file.name || 'audio').replace(/[<>&"]/g, '');
+      if (awPlayer) { try { awPlayer.pause(); } catch (e) {} awPlayer = null; } // re-pick: drop the old clip's player
+      awDecode(reader.result);
+    }
     renderAttach(kind);
   };
   reader.readAsDataURL(file);
@@ -281,9 +285,11 @@ function renderAudioSlot(btn) {
     const dur = Math.round(awDur || 0);
     const meta = (awName || 'audio') + (dur ? ' · ' + Math.floor(dur / 60) + ':' + String(dur % 60).padStart(2, '0') : '');
     btn.innerHTML = awBarsHtml(awPeaks || awPlaceholder(0.25), true)
-      + '<span class="aw-play" onclick="awToggle(event)">▶</span>'
+      + '<span class="aw-play">▶</span>'
       + '<span class="aw-meta">' + meta + '</span>'
-      + '<span class="x" onclick="clearAttach(event, \'audio\')">×</span>';
+      + '<span class="x">×</span>';
+    const play = btn.querySelector('.aw-play'); if (play) play.onclick = awToggle;
+    const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, 'audio');
   } else {
     btn.classList.remove('has');
     cancelAnimationFrame(awRaf);
@@ -303,8 +309,9 @@ function renderAttach(kind) {
     btn.classList.add('has');
     const preview = kind === 'clip'
       ? '<span class="audio-chip">🎬 clip</span>'
-      : '<img src="' + attachments[kind] + '" alt="" />';
-    btn.innerHTML = preview + '<span class="x" onclick="clearAttach(event, \'' + kind + '\')">×</span>';
+      : '<img src="' + esc(attachments[kind]) + '" alt="" />';
+    btn.innerHTML = preview + '<span class="x">×</span>';
+    const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
     btn.classList.remove('has');
     btn.innerHTML = ATTACH_LABELS[kind];
@@ -405,8 +412,10 @@ function openGalleryPicker() {
   const urls = galleryImages();
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
-    + '<button class="gal-close" onclick="this.closest(\'.gal-overlay\').remove()">×</button></div>'
+    + '<button class="gal-close">×</button></div>'
     + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>') + '</div>';
+  const closeBtn = ov.querySelector('.gal-close');
+  if (closeBtn) closeBtn.onclick = () => ov.remove();
   // Build thumbnails with DOM APIs (never innerHTML) so a stored URL can't
   // break out of the src attribute and inject markup.
   const gridEl = ov.querySelector('.gal-grid');
@@ -474,7 +483,7 @@ function renderExtraImages() {
   extraImages.forEach((src, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
-    d.innerHTML = '<img src="' + src + '" alt="" /><span class="x">×</span>';
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="x">×</span>';
     d.querySelector('.x').onclick = () => removeExtraImage(i);
     host.appendChild(d);
   });
@@ -564,8 +573,10 @@ function buildMenu() {
     d.onclick = () => pickModel(d);
     modelMenu.appendChild(d);
   });
-  const cur = MODEL_LISTS[mode].find((m) => m.id === model);
-  document.getElementById('modelLabel').textContent = cur.label;
+  // Guard against a selected id that isn't in this mode's list (e.g. a persisted
+  // pick from another mode) — fall back to the default rather than throwing.
+  const cur = MODEL_LISTS[mode].find((m) => m.id === model) || MODEL_LISTS[mode].find((m) => m.id === DEFAULT_MODELS[mode]) || MODEL_LISTS[mode][0];
+  document.getElementById('modelLabel').textContent = cur ? cur.label : 'Auto';
 }
 
 function setMode(m) {
@@ -1105,6 +1116,20 @@ const SYNC_ENDPOINT = SUPABASE_URL + '/rest/v1/chats';
 const syncDirty = new Set();
 const syncDeleted = new Set();
 let syncTimer = null;
+
+// Deletion tombstones: without them a chat deleted on one device gets re-pushed
+// by another (it's still local there but gone from the server) and resurrects.
+// A locally-recorded tombstone stops this device from re-adding a chat it just
+// deleted during a pull race; the per-chat `synced` flag stops the OTHER device
+// from re-uploading a chat the server no longer has. Pruned after 45 days.
+const CHAT_TOMB_KEY = 'zephyr_chat_tombstones_v1';
+function tombLoad() { try { const m = JSON.parse(localStorage.getItem(CHAT_TOMB_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch { return {}; } }
+function tombAdd(id) {
+  const now = Date.now(); const map = tombLoad(); map[id] = now;
+  for (const k of Object.keys(map)) if (now - map[k] > 45 * 24 * 3600e3) delete map[k];
+  try { localStorage.setItem(CHAT_TOMB_KEY, JSON.stringify(map)); } catch {}
+}
+function tombHas(id) { return Object.prototype.hasOwnProperty.call(tombLoad(), id); }
 let lastPull = 0;
 let pendingFirstMsg = null; // a ?q= prompt held until a signed-out visitor logs in
 
@@ -1127,6 +1152,7 @@ function touchSync(chatId) {
 function deleteSync(chatId) {
   syncDirty.delete(chatId);
   syncDeleted.add(chatId);
+  tombAdd(chatId); // remember it's deleted so a pull can't resurrect it
   clearTimeout(syncTimer);
   syncTimer = setTimeout(pushChats, 800);
 }
@@ -1161,6 +1187,10 @@ async function pushChats() {
       // A rejected upsert (expired token, 4xx) must requeue — the dirty set was
       // already cleared, so without this those edits would never sync.
       if (!up.ok) { ids.forEach((id) => syncDirty.add(id)); scheduleSync(); }
+      // Confirmed on the server: mark synced so a later pull won't mistake a
+      // server-side deletion (chat absent from rows) for a never-synced chat
+      // and re-upload it.
+      else ids.forEach((id) => { const c = chatStore.chats.find((x) => x.id === id); if (c) c.synced = true; });
     }
     for (const id of dels) {
       const dr = await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(id), { method: 'DELETE', headers: h });
@@ -1187,13 +1217,15 @@ async function pullChats() {
   if (!Array.isArray(rows)) return;
   let changed = false;
   rows.forEach((r) => {
+    // A row we deleted locally but whose DELETE hasn't landed yet: don't re-add.
+    if (tombHas(r.id)) return;
     const remoteAt = Date.parse(r.updated_at) || 0;
     const local = chatStore.chats.find((c) => c.id === r.id);
     if (!local) {
       chatStore.chats.push({
         id: r.id, title: r.title || 'New chat', brief: r.brief || undefined,
         lastPrompt: r.last_prompt || undefined,
-        msgs: Array.isArray(r.msgs) ? r.msgs : [], updatedAt: remoteAt,
+        msgs: Array.isArray(r.msgs) ? r.msgs : [], updatedAt: remoteAt, synced: true,
       });
       changed = true;
     } else if (remoteAt > (local.updatedAt || 0)) {
@@ -1202,14 +1234,20 @@ async function pullChats() {
       local.lastPrompt = r.last_prompt || undefined;
       if (Array.isArray(r.msgs)) local.msgs = r.msgs;
       local.updatedAt = remoteAt;
+      local.synced = true;
       changed = true;
     } else if ((local.updatedAt || 0) > remoteAt) {
+      local.synced = true;
       syncDirty.add(local.id); // local is ahead — push it back up
+    } else {
+      local.synced = true; // in sync — confirmed present on the server
     }
   });
-  // Local chats the server has never seen ride up too.
+  // Push up only chats the server has NEVER acknowledged: a previously-synced
+  // chat that's absent from rows was deleted elsewhere (or is beyond the 30-row
+  // window) — re-pushing it would resurrect a deletion, so leave it be.
   chatStore.chats.forEach((c) => {
-    if (c.msgs.length && !rows.some((r) => r.id === c.id)) syncDirty.add(c.id);
+    if (c.msgs.length && !c.synced && !tombHas(c.id) && !rows.some((r) => r.id === c.id)) syncDirty.add(c.id);
   });
   if (syncDirty.size) { clearTimeout(syncTimer); syncTimer = setTimeout(pushChats, 1200); }
   if (changed) {
@@ -1250,6 +1288,7 @@ function pushSaved(item) {
 
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
+  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
@@ -2631,12 +2670,16 @@ function clearQDock() {
   if (dock) dock.innerHTML = '';
 }
 
-function reviewPrompt(prompt) {
+// Build the Plan-mode review card (approve to run). Extracted so it can be
+// re-rendered from a persisted {t:'review'} message — otherwise switching
+// chats, a background sync-renderThread, or a reload lost the composed prompt.
+function buildReviewCard(prompt, cardMode) {
+  const m = cardMode || mode;
   const box = document.createElement('div');
   box.className = 'review-card';
   const label = document.createElement('div');
   label.className = 'review-label';
-  label.textContent = mode === 'audio'
+  label.textContent = m === 'audio'
     ? "I'll voice exactly these words — approve to hear it:"
     : "Here's the plan — approve to run it:";
   const body = document.createElement('div');
@@ -2645,8 +2688,8 @@ function reviewPrompt(prompt) {
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
   // Price the card on the actual prompt/script, not the (now-cleared) input.
-  allow.textContent = 'Generate ' + (estimatePrice(mode === 'audio' ? prompt : undefined) || '✦');
-  deny.onclick = () => { actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
+  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined) || '✦');
+  deny.onclick = () => { clearReviews(); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     // One generation per chat — if the previous run is still going, keep the
     // card live so the prompt isn't silently swallowed by the busy guard.
@@ -2654,6 +2697,7 @@ function reviewPrompt(prompt) {
       label.textContent = "Still finishing the last one — approve again in a moment.";
       return;
     }
+    clearReviews();
     actions.remove(); label.textContent = 'Approved ✦';
     // Approval is the signal that this direction is right — commit the brief.
     const c = activeChat();
@@ -2662,7 +2706,19 @@ function reviewPrompt(prompt) {
   };
   actions.appendChild(deny); actions.appendChild(allow);
   box.appendChild(label); box.appendChild(body); box.appendChild(actions);
-  threadAppend(box);
+  return box;
+}
+// Drop any pending review card from the active chat once approved/denied so a
+// later re-render doesn't resurrect it.
+function clearReviews() {
+  const c = activeChat(); if (!c) return;
+  const before = c.msgs.length;
+  c.msgs = c.msgs.filter((mm) => mm.t !== 'review');
+  if (c.msgs.length !== before) { persistStore(); touchSync(c.id); }
+}
+function reviewPrompt(prompt) {
+  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now() });
+  threadAppend(buildReviewCard(prompt, mode));
 }
 
 // Grow the message box downward as the user types; cap it, then scroll.
@@ -2932,7 +2988,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -2965,7 +3021,7 @@ async function doSignOut() {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   await Auth.signOut();
@@ -3129,12 +3185,7 @@ function renderLanding() {
       nfHtml + recentHtml +
     '</div>';
 
-  const go = (what) => {
-    if (what === 'create') { showView('home'); const i = document.getElementById('input'); if (i) i.focus(); }
-    else if (what === 'presets') { showView('home'); togglePresets(true); }
-    else showView(what);
-  };
-  view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
+  view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => showView(b.dataset.go); });
   view.querySelectorAll('.nf-all').forEach((b) => { b.onclick = () => showView('gallery'); });
   // Netflix-style hover-to-play; click goes fullscreen.
   view.querySelectorAll('.nf-card video').forEach((v) => {
@@ -3149,7 +3200,10 @@ function renderLanding() {
 // or "Import"; imported/saved avatars show in a grid (zephyr_avatars_v1). ──
 const AVATARS_KEY = 'zephyr_avatars_v1';
 function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
-function saveAvatars(list) { try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+function saveAvatars(list) {
+  try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); return true; }
+  catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this avatar may not stick after a reload. Remove a few to free space.'); return false; }
+}
 
 // Avatar-creator state. avatarMode: 'list' (empty state / grid) or 'create'
 // (the generator screen — avatar preview in the middle, body-part options on
@@ -3356,7 +3410,10 @@ function buildAvatarPrompt() {
     return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
   };
   const gender = arr('gender'); if (gender.length) b.push(join(lc(gender)));
-  if (s.age) b.push(s.age + ' years old');
+  // Age falls back to the slider's default even if the user never dragged it,
+  // so the shown age (e.g. 25) actually drives the generated avatar.
+  const age = s.age != null ? s.age : (AV_SECTIONS.find((x) => x.key === 'age') || {}).def;
+  if (age) b.push(age + ' years old');
   const eth = arr('ethnicity'); if (eth.length) b.push('of ' + join(eth) + (eth.length > 1 ? ' mixed origin' : ' origin'));
   const body = arr('body'); if (body.length) b.push(join(lc(body)) + ' build');
   const skin = arr('skin'); if (skin.length) b.push(join(lc(skin)) + ' skin');
@@ -3388,7 +3445,10 @@ function acGenerate() {
 // it across generations. Stored locally for now (zephyr_products_v1). ──
 const PRODUCTS_KEY = 'zephyr_products_v1';
 function loadProducts() { try { return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); } catch { return []; } }
-function saveProducts(list) { try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
+function saveProducts(list) {
+  try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); return true; }
+  catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this product may not stick after a reload. Remove a few to free space.'); return false; }
+}
 function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 function renderProducts() {
@@ -3539,16 +3599,20 @@ function openCreateProduct() {
     refresh();
   };
   nameInp.oninput = refresh;
+  // One close path so the keydown listener is always removed (closing via ✕ or
+  // the backdrop used to leak one listener per open).
+  let onKey;
+  const close = () => { ov.remove(); if (onKey) document.removeEventListener('keydown', onKey); };
   createBtn.onclick = () => {
     if (createBtn.disabled) return;
     const p = { id: prUid(), name: nameInp.value.trim().slice(0, 120), desc: descInp.value.trim().slice(0, 500), image: imgData, images: imgData ? [imgData] : [], site: '', at: Date.now() };
     const list = loadProducts(); list.unshift(p); saveProducts(list);
-    ov.remove();
+    close();
     renderProducts();
   };
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.querySelector('.cp-close').onclick = () => ov.remove();
-  const onKey = (e) => { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } };
+  ov.onclick = (e) => { if (e.target === ov) close(); };
+  ov.querySelector('.cp-close').onclick = close;
+  onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   setTimeout(() => nameInp.focus(), 30);
 }
@@ -3660,7 +3724,10 @@ function renderGallery() {
     actions.className = 'g-actions';
     const dl = document.createElement('a');
     dl.className = 'g-btn'; dl.textContent = '⤓'; dl.title = 'Download';
-    dl.href = it.url; dl.download = ''; dl.target = '_blank'; dl.rel = 'noopener';
+    // Only ever link to a real media URL — never let a stored value smuggle a
+    // javascript: URL into an anchor (self-XSS on click).
+    dl.href = /^(https?:|blob:|data:)/i.test(it.url || '') ? it.url : '#';
+    dl.download = ''; dl.target = '_blank'; dl.rel = 'noopener';
     const del = document.createElement('button');
     del.className = 'g-btn'; del.textContent = '🗑'; del.title = 'Delete';
     del.onclick = () => galleryDelete(it, d);
@@ -3740,7 +3807,76 @@ function toggleProfileMenu(e) {
 
 // ── Studio lives in studio.js (shot-based projects) ──
 
+// ── Declarative event wiring (CSP-safe) ───────────────────────────────────
+// The HTML carries data-act / data-change / data-input / data-keydown hooks
+// instead of inline on* handlers, so the CSP can drop script-src 'unsafe-inline'.
+// Listeners are attached directly to each element (not document-delegated) to
+// preserve the stopPropagation() semantics the menu toggles rely on. Handlers
+// are resolved from these tables at click time, so studio.js globals referenced
+// below are fine even though studio.js loads after this file.
+const CLICK_ACTIONS = {
+  'view': (e, el) => showView(el.dataset.view),
+  'new-chat': () => newChat(),
+  'credits': () => openCredits(),
+  'credits-topup': () => openCredits(true),
+  'profile-menu': (e) => toggleProfileMenu(e),
+  'nav-menu': (e) => toggleNavMenu(e),
+  'sign-out': () => doSignOut(),
+  'effort-menu': (e) => toggleEffortMenu(e),
+  'set-effort': (e, el) => setEffort(el.dataset.effort),
+  'ap-row': (e, el) => toggleApRow(el.dataset.row),
+  'img-src': (e, el) => openImgSrc(el.dataset.src, e),
+  'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
+  'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
+  'dir-menu': (e) => toggleDirMenu(e),
+  'set-mode': (e, el) => setMode(el.dataset.mode),
+  'model-menu': (e) => toggleModelMenu(e),
+  'opt-settings': (e) => toggleOpt(e, 'settings'),
+  'send': () => send(true),
+  'presets-open': () => togglePresets(true),
+  'presets-close': () => togglePresets(false),
+  'gal-filter': (e, el) => setGalFilter(el.dataset.f),
+  'gal-sort': () => toggleGalSort(),
+  'studio-send': () => studioSend(),
+  'sb-speed': () => sbCycleSpeed(),
+  'sb-mute': () => sbToggleMute(),
+  'sb-prev': () => sbPrevShot(),
+  'sb-play': () => sbTogglePlay(),
+  'sb-next': () => sbNextShot(),
+  'sb-fs': () => sbFullscreenPreview(),
+  'sb-playall': () => sbPlayAll(),
+  'sb-export': () => sbExport(),
+};
+const CHANGE_ACTIONS = {
+  'attach': (e, el) => onAttach(el.dataset.attach, el),
+  'attach-extra': (e, el) => onAttachExtra(el),
+  'sb-project': (e, el) => sbSwitchProject(el.value),
+};
+const INPUT_ACTIONS = {
+  'search': () => renderChatList(),
+  'autogrow': (e, el) => autoGrow(el),
+};
+const KEYDOWN_ACTIONS = {
+  'send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } },
+  'studio-send': (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); studioSend(); } },
+  'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
+};
+function wireActions(root) {
+  const scope = root || document;
+  const bind = (attr, evt, table) => scope.querySelectorAll('[' + attr + ']').forEach((el) => {
+    const flag = '_w_' + evt;
+    if (el[flag]) return; el[flag] = true;
+    const fn = table[el.getAttribute(attr)];
+    if (fn) el.addEventListener(evt, (e) => fn(e, el));
+  });
+  bind('data-act', 'click', CLICK_ACTIONS);
+  bind('data-change', 'change', CHANGE_ACTIONS);
+  bind('data-input', 'input', INPUT_ACTIONS);
+  bind('data-keydown', 'keydown', KEYDOWN_ACTIONS);
+}
+
 // Init
+wireActions();
 buildMenu();
 buildOptMenus();
 renderAttach('audio');
