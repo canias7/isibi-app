@@ -266,6 +266,82 @@ function decodeEntities(s) {
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
 }
 
+// ── SSRF guard for user-supplied URLs (product scan). Normalizes the host and
+// rejects loopback / link-local / private / metadata targets across the usual
+// encodings (bracketed IPv6, IPv4-mapped, decimal/octal/hex IPv4, trailing
+// dot). Re-checked on every redirect hop by safeFetch. ──
+function ipv4Blocked(o) {
+  const [a, b] = o;
+  if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  if (a === 0) return true;                          // 0.0.0.0/8 "this network"
+  if (a === 10) return true;                         // private
+  if (a === 127) return true;                        // loopback
+  if (a === 169 && b === 254) return true;           // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true;  // private
+  if (a === 192 && b === 168) return true;           // private
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  return false;
+}
+function parseIPv4(h) {
+  const toInt = (p) =>
+    /^0x[0-9a-f]+$/i.test(p) ? parseInt(p, 16) :
+    /^0[0-7]+$/.test(p) ? parseInt(p, 8) :
+    /^\d+$/.test(p) ? parseInt(p, 10) : NaN;
+  const parts = h.split(".");
+  if (parts.length === 4) {
+    const o = parts.map(toInt);
+    if (o.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return o;
+  }
+  // Single-integer form (decimal / 0x-hex / 0-octal) → 32-bit dotted quad.
+  const n = /^0x[0-9a-f]+$/i.test(h) ? parseInt(h, 16) : /^0[0-7]+$/.test(h) ? parseInt(h, 8) : /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
+  if (Number.isInteger(n) && n >= 0 && n <= 0xffffffff) return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  return null;
+}
+function hostIsBlocked(rawHost) {
+  let h = (rawHost || "").toLowerCase().trim();
+  if (!h) return true;
+  if (h.endsWith(".")) h = h.slice(0, -1);           // trailing-dot FQDN
+  if (h.startsWith("[")) { const e = h.indexOf("]"); h = e > 0 ? h.slice(1, e) : h.slice(1); }
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") ||
+      h.endsWith(".local") || h === "metadata.google.internal") return true;
+  if (h.includes(":")) {                             // IPv6
+    if (h === "::1" || h === "::") return true;       // loopback / unspecified
+    if (/^fe[89ab]/.test(h)) return true;            // link-local fe80::/10
+    if (/^f[cd]/.test(h)) return true;               // unique-local fc00::/7
+    const m = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/); // ::ffff:a.b.c.d
+    if (m) { const ip = parseIPv4(m[1]); if (ip && ipv4Blocked(ip)) return true; }
+    return false;                                    // other public IPv6
+  }
+  const ip = parseIPv4(h);
+  if (ip) return ipv4Blocked(ip);
+  return false;                                      // regular hostname
+}
+// Fetch that won't be redirected onto a blocked host: follows up to `max` hops
+// manually, re-validating scheme + host on each Location.
+async function safeFetch(startUrl, opts = {}, max = 4) {
+  let current = startUrl;
+  for (let i = 0; i <= max; i++) {
+    let u;
+    try { u = new URL(current); } catch { return null; }
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || hostIsBlocked(u.hostname)) return null;
+    const r = await fetch(u.toString(), { ...opts, redirect: "manual" });
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get("location");
+      if (!loc) return r;
+      current = new URL(loc, u).toString();
+      continue;
+    }
+    return r;
+  }
+  return null; // too many redirects
+}
+function b64FromBuffer(ab) {
+  const bytes = new Uint8Array(ab);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -328,7 +404,7 @@ async function handleRequest(request, env, ctx) {
       const clip = dataVideo(body.clip);
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
-        ? body.images.map(dataImage).filter(Boolean).slice(0, 8)
+        ? body.images.slice(0, 8).map(dataImage).filter(Boolean)
         : [];
 
       let endpoint = model;
@@ -1285,9 +1361,20 @@ Context: ${ctxLine}`
         if (!/^https:\/\/([a-z0-9-]+\.)?fal\.media\//i.test(src)) {
           return Response.json({ error: "invalid url" }, { status: 400 });
         }
-        // Free accounts must watermark images before saving — block the raw-URL
-        // save path for their images so the client-side burn can't be skipped.
-        if (body.kind === "image") {
+      }
+      let media = null;
+      if (!bytes) {
+        try { media = await fetch(src, { signal: AbortSignal.timeout(20000) }); } catch {
+          return Response.json({ error: "fetch failed" }, { status: 502 });
+        }
+        if (!media.ok || !media.body) {
+          return Response.json({ error: "fetch failed" }, { status: 502 });
+        }
+        ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
+        // Free accounts must not store an un-watermarked IMAGE via the raw-URL
+        // path — gate on the ACTUAL fetched media type, not the client-supplied
+        // `kind` (which could be omitted or set to "video" to slip a PNG through).
+        if (ct.toLowerCase().startsWith("image/")) {
           let paid = false;
           try {
             const p = await fetch(`${SUPABASE_URL}/rest/v1/rpc/is_paid`, {
@@ -1299,16 +1386,6 @@ Context: ${ctxLine}`
           } catch { paid = false; }
           if (!paid) return Response.json({ error: "watermark required" }, { status: 403 });
         }
-      }
-      let media = null;
-      if (!bytes) {
-        try { media = await fetch(src); } catch {
-          return Response.json({ error: "fetch failed" }, { status: 502 });
-        }
-        if (!media.ok || !media.body) {
-          return Response.json({ error: "fetch failed" }, { status: 502 });
-        }
-        ct = (media.headers.get("content-type") || "application/octet-stream").split(";")[0];
       }
       const EXT = {
         "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
@@ -1367,20 +1444,19 @@ Context: ${ctxLine}`
       try { u = new URL(target); } catch { return Response.json({ error: "invalid url" }, { status: 400 }); }
       if (u.protocol !== "http:" && u.protocol !== "https:") return Response.json({ error: "invalid url" }, { status: 400 });
       const host = u.hostname.toLowerCase();
-      // Basic SSRF guard — no localhost, private ranges, or cloud metadata.
-      if (host === "localhost" || host.endsWith(".internal") || host === "metadata.google.internal" ||
-          /^(127\.|0\.|10\.|169\.254\.|192\.168\.|::1)/.test(host) ||
-          /^172\.(1[6-9]|2\d|3[01])\./.test(host)) {
+      // SSRF guard — reject loopback / private / link-local / metadata across
+      // encodings; safeFetch re-checks every redirect hop so a public host
+      // can't 30x us onto an internal one.
+      if (hostIsBlocked(host)) {
         return Response.json({ error: "blocked" }, { status: 400 });
       }
       let html = "";
       try {
-        const r = await fetch(u.toString(), {
+        const r = await safeFetch(u.toString(), {
           headers: { "User-Agent": "Mozilla/5.0 (compatible; isibiBot/1.0; +https://isibi.ai)", "Accept": "text/html,application/xhtml+xml" },
-          redirect: "follow",
           signal: AbortSignal.timeout(8000),
         });
-        if (!r.ok) return Response.json({ error: "fetch failed" }, { status: 502 });
+        if (!r || !r.ok) return Response.json({ error: "fetch failed" }, { status: 502 });
         const buf = await r.arrayBuffer();
         html = new TextDecoder("utf-8").decode(new Uint8Array(buf).subarray(0, 1_500_000));
       } catch {
@@ -1416,7 +1492,20 @@ Context: ${ctxLine}`
       const price = meta("product:price:amount") || meta("og:price:amount") || "";
       const currency = meta("product:price:currency") || meta("og:price:currency") || "";
       if (!name && !image) return Response.json({ error: "no product info" }, { status: 422 });
-      return Response.json({ name: name || site, site, image, price, currency });
+      // Inline the product image as a data URI: the app CSP blocks arbitrary
+      // remote image hosts, and going through safeFetch keeps it SSRF-guarded.
+      let imageData = "";
+      if (image) {
+        try {
+          const ir = await safeFetch(image, { signal: AbortSignal.timeout(8000) });
+          const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
+          if (ir && ir.ok && ict.startsWith("image/")) {
+            const ab = await ir.arrayBuffer();
+            if (ab.byteLength && ab.byteLength <= 2_000_000) imageData = "data:" + ict + ";base64," + b64FromBuffer(ab);
+          }
+        } catch {}
+      }
+      return Response.json({ name: name || site, site, image: imageData, price, currency });
     }
 
     return env.ASSETS.fetch(request);

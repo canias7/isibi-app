@@ -801,7 +801,9 @@ async function previewVoice(name, btn) {
     const res = await apiFetch('/api/audio', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name }),
+      // director:'off' — a preview runs no prompt writer, so it must not pay the
+      // director surcharge on top of the TTS credit.
+      body: JSON.stringify({ model, prompt: "Hi, I'm " + name + ". This is how I sound.", voice: name, director: 'off' }),
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) throw new Error('start');
@@ -816,6 +818,7 @@ async function previewVoice(name, btn) {
         out = await rr.json();
         break;
       }
+      if (st.status === 'FAILED' || st.status === 'ERROR') break; // don't spin the full 90s on a dead job
       await new Promise((r) => setTimeout(r, 1500));
     }
     const url = out && (out.audio?.url || out.audio_url || out.audio_file?.url || out.data?.audio?.url);
@@ -2290,6 +2293,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       if (!alive()) return; // cancelled while polling
       state = st.status;
       if (state === 'COMPLETED') break;
+      // fal reached a terminal failure — stop now instead of spinning the
+      // loader until the deadline. The job is dead; clear the record so it
+      // isn't re-polled at boot.
+      if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED') {
+        endGen(origin);
+        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.');
+        return;
+      }
       myGen.model = label;
       setGenText(origin,
         state === 'IN_PROGRESS'
@@ -2300,14 +2311,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     }
 
     if (state !== 'COMPLETED') {
-      endGen(origin);
-      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai.');
+      // Ran past the deadline but the job is still live on fal (and already
+      // charged). Keep the refresh-proof record — bounded by tries — so
+      // boot-resume gets it, rather than clearing a paid render here.
+      jobBumpTries(origin);
+      pauseGen(origin);
+      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai; the app will pick it back up automatically.');
       return;
     }
-
-    // Another tab of this account may be polling the same resumed job — claim
-    // it so the result is saved and shown exactly once, not duplicated.
-    if (!claimDelivery(statusUrl)) { endGen(origin); return; }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
     const out = await rr.json();
@@ -2323,6 +2334,11 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         : (out.video?.url || out.video_url || out.videos?.[0]?.url || out.data?.video?.url);
       if (single) urls = [single];
     }
+    // Claim delivery only now that the result is in hand: claiming earlier meant
+    // a failed result-fetch burned the claim and the paid render was dropped on
+    // boot-resume. Another tab that already delivered this job wins the claim;
+    // we stop without clearing so the winner's record management stands.
+    if (!claimDelivery(statusUrl)) { pauseGen(origin); return; }
     if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
@@ -2530,7 +2546,7 @@ function localCompose(text, answers) {
 }
 
 function esc(s) {
-  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 function threadAppend(el) {
@@ -2956,7 +2972,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -2970,6 +2986,7 @@ function enterApp() {
   }
   // Run a ?q= prompt only AFTER the account-switch wipe above — otherwise it
   // would land in the outgoing account's chat and be discarded by the reset.
+  const ranFirstMsg = !!pendingFirstMsg;
   if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
   // Signed in — pull the account's chats from the server and merge.
   pullChats();
@@ -2978,8 +2995,9 @@ function enterApp() {
   // and re-copy any media whose gallery save failed.
   resumeJobs();
   retryPendingSaves();
-  // Open on the Home landing (also hides the Builder-only chat list, etc.).
-  showView('landing');
+  // Open on the Builder when a ?q= prompt is running (so its reply/loader is
+  // visible), otherwise on the Home landing.
+  showView(ranFirstMsg ? 'home' : 'landing');
 }
 
 async function doSignOut() {
@@ -2987,7 +3005,7 @@ async function doSignOut() {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   await Auth.signOut();
