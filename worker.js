@@ -179,6 +179,30 @@ async function readCredits(authHeader) {
   return Number(await r.json());
 }
 
+// Per-user daily quota, enforced by the Postgres side (use_quota is
+// SECURITY DEFINER over a client-locked table). Fails open if the quota
+// service itself is unreachable so an outage can't take the feature down.
+async function useQuota(request, kind, limit) {
+  const token = (request.headers.get("Authorization") || "").slice(7).trim();
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_quota`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_kind: kind, p_limit: limit }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return true;
+    return (await r.json()) === true;
+  } catch {
+    return true;
+  }
+}
+const QUOTA_EXCEEDED = () => Response.json({ error: "daily limit reached" }, { status: 429 });
+
 // Best-effort cancel of a just-submitted fal job — used when we submitted but
 // then couldn't charge, so a failed debit never yields a free generation.
 async function cancelFal(data, env) {
@@ -910,6 +934,7 @@ async function handleRequest(request, env, ctx) {
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
     if (url.pathname === "/api/direct" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
+      if (!(await useQuota(request, "director", 300))) return QUOTA_EXCEEDED();
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
@@ -943,6 +968,10 @@ async function handleRequest(request, env, ctx) {
       // (~$0.01 each), so it is gated behind that judgment and capped by
       // max_uses; any failure degrades gracefully to "no facts".
       if (step === "research") {
+        // Each research call spends real money (web_search, ~$0.01/search,
+        // up to max_uses per call), and the step is directly callable — so
+        // it gets its own much tighter daily cap on top of the director one.
+        if (!(await useQuota(request, "research", 30))) return QUOTA_EXCEEDED();
         const rHistory = Array.isArray(body.history)
           ? body.history
               .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string")
