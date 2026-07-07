@@ -1015,7 +1015,12 @@ function addMsg(kind, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + kind;
   if (kind.includes('typing')) {
-    div.innerHTML = text + ' <span class="dots"></span>';
+    // Build with DOM so `text` is never interpreted as HTML (defense-in-depth,
+    // even though callers only pass internal literals today).
+    div.textContent = text + ' ';
+    const dots = document.createElement('span');
+    dots.className = 'dots';
+    div.appendChild(dots);
   } else {
     div.textContent = text;
   }
@@ -1204,6 +1209,16 @@ async function pushChats() {
   }
 }
 
+// Union two message arrays by content: keep the winner's order, append any
+// messages the loser had that the winner lacks. Stops a clock-skewed
+// last-write-wins from silently dropping messages. Capped to the 80-msg window.
+function mergeMsgs(winner, loser) {
+  const key = (m) => (m.t || '') + '|' + (m.url || m.text || m.prompt || '') + '|' + (m.ts || m.at || '');
+  const have = new Set((winner || []).map(key));
+  const extra = (loser || []).filter((m) => m && !have.has(key(m)));
+  return extra.length ? [...winner, ...extra].slice(-80) : (winner || []);
+}
+
 async function pullChats() {
   const h = await syncHeaders();
   if (!h) return;
@@ -1232,7 +1247,13 @@ async function pullChats() {
       local.title = r.title || local.title;
       local.brief = r.brief || undefined;
       local.lastPrompt = r.last_prompt || undefined;
-      if (Array.isArray(r.msgs)) local.msgs = r.msgs;
+      // Merge, don't wholesale-replace: a remote that "wins" only by a skewed
+      // clock must not drop messages this device has and the remote lacks.
+      if (Array.isArray(r.msgs)) {
+        const merged = mergeMsgs(r.msgs, local.msgs);
+        if (merged.length > r.msgs.length) syncDirty.add(local.id); // added local-only msgs → push the union up
+        local.msgs = merged;
+      }
       local.updatedAt = remoteAt;
       local.synced = true;
       changed = true;
@@ -3874,6 +3895,23 @@ function wireActions(root) {
   bind('data-input', 'input', INPUT_ACTIONS);
   bind('data-keydown', 'keydown', KEYDOWN_ACTIONS);
 }
+
+// Keyboard navigation for the dropdown menus (model / effort / settings / dir /
+// image-source), which are otherwise click-only: ↑/↓ move between items,
+// Enter/Space picks the focused one, Esc closes.
+document.addEventListener('keydown', (e) => {
+  if (!['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Escape'].includes(e.key)) return;
+  const menu = document.querySelector('.model-menu.open');
+  if (!menu) return;
+  if (e.key === 'Escape') { menu.classList.remove('open'); return; }
+  const items = [...menu.querySelectorAll('.model-item')].filter((el) => el.getClientRects().length);
+  if (!items.length) return;
+  items.forEach((el) => { el.setAttribute('role', 'menuitem'); if (!el.hasAttribute('tabindex')) el.tabIndex = -1; });
+  const idx = items.indexOf(document.activeElement);
+  if (e.key === 'Enter' || e.key === ' ') { if (idx >= 0) { e.preventDefault(); items[idx].click(); } return; }
+  e.preventDefault();
+  items[e.key === 'ArrowDown' ? (idx + 1) % items.length : (idx <= 0 ? items.length - 1 : idx - 1)].focus();
+});
 
 // Init
 wireActions();
