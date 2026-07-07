@@ -3191,8 +3191,7 @@ const AV_SECTIONS = [
     opts: ['#f2e3d5', '#e6c8a8', '#d0a06f', '#a86f43', '#7a4a26', '#4a2c17'] },
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
     opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
-  { key: 'age', label: 'Age', icon: '🎂', type: 'cards',
-    opts: [{ v: 'Teens' }, { v: '20s' }, { v: '30s' }, { v: '40s' }, { v: '50s' }, { v: '60+' }] },
+  { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
   { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
     opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
   { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
@@ -3279,10 +3278,17 @@ function renderAvatarCreator(view) {
     } else if (s.type === 'swatch') {
       body = '<div class="ab-swatches">' + s.opts.map((c) =>
         '<button type="button" class="ab-swatch' + (sel === c ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(c) + '" style="background:' + esc(c) + '" aria-label="' + esc(c) + '"></button>').join('') + '</div>';
+    } else if (s.type === 'slider') {
+      const val = sel != null ? sel : s.def;
+      body = '<div class="ab-slider">' +
+        '<div class="ab-slider-top"><span class="ab-range-val" data-valfor="' + s.key + '">' + val + '</span></div>' +
+        '<input type="range" class="ab-range" data-k="' + s.key + '" min="' + s.min + '" max="' + s.max + '" value="' + val + '" />' +
+      '</div>';
     }
+    const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (sel ? ' · 1' : '');
     return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
       '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
-        '<span class="ab-sec-cnt">' + (sel ? ' · 1' : '') + '</span></span><span class="ab-chev">⌄</span></button>' +
+        '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
       '<div class="ab-sec-body">' + body + '</div>' +
     '</div>';
   }).join('');
@@ -3309,8 +3315,17 @@ function renderAvatarCreator(view) {
       '</div>' +
     '</div>';
 
-  const setCount = (sec) => { const c = sec.querySelector('.ab-sec-cnt'); if (c) c.textContent = acSel[sec.dataset.sec] ? ' · 1' : ''; };
+  const setCount = (sec) => {
+    const c = sec.querySelector('.ab-sec-cnt'); if (!c) return;
+    const k = sec.dataset.sec, v = acSel[k], def = AV_SECTIONS.find((x) => x.key === k);
+    c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (v ? ' · 1' : '');
+  };
   view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
+  view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
+    acSel[r.dataset.k] = +r.value;
+    const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = r.value;
+    setCount(r.closest('.ab-sec'));
+  }; });
   view.querySelectorAll('.ab-sec-h').forEach((h) => { h.onclick = () => {
     const sec = h.closest('.ab-sec'); acOpen[sec.dataset.sec] = sec.classList.toggle('open');
   }; });
@@ -3324,13 +3339,23 @@ function renderAvatarCreator(view) {
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
     view.querySelectorAll('.ac-builder .on').forEach((x) => x.classList.remove('on'));
-    view.querySelectorAll('.ab-sec-cnt').forEach((c) => { c.textContent = ''; });
+    view.querySelectorAll('.ab-range').forEach((r) => {
+      const def = (AV_SECTIONS.find((s) => s.key === r.dataset.k) || {}).def;
+      if (def != null) { r.value = def; const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = def; }
+    });
+    view.querySelectorAll('.ab-sec').forEach((sec) => setCount(sec));
   };
   view.querySelector('#acShuffle').onclick = () => {
     AV_SECTIONS.forEach((s) => {
+      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
+      if (s.type === 'slider') {
+        const v = s.min + Math.floor(Math.random() * (s.max - s.min + 1));
+        acSel[s.key] = v;
+        if (sec) { const r = sec.querySelector('.ab-range'); if (r) r.value = v; const lbl = sec.querySelector('[data-valfor="' + s.key + '"]'); if (lbl) lbl.textContent = v; setCount(sec); }
+        return;
+      }
       const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
       acSel[s.key] = s.type === 'swatch' ? opt : opt.v;
-      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
       if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', x.dataset.v === String(acSel[s.key]))); setCount(sec); }
     });
   };
@@ -3340,7 +3365,7 @@ function renderAvatarCreator(view) {
 function buildAvatarPrompt() {
   const s = acSel, b = [];
   if (s.gender) b.push(s.gender.toLowerCase());
-  if (s.age) b.push('aged ' + s.age.toLowerCase());
+  if (s.age) b.push(s.age + ' years old');
   if (s.ethnicity) b.push('of ' + s.ethnicity + ' origin');
   if (s.hair === 'Bald') b.push('bald');
   else if (s.hair) b.push(s.hair.toLowerCase() + ' hair');

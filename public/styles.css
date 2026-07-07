@@ -925,6 +925,14 @@
 .ab-swatch { width: 34px; height: 34px; border-radius: 9px; border: 2px solid var(--line-2); cursor: pointer; padding: 0; transition: transform .1s ease, border-color .1s ease; }
 .ab-swatch:hover { transform: scale(1.06); }
 .ab-swatch.on { border-color: #ff9ad4; box-shadow: 0 0 0 2px rgba(255, 154, 212, .3); }
+/* slider option (age) */
+.ab-slider { padding: .3rem .3rem .5rem; }
+.ab-slider-top { display: flex; justify-content: center; margin-bottom: .7rem; }
+.ab-range-val { font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; }
+.ab-range { width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: var(--line-2); outline: none; cursor: pointer; }
+.ab-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #ff9ad4; border: 2px solid #0a0a0b; box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); cursor: pointer; }
+.ab-range::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #ff9ad4; border: 2px solid #0a0a0b; cursor: pointer; }
+.ab-range:focus-visible { outline: 2px solid rgba(255, 170, 110, .7); outline-offset: 4px; }
 @media (max-width: 860px) {
   .ac-main { flex-direction: column; }
   .ac-builder { width: 100%; max-height: none; }
