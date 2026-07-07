@@ -3266,20 +3266,21 @@ function renderAvatarCreator(view) {
     const open = acOpen[s.key] !== false; // default expanded
     const sel = acSel[s.key];
     let body = '';
+    const has = (v) => Array.isArray(sel) && sel.includes(v); // multi-select per category
     if (s.type === 'cards') {
       body = '<div class="ab-cards">' + s.opts.map((o) =>
-        '<button type="button" class="ab-card' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+        '<button type="button" class="ab-card' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
           '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
         '</button>').join('') + '</div>';
     } else if (s.type === 'images') {
       body = '<div class="ab-imgs">' + s.opts.map((o, i) =>
-        '<button type="button" class="ab-img' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+        '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
           (o.img ? '<img src="' + esc(o.img) + '" alt="" />' : '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>') +
           '<span class="ab-img-l">' + esc(o.v) + '</span>' +
         '</button>').join('') + '</div>';
     } else if (s.type === 'swatch') {
       body = '<div class="ab-swatches">' + s.opts.map((o) =>
-        '<button type="button" class="ab-swatch' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
+        '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
     } else if (s.type === 'slider') {
       const val = sel != null ? sel : s.def;
       body = '<div class="ab-slider">' +
@@ -3287,7 +3288,7 @@ function renderAvatarCreator(view) {
         '<input type="range" class="ab-range" data-k="' + s.key + '" min="' + s.min + '" max="' + s.max + '" value="' + val + '" />' +
       '</div>';
     }
-    const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (sel ? ' · 1' : '');
+    const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
     return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
       '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
         '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
@@ -3320,7 +3321,7 @@ function renderAvatarCreator(view) {
   const setCount = (sec) => {
     const c = sec.querySelector('.ab-sec-cnt'); if (!c) return;
     const k = sec.dataset.sec, v = acSel[k], def = AV_SECTIONS.find((x) => x.key === k);
-    c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (v ? ' · 1' : '');
+    c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (Array.isArray(v) && v.length ? ' · ' + v.length : '');
   };
   view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
   view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
@@ -3332,11 +3333,13 @@ function renderAvatarCreator(view) {
     const sec = h.closest('.ab-sec'); acOpen[sec.dataset.sec] = sec.classList.toggle('open');
   }; });
   view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
-    const k = el.dataset.k, v = el.dataset.v, was = acSel[k] === v;
-    acSel[k] = was ? undefined : v;
-    const sec = el.closest('.ab-sec');
-    sec.querySelectorAll('[data-k="' + k + '"]').forEach((x) => x.classList.toggle('on', !was && x === el));
-    setCount(sec);
+    const k = el.dataset.k, v = el.dataset.v;
+    const arr = Array.isArray(acSel[k]) ? acSel[k].slice() : [];
+    const i = arr.indexOf(v);
+    if (i >= 0) arr.splice(i, 1); else arr.push(v);
+    acSel[k] = arr.length ? arr : undefined;
+    el.classList.toggle('on', arr.indexOf(v) >= 0);
+    setCount(el.closest('.ab-sec'));
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
@@ -3357,8 +3360,8 @@ function renderAvatarCreator(view) {
         return;
       }
       const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
-      acSel[s.key] = opt.v;
-      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', x.dataset.v === String(acSel[s.key]))); setCount(sec); }
+      acSel[s.key] = [opt.v];
+      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', acSel[s.key].indexOf(x.dataset.v) >= 0)); setCount(sec); }
     });
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
@@ -3366,16 +3369,27 @@ function renderAvatarCreator(view) {
 
 function buildAvatarPrompt() {
   const s = acSel, b = [];
-  if (s.gender) b.push(s.gender.toLowerCase());
+  const arr = (k) => (Array.isArray(s[k]) ? s[k] : s[k] != null ? [s[k]] : []);
+  const lc = (a) => a.map((x) => String(x).toLowerCase());
+  const join = (a) => {
+    if (!a.length) return '';
+    if (a.length === 1) return a[0];
+    if (a.length === 2) return a[0] + ' and ' + a[1];
+    return a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  };
+  const gender = arr('gender'); if (gender.length) b.push(join(lc(gender)));
   if (s.age) b.push(s.age + ' years old');
-  if (s.ethnicity) b.push('of ' + s.ethnicity + ' origin');
-  if (s.body) b.push(s.body.toLowerCase() + ' build');
-  if (s.skin) b.push(s.skin.toLowerCase() + ' skin');
-  if (s.hair === 'Bald') b.push('bald');
-  else if (s.hair || s.haircolor) {
-    b.push((s.haircolor ? s.haircolor.toLowerCase() + ' ' : '') + (s.hair ? s.hair.toLowerCase() + ' ' : '') + 'hair');
+  const eth = arr('ethnicity'); if (eth.length) b.push('of ' + join(eth) + (eth.length > 1 ? ' mixed origin' : ' origin'));
+  const body = arr('body'); if (body.length) b.push(join(lc(body)) + ' build');
+  const skin = arr('skin'); if (skin.length) b.push(join(lc(skin)) + ' skin');
+  const hair = arr('hair'), haircolor = arr('haircolor');
+  const hairStyles = hair.filter((h) => h !== 'Bald');
+  if (hair.some((h) => h === 'Bald') && !hairStyles.length) b.push('bald');
+  else if (hairStyles.length || haircolor.length) {
+    b.push((haircolor.length ? join(lc(haircolor)) + ' ' : '') + (hairStyles.length ? join(lc(hairStyles)) + ' ' : '') + 'hair');
   }
-  if (s.facial && s.facial !== 'None') b.push('with a ' + s.facial.toLowerCase());
+  const facial = arr('facial').filter((f) => f !== 'None');
+  if (facial.length) b.push('with a ' + join(lc(facial)));
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
