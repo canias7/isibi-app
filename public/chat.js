@@ -3138,7 +3138,9 @@ function renderLanding() {
       .map((v, i) => v
         ? '<div class="nf-card"><video src="' + esc(v) + '" muted loop playsinline preload="metadata"></video></div>'
         : '<div class="nf-card nf-ph nf-ph' + (i % 3) + '"><span class="nf-play">▶</span></div>').join('');
-    return '<div class="nf-row"><h2 class="nf-title">' + esc(row.model) + '</h2>' +
+    return '<div class="nf-row">' +
+      '<div class="nf-head"><h2 class="nf-title">' + esc(row.model) + '</h2>' +
+        '<button type="button" class="nf-all">See all <span class="nf-all-c">›</span></button></div>' +
       '<div class="nf-track">' + cards + '</div></div>';
   }).join('');
 
@@ -3155,6 +3157,7 @@ function renderLanding() {
     else showView(what);
   };
   view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(b.dataset.go); });
+  view.querySelectorAll('.nf-all').forEach((b) => { b.onclick = () => showView('gallery'); });
   // Netflix-style hover-to-play; click goes fullscreen.
   view.querySelectorAll('.nf-card video').forEach((v) => {
     const card = v.closest('.nf-card');
