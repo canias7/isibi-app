@@ -3173,9 +3173,34 @@ const AVATARS_KEY = 'zephyr_avatars_v1';
 function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
 function saveAvatars(list) { try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); } catch (e) {} }
 
+// Avatar-creator state. avatarMode: 'list' (empty state / grid) or 'create'
+// (the generator screen — avatar preview in the middle, body-part options on
+// the right). AV_PARTS is a placeholder set of options, replaced with the
+// real parts later. Avatars generate with Nano Banana Pro.
+const AVATAR_MODEL = 'fal-ai/nano-banana-pro';
+let avatarMode = 'list';
+const acSel = {};   // key -> selected value
+const acOpen = {};  // key -> section expanded?
+// Right-side "Builder" sections. Types: 'cards' (label + optional icon),
+// 'images' (label + image tile), 'swatch' (color dots). Placeholder content —
+// swap for the real sections/options later. opts.img adds a real photo tile.
+const AV_SECTIONS = [
+  { key: 'ctype', label: 'Character Type', icon: '🧠', type: 'cards',
+    opts: [{ v: 'Human', ico: '🧑' }, { v: 'Stylized', ico: '🎨' }] },
+  { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
+    opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
+  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
+    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
+  { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
+    opts: ['#f2e3d5', '#e6c8a8', '#d0a06f', '#a86f43', '#7a4a26', '#4a2c17'] },
+  { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
+    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Buzz' }, { v: 'Bald' }] },
+];
+
 function renderAvatar() {
   const view = document.getElementById('viewAvatar');
   if (!view) return;
+  if (avatarMode === 'create') { renderAvatarCreator(view); return; }
   const avatars = loadAvatars();
   if (!avatars.length) {
     view.innerHTML =
@@ -3208,12 +3233,7 @@ function renderAvatar() {
           '</div>').join('') + '</div>' +
       '</div>';
   }
-  view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => {
-    showView('home');
-    if (typeof setMode === 'function') setMode('image');
-    const i = document.getElementById('input');
-    if (i) { i.value = 'A photorealistic front-facing portrait of a person, neutral expression, soft studio lighting, plain background.'; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
-  }; });
+  view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => { avatarMode = 'create'; renderAvatar(); }; });
   view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
   view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
 }
@@ -3231,6 +3251,107 @@ function importAvatar() {
     renderAvatar();
   };
   inp.click();
+}
+
+// The avatar generator screen: preview in the middle, a "Builder" panel of
+// body-part options on the right (Higgsfield-style). Generates with Nano
+// Banana Pro.
+function renderAvatarCreator(view) {
+  const secHtml = AV_SECTIONS.map((s) => {
+    const open = acOpen[s.key] !== false; // default expanded
+    const sel = acSel[s.key];
+    let body = '';
+    if (s.type === 'cards') {
+      body = '<div class="ab-cards">' + s.opts.map((o) =>
+        '<button type="button" class="ab-card' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
+        '</button>').join('') + '</div>';
+    } else if (s.type === 'images') {
+      body = '<div class="ab-imgs">' + s.opts.map((o, i) =>
+        '<button type="button" class="ab-img' + (sel === o.v ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          (o.img ? '<img src="' + esc(o.img) + '" alt="" />' : '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>') +
+          '<span class="ab-img-l">' + esc(o.v) + '</span>' +
+        '</button>').join('') + '</div>';
+    } else if (s.type === 'swatch') {
+      body = '<div class="ab-swatches">' + s.opts.map((c) =>
+        '<button type="button" class="ab-swatch' + (sel === c ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(c) + '" style="background:' + esc(c) + '" aria-label="' + esc(c) + '"></button>').join('') + '</div>';
+    }
+    return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
+      '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
+        '<span class="ab-sec-cnt">' + (sel ? ' · 1' : '') + '</span></span><span class="ab-chev">⌄</span></button>' +
+      '<div class="ab-sec-body">' + body + '</div>' +
+    '</div>';
+  }).join('');
+
+  view.innerHTML =
+    '<div class="ac-page">' +
+      '<button type="button" class="ac-back" id="acBack">← Avatars</button>' +
+      '<div class="ac-main">' +
+        '<div class="ac-stage">' +
+          '<div class="ac-preview" id="acPreview">' +
+            '<span class="ac-ph-ico">🖼️</span>' +
+            '<div class="ac-ph-txt">Your avatar lives here.<br>Design it on the right, then generate.</div>' +
+            '<span class="ac-tag">Human</span>' +
+          '</div>' +
+          '<div class="ac-actions">' +
+            '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
+            '<button type="button" class="ac-gen" id="acGen">Generate avatar ✦</button>' +
+          '</div>' +
+        '</div>' +
+        '<aside class="ac-builder">' +
+          '<div class="ab-top"><span class="ab-top-t">Builder</span><button type="button" class="ab-reset" id="acReset">Reset</button></div>' +
+          secHtml +
+        '</aside>' +
+      '</div>' +
+    '</div>';
+
+  const setCount = (sec) => { const c = sec.querySelector('.ab-sec-cnt'); if (c) c.textContent = acSel[sec.dataset.sec] ? ' · 1' : ''; };
+  view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
+  view.querySelectorAll('.ab-sec-h').forEach((h) => { h.onclick = () => {
+    const sec = h.closest('.ab-sec'); acOpen[sec.dataset.sec] = sec.classList.toggle('open');
+  }; });
+  view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
+    const k = el.dataset.k, v = el.dataset.v, was = acSel[k] === v;
+    acSel[k] = was ? undefined : v;
+    const sec = el.closest('.ab-sec');
+    sec.querySelectorAll('[data-k="' + k + '"]').forEach((x) => x.classList.toggle('on', !was && x === el));
+    setCount(sec);
+  }; });
+  view.querySelector('#acReset').onclick = () => {
+    Object.keys(acSel).forEach((k) => delete acSel[k]);
+    view.querySelectorAll('.ac-builder .on').forEach((x) => x.classList.remove('on'));
+    view.querySelectorAll('.ab-sec-cnt').forEach((c) => { c.textContent = ''; });
+  };
+  view.querySelector('#acShuffle').onclick = () => {
+    AV_SECTIONS.forEach((s) => {
+      const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
+      acSel[s.key] = s.type === 'swatch' ? opt : opt.v;
+      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
+      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', x.dataset.v === String(acSel[s.key]))); setCount(sec); }
+    });
+  };
+  view.querySelector('#acGen').onclick = () => acGenerate();
+}
+
+function buildAvatarPrompt() {
+  const s = acSel, b = [];
+  if (s.gender) b.push(s.gender.toLowerCase());
+  if (s.age) b.push('in their ' + s.age);
+  if (s.ethnicity) b.push('of ' + s.ethnicity + ' origin');
+  if (s.hair && s.hair !== 'Bald') b.push(s.hair.toLowerCase() + ' hair');
+  if (s.hair === 'Bald') b.push('bald');
+  if (s.skin) b.push('skin tone ' + s.skin);
+  const who = b.length ? 'a ' + b.join(', ') : 'a person';
+  return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
+}
+
+function acGenerate() {
+  const prompt = buildAvatarPrompt();
+  try { selectedModels.image = AVATAR_MODEL; } catch (e) {}
+  showView('home');
+  if (typeof setMode === 'function') setMode('image');
+  const i = document.getElementById('input');
+  if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
 }
 
 // ── Products: save a product from a store link or a manual upload, then reuse
