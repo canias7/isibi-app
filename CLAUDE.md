@@ -30,7 +30,7 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 
 ## Rate limits
 
-**Currently disabled** (user's call, 2026-07-03). The Postgres side stays dormant and ready: `public.use_quota(kind, limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table). To re-enable, add back the two Worker gates (`useQuota(request, "gen", 60)` on generation, `useQuota(request, "director", 300)` on /api/direct → 429 `daily limit reached`); the frontend already shows a friendly message for that error.
+Postgres side: `public.use_quota(p_kind, p_limit)` (SECURITY DEFINER, atomic check+log over the client-locked `usage_log` table), fail-open in the Worker if the RPC is unreachable. **Live gates (re-enabled 2026-07-07, audit fix)**: `/api/direct` → `useQuota(request, "director", 300)`/day, plus a tighter `useQuota(request, "research", 30)`/day on the web-search research step (the directly-callable, real-money one). Both 429 `daily limit reached`; every director step fails soft client-side (ask→localAsk, compose/revise→local prompt, research→no facts) so a capped user can still generate. The **generation gate stays off** (user's call, 2026-07-03) — to re-enable add `useQuota(request, "gen", 60)` back on /api/video|image|audio.
 
 ## Auth emails (live)
 
