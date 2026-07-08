@@ -304,6 +304,126 @@ function decodeEntities(s) {
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
 }
 
+// Pull a product's name / image / description / price out of a page's HTML.
+// Priority: JSON-LD schema.org Product (the canonical block real stores embed)
+// → OpenGraph/Twitter → microdata → <link image_src> → the best real <img>
+// (handles lazy-load + srcset, skips site chrome). Returns the image as an
+// ABSOLUTE url; the caller inlines it through safeFetch. Pure/no network, so
+// it is unit-testable. `name` may be "" when the page has no title at all.
+function extractProduct(html, pageUrl, host) {
+  const u = pageUrl;
+  // Guard empty input: new URL("", base) resolves to the base page URL, which
+  // would otherwise sneak the page itself in as a bogus "image".
+  const abs = (s) => { if (!s) return null; try { return new URL(s, u).toString(); } catch { return null; } };
+  const ok = (s) => s && /^https?:\/\//i.test(s);
+  const stripTags = (s) => decodeEntities(String(s || "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+  const allMeta = (prop) => {
+    const re = new RegExp('<meta[^>]+(?:property|name|itemprop)=["\\\']' + prop + '["\\\'][^>]*>', "ig");
+    const out = []; let m;
+    while ((m = re.exec(html)) && out.length < 8) {
+      const c = m[0].match(/content=["']([^"']*)["']/i);
+      if (c && c[1]) out.push(decodeEntities(c[1]).trim());
+    }
+    return out;
+  };
+  const meta = (prop) => allMeta(prop)[0] || "";
+
+  // ── 1. JSON-LD schema.org Product ──
+  const ld = { name: "", desc: "", image: "", price: "", currency: "" };
+  {
+    const imgOf = (v) => {
+      if (!v) return "";
+      if (typeof v === "string") return v;
+      if (Array.isArray(v)) { for (const x of v) { const r = imgOf(x); if (r) return r; } return ""; }
+      if (typeof v === "object") return imgOf(v.url || v.contentUrl);
+      return "";
+    };
+    const priceOf = (offers) => {
+      const o = Array.isArray(offers) ? offers[0] : offers;
+      if (!o || typeof o !== "object") return {};
+      const spec = o.priceSpecification && typeof o.priceSpecification === "object"
+        ? (Array.isArray(o.priceSpecification) ? o.priceSpecification[0] : o.priceSpecification) : null;
+      return {
+        price: String(o.price || o.lowPrice || (spec && spec.price) || "").trim(),
+        currency: String(o.priceCurrency || (spec && spec.priceCurrency) || "").trim(),
+      };
+    };
+    const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/ig;
+    let m, blocks = 0;
+    while ((m = re.exec(html)) && blocks < 30) {
+      blocks++;
+      let data; try { data = JSON.parse(m[1].trim()); } catch { continue; }
+      const stack = Array.isArray(data) ? data.slice() : [data];
+      let guard = 0;
+      while (stack.length && guard < 300) {
+        guard++;
+        const node = stack.shift();
+        if (!node || typeof node !== "object") continue;
+        if (Array.isArray(node)) { stack.push(...node); continue; }
+        if (node["@graph"]) stack.push(...(Array.isArray(node["@graph"]) ? node["@graph"] : [node["@graph"]]));
+        const t = node["@type"];
+        const isProduct = t === "Product" || (Array.isArray(t) && t.includes("Product"));
+        if (!isProduct) continue;
+        if (!ld.name && node.name) ld.name = String(node.name).trim();
+        if (!ld.desc && node.description) ld.desc = stripTags(node.description);
+        if (!ld.image) { const im = abs(imgOf(node.image)); if (ok(im)) ld.image = im; }
+        if ((!ld.price || !ld.currency) && node.offers) {
+          const p = priceOf(node.offers);
+          if (!ld.price) ld.price = p.price || "";
+          if (!ld.currency) ld.currency = p.currency || "";
+        }
+        if (ld.name && ld.image && ld.price) { stack.length = 0; break; }
+      }
+    }
+  }
+
+  const titleTag = decodeEntities((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "").trim();
+  const site = (meta("og:site_name") || String(host || "").replace(/^www\./, "")).slice(0, 80);
+  let name = (ld.name || meta("og:title") || meta("twitter:title") || titleTag).slice(0, 120);
+  // Trim a trailing " | Store" / " - Store" site-name suffix off the title.
+  if (site) {
+    const siteEsc = site.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    name = name.replace(new RegExp("\\s*[|\\-–—:·]\\s*" + siteEsc + "\\s*$", "i"), "").trim() || name;
+  }
+  const desc = (ld.desc || meta("og:description") || meta("twitter:description") || meta("description"))
+    .replace(/\s+/g, " ").trim().slice(0, 300);
+
+  // ── 2-5. Image, in priority order ──
+  let image = ld.image
+    || allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).find(ok)
+    || "";
+  if (!image) { const mi = abs(meta("image")); if (ok(mi)) image = mi; }          // microdata itemprop=image
+  if (!image) {
+    const href = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
+    if (href) { const a = abs(href[1]); if (ok(a)) image = a; }
+  }
+  if (!image) {
+    const junk = /sprite|logo|icon|placeholder|favicon|1x1|pixel|badge|spacer|blank|loading/i;
+    const largestFromSrcset = (ss) => {
+      let best = "", bestW = -1;
+      for (const part of ss.split(",")) {
+        const bits = part.trim().split(/\s+/);
+        const w = bits[1] && /^(\d+)w$/.test(bits[1]) ? parseInt(bits[1]) : 0;
+        if (bits[0] && w >= bestW) { bestW = w; best = bits[0]; }
+      }
+      return best;
+    };
+    for (const mm of [...html.matchAll(/<img\b[^>]*>/ig)].slice(0, 150)) {
+      const tag = mm[0];
+      const at = (a) => (tag.match(new RegExp(a + '=["\\\']([^"\\\']+)["\\\']', "i")) || [])[1] || "";
+      const ss = at("data-srcset") || at("srcset");
+      const src = at("data-src") || at("data-original") || at("data-lazy-src") || (ss && largestFromSrcset(ss)) || at("src");
+      if (!src || junk.test(src)) continue;
+      const a = abs(src);
+      if (ok(a)) { image = a; break; }
+    }
+  }
+
+  const price = (ld.price || meta("product:price:amount") || meta("og:price:amount") || "").slice(0, 20);
+  const currency = (ld.currency || meta("product:price:currency") || meta("og:price:currency") || "").slice(0, 8);
+  return { name, site, image, desc, price, currency };
+}
+
 // ── SSRF guard for user-supplied URLs (product scan). Normalizes the host and
 // rejects loopback / link-local / private / metadata targets across the usual
 // encodings (bracketed IPv6, IPv4-mapped, decimal/octal/hex IPv4, trailing
@@ -1607,42 +1727,14 @@ Context: ${ctxLine}`
       } catch {
         return Response.json({ error: "fetch failed" }, { status: 502 });
       }
-      const allMeta = (prop) => {
-        const re = new RegExp('<meta[^>]+(?:property|name)=["\\\']' + prop + '["\\\'][^>]*>', "ig");
-        const out = []; let m;
-        while ((m = re.exec(html)) && out.length < 8) {
-          const c = m[0].match(/content=["']([^"']*)["']/i);
-          if (c && c[1]) out.push(decodeEntities(c[1]).trim());
-        }
-        return out;
-      };
-      const meta = (prop) => allMeta(prop)[0] || "";
-      const titleTag = decodeEntities((html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "").trim();
-      const name = (meta("og:title") || meta("twitter:title") || titleTag).slice(0, 120);
-      const site = (meta("og:site_name") || host.replace(/^www\./, "")).slice(0, 80);
-      // Scrape exactly ONE product image: prefer OpenGraph/Twitter, then
-      // <link rel="image_src">, then the first sizeable content <img>.
-      const abs = (s) => { try { return new URL(s, u).toString(); } catch { return null; } };
-      const ok = (s) => s && /^https?:\/\//i.test(s);
-      let image = allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).find(ok) || "";
-      if (!image) {
-        const href = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
-        if (href) { const a = abs(href[1]); if (ok(a)) image = a; }
-      }
-      if (!image) {
-        const cand = [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/ig)].map((m) => abs(m[1]))
-          .find((s) => ok(s) && !/sprite|logo|icon|placeholder|favicon|1x1|pixel|badge/i.test(s));
-        if (cand) image = cand;
-      }
-      const price = meta("product:price:amount") || meta("og:price:amount") || "";
-      const currency = meta("product:price:currency") || meta("og:price:currency") || "";
-      if (!name && !image) return Response.json({ error: "no product info" }, { status: 422 });
+      const info = extractProduct(html, u, host);
+      if (!info.name && !info.image) return Response.json({ error: "no product info" }, { status: 422 });
       // Inline the product image as a data URI: the app CSP blocks arbitrary
       // remote image hosts, and going through safeFetch keeps it SSRF-guarded.
       let imageData = "";
-      if (image) {
+      if (info.image) {
         try {
-          const ir = await safeFetch(image, { signal: AbortSignal.timeout(8000) });
+          const ir = await safeFetch(info.image, { signal: AbortSignal.timeout(8000) });
           const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
           if (ir && ir.ok && ict.startsWith("image/")) {
             const ab = await ir.arrayBuffer();
@@ -1650,7 +1742,7 @@ Context: ${ctxLine}`
           }
         } catch {}
       }
-      return Response.json({ name: name || site, site, image: imageData, price, currency });
+      return Response.json({ name: info.name || info.site, site: info.site, image: imageData, desc: info.desc, price: info.price, currency: info.currency });
     }
 
     return env.ASSETS.fetch(request);
