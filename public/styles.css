@@ -1500,6 +1500,7 @@
 }
 .attach-panel::-webkit-scrollbar { width: 8px; }
 .attach-panel::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.ap-row { position: relative; } /* anchors the absolutely-positioned .ap-info */
 .ap-row + .ap-row { border-top: 1px solid var(--line); }
 .ap-head {
   display: flex; align-items: center; gap: .65rem; width: 100%;
@@ -1728,12 +1729,15 @@
 #rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count { font-size: .75rem; color: var(--muted); }
 #rowRef .ap-extra { gap: .55rem; margin-bottom: .55rem; }
 
-/* Small ⓘ next to each input row's label; click pops a one-line explainer. */
+/* Small ⓘ per input row (a real button, sibling of the header so it's keyboard-
+   reachable and doesn't leak its "i" into the row's accessible name). Sits just
+   left of the chevron; click/Enter pops a one-line explainer. */
 .ap-info {
+  position: absolute; top: .5rem; right: 2.4rem; z-index: 2;
   display: inline-flex; align-items: center; justify-content: center;
-  width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line-2);
-  color: var(--muted); font-size: .68rem; font-weight: 700; font-style: normal;
-  line-height: 1; cursor: pointer; flex: none;
+  width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line-2);
+  background: none; color: var(--muted); font-size: .72rem; font-weight: 700; font-style: normal;
+  line-height: 1; cursor: pointer;
 }
 .ap-info:hover { color: var(--text); border-color: var(--text); }
 #apInfoPop {

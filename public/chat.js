@@ -717,8 +717,11 @@ function buildMenu() {
 
 function setMode(m) {
   mode = m;
-  document.querySelectorAll('.mode-btn').forEach((b) =>
-    b.classList.toggle('active', b.dataset.mode === m));
+  document.querySelectorAll('.mode-btn').forEach((b) => {
+    const on = b.dataset.mode === m;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   buildMenu();
   document.getElementById('input').placeholder =
     m === 'image' ? 'Describe your image…' :
@@ -1119,6 +1122,35 @@ if (modelMenu) {
     document.querySelectorAll('.model-menu.open').forEach((m) => m.classList.remove('open')));
 }
 
+// Keep aria-expanded on dropdown triggers in sync with their menu's open state.
+// The menus are toggled from ~10 different places (model/dir/effort/img pickers);
+// rather than thread the ARIA update through each, one observer watches the
+// menus' class attribute and reflects it onto the controlling button. The
+// trigger is the button immediately preceding the .model-menu in the DOM.
+(function wireMenuAria() {
+  const menus = document.querySelectorAll('.model-menu');
+  const trigOf = (menu) => {
+    let el = menu.previousElementSibling;
+    while (el && el.tagName !== 'BUTTON') el = el.previousElementSibling;
+    return el;
+  };
+  menus.forEach((menu) => {
+    const trig = trigOf(menu);
+    if (!trig) return;
+    trig.setAttribute('aria-haspopup', 'menu');
+    trig.setAttribute('aria-expanded', menu.classList.contains('open') ? 'true' : 'false');
+  });
+  if (typeof MutationObserver !== 'function') return;
+  const obs = new MutationObserver((muts) => {
+    muts.forEach((mu) => {
+      const menu = mu.target;
+      const trig = trigOf(menu);
+      if (trig) trig.setAttribute('aria-expanded', menu.classList.contains('open') ? 'true' : 'false');
+    });
+  });
+  menus.forEach((menu) => obs.observe(menu, { attributes: true, attributeFilter: ['class'] }));
+})();
+
 function newChat() {
   // A fresh chat wouldn't match an active search filter and would be
   // invisible in the list — clear the filter first.
@@ -1199,6 +1231,7 @@ function addMsg(kind, text) {
 function addCopyBtn(div, text) {
   const btn = document.createElement('button');
   btn.className = 'copy-btn'; btn.type = 'button'; btn.title = 'Copy';
+  btn.setAttribute('aria-label', 'Copy message');
   btn.textContent = '⧉';
   btn.onclick = async (e) => {
     e.stopPropagation();
@@ -1617,15 +1650,18 @@ function buildMedia(kind, url, prompt) {
   if (kind !== 'audio') {
     const exp = document.createElement('button');
     exp.className = 'media-btn'; exp.type = 'button'; exp.title = 'Full screen'; exp.textContent = '⛶';
+    exp.setAttribute('aria-label', 'View full screen');
     exp.onclick = (e) => { e.stopPropagation(); openLightbox(kind, url); };
     actions.appendChild(exp);
   }
   const dl = document.createElement('button');
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
+  dl.setAttribute('aria-label', 'Download');
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
   const del = document.createElement('button');
   del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
+  del.setAttribute('aria-label', 'Delete');
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
   actions.appendChild(del);
   div.appendChild(actions);
@@ -1668,16 +1704,29 @@ async function downloadMedia(url, kind) {
 
 // ── Full-screen lightbox (images & videos) ──
 let lightboxEl = null;
+let lightboxReturnFocus = null; // element to restore focus to on close
 function openLightbox(kind, url) {
   if (!lightboxEl) {
     lightboxEl = document.createElement('div');
     lightboxEl.className = 'lightbox';
+    lightboxEl.setAttribute('role', 'dialog');
+    lightboxEl.setAttribute('aria-modal', 'true');
+    lightboxEl.setAttribute('aria-label', 'Media viewer');
     lightboxEl.innerHTML =
-      '<button class="lb-dl" type="button" title="Download">⤓</button>' +
+      '<button class="lb-dl" type="button" title="Download" aria-label="Download">⤓</button>' +
       '<button class="lb-close" type="button" title="Close" aria-label="Close">×</button>' +
       '<div class="lb-stage"></div>';
     lightboxEl.addEventListener('click', (e) => { if (e.target === lightboxEl) closeLightbox(); });
     lightboxEl.querySelector('.lb-close').onclick = closeLightbox;
+    // Trap Tab within the lightbox while it's open.
+    lightboxEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab' || !lightboxEl.classList.contains('open')) return;
+      const foci = lightboxEl.querySelectorAll('button, video, [tabindex]:not([tabindex="-1"])');
+      if (!foci.length) return;
+      const first = foci[0], last = foci[foci.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
     document.body.appendChild(lightboxEl);
   }
   const stage = lightboxEl.querySelector('.lb-stage');
@@ -1702,11 +1751,18 @@ function openLightbox(kind, url) {
   if (kind !== 'image' && paidKnown && !isPaid) stage.appendChild(wmBadge());
   lightboxEl.querySelector('.lb-dl').onclick = () => downloadMedia(url, kind);
   lightboxEl.classList.add('open');
+  // Remember what had focus so we can restore it, then move focus into the dialog.
+  lightboxReturnFocus = (document.activeElement instanceof HTMLElement) ? document.activeElement : null;
+  lightboxEl.querySelector('.lb-close').focus();
 }
 function closeLightbox() {
   if (!lightboxEl) return;
   lightboxEl.classList.remove('open');
   lightboxEl.querySelector('.lb-stage').innerHTML = ''; // stop playback
+  if (lightboxReturnFocus && document.body.contains(lightboxReturnFocus)) {
+    try { lightboxReturnFocus.focus(); } catch {}
+  }
+  lightboxReturnFocus = null;
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
 // Escape closes any open overlay via its own close control (so the welcome
@@ -1778,6 +1834,8 @@ function makeLoader(kind, aspect) {
 
   const status = document.createElement('div');
   status.className = 'gen-status';
+  status.setAttribute('role', 'status'); // announce queue/progress lines to screen readers
+  status.setAttribute('aria-live', 'polite');
   status.innerHTML = '<span class="gen-spinner"></span><span class="gen-status-text"></span><span class="gen-model"></span>';
 
   wrap.appendChild(visual);
@@ -2947,6 +3005,8 @@ async function startDirector(text) {
       thinking.remove();
       live = document.createElement('div');
       live.className = 'msg agent live';
+      live.setAttribute('aria-live', 'polite'); // announce the streamed reply to screen readers
+      live.setAttribute('aria-atomic', 'false');
       document.getElementById('messages').appendChild(live);
     }
     live.textContent += d;
@@ -4226,12 +4286,14 @@ function renderGallery() {
     actions.className = 'g-actions';
     const dl = document.createElement('a');
     dl.className = 'g-btn'; dl.textContent = '⤓'; dl.title = 'Download';
+    dl.setAttribute('aria-label', 'Download');
     // Only ever link to a real media URL — never let a stored value smuggle a
     // javascript: URL into an anchor (self-XSS on click).
     dl.href = /^(https?:|blob:|data:)/i.test(it.url || '') ? it.url : '#';
     dl.download = ''; dl.target = '_blank'; dl.rel = 'noopener';
     const del = document.createElement('button');
     del.className = 'g-btn'; del.textContent = '🗑'; del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete');
     del.onclick = () => galleryDelete(it, d);
     actions.appendChild(dl); actions.appendChild(del);
     d.appendChild(actions);

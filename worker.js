@@ -234,10 +234,11 @@ async function authUser(request) {
 
 const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
 
-// Baseline security headers on every response (audit item). script/style keep
-// 'unsafe-inline' because the UI relies on inline on* handlers and style=""
-// attributes; img/media/connect allow Supabase Storage + fal.media (generated
-// media) plus data:/blob: (attachment thumbnails and blob downloads).
+// Baseline security headers on every response (audit item). script-src is
+// 'self' with NO 'unsafe-inline' (all handlers are wired via addEventListener /
+// data-act hooks, so injected HTML can't execute as script); style-src keeps
+// 'unsafe-inline' for the handful of style="" attributes; img/media/connect
+// allow Supabase Storage + fal.media plus data:/blob: (thumbnails, downloads).
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -1914,6 +1915,9 @@ Context: ${ctxLine}`
     // tab can create a product from a store link.
     if (url.pathname === "/api/product/scan" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
+      // Each scan makes up to 2 server-side outbound fetches; gate it so a
+      // logged-in user can't drive unbounded outbound requests through us.
+      if (!(await useQuota(request, "scan", 60))) return QUOTA_EXCEEDED();
       let body;
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
