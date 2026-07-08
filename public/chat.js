@@ -405,8 +405,10 @@ function showApInfo(kind, ev, el) {
   pop.dataset.for = kind;
   const r = el.getBoundingClientRect();
   const w = 244;
-  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12)) + 'px';
-  pop.style.top = (r.bottom + 6) + 'px';
+  // Line the caret (::before at left:16px, ~5px half-width) up under the icon.
+  const left = (r.left + r.width / 2) - 21;
+  pop.style.left = Math.max(12, Math.min(left, window.innerWidth - w - 12)) + 'px';
+  pop.style.top = (r.bottom + 8) + 'px';
   pop.classList.add('open');
 }
 // Any click that isn't on an ⓘ or inside the popover dismisses it.

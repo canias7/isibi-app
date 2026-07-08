@@ -1743,6 +1743,12 @@
   box-shadow: 0 12px 34px rgba(0,0,0,.55);
 }
 #apInfoPop.open { display: block; }
+/* Caret pointing up to the ⓘ that opened it. */
+#apInfoPop::before {
+  content: ''; position: absolute; top: -6px; left: 16px; width: 10px; height: 10px;
+  background: #14121b; border-left: 1px solid var(--line-2); border-top: 1px solid var(--line-2);
+  transform: rotate(45deg);
+}
 /* No header bar anymore — keep the first message clear of the floating chip. */
 .view-home .thread { padding-top: 3.4rem; }
 
