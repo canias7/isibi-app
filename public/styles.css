@@ -1709,6 +1709,20 @@
 }
 #rowImage .plus-big, #rowAvatar .plus-big, #rowEnd .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
 #rowImage .slot-count, #rowAvatar .slot-count, #rowEnd .slot-count { font-size: .75rem; color: var(--muted); }
+
+/* Veo multi-frame rows (First & last frame, Reference to video): compact square
+   thumbnails so 2–3 images read as an intentional set, not tall full-width blocks. */
+#rowFlf .ap-body { padding-left: .6rem; display: flex; flex-wrap: wrap; gap: .45rem; }
+#rowFlf .attach-btn { width: 86px; height: 86px; padding: 0; border-radius: 10px; flex-direction: column; gap: .2rem; font-size: .72rem; }
+#rowFlf .attach-btn.has { padding: 0; position: relative; }
+#rowFlf .attach-btn.has img { width: 86px; height: 86px; border-radius: 10px; }
+#rowFlf .attach-btn.has .x { position: absolute; top: 2px; right: 4px; background: rgba(0,0,0,.55); border-radius: 50%; line-height: 1; }
+#rowRef .ap-body { padding-left: .6rem; }
+#rowRef .ap-extra { gap: .45rem; }
+#rowRef .ap-extra .slot { width: 86px; height: 86px; border-radius: 10px; }
+#rowRef .ap-add { width: 86px; height: 86px; padding: 0; border-radius: 10px; flex-direction: column; }
+#rowRef .plus-big { font-size: 1.8rem; font-weight: 300; line-height: 1; }
+#rowRef .slot-count { font-size: .72rem; color: var(--muted); }
 /* No header bar anymore — keep the first message clear of the floating chip. */
 .view-home .thread { padding-top: 3.4rem; }
 

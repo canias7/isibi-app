@@ -659,6 +659,14 @@ async function handleRequest(request, env, ctx) {
       const extraImages = Array.isArray(body.images)
         ? body.images.slice(0, 8).map(dataImage).filter(Boolean)
         : [];
+      // Veo 3.1's dedicated image-input modes (mutually exclusive with i2v):
+      //  first + last  → first-last-frame-to-video (2 frames)
+      //  refs[]        → reference-to-video (subject consistency, ≤3)
+      const first = dataImage(body.first);
+      const last = dataImage(body.last);
+      const refs = Array.isArray(body.refs)
+        ? body.refs.slice(0, 3).map(dataImage).filter(Boolean)
+        : [];
 
       let endpoint = model;
       const input = { prompt };
@@ -726,13 +734,28 @@ async function handleRequest(request, env, ctx) {
         // attachment routes there (carrying along a reference image if present).
         if ((avatar || audio || extraImages.length) && isSeedance) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          const refs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
+          const sRefs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
           // fal rule: reference audio requires at least one image/video ref.
-          if (audio && !refs.length) {
+          if (audio && !sRefs.length) {
             return Response.json({ error: "Seedance needs a reference image along with the audio — add an image too" }, { status: 400 });
           }
-          if (refs.length) input.image_urls = refs;
+          if (sRefs.length) input.image_urls = sRefs;
           if (audio) input.audio_urls = [audio];
+        } else if (isVeo && refs.length) {
+          // Veo reference-to-video: up to 3 images to hold subject identity.
+          endpoint = model + "/reference-to-video";
+          input.image_urls = refs;
+        } else if (isVeo && first && last) {
+          // Veo first/last-frame: pin both ends, model fills the motion between.
+          endpoint = model + "/first-last-frame-to-video";
+          input.first_frame_url = first;
+          input.last_frame_url = last;
+        } else if (isVeo && (first || last)) {
+          // Only one of the two frames was given — fall back to plain
+          // image-to-video from whichever frame is present, rather than
+          // silently dropping it and running text-to-video.
+          endpoint = model + "/image-to-video";
+          input.image_url = first || last;
         } else if (image) {
           const isKlingO3 = model.includes("kling-video/o3");
           // Veo's base id has no "/text-to-video" to swap, so append the suffix.
