@@ -577,6 +577,23 @@ async function isPaidUser(request) {
   } catch { return false; }
 }
 
+// The caller's gallery-storage picture in bytes ({ used, cap, tier }), from the
+// storage_status RPC (SECURITY DEFINER, reads the caller's objects + tier cap).
+// cap 0 = free / lapsed = no gallery saving. Returns null if the ledger is down.
+async function storageStatus(request) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/storage_status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: "{}",
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!r.ok) return null;
+    const s = await r.json();
+    return { used: Number(s.used) || 0, cap: Number(s.cap) || 0, tier: String(s.tier || "free") };
+  } catch { return null; }
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1023,6 +1040,21 @@ async function handleRequest(request, env, ctx) {
           });
           // Non-2xx → 500 so Stripe retries the delivery.
           if (!r.ok) return Response.json({ error: "credit grant failed" }, { status: 500 });
+          // Record the storage tier (from the plan's credit size) on a rolling
+          // 32-day window — a cancellation lapses to free once no invoice renews.
+          const tier = credits >= 8000 ? "max" : credits >= 4000 ? "pro" : "plus";
+          try {
+            await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_plan`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+              body: JSON.stringify({
+                target: uid, p_tier: tier,
+                p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
+                mint_key: env.CREDITS_MINT_SECRET,
+              }),
+              signal: AbortSignal.timeout(10000),
+            });
+          } catch {} // credits already granted; a plan-set hiccup shouldn't fail the webhook
         }
       }
       return Response.json({ received: true });
@@ -1048,6 +1080,18 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ balance: Number(await r.json()), paid });
       } catch {
         return Response.json({ error: "credits unavailable" }, { status: 503 });
+      }
+    }
+
+    // Gallery storage usage vs the caller's tier cap ({used, cap, tier} bytes).
+    if (url.pathname === "/api/storage" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const s = await storageStatus(request);
+        if (!s) throw 0;
+        return Response.json(s);
+      } catch {
+        return Response.json({ error: "storage unavailable" }, { status: 503 });
       }
     }
 
@@ -1615,6 +1659,14 @@ Context: ${ctxLine}`
       const b64 = typeof body.data === "string" ? body.data : "";
       let bytes = null;
       let ct;
+      // Gallery storage gate. Saving is a subscription benefit: free, lapsed or
+      // top-up-only users (cap 0) can't save; paid tiers are capped by GB
+      // (Plus 1 / Pro 5 / Max 10). storageStatus is null when the ledger is
+      // unreachable → fail open (allow) so an outage can't break paid saves.
+      const store = await storageStatus(request);
+      if (store && store.cap === 0) {
+        return Response.json({ error: "saving is a paid feature", reason: "free" }, { status: 402 });
+      }
       if (b64) {
         // Client-watermarked image bytes (free accounts burn the mark in
         // before saving). Images only; ~12MB base64 cap.
@@ -1678,6 +1730,16 @@ Context: ${ctxLine}`
           // Ambiguous CT that isn't actually an image (e.g. a video served as
           // octet-stream) — store the buffered bytes as-is, no mark.
           bytes = raw; media = null;
+        }
+      }
+      // Capacity gate for paid tiers (cap > 0). By here `bytes` holds the final
+      // payload for the buffered paths (b64 upload, watermarked image); on the
+      // streaming path we trust the upstream Content-Length. Reject when the new
+      // object would push the user past their GB cap.
+      if (store && store.cap > 0) {
+        const newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
+        if (store.used + newSize > store.cap) {
+          return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
         }
       }
       const EXT = {

@@ -1704,7 +1704,12 @@ function claimDelivery(key) {
 
 // Copy a fal output into permanent Supabase Storage, with bounded retries —
 // a failed copy must never silently become the permanent record.
+// Set by trySave when a save is refused for a non-transient reason (402):
+// 'free' = gallery saving is a paid benefit, 'full' = tier storage cap hit.
+// Callers read it to show the right message and skip the retry queue.
+let lastSaveBlock = null;
 async function trySave(url, kind, attempts, payload) {
+  lastSaveBlock = null;
   for (let i = 0; i < attempts; i++) {
     try {
       const sv = await apiFetch('/api/save', {
@@ -1713,6 +1718,11 @@ async function trySave(url, kind, attempts, payload) {
       });
       if (sv.ok) { const d = await sv.json(); if (d.url) return d.url; }
       if (sv.status === 401) return null; // signed out — retrying now won't help
+      if (sv.status === 402) { // over cap / not entitled — retrying won't help
+        try { lastSaveBlock = { reason: (await sv.json()).reason || 'full' }; }
+        catch { lastSaveBlock = { reason: 'full' }; }
+        return null;
+      }
     } catch {}
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
@@ -1761,6 +1771,7 @@ async function retryPendingSaves() {
     // saveOutput just posts the URL; the server watermarks free-account images.
     const perm = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
+    else if (lastSaveBlock) { /* paid gate (free/full) — retrying won't help, drop it */ }
     else keep.push(p);
   }
   savesWrite(keep);
@@ -2380,15 +2391,19 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');
       const finals = [];
       let saveFailed = false;
+      let blocked = null;
       for (const u of urls) {
         const perm = await saveOutput(u, kind);
         if (perm) finals.push(perm);
+        else if (lastSaveBlock) { finals.push(u); blocked = lastSaveBlock.reason; } // paid gate — don't queue a doomed retry
         else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }
       if (!alive()) return;
       endGen(origin);
       finals.forEach((f) => deliverMedia(origin, kind, f, text));
-      if (saveFailed) deliverAgent(origin, '⚠️ Delivered with a temporary link — the gallery copy failed, so I queued a retry for the next time the app opens.');
+      if (blocked === 'free') deliverAgent(origin, 'ℹ️ Saving to your gallery is a paid feature — this one is a temporary link. Upgrade to keep your generations in the gallery.');
+      else if (blocked === 'full') deliverAgent(origin, '⚠️ Your gallery storage is full, so this is a temporary link. Free up space in the gallery or move up a tier to keep saving.');
+      else if (saveFailed) deliverAgent(origin, '⚠️ Delivered with a temporary link — the gallery copy failed, so I queued a retry for the next time the app opens.');
       // The inputs were consumed — clear them so they don't ride the next
       // prompt. Only when the user is still on this chat: a background finish
       // must not wipe attachments they've since staged in another chat.
@@ -3836,9 +3851,63 @@ function toggleGalSort() {
   renderGallery();
 }
 
+// Last-known storage status for the usage bar: { used, cap, tier } in bytes.
+// cap 0 = no gallery storage (free/lapsed/top-up-only — saving is a paid perk).
+let galStorage = null;
+
+function fmtStorageBytes(n) {
+  n = Number(n) || 0;
+  const gb = n / 1073741824;
+  if (gb >= 1) return gb.toFixed(gb >= 10 ? 0 : 1) + ' GB';
+  const mb = n / 1048576;
+  if (mb >= 1) return mb.toFixed(mb >= 10 ? 0 : 1) + ' MB';
+  const kb = n / 1024;
+  if (kb >= 1) return Math.round(kb) + ' KB';
+  return n + ' B';
+}
+
+// Pull fresh usage from the worker, then repaint. Called on gallery open and
+// after a delete; filter/sort clicks repaint from the cached value instead.
+async function refreshStorageBar() {
+  try {
+    const r = await apiFetch('/api/storage');
+    if (r && r.ok) galStorage = await r.json();
+  } catch {}
+  paintStorageBar();
+}
+
+function paintStorageBar() {
+  const el = document.getElementById('galleryStorage');
+  if (!el) return;
+  const s = galStorage;
+  if (!s) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  if (!s.cap) { // free / lapsed / top-up-only: gallery storage is a subscription benefit
+    el.innerHTML =
+      '<div class="gs-note">Saving to your gallery is a <b>paid feature</b>. ' +
+      '<button class="gs-cta" data-act="gal-upgrade">Upgrade to keep your creations →</button></div>';
+    wireActions(el);
+    return;
+  }
+  const pct = s.cap ? Math.min(100, Math.round((s.used / s.cap) * 100)) : 0;
+  const cls = pct >= 100 ? 'full' : pct >= 85 ? 'warn' : '';
+  const tier = (s.tier || '').charAt(0).toUpperCase() + (s.tier || '').slice(1);
+  el.innerHTML =
+    '<div class="gs-row">' +
+      '<span class="gs-label">Storage' + (tier ? '<span class="gs-tier">' + tier + '</span>' : '') + '</span>' +
+      '<span class="gs-usage">' + fmtStorageBytes(s.used) + ' / ' + fmtStorageBytes(s.cap) + '</span>' +
+    '</div>' +
+    '<div class="gs-track"><div class="gs-fill ' + cls + '" style="width:' + pct + '%"></div></div>' +
+    (pct >= 100
+      ? '<div class="gs-note">Your gallery is full — free up space or <button class="gs-cta" data-act="gal-upgrade">move up a tier →</button></div>'
+      : '');
+  wireActions(el);
+}
+
 function renderGallery() {
   const grid = document.getElementById('galleryGrid');
   if (!grid) return;
+  paintStorageBar();
   const items = galleryItems();
   const sub = document.getElementById('gallerySub');
   if (sub) sub.textContent = items.length ? items.length + (items.length === 1 ? ' creation' : ' creations') : '';
@@ -3909,6 +3978,7 @@ async function galleryDelete(it, el) {
   const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
   if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
   renderGallery();
+  refreshStorageBar(); // freed space → refresh the usage bar
 }
 
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
@@ -3920,7 +3990,7 @@ function showView(name) {
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
   if (name === 'landing') renderLanding();
-  if (name === 'gallery') renderGallery();
+  if (name === 'gallery') { renderGallery(); refreshStorageBar(); }
   if (name === 'products') renderProducts();
   if (name === 'avatar') renderAvatar();
   if (name === 'settings') renderSettings();
@@ -3998,6 +4068,7 @@ const CLICK_ACTIONS = {
   'presets-close': () => togglePresets(false),
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
+  'gal-upgrade': () => openCredits(),
   'studio-send': () => studioSend(),
   'sb-speed': () => sbCycleSpeed(),
   'sb-mute': () => sbToggleMute(),
