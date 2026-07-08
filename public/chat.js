@@ -43,7 +43,9 @@ const MODEL_OPTS = {
     durations: [4, 6, 8], defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     resolutions: ['720p', '1080p', '4k'], defRes: '720p',
-    caps: { image: true, end: false, avatar: false },
+    // Veo 3.1's three image-input endpoints as separate rows: image-to-video
+    // (1), first-&-last frame (2), reference-to-video (≤3).
+    caps: { image: true, end: false, avatar: false, flf: true, ref: 3 },
   },
   'fal-ai/sora-2/text-to-video/pro': {
     durations: [4, 8, 12, 16, 20], defDur: 4,
@@ -142,15 +144,19 @@ const MODEL_LISTS = {
 
 const modelMenu = document.getElementById('modelMenu');
 
-const attachments = { image: null, avatar: null, end: null, audio: null, clip: null };
+const attachments = { image: null, avatar: null, end: null, audio: null, clip: null, ffirst: null, flast: null };
 // Extra reference images beyond the first (multi-image models only).
 const extraImages = [];
+// Veo reference-to-video images (its own row, capped per model at caps.ref).
+const refList = [];
 const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
   avatar: '<span class="plus-big">+</span>',
   audio: '+ Audio',
   clip: '+ Video clip',
   end: '<span class="plus-big">+</span>',
+  ffirst: '+ First frame',
+  flast: '+ Last frame',
 };
 
 function attachBtn(kind) {
@@ -323,6 +329,11 @@ function renderAttach(kind) {
       : (attachments[kind] ? 1 : 0);
     cnt.textContent = n ? '· ' + n : '';
   }
+  // The first-&-last row shares one counter across its two frame slots.
+  if (kind === 'ffirst' || kind === 'flast') {
+    const c = document.getElementById('cntFlf');
+    if (c) { const n = (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0); c.textContent = n ? '· ' + n : ''; }
+  }
 }
 
 function clearAttach(ev, kind) {
@@ -343,7 +354,7 @@ function clearAttach(ev, kind) {
 function updateAttachVisibility() {
   const caps = (currentOpts() && currentOpts().caps) || {};
   // No slots for this model → hide the whole panel, don't leave an empty box.
-  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end);
+  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref);
   const panel = document.getElementById('attachPanel');
   if (panel) panel.style.display = anySlot ? '' : 'none';
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
@@ -354,6 +365,18 @@ function updateAttachVisibility() {
     if (row) row.style.display = ok ? '' : 'none';
     if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
   });
+  // First-&-last-frame row (two dedicated slots) — Veo's 2-frame input.
+  const rowFlf = document.getElementById('rowFlf');
+  if (rowFlf) rowFlf.style.display = caps.flf ? '' : 'none';
+  if (!caps.flf) {
+    ['ffirst', 'flast'].forEach((k) => { if (attachments[k]) { attachments[k] = null; renderAttach(k); } });
+  }
+  // Reference-to-video row (its own image list, capped at caps.ref).
+  const rowRef = document.getElementById('rowRef');
+  if (rowRef) rowRef.style.display = caps.ref ? '' : 'none';
+  if (!caps.ref) refList.length = 0;
+  else if (refList.length > caps.ref) refList.length = caps.ref;
+  renderRefList();
   // Multi-image slots follow the model's cap (Seedance refs take up to 9).
   const cap = caps.maxImages || 1;
   if (!caps.image) extraImages.length = 0;
@@ -494,6 +517,42 @@ function renderExtraImages() {
     more.style.display = (cap > 1 && attachments.image) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
+}
+
+// Reference-to-video images (Veo): its own row, capped at caps.ref (≤3).
+function refCap() { return ((currentOpts() || {}).caps || {}).ref || 0; }
+function onAttachRef(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  const cap = refCap();
+  files.forEach((file) => {
+    if (refList.length >= cap) return;
+    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); renderRefList(); } };
+    reader.readAsDataURL(file);
+  });
+}
+function removeRef(i) { refList.splice(i, 1); renderRefList(); }
+function renderRefList() {
+  const host = document.getElementById('refImages');
+  if (!host) return;
+  host.innerHTML = '';
+  refList.forEach((src, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeRef(i);
+    host.appendChild(d);
+  });
+  const add = document.getElementById('btnRef');
+  const cap = refCap();
+  if (add) {
+    add.style.display = refList.length < cap ? '' : 'none';
+    add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + refList.length + '/' + cap + '</span>';
+  }
+  const cnt = document.getElementById('cntRef');
+  if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
 }
 
 // Provider identity per model id: real logo where we have one, monogram otherwise.
@@ -2240,6 +2299,9 @@ async function generateMedia(text, opts = {}) {
         images: extraImages.length ? extraImages.slice() : undefined,
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
+        first: attachments.ffirst || undefined, // Veo first-&-last-frame
+        last: attachments.flast || undefined,
+        refs: refList.length ? refList.slice() : undefined, // Veo reference-to-video
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
@@ -2413,6 +2475,8 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         });
         extraImages.length = 0;
         renderExtraImages();
+        refList.length = 0;
+        renderRefList();
       }
     } else {
       endGen(origin);
@@ -4082,6 +4146,7 @@ const CLICK_ACTIONS = {
 const CHANGE_ACTIONS = {
   'attach': (e, el) => onAttach(el.dataset.attach, el),
   'attach-extra': (e, el) => onAttachExtra(el),
+  'attach-ref': (e, el) => onAttachRef(el),
   'sb-project': (e, el) => sbSwitchProject(el.value),
 };
 const INPUT_ACTIONS = {
