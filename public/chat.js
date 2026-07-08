@@ -15,8 +15,10 @@ const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
-  // i2v (image + end), first-&-last, reference-to-video (≤9 images + a driving
-  // audio). Video references + @-tags are a richer follow-up, not yet exposed.
+  // image-to-video, first-&-last (start+end frames), and reference-to-video
+  // (≤9 images + optional driving audio). References are cited as @ImageN in the
+  // prompt — the director writes the tags, worker appends them for raw prompts.
+  // Video references (@VideoN) are a richer follow-up, not yet exposed.
   caps: { image: true, flf: true, ref: 9, audio: true },
 };
 const KLING_OPTS = {
@@ -29,7 +31,9 @@ const KLING_OPTS = {
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
   'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
-  'bytedance/seedance-2.0/mini/text-to-video': SEEDANCE_OPTS,
+  // Mini has image-to-video (image_url + end_image_url) but NO reference-to-video
+  // endpoint on fal — so no Reference row and no driving audio for it.
+  'bytedance/seedance-2.0/mini/text-to-video': { ...SEEDANCE_OPTS, caps: { image: true, flf: true } },
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
   'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
   'xai/grok-imagine-video/text-to-video': {
@@ -189,6 +193,9 @@ function onAttach(kind, inputEl) {
       awDecode(reader.result);
     }
     renderAttach(kind);
+    // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
+    if (kind === 'image') clearImageInputsExcept('image');
+    else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
   };
   reader.readAsDataURL(file);
 }
@@ -399,7 +406,8 @@ function toggleApRow(kind) {
 
 // One-line explainer for each input row's ⓘ. Keyed to the row's data-info.
 const AP_INFO = {
-  image: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
+  imageVideo: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
+  imageEdit: 'Attach an image to edit — describe the change and the model applies it to your picture.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
 };
@@ -408,7 +416,9 @@ function showApInfo(kind, ev, el) {
   const pop = document.getElementById('apInfoPop');
   if (!pop) return;
   if (pop.classList.contains('open') && pop.dataset.for === kind) { pop.classList.remove('open'); return; }
-  pop.textContent = AP_INFO[kind] || '';
+  // The Image row means image-to-video in video mode, but image editing in image mode.
+  const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
+  pop.textContent = AP_INFO[key] || '';
   pop.dataset.for = kind;
   const r = el.getBoundingClientRect();
   const w = 244;
@@ -503,6 +513,7 @@ async function useGalleryImage(url) {
       if (extraImages.length < cap - 1) extraImages.push(dataUrl);
     } else {
       attachments.image = dataUrl;
+      clearImageInputsExcept('image'); // keep image-input modes exclusive
     }
     renderAttach('image');
     renderExtraImages();
@@ -555,7 +566,20 @@ function renderExtraImages() {
   }
 }
 
-// Reference-to-video images (Veo): its own row, capped at caps.ref (≤3).
+// The three image-input modes — image-to-video, first-&-last frame, and
+// reference-to-video — are mutually exclusive (one fal endpoint per generation),
+// so filling one clears the others. Otherwise the worker's routing precedence
+// would silently drop a staged input the user meant to use.
+function clearImageInputsExcept(keep) {
+  if (keep !== 'image' && attachments.image) { attachments.image = null; renderAttach('image'); }
+  if (keep !== 'flf') {
+    if (attachments.ffirst) { attachments.ffirst = null; renderAttach('ffirst'); }
+    if (attachments.flast) { attachments.flast = null; renderAttach('flast'); }
+  }
+  if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
+}
+
+// Reference-to-video images (Veo ≤3, Seedance ≤9): its own row, capped at caps.ref.
 function refCap() { return ((currentOpts() || {}).caps || {}).ref || 0; }
 function onAttachRef(inputEl) {
   const files = Array.from(inputEl.files || []);
@@ -565,7 +589,7 @@ function onAttachRef(inputEl) {
     if (refList.length >= cap) return;
     if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
     const reader = new FileReader();
-    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); renderRefList(); } };
+    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); clearImageInputsExcept('ref'); renderRefList(); } };
     reader.readAsDataURL(file);
   });
 }
@@ -952,7 +976,7 @@ function buildOptMenus() {
   const panel = document.getElementById('settingsMenu');
   const wrap = document.getElementById('settingsWrap');
   if (!panel || !wrap) return;
-  const opts = currentOpts();
+  const opts = currentOpts() || {}; // a model id missing from MODEL_OPTS must not throw here
 
   // reset to this model's defaults
   if (opts.durations) duration = opts.defDur;
@@ -1034,7 +1058,7 @@ function pickSetting(chip) {
 function updateSettingsSummary() {
   const el = document.getElementById('settingsSummary');
   if (!el) return;
-  const opts = currentOpts();
+  const opts = currentOpts() || {};
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
@@ -2613,8 +2637,12 @@ function directorContext() {
     model: model,
     duration: mode === 'video' ? duration : undefined,
     ratio: mode !== 'audio' ? ratio : undefined,
-    hasImage: !!attachments.image,
-    hasEnd: !!attachments.end,
+    // A "start image" is the Image slot or the First slot of a first-&-last pair;
+    // the End frame is the End slot or the Last slot. Reference images are counted
+    // separately so the director can cite them (Seedance) or lean on them (Veo).
+    hasImage: !!(attachments.image || attachments.ffirst),
+    hasEnd: !!(attachments.end || attachments.flast),
+    refCount: (mode === 'video' && refList.length) ? refList.length : undefined,
     brief: (activeChat() || {}).brief || undefined,
     // Universal taste — only when enabled and there's something to apply.
     memory: memoryEnabled() && mode !== 'audio' && memoryItems().length ? memoryItems() : undefined,
@@ -2631,12 +2659,15 @@ let pendingMemory = null;
 // The director gets to SEE the attached image (downscaled — it only needs to
 // understand the picture, not generate from it).
 async function directorImage() {
-  if (!attachments.image || mode === 'audio') return {};
+  // Show the director whatever image is attached: the start image, the first
+  // frame, or the first reference — so it can look before it writes.
+  const src = attachments.image || attachments.ffirst || (mode === 'video' ? refList[0] : null);
+  if (!src || mode === 'audio') return {};
   try {
     const img = new Image();
-    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = attachments.image; });
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });
     const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
-    if (scale === 1 && attachments.image.length < 1500000) return { image: attachments.image };
+    if (scale === 1 && src.length < 1500000) return { image: src };
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(img.width * scale));
     canvas.height = Math.max(1, Math.round(img.height * scale));

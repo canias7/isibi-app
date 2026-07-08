@@ -744,7 +744,16 @@ async function handleRequest(request, env, ctx) {
           if (audio && !rImgs.length) {
             return Response.json({ error: "Add a reference image along with the audio." }, { status: 400 });
           }
-          if (rImgs.length) input.image_urls = rImgs;
+          if (rImgs.length) {
+            input.image_urls = rImgs;
+            // Seedance only uses a reference if the prompt cites it as @ImageN.
+            // The director writes those tags; for a raw prompt without them,
+            // append the tags so the uploaded images aren't silently ignored.
+            if (typeof input.prompt === "string" && !/@Image\d/i.test(input.prompt)) {
+              const tags = rImgs.map((_, i) => "@Image" + (i + 1)).join(", ");
+              input.prompt = (input.prompt.trim() + ` Feature ${tags}.`).trim();
+            }
+          }
           if (audio) input.audio_urls = [audio];
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
@@ -1251,6 +1260,7 @@ async function handleRequest(request, env, ctx) {
       const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
       const hasImage = !!body.hasImage;
       const hasEnd = !!body.hasEnd;
+      const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
       // The attached image itself (downscaled by the client) so the director
       // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
       let imageBlock = null;
@@ -1299,8 +1309,16 @@ async function handleRequest(request, env, ctx) {
       if (kind !== "audio") {
         ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
+        if (refCount) ctxBits.push(`${refCount} reference image${refCount > 1 ? "s" : ""} attached`);
       }
       const ctxLine = ctxBits.join(" · ");
+      // References work differently per family. Seedance binds each reference by
+      // an @-tag written INTO the prompt; Veo uses them holistically for identity.
+      const refLine = (refCount && kind === "video")
+        ? (/seedance/.test(genModel)
+          ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. Seedance binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.`
+          : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words.`)
+        : "";
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
         ? body.history
@@ -1376,7 +1394,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}${factsLine}${memoryLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
