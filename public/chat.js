@@ -608,9 +608,6 @@ function setEffort(level) {
 // Web search (Settings toggle). When on, a request the director judges to
 // need current real-world facts triggers a billed web-search step before the
 // prompt is written. Default on; users can switch it off in Settings.
-const WEBSEARCH_KEY = 'zephyr_websearch';
-function webSearchOn() { return localStorage.getItem(WEBSEARCH_KEY) !== '0'; }
-function setWebSearch(on) { localStorage.setItem(WEBSEARCH_KEY, on ? '1' : '0'); }
 // Shown in Settings → About.
 const APP_VERSION = '1.0.0';
 // Prompt-help mode chip (top-right of the composer). Three modes:
@@ -2655,10 +2652,10 @@ async function startDirector(text) {
 async function composeAndReview(text, answers, needsWeb) {
   const origin = chatStore.active;
   // Web-search first when the request depends on current real-world facts
-  // (latest products, real specs) — unless the user turned it off in Settings.
-  // Failures degrade to no facts.
+  // (latest products, real specs) — the director's needsWeb judgment alone
+  // decides; there's no user toggle. Failures degrade to no facts.
   let webFacts = '';
-  if (needsWeb && webSearchOn()) {
+  if (needsWeb) {
     const looking = addMsg('agent typing', 'Looking it up on the web');
     let research = { facts: '', sources: [] };
     try { research = await directorResearch(text); } finally { looking.remove(); }
@@ -3111,17 +3108,6 @@ function renderSettings() {
       '</div>' +
 
       '<div class="sp-group">' +
-        '<div class="sp-glabel">Preferences</div>' +
-        '<div class="sp-list">' +
-          '<div class="sp-item">' +
-            '<span class="sp-item-l"><span class="sp-item-t">Web search</span>' +
-            '<span class="sp-item-s">Look up current facts when a prompt needs them.</span></span>' +
-            '<button type="button" class="st-switch' + (webSearchOn() ? ' on' : '') + '" id="spWeb" role="switch" aria-checked="' + (webSearchOn() ? 'true' : 'false') + '" aria-label="Web search"><span class="st-knob"></span></button>' +
-          '</div>' +
-        '</div>' +
-      '</div>' +
-
-      '<div class="sp-group">' +
         '<div class="sp-glabel">Password</div>' +
         '<div class="sp-list">' +
           '<form class="sp-item sp-form" id="spForm">' +
@@ -3158,14 +3144,6 @@ function renderSettings() {
     '</div>';
 
   view.querySelector('#spCredits').onclick = () => openCredits();
-
-  view.querySelector('#spWeb').onclick = (e) => {
-    const btn = e.currentTarget;
-    const on = !btn.classList.contains('on');
-    btn.classList.toggle('on', on);
-    btn.setAttribute('aria-checked', on ? 'true' : 'false');
-    setWebSearch(on);
-  };
 
   view.querySelector('#spForm').onsubmit = async (e) => {
     e.preventDefault();
