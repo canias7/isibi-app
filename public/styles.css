@@ -46,9 +46,8 @@
     }
     .logo { display: flex; align-items: center; gap: .6rem; font-weight: 900; font-size: 1.15rem; letter-spacing: -.02em; }
     .logo-mark {
-      width: 28px; height: 28px; border-radius: 8px;
-      background: linear-gradient(135deg, var(--neon), var(--purple));
-      display: grid; place-items: center; color: #0a0a0b; font-size: .95rem; font-weight: 900;
+      width: 28px; height: 28px; flex-shrink: 0;
+      object-fit: contain; background: none;
     }
     /* ── Shell ───────────────────────────────── */
     .shell { display: flex; flex: 1; min-height: 0; }
@@ -1023,8 +1022,7 @@
 }
 .auth-brand { display: flex; align-items: center; gap: .55rem; font-weight: 800; font-size: 1.15rem; }
 .auth-brand .logo-mark {
-  width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  color: var(--bg); font-weight: 800; background: linear-gradient(135deg, var(--neon), var(--purple));
+  width: 30px; height: 30px; object-fit: contain; background: none;
 }
 .auth-title { font-size: 1.5rem; font-weight: 800; margin: 1.4rem 0 .35rem; }
 .auth-sub { color: var(--muted); font-size: .95rem; margin-bottom: 1.3rem; }
@@ -1136,7 +1134,6 @@
 }
 
 /* Brand mark shimmers slowly. */
-.logo-mark { background-size: 200% 200%; animation: logo-sheen 6s ease-in-out infinite alternate; }
 @keyframes logo-sheen { from { background-position: 0% 0%; } to { background-position: 100% 100%; } }
 
 /* Auth card entrance + input focus glow. */
