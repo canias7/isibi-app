@@ -1265,7 +1265,8 @@ When genuinely unsure, set ready=true.`
 Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
-- both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
+- both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${memoryLine}
+Also maintain the user's durable creative taste (the \`memory\` field): learn from what they SAY here, not only what they generate. If this message reveals a lasting preference — a look, format, subject, or a standing do/don't they gravitate to — fold it into the full updated memory list (deduped, ≤12 short phrases, no one-off project specifics); otherwise leave it unchanged or omit it.${ctxLine ? `\nContext: ${ctxLine}` : ""}`)
         : step === "studio"
         ? `You are isibi, the director of a shot-based video studio. The user's project is an ordered list of SHOTS — each shot is either one AI video generation (3-10s) or a slice of an imported video. You act by returning actions; the app executes them.
 
@@ -1366,6 +1367,11 @@ Context: ${ctxLine}`
                 revise: { type: "boolean", description: "true if the user is asking to adjust the previous generation rather than describing something new" },
                 rerun: { type: "boolean", description: "true if the user wants the previous generation run again unchanged, in whatever words" },
                 needsWeb: { type: "boolean", description: "true ONLY if depicting this accurately needs current, real-world facts you may not reliably know — the newest/latest named products, recent events, real specs, prices, dates, or specific real people/places; false for generic or imaginative creative requests" },
+                memory: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "The user's DURABLE creative taste, learned across ALL their chats — short standing preferences that should shape future work (e.g. 'Cinematic, filmic color grading', 'Prefers vertical 9:16', 'Warm, moody lighting', 'Minimal on-screen text', 'Works on skincare/beauty content'). Learn from what the user SAYS in conversation too, not just what they generate. Return the FULL updated list (not a delta): carry forward what was given, fold in any lasting preference this message reveals, dedupe/merge, and DROP anything about one specific project or subject. Each item one short phrase, at most 12. Omit or return the list unchanged when this message reveals nothing new about lasting taste (greetings, small talk, one-off requests).",
+                },
               },
               required: ["reply", "ready"],
             },
@@ -1450,6 +1456,10 @@ Context: ${ctxLine}`
         rerun: !!parsed.rerun && !!prevPrompt && kind !== "audio",
         revise: !parsed.rerun && !!parsed.revise && !!prevPrompt && kind !== "audio",
         needsWeb: !!parsed.needsWeb && kind !== "audio",
+        // Taste learned from the conversation itself (never from voice scripts).
+        memory: kind !== "audio" && Array.isArray(parsed.memory)
+          ? parsed.memory.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim().slice(0, 140)).slice(0, 12)
+          : undefined,
       });
 
       const wantStream = body.stream === true && step === "ask";

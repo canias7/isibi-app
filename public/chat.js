@@ -2573,6 +2573,9 @@ async function directorAsk(text, history, onDelta) {
         }
       }
       if (!final) throw 0;
+      // Taste learned from the conversation commits immediately — chat has no
+      // approval gate (unlike compose, which waits for the user to run it).
+      if (Array.isArray(final.memory)) commitMemory(final.memory);
       return {
         reply: final.reply || '',
         ready: !!final.ready,
@@ -2582,6 +2585,7 @@ async function directorAsk(text, history, onDelta) {
       };
     }
     const data = await res.json();
+    if (Array.isArray(data.memory)) commitMemory(data.memory);
     return {
       reply: data.reply || '',
       ready: !!data.ready,
