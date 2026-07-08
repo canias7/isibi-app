@@ -3126,8 +3126,12 @@ function renderSettings() {
       '<div class="sp-group">' +
         '<div class="sp-glabel">About</div>' +
         '<div class="sp-list">' +
-          '<a class="sp-item sp-tap" href="mailto:hello@isibi.ai?subject=isibi%20feedback">' +
-            '<span class="sp-item-l"><span class="sp-item-t">Help &amp; feedback</span></span>' +
+          // Prefill the account email + version into the body so a support
+          // reply never has to ask "which account, which version?".
+          '<a class="sp-item sp-tap" href="mailto:support@isibi.ai?subject=isibi%20support&body=' +
+            encodeURIComponent('\n\n—\nAccount: ' + email + ' · isibi ' + APP_VERSION) + '">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Contact support</span>' +
+            '<span class="sp-item-s">support@isibi.ai</span></span>' +
             '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
           '</a>' +
           '<a class="sp-item sp-tap" href="/terms.html" target="_blank" rel="noopener">' +
