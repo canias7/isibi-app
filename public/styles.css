@@ -1846,6 +1846,31 @@
 }
 .g-sort { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; margin-left: auto; }
 
+/* ── Gallery storage usage bar ── */
+.gallery-storage {
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .85rem 1rem; margin-bottom: 1.3rem;
+  background: var(--panel, rgba(255,255,255,.03));
+  border: 1px solid var(--line, rgba(255,255,255,.075)); border-radius: 14px;
+}
+.gs-row { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; }
+.gs-label { font-size: .82rem; font-weight: 600; color: var(--text); }
+.gs-label .gs-tier {
+  font-size: .68rem; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  color: #0a0a0b; background: var(--split); padding: .12rem .5rem; border-radius: 99px; margin-left: .5rem;
+}
+.gs-usage { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.gs-track { height: 7px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+.gs-fill { height: 100%; border-radius: 99px; background: var(--split); transition: width .3s ease; }
+.gs-fill.warn { background: linear-gradient(120deg, #ff9a4d, #ffd24d); }
+.gs-fill.full { background: linear-gradient(120deg, #ff5d7a, #ff9a4d); }
+.gs-note { font-size: .78rem; color: var(--muted); }
+.gs-note a, .gs-cta {
+  color: var(--pink); font-weight: 600; cursor: pointer; text-decoration: none;
+  background: none; border: none; font: inherit; padding: 0;
+}
+.gs-cta:hover { text-decoration: underline; }
+
 /* ── Model picker: logo rows with spec chips (Higgsfield-style) ── */
 .model-menu.drop-up.model-drop { min-width: 345px; }
 .m-search {
