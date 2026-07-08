@@ -1793,7 +1793,7 @@
 
 /* ── Gallery view: everything ever generated, newest first ── */
 .view-gallery.active { flex-direction: column; overflow-y: auto; padding: 1.5rem 2rem 2.5rem; }
-.gallery-head { display: flex; align-items: baseline; gap: .8rem; margin-bottom: 1.2rem; }
+.gallery-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem .8rem; margin-bottom: 1.3rem; }
 .gallery-title { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.45rem; letter-spacing: -.02em; }
 .gallery-sub { color: var(--muted); font-size: .85rem; }
 .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .9rem; }
@@ -1828,8 +1828,9 @@
 .g-item:hover .g-prompt { opacity: 1; }
 .gallery-empty { color: var(--muted); font-size: .95rem; padding: 3rem 0; text-align: center; }
 
-/* Gallery controls: type filter chips + sort toggle */
-.gallery-controls { margin-left: auto; display: flex; align-items: center; gap: .7rem; }
+/* Gallery controls: filter chips + sort — on their OWN row under the title,
+   so they clear the fixed top-right credit pill / avatar instead of colliding. */
+.gallery-controls { width: 100%; margin-top: .9rem; display: flex; align-items: center; gap: .7rem; }
 .g-filters {
   display: flex; gap: 2px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 99px;
@@ -1842,7 +1843,7 @@
 }
 .g-chip:hover { color: var(--text); }
 .g-chip.active { background: var(--split); color: #0a0a0b; }
-.g-sort { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; }
+.g-sort { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; margin-left: auto; }
 
 /* ── Model picker: logo rows with spec chips (Higgsfield-style) ── */
 .model-menu.drop-up.model-drop { min-width: 345px; }
