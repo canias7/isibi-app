@@ -1967,7 +1967,7 @@ function maybeShowWelcome(balance) {
       '<div class="wm-star">✦</div>' +
       '<h2 class="wm-title">Welcome to isibi</h2>' +
       '<div class="wm-grant">' + balance + ' free credits, on us</div>' +
-      '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $25/mo.</p>' +
+      '<p class="wm-sub">Enough for a few images or a voice line — every model, one balance. Ready for video? Plans start at $24.99/mo.</p>' +
       '<button type="button" class="wm-cta">Start generating</button>' +
     '</div>';
     const dismiss = () => { try { localStorage.setItem(WELCOME_KEY, '1'); } catch {} ov.remove(); };
@@ -1996,15 +1996,15 @@ const roundTo = (n, step) => Math.round(n / step) * step;
 const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
 const estVideos = (cr) => roundTo(cr / VID_CR, 5);
 const MEMBERSHIPS = [
-  { plan: '25', usd: 25, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
+  { plan: '25', usd: 24.99, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
     desc: 'For getting started with AI creation',
     save: 'Save $3/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 0, 0] },
-  { plan: '50', usd: 50, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
+  { plan: '50', usd: 49.99, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
     desc: 'For consistent, everyday creation',
     save: 'Save $13/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 1, 0] },
-  { plan: '100', usd: 100, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
+  { plan: '100', usd: 99.99, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
     desc: 'For creators building big projects',
     save: 'Save $33/mo while the launch offer lasts',
     feats: [1, 1, 1, 1, 1, 1] },
@@ -2045,8 +2045,6 @@ function openCredits(topupsOnly) {
       '<div class="up-desc">' + p.desc + '</div>' +
       '<div class="up-credbox">' +
         '<div class="up-credmain"><span class="up-star">✦</span> ' + p.credits.toLocaleString() + ' credits/mo.</div>' +
-        '<div class="up-credeq">≈ ' + estImages(p.credits) + ' Nano Banana images</div>' +
-        '<div class="up-credeq">≈ ' + estVideos(p.credits) + ' Kling 3.0 videos</div>' +
         '<div class="up-credroll">✓ Unused credits roll over</div>' +
       '</div>' +
       '<div class="up-priceline">' +
@@ -2058,11 +2056,6 @@ function openCredits(topupsOnly) {
       '<div class="up-save">' + p.save + '</div>' +
       '<ul class="up-feat">' + MEMBER_ROWS.map((row, i) =>
         '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') + '</ul>' +
-      '<div class="up-modelbox">' +
-        '<div class="up-mtitle">Model access</div>' +
-        ['Veo 3.1', 'Sora 2', 'Kling 3.0 &amp; more'].map((m) =>
-          '<div class="up-mrow"><span>' + m + '</span><span class="up-full">Full access</span></div>').join('') +
-      '</div>' +
     '</button>').join('');
   // Top-ups-only view (from the profile menu) is a quiet list — credits left,
   // price right, hairline separators.
