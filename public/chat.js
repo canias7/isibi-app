@@ -2159,6 +2159,24 @@ async function fetchCredits(attempt) {
   }
 }
 
+// A fal-confirmed failure means fal never billed us — ask the server to refund
+// the charge (it independently re-verifies the failure with fal). Returns the
+// refunded credit amount, and refreshes the balance display when it's non-zero.
+async function requestRefund(statusUrl) {
+  if (!statusUrl) return 0;
+  try {
+    const r = await apiFetch('/api/refund', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statusUrl }),
+    });
+    if (!r.ok) return 0;
+    const d = await r.json().catch(() => ({}));
+    const n = Number(d.refunded) || 0;
+    if (n > 0) fetchCredits();
+    return n;
+  } catch { return 0; }
+}
+
 // One-time welcome banner for fresh accounts: makes the signup grant feel
 // intentional and points at the plans. Shows only while the account still
 // looks new (grant-sized balance, no chat history), until dismissed.
@@ -2356,20 +2374,28 @@ function openCredits(topupsOnly) {
 
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
 // drop the loader, and free the chat.
-function cancelGen(chatId) {
+async function cancelGen(chatId) {
   const gen = activeGens.get(chatId);
   if (!gen) return;
-  if (gen.statusUrl) {
-    apiFetch('/api/cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: gen.statusUrl.replace(/\/status\b.*$/, '/cancel') }),
-    }).catch(() => {});
-  }
+  const statusUrl = gen.statusUrl;
   endGen(chatId);
-  // Credits are charged the moment fal accepts the job, so a run that already
-  // reached the generator was charged; only a stop during the brief submit
-  // window (before it was sent) escapes the charge.
-  deliverAgent(chatId, '⏹ Cancelled — credits for a run are used once it reaches the generator.');
+  if (statusUrl) {
+    // Tell fal to cancel, then refund — but only if fal confirms the job never
+    // ran (CANCELED while queued = fal didn't bill us). requestRefund re-checks
+    // fal's status, so a job that had already started/completed isn't refunded.
+    try {
+      await apiFetch('/api/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: statusUrl.replace(/\/status\b.*$/, '/cancel') }),
+      });
+    } catch {}
+    const refunded = await requestRefund(statusUrl);
+    deliverAgent(chatId, refunded > 0
+      ? '⏹ Cancelled — your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.'
+      : '⏹ Cancelled. If the run had already started, its credits were used.');
+    return;
+  }
+  deliverAgent(chatId, '⏹ Cancelled.');
 }
 
 // Failures become a conversation: isibi.ai explains what went wrong in plain
@@ -2550,7 +2576,9 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // isn't re-polled at boot.
       if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED' || state === 'CANCELLED') {
         endGen(origin);
-        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.');
+        const refunded = await requestRefund(statusUrl); // fal didn't bill us — credit it back
+        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.'
+          + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : ''));
         return;
       }
       myGen.model = label;

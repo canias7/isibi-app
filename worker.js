@@ -608,7 +608,8 @@ async function handleRequest(request, env, ctx) {
       url.pathname === "/api/image" ? "image" :
       url.pathname === "/api/audio" ? "audio" : null;
     if (genKind && request.method === "POST") {
-      if (!(await authUser(request))) return UNAUTHED();
+      const genUser = await authUser(request);
+      if (!genUser) return UNAUTHED();
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
       }
@@ -928,6 +929,25 @@ async function handleRequest(request, env, ctx) {
       if (!(balanceAfter >= 0)) {
         if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
+      // Record the charge so /api/refund can credit it back if fal never bills
+      // us (the render fails). Best-effort with the service key (RLS-locked
+      // table); a missed record just means no refund for that rare job. Fire and
+      // forget so it never delays the generation response.
+      if (env.SUPABASE_SERVICE_KEY && data.request_id) {
+        const rec = fetch(`${SUPABASE_URL}/rest/v1/gen_charges`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            Prefer: "resolution=ignore-duplicates",
+          },
+          body: JSON.stringify({ request_id: data.request_id, user_id: genUser.id, cost: genCost }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+        if (ctx && ctx.waitUntil) ctx.waitUntil(rec); else await rec;
       }
 
       return Response.json({
@@ -1701,6 +1721,52 @@ Context: ${ctxLine}`
         return new Response(data || "{}", { status: r.status, headers: { "Content-Type": "application/json" } });
       } catch {
         return Response.json({ error: "cancel failed" }, { status: 502 });
+      }
+    }
+
+    // Refund a generation that fal never billed us for (the render failed). We
+    // re-verify the terminal failure with fal ourselves — the client can't claim
+    // a refund for a job that actually completed — then credit back the exact
+    // recorded charge, idempotently. Mirrors fal's billing: no bill, no charge.
+    if (url.pathname === "/api/refund" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const statusUrl = typeof body.statusUrl === "string" ? body.statusUrl : "";
+      const m = statusUrl.match(/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/([A-Za-z0-9_-]+)\/status\b/);
+      if (!m) return Response.json({ error: "invalid url" }, { status: 400 });
+      const requestId = m[1];
+      if (!env.FAL_KEY || !env.SUPABASE_SERVICE_KEY) return Response.json({ refunded: 0 });
+      // Confirm with fal that the job terminally failed (fal didn't bill us).
+      let status = "";
+      try {
+        const r = await fetch(statusUrl, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
+        const st = await r.json().catch(() => ({}));
+        status = String(st.status || "").toUpperCase();
+      } catch {
+        return Response.json({ error: "verify failed" }, { status: 502 });
+      }
+      if (!["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
+        return Response.json({ refunded: 0 }); // still running, completed, or unknown — nothing to refund
+      }
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/refund_charge`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+          body: JSON.stringify({ p_request_id: requestId, p_user: user.id }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const refunded = r.ok ? (Number(await r.json()) || 0) : 0;
+        return Response.json({ refunded });
+      } catch {
+        return Response.json({ error: "refund failed" }, { status: 502 });
       }
     }
 
