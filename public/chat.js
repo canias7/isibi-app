@@ -155,8 +155,8 @@ const ATTACH_LABELS = {
   audio: '+ Audio',
   clip: '+ Video clip',
   end: '<span class="plus-big">+</span>',
-  ffirst: '+ First frame',
-  flast: '+ Last frame',
+  ffirst: '<span class="plus-big">+</span><span class="slot-lab">First frame</span>',
+  flast: '<span class="plus-big">+</span><span class="slot-lab">Last frame</span>',
 };
 
 function attachBtn(kind) {
@@ -389,6 +389,33 @@ function toggleApRow(kind) {
   const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
   if (row) row.classList.toggle('open');
 }
+
+// One-line explainer for each input row's ⓘ. Keyed to the row's data-info.
+const AP_INFO = {
+  image: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
+  flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
+  ref: 'Reference to video: up to 3 images that keep a character or subject looking consistent in a new scene you describe.',
+};
+function showApInfo(kind, ev, el) {
+  ev.stopPropagation(); // don't let the click toggle the row open/closed
+  const pop = document.getElementById('apInfoPop');
+  if (!pop) return;
+  if (pop.classList.contains('open') && pop.dataset.for === kind) { pop.classList.remove('open'); return; }
+  pop.textContent = AP_INFO[kind] || '';
+  pop.dataset.for = kind;
+  const r = el.getBoundingClientRect();
+  const w = 244;
+  pop.style.left = Math.max(12, Math.min(r.left, window.innerWidth - w - 12)) + 'px';
+  pop.style.top = (r.bottom + 6) + 'px';
+  pop.classList.add('open');
+}
+// Any click that isn't on an ⓘ or inside the popover dismisses it.
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('apInfoPop');
+  if (pop && pop.classList.contains('open') && !e.target.closest('.ap-info') && !e.target.closest('#apInfoPop')) {
+    pop.classList.remove('open');
+  }
+});
 
 // ── Image source chooser: device files or the isibi gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
@@ -4120,6 +4147,7 @@ const CLICK_ACTIONS = {
   'effort-menu': (e) => toggleEffortMenu(e),
   'set-effort': (e, el) => setEffort(el.dataset.effort),
   'ap-row': (e, el) => toggleApRow(el.dataset.row),
+  'ap-info': (e, el) => showApInfo(el.dataset.info, e, el),
   'img-src': (e, el) => openImgSrc(el.dataset.src, e),
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
