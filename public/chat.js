@@ -3111,7 +3111,11 @@ function renderSettings() {
       '<div class="sp-group">' +
         '<div class="sp-glabel">Password</div>' +
         '<div class="sp-list">' +
-          '<form class="sp-item sp-form" id="spForm">' +
+          '<button type="button" class="sp-item sp-tap" id="spPwRow" aria-expanded="false">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Change password</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev sp-chev">›</span></span>' +
+          '</button>' +
+          '<form class="sp-item sp-form" id="spForm" hidden>' +
             '<input type="password" class="st-in" id="spPw" placeholder="New password (min 6 characters)" autocomplete="new-password" />' +
             '<button type="submit" class="st-save">Update</button>' +
           '</form>' +
@@ -3157,6 +3161,18 @@ function renderSettings() {
     '</div>';
 
   view.querySelector('#spCredits').onclick = () => openCredits();
+
+  // The password form stays folded behind its row — an always-open password
+  // input on a settings page reads as a prompt to type into it.
+  view.querySelector('#spPwRow').onclick = (e) => {
+    const row = e.currentTarget;
+    const form = view.querySelector('#spForm');
+    form.hidden = !form.hidden;
+    row.setAttribute('aria-expanded', form.hidden ? 'false' : 'true');
+    row.classList.toggle('open', !form.hidden);
+    view.querySelector('#spNote').textContent = '';
+    if (!form.hidden) view.querySelector('#spPw').focus();
+  };
 
   view.querySelector('#spForm').onsubmit = async (e) => {
     e.preventDefault();

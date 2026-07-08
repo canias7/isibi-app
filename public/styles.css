@@ -748,6 +748,9 @@
 .sp-tap { width: 100%; background: none; color: var(--text); font: inherit; text-align: left; text-decoration: none; cursor: pointer; transition: background .12s ease; }
 .sp-tap:hover { background: var(--panel-2); }
 .sp-form { gap: .5rem; }
+.sp-form[hidden] { display: none; }
+.sp-chev { display: inline-block; transition: transform .15s ease; }
+.sp-tap.open .sp-chev { transform: rotate(90deg); }
 .sp-note { margin: .5rem .2rem 0; }
 .sp-signout {
   width: 100%; margin-top: .3rem; padding: .8rem; border-radius: 12px;
