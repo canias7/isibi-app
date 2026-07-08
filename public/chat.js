@@ -15,12 +15,16 @@ const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
-  caps: { image: true, end: true, avatar: true, audio: true, maxImages: 9 },
+  // i2v (image + end), first-&-last, reference-to-video (≤9 images + a driving
+  // audio). Video references + @-tags are a richer follow-up, not yet exposed.
+  caps: { image: true, flf: true, ref: 9, audio: true },
 };
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
   ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-  caps: { image: true, end: true, avatar: false },
+  // Kling v3 i2v takes start+end frames; the "elements" reference mode is a
+  // nested combo feature left for later.
+  caps: { image: true, flf: true },
 };
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
@@ -56,10 +60,13 @@ const MODEL_OPTS = {
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    caps: { image: true, end: true, avatar: false },
+    // o3 i2v takes image_url + end_image_url; no reference/elements mode.
+    caps: { image: true, flf: true },
   },
   // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
-  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: {} },
+  // fal does expose image-to-video (image_url = first frame); no end frame or
+  // reference, so a single Image slot is the whole image-input surface.
+  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: { image: true, end: false, avatar: false } },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
   // LipSync = a source clip + voice.
@@ -394,7 +401,7 @@ function toggleApRow(kind) {
 const AP_INFO = {
   image: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
-  ref: 'Reference to video: up to 3 images that keep a character or subject looking consistent in a new scene you describe.',
+  ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
 };
 function showApInfo(kind, ev, el) {
   ev.stopPropagation(); // don't let the click toggle the row open/closed

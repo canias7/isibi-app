@@ -665,7 +665,7 @@ async function handleRequest(request, env, ctx) {
       const first = dataImage(body.first);
       const last = dataImage(body.last);
       const refs = Array.isArray(body.refs)
-        ? body.refs.slice(0, 3).map(dataImage).filter(Boolean)
+        ? body.refs.slice(0, 9).map(dataImage).filter(Boolean)
         : [];
 
       let endpoint = model;
@@ -721,57 +721,55 @@ async function handleRequest(request, env, ctx) {
       } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
+        const isKlingV3 = model.includes("kling-video/v3");
+        const isKlingO3 = model.includes("kling-video/o3");
         const isGrok = model.includes("grok-imagine");
         const isVeo = model.includes("veo");
         const isSora = model.includes("sora");
 
-        // Route by attachment. Params below match each family's fal schema:
-        //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[] + audio_urls[]
-        //  Kling i2v: start_image_url + end_image_url (NO aspect_ratio/resolution)
-        //  Grok i2v: image_url only (no end frame)
-        //  Gemini: text-to-video only, no image input
-        // Audio input only exists on Seedance reference-to-video, so any audio
-        // attachment routes there (carrying along a reference image if present).
-        if ((avatar || audio || extraImages.length) && isSeedance) {
+        // The image-to-video endpoint id — Veo's base id has no "/text-to-video"
+        // segment to swap, so it gets the suffix appended instead.
+        const i2v = isVeo ? model + "/image-to-video" : model.replace("/text-to-video", "/image-to-video");
+        // Start-image field name differs by family: Kling v3 wants start_image_url;
+        // everyone else (Seedance, Kling o3, Grok, Veo, Sora, Hailuo) wants image_url.
+        const startField = isKlingV3 ? "start_image_url" : "image_url";
+
+        // Reference-to-video (hold a subject/identity across a fresh scene).
+        // Seedance folds any driving audio + multi-image references in here;
+        // Veo has its own reference endpoint (≤3 images, no audio).
+        if (isSeedance && (refs.length || audio)) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          const sRefs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
-          // fal rule: reference audio requires at least one image/video ref.
-          if (audio && !sRefs.length) {
-            return Response.json({ error: "Seedance needs a reference image along with the audio — add an image too" }, { status: 400 });
+          const rImgs = (refs.length ? refs : [image].filter(Boolean)).slice(0, 9);
+          // fal rule: a driving audio needs at least one image/video reference.
+          if (audio && !rImgs.length) {
+            return Response.json({ error: "Add a reference image along with the audio." }, { status: 400 });
           }
-          if (sRefs.length) input.image_urls = sRefs;
+          if (rImgs.length) input.image_urls = rImgs;
           if (audio) input.audio_urls = [audio];
         } else if (isVeo && refs.length) {
-          // Veo reference-to-video: up to 3 images to hold subject identity.
           endpoint = model + "/reference-to-video";
-          input.image_urls = refs;
-        } else if (isVeo && first && last) {
-          // Veo first/last-frame: pin both ends, model fills the motion between.
-          endpoint = model + "/first-last-frame-to-video";
-          input.first_frame_url = first;
-          input.last_frame_url = last;
-        } else if (isVeo && (first || last)) {
-          // Only one of the two frames was given — fall back to plain
-          // image-to-video from whichever frame is present, rather than
-          // silently dropping it and running text-to-video.
-          endpoint = model + "/image-to-video";
-          input.image_url = first || last;
-        } else if (image) {
-          const isKlingO3 = model.includes("kling-video/o3");
-          // Veo's base id has no "/text-to-video" to swap, so append the suffix.
-          endpoint = isVeo
-            ? model + "/image-to-video"
-            : model.replace("/text-to-video", "/image-to-video");
-          if (isKling && !isKlingO3) {
-            // Kling v3 image-to-video uses start_image_url.
-            input.start_image_url = image;
-            if (end) input.end_image_url = end;
+          input.image_urls = refs.slice(0, 3);
+        } else if (first && last) {
+          // First & last frame. Veo has a dedicated endpoint; every other family
+          // pins the two frames as start+end on their image-to-video endpoint.
+          if (isVeo) {
+            endpoint = model + "/first-last-frame-to-video";
+            input.first_frame_url = first;
+            input.last_frame_url = last;
           } else {
-            // Seedance / Grok / Veo / Sora / Kling o3 all use image_url.
-            input.image_url = image;
-            // End frame only exists on Seedance and Kling o3.
-            if (end && (isSeedance || isKlingO3)) input.end_image_url = end;
+            endpoint = i2v;
+            input[startField] = first;
+            input.end_image_url = last;
           }
+        } else if (first || last) {
+          // Only one of the two frames was given — run it as a single start image.
+          endpoint = i2v;
+          input[startField] = first || last;
+        } else if (image) {
+          endpoint = i2v;
+          input[startField] = image;
+          // A standalone end frame only applies to families whose i2v accepts one.
+          if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
         }
 
         if (duration) {
