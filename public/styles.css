@@ -362,6 +362,8 @@
   color: rgba(255, 255, 255, .78); text-shadow: 0 1px 8px rgba(0, 0, 0, .65);
   letter-spacing: .02em;
 }
+/* Full-screen playback keeps the mark readable. */
+.lb-stage .wm-badge { font-size: 1rem; top: 16px; left: 18px; }
 .gen-status { display: flex; align-items: center; gap: .55rem; color: var(--muted); font-size: .9rem; }
 .gen-status-text.flip { animation: gen-flip .45s cubic-bezier(.2, .8, .3, 1) both; }
 @keyframes gen-flip { from { opacity: 0; transform: translateY(7px); } }
