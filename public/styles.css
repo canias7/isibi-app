@@ -756,6 +756,13 @@
   transition: color .12s ease, border-color .12s ease;
 }
 .sp-signout:hover { color: #ff6b8a; border-color: rgba(255, 107, 138, .4); }
+.sp-signout-all {
+  width: 100%; margin-top: .55rem; padding: .35rem; background: none; border: none;
+  color: var(--muted); font: inherit; font-size: .8rem; cursor: pointer; opacity: .75;
+  transition: opacity .12s ease, color .12s ease;
+}
+.sp-signout-all:hover { color: var(--text); opacity: 1; }
+.sp-red { color: #ff6b8a; }
 @media (max-width: 900px) { .view-settings.active { padding: 1.5rem 1rem 2.5rem; } }
 
 /* ── Products page ── */

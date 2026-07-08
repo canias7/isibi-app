@@ -175,10 +175,73 @@ const Auth = (() => {
     }
   }
 
+  // Global sign-out: GoTrue revokes every refresh token on every device, then
+  // this browser drops its copy. Refresh first so the revoke call can't land
+  // with an expired token and silently do nothing.
+  async function signOutEverywhere() {
+    const token = await accessToken();
+    saveSession(null);
+    if (token) {
+      try {
+        await fetch(SUPABASE_URL + '/auth/v1/logout?scope=global', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+        });
+      } catch {}
+    }
+  }
+
+  // Permanent account deletion via the delete_account RPC (SECURITY DEFINER —
+  // wipes chats, credits, usage, storage rows, every session, and the auth
+  // user itself). Throws if the server refuses; clears the session on success.
+  async function deleteAccount() {
+    const token = await accessToken();
+    if (!token) throw new Error('Not signed in');
+    const res = await fetch(SUPABASE_URL + '/rest/v1/rpc/delete_account', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: 'Bearer ' + token,
+      },
+      body: '{}',
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      throw new Error(d.message || d.error || 'Could not delete the account');
+    }
+    saveSession(null);
+    return true;
+  }
+
+  // Best-effort: remove every file in the caller's media folder via the
+  // Storage API (clean byte removal). The delete_account RPC sweeps whatever
+  // this misses, so a failure here never blocks deletion.
+  async function storageWipeOwn() {
+    try {
+      const token = await accessToken();
+      const uid = (session && session.user && session.user.id) || '';
+      if (!token || !uid) return;
+      const list = await fetch(SUPABASE_URL + '/storage/v1/object/list/media', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ prefix: uid + '/', limit: 1000 }),
+      });
+      if (!list.ok) return;
+      const names = (await list.json()).map((o) => uid + '/' + o.name).filter((n) => !n.endsWith('/'));
+      if (!names.length) return;
+      await fetch(SUPABASE_URL + '/storage/v1/object/media', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ prefixes: names }),
+      });
+    } catch {}
+  }
+
   loadSession();
   return {
     checkPassword, signUp, sendCode, recover, verifyCode, refresh, accessToken,
-    signOut, storageDelete, updatePassword,
+    signOut, signOutEverywhere, deleteAccount, storageWipeOwn, storageDelete, updatePassword,
     isSignedIn: () => !!(session && session.access_token),
     email: () => (session && session.user && session.user.email) || '',
     userId: () => (session && session.user && session.user.id) || '',
