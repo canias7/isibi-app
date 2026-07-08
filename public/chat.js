@@ -3622,7 +3622,7 @@ async function addProductFromUrl(url) {
     if (!res.ok) throw 0;
     const data = await res.json();
     const img = data.image || '';
-    const p = { id: prUid(), name: data.name || 'Product', desc: '', image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
+    const p = { id: prUid(), name: data.name || 'Product', desc: (data.desc || '').slice(0, 300), image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
     const list = loadProducts(); list.unshift(p); saveProducts(list);
     renderProductGrid();
   } catch {
