@@ -781,6 +781,26 @@ async function handleRequest(request, env, ctx) {
           if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
         }
 
+        // Reconcile @ImageN reference tags with the ACTUAL generation. Tags only
+        // mean something for a Seedance reference-to-video; on a rerun/revise of
+        // an old reference prompt (references already cleared), or a plan-mode
+        // prompt whose reference set shrank, they'd be dangling noise pointing at
+        // images that aren't there. Strip tags that don't map to a sent image.
+        if (typeof input.prompt === "string" && /@(?:Image|Video|Audio)\d/i.test(input.prompt)) {
+          const isRefGen = isSeedance && endpoint.includes("/reference-to-video");
+          const refN = isRefGen && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
+          if (!isRefGen) {
+            // Drop the appended "Feature @Image1, @Image2." clause and any inline tags.
+            input.prompt = input.prompt
+              .replace(/\s*\bFeature\s+@(?:Image|Video|Audio)\d+(?:\s*,\s*@(?:Image|Video|Audio)\d+)*\s*\.?/gi, "")
+              .replace(/\s*@(?:Image|Video|Audio)\d+/gi, "");
+          } else {
+            // Reference gen: keep only tags that point at an attached reference.
+            input.prompt = input.prompt.replace(/@(?:Image|Video|Audio)(\d+)/gi, (m, d) => (+d <= refN ? m : ""));
+          }
+          input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
+        }
+
         if (duration) {
           // Veo wants "8s"; Seedance/Kling want a string enum; the rest an integer.
           if (isVeo) input.duration = duration + "s";
@@ -1377,7 +1397,7 @@ Fix patterns:
 
 Previous prompt:
 ${prevPrompt}
-${briefLine}${memoryLine}
+${briefLine}${memoryLine}${refLine ? refLine + " Preserve the existing @ImageN tags exactly." : ""}
 Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.

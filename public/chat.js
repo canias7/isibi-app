@@ -190,6 +190,7 @@ function onAttach(kind, inputEl) {
     if (kind === 'audio') {
       awName = (file.name || 'audio').replace(/[<>&"]/g, '');
       if (awPlayer) { try { awPlayer.pause(); } catch (e) {} awPlayer = null; } // re-pick: drop the old clip's player
+      awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
     }
     renderAttach(kind);
@@ -202,7 +203,7 @@ function onAttach(kind, inputEl) {
 
 // ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
 const AW_N = 40;
-let awPeaks = null, awDur = 0, awName = '', awPlayer = null;
+let awPeaks = null, awDur = 0, awName = '', awPlayer = null, awDecoding = false;
 
 // Decorative envelope for the empty slot; replaced by the real waveform once decoded.
 function awPlaceholder(lo) {
@@ -218,9 +219,10 @@ function awBarsHtml(peaks, lit) {
 
 // Decode the attached clip and reduce it to AW_N peak buckets.
 async function awDecode(dataUrl) {
+  let actx = null;
   try {
     const buf = await (await fetch(dataUrl)).arrayBuffer();
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    actx = new (window.AudioContext || window.webkitAudioContext)();
     const audio = await actx.decodeAudioData(buf);
     const ch = audio.getChannelData(0);
     const step = Math.max(1, Math.floor(ch.length / AW_N));
@@ -233,8 +235,9 @@ async function awDecode(dataUrl) {
     const top = Math.max(...peaks, 0.01);
     awPeaks = peaks.map((p) => Math.pow(p / top, 0.7));
     awDur = audio.duration;
-    actx.close();
   } catch { awPeaks = null; awDur = 0; }
+  finally { if (actx) { try { actx.close(); } catch {} } } // always release the context, even on a decode failure (browsers cap ~6)
+  awDecoding = false;
   renderAttach('audio');
   updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
 }
@@ -366,6 +369,7 @@ function clearAttach(ev, kind) {
 // Show only the panel rows the current model actually supports (same rules
 // as the old inline pickers), and clear anything a model can't use.
 function updateAttachVisibility() {
+  closeApInfo(); // rows are about to be re-shown/hidden — a tooltip pointing at one mustn't linger
   const caps = (currentOpts() && currentOpts().caps) || {};
   // No slots for this model → hide the whole panel, don't leave an empty box.
   const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref);
@@ -428,6 +432,7 @@ function showApInfo(kind, ev, el) {
   pop.style.top = (r.bottom + 8) + 'px';
   pop.classList.add('open');
 }
+function closeApInfo() { const p = document.getElementById('apInfoPop'); if (p) { p.classList.remove('open'); p.dataset.for = ''; } }
 // Any click that isn't on an ⓘ or inside the popover dismisses it.
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('apInfoPop');
@@ -435,6 +440,13 @@ document.addEventListener('click', (e) => {
     pop.classList.remove('open');
   }
 });
+// The popover is position:fixed off the icon's rect — if the panel scrolls the
+// icon moves out from under it, so dismiss rather than let it float orphaned.
+(function () {
+  const ap = document.getElementById('attachPanel');
+  if (ap) ap.addEventListener('scroll', closeApInfo);
+  window.addEventListener('resize', closeApInfo);
+})();
 
 // ── Image source chooser: device files or the isibi gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
@@ -561,7 +573,8 @@ function renderExtraImages() {
   if (more) {
     const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
     const total = (attachments.image ? 1 : 0) + extraImages.length;
-    more.style.display = (cap > 1 && attachments.image) ? '' : 'none';
+    // Hide the add tile once the cap is reached (was a dead, clickable control at N/N).
+    more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
 }
@@ -898,6 +911,7 @@ function currentOpts() {
 // it (keyed by model+voice) so replays and re-tests are instant and free.
 const voicePreviewCache = {};
 let previewAudio = null;
+let previewing = false; // in-flight guard: the preview control is a <span>, so btn.disabled is a no-op
 
 function stopPreview() {
   if (previewAudio) { previewAudio.pause(); previewAudio.currentTime = 0; }
@@ -910,6 +924,8 @@ async function previewVoice(name, btn) {
   stopPreview();
   const key = model + '|' + name;
   if (voicePreviewCache[key]) { playPreview(voicePreviewCache[key], btn); return; }
+  if (previewing) return; // a live TTS preview is already generating — don't spend a second credit
+  previewing = true;
 
   btn.disabled = true;
   btn.textContent = '…';
@@ -957,6 +973,7 @@ async function previewVoice(name, btn) {
     setTimeout(() => { btn.textContent = '▶'; }, 1600);
   } finally {
     btn.disabled = false;
+    previewing = false;
   }
 }
 
@@ -1085,7 +1102,9 @@ function pickModel(el) {
   if (el.classList.contains('disabled')) return;
   model = el.dataset.model;
   selectedModels[mode] = model;
-  document.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
+  // Scope to the model menu — effort/director/img-src menus reuse .model-item
+  // and a document-wide toggle would wipe their checkmarks.
+  modelMenu.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
   document.getElementById('modelLabel').textContent = el.dataset.label;
   modelMenu.classList.remove('open');
   buildOptMenus();
@@ -1430,7 +1449,7 @@ function pushSaved(item) {
 
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
-  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode)); return; }
+  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
@@ -1503,6 +1522,10 @@ function deleteChat(id) {
   // Cancel any in-flight generation for this chat first — otherwise its output
   // would land in storage with no chat to show it (unreachable forever).
   if (activeGens.has(id)) cancelGen(id);
+  // Also drop any PAUSED job record (network-drop/timeout removes it from
+  // activeGens but keeps the refresh-proof record) so boot-resume doesn't
+  // re-poll a render into a chat that no longer exists.
+  jobClear(id);
   chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
@@ -1594,6 +1617,9 @@ async function deleteMedia(el, url) {
 }
 
 async function downloadMedia(url, kind) {
+  // Only ever fetch/open a real media URL — never let a stored value smuggle a
+  // javascript:/data:text/html URL into fetch's catch → window.open.
+  if (!/^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(url || '')) return;
   const known = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|ogg|m4a)$/i);
   const ext = known ? known[1].toLowerCase() : (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4');
   const name = 'zephyr-' + Date.now() + '.' + ext;
@@ -1823,29 +1849,28 @@ function claimDelivery(key) {
 
 // Copy a fal output into permanent Supabase Storage, with bounded retries —
 // a failed copy must never silently become the permanent record.
-// Set by trySave when a save is refused for a non-transient reason (402):
-// 'free' = gallery saving is a paid benefit, 'full' = tier storage cap hit.
-// Callers read it to show the right message and skip the retry queue.
-let lastSaveBlock = null;
+// Returns { url, block }: url is the permanent gallery copy (null on failure),
+// block is the non-transient 402 reason ('free' = paid-only, 'full' = cap hit)
+// or null. Returned, not stashed in a global, so concurrent boot save-loops
+// can't cross-attribute each other's result.
 async function trySave(url, kind, attempts, payload) {
-  lastSaveBlock = null;
   for (let i = 0; i < attempts; i++) {
     try {
       const sv = await apiFetch('/api/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || { url, kind }),
       });
-      if (sv.ok) { const d = await sv.json(); if (d.url) return d.url; }
-      if (sv.status === 401) return null; // signed out — retrying now won't help
+      if (sv.ok) { const d = await sv.json().catch(() => ({})); if (d.url) return { url: d.url, block: null }; }
+      if (sv.status === 401) return { url: null, block: null }; // signed out — retrying now won't help
       if (sv.status === 402) { // over cap / not entitled — retrying won't help
-        try { lastSaveBlock = { reason: (await sv.json()).reason || 'full' }; }
-        catch { lastSaveBlock = { reason: 'full' }; }
-        return null;
+        let reason = 'full';
+        try { reason = (await sv.json()).reason || 'full'; } catch {}
+        return { url: null, block: reason };
       }
     } catch {}
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
-  return null;
+  return { url: null, block: null };
 }
 
 // Save one output: free-account images are watermarked server-side by /api/save
@@ -1888,9 +1913,9 @@ async function retryPendingSaves() {
   for (const p of list) {
     if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
     // saveOutput just posts the URL; the server watermarks free-account images.
-    const perm = await saveOutput(p.url, p.kind);
+    const { url: perm, block } = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
-    else if (lastSaveBlock) { /* paid gate (free/full) — retrying won't help, drop it */ }
+    else if (block) { /* paid gate (free/full) — retrying won't help, drop it */ }
     else keep.push(p);
   }
   savesWrite(keep);
@@ -2371,7 +2396,8 @@ async function generateMedia(text, opts = {}) {
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
-        director: directorMode === 'off' ? 'off' : 'on', // off waives the surcharge
+        // 'off' waives the surcharge; promptless lip-sync runs no director step, so it must not pay it either.
+        director: (directorMode === 'off' || (currentOpts() && currentOpts().noPrompt)) ? 'off' : 'on',
       }),
     });
     if (res.status === 401) { // session died — stop cleanly, the gate is up
@@ -2379,14 +2405,16 @@ async function generateMedia(text, opts = {}) {
       deliverAgent(origin, '⚠️ Your session expired — sign in and try again.');
       return;
     }
-    const job = await res.json();
+    const job = await res.json().catch(() => ({})); // a non-JSON error body must not throw past the status checks
     if (!alive()) return; // cancelled while submitting
     if (res.status === 402) { // out of credits — nothing was spent
       endGen(origin);
       deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance up top to get more.');
       return;
     }
-    if (!res.ok || !job.status_url) {
+    // Need both URLs: a status_url with no response_url would poll forever and
+    // then fetch `url=undefined`, dropping a charged render.
+    if (!res.ok || !job.status_url || !job.response_url) {
       endGen(origin);
       if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
@@ -2490,8 +2518,18 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
-    const out = await rr.json();
     if (!alive()) return;
+    // The job COMPLETED on fal and is already charged. A non-OK result fetch
+    // (the poll proxy's 502 timeout returns a parseable {error} body; or a 401)
+    // is transient — keep the refresh-proof record and let boot-resume re-fetch,
+    // instead of reading the error body as "no media" and dropping a paid render.
+    if (!rr.ok) {
+      jobBumpTries(origin);
+      pauseGen(origin);
+      deliverAgent(origin, '⚠️ The render finished but I couldn’t fetch it just now — the app will retrieve it automatically.');
+      return;
+    }
+    const out = await rr.json().catch(() => ({}));
     // Images may come back as several variations; video/audio is a single URL.
     let urls = [];
     if (kind === 'image') {
@@ -2515,9 +2553,9 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       let saveFailed = false;
       let blocked = null;
       for (const u of urls) {
-        const perm = await saveOutput(u, kind);
+        const { url: perm, block } = await saveOutput(u, kind);
         if (perm) finals.push(perm);
-        else if (lastSaveBlock) { finals.push(u); blocked = lastSaveBlock.reason; } // paid gate — don't queue a doomed retry
+        else if (block) { finals.push(u); blocked = block; } // paid gate — don't queue a doomed retry
         else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }
       if (!alive()) return;
@@ -2926,7 +2964,7 @@ function clearQDock() {
 // Build the Plan-mode review card (approve to run). Extracted so it can be
 // re-rendered from a persisted {t:'review'} message — otherwise switching
 // chats, a background sync-renderThread, or a reload lost the composed prompt.
-function buildReviewCard(prompt, cardMode) {
+function buildReviewCard(prompt, cardMode, cardBrief, cardMemory) {
   const m = cardMode || mode;
   const box = document.createElement('div');
   box.className = 'review-card';
@@ -2956,11 +2994,12 @@ function buildReviewCard(prompt, cardMode) {
     // composer happens to be in now (mode resets to 'video' on reload) — else an
     // approved voice line would run as a video and bill at video rates.
     if (m !== mode) setMode(m);
-    // Approval is the signal that this direction is right — commit the brief
-    // and let the composer's evolved taste settle into universal memory.
+    // Approval is the signal that this direction is right — commit THIS card's
+    // own brief/memory (captured when the card was built), never the live
+    // globals, which a later compose may have overwritten.
     const c = activeChat();
-    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
-    if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
+    if (cardBrief && c) { c.brief = cardBrief; persistStore(); touchSync(c.id); }
+    if (cardMemory) commitMemory(cardMemory);
     generateMedia(prompt, { announce: false });
   };
   actions.appendChild(deny); actions.appendChild(allow);
@@ -2976,8 +3015,14 @@ function clearReviews() {
   if (c.msgs.length !== before) { persistStore(); touchSync(c.id); }
 }
 function reviewPrompt(prompt) {
-  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now() });
-  threadAppend(buildReviewCard(prompt, mode));
+  // Capture the brief/memory THIS card represents — the globals get overwritten
+  // by the next compose, so approving an older (or previously denied) card must
+  // not commit a different draft's durable memory. Also persist them on the
+  // message so a card approved after a reload still commits the right ones.
+  const cardBrief = pendingBrief, cardMemory = pendingMemory;
+  pendingBrief = null; pendingMemory = null;
+  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined });
+  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory));
 }
 
 // Grow the message box downward as the user types; cap it, then scroll.
@@ -3003,6 +3048,14 @@ function send(fromButton) {
   // here (keeping the text) instead of letting the tail get silently cut off.
   if (mode === 'audio' && text.length > 2000) {
     addMsg('agent', "That's a long one — voice scripts are capped at 2,000 characters (this is " + text.length.toLocaleString() + "). Trim it a little and send again.");
+    return;
+  }
+  // Lip-sync bills by the audio length (awDur). Never submit with an unmeasured
+  // clip — the worker charges the 60s max, which the price quote never showed.
+  if (promptless && attachments.audio && !awDur) {
+    addMsg('agent', awDecoding
+      ? "One sec — I'm still reading that audio clip. Hit send again in a moment."
+      : "I couldn't read that audio clip — try a different file (mp3, wav, or m4a).");
     return;
   }
   input.value = '';
@@ -3247,7 +3300,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -3282,7 +3335,7 @@ async function doSignOut(everywhere) {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   if (everywhere) await Auth.signOutEverywhere();
