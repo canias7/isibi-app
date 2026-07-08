@@ -1441,12 +1441,7 @@ function buildMedia(kind, url, prompt) {
   // Free accounts: on-screen mark over the video player. Only when we KNOW the
   // account is free — otherwise refreshVideoBadges() adds it once credits load,
   // so a paid user never flashes a watermark at boot.
-  if (kind === 'video' && paidKnown && !isPaid) {
-    const wm = document.createElement('span');
-    wm.className = 'wm-badge';
-    wm.textContent = '✦ isibi.ai';
-    div.appendChild(wm);
-  }
+  if (kind === 'video' && paidKnown && !isPaid) div.appendChild(wmBadge());
 
   const actions = document.createElement('div');
   actions.className = 'media-actions';
@@ -1529,6 +1524,10 @@ function openLightbox(kind, url) {
     el.src = url;
   }
   stage.appendChild(el);
+  // Free accounts: keep the mark on full-screen playback too (images carry
+  // theirs in the pixels, so only video needs the overlay).
+  stage.classList.toggle('wm-spot', kind !== 'image');
+  if (kind !== 'image' && paidKnown && !isPaid) stage.appendChild(wmBadge());
   lightboxEl.querySelector('.lb-dl').onclick = () => downloadMedia(url, kind);
   lightboxEl.classList.add('open');
 }
@@ -1892,16 +1891,22 @@ const CRED_ARC_LEN = 37.7; // half-circle path length (π × r12)
 // (Image watermarks don't depend on this — the server burns them on /api/save.)
 let isPaid = false;
 let paidKnown = false;
+// The on-screen "✦ isibi.ai" mark free accounts see over video players —
+// chat thread, gallery cards and the lightbox all carry it (class wm-spot
+// marks the non-chat containers).
+function wmBadge() {
+  const wm = document.createElement('span');
+  wm.className = 'wm-badge';
+  wm.textContent = '✦ isibi.ai';
+  return wm;
+}
 // Toggle the on-screen video badge on already-rendered clips once we learn the
 // account's paid state (buildMedia renders none while `paidKnown` is false).
 function refreshVideoBadges() {
-  document.querySelectorAll('.msg.video').forEach((div) => {
+  document.querySelectorAll('.msg.video, .wm-spot').forEach((div) => {
     const has = div.querySelector('.wm-badge');
     if (paidKnown && !isPaid && !has) {
-      const wm = document.createElement('span');
-      wm.className = 'wm-badge';
-      wm.textContent = '✦ isibi.ai';
-      div.appendChild(wm);
+      div.appendChild(wmBadge());
     } else if ((isPaid || !paidKnown) && has) {
       has.remove();
     }
@@ -3759,6 +3764,9 @@ function renderGallery() {
       media.onmouseenter = () => { media.play().catch(() => {}); };
       media.onmouseleave = () => { media.pause(); media.currentTime = 0; };
       media.onclick = () => openLightbox('video', it.url);
+      // Free accounts: same on-screen mark as the chat player.
+      d.classList.add('wm-spot');
+      if (paidKnown && !isPaid) d.appendChild(wmBadge());
     }
     d.appendChild(media);
     if (it.prompt) {
