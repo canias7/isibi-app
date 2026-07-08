@@ -144,6 +144,133 @@ function creditCost(kind, model, { duration, quality, num, chars, effort, direct
   return directorCr(effort, director) + Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
+// Read the TRUE length (seconds) out of an uploaded audio data URI, so the
+// lip-sync charge matches what fal bills — fal bills by the real driving-audio
+// length, and a tampered client could otherwise claim a short duration on a
+// long clip and underpay (omnihuman is $0.14/s → ~$8 per 60s clip). Returns a
+// number when a header can be parsed confidently, else null (caller falls back
+// to the conservative size-derived floor). Covers WAV, MP3 (CBR + Xing/Info
+// VBR) and MP4/M4A — the formats a voice clip actually arrives in.
+function audioDurationFromDataUri(dataUri) {
+  if (typeof dataUri !== "string") return null;
+  const comma = dataUri.indexOf(",");
+  if (comma < 0 || !/;base64/i.test(dataUri.slice(0, comma))) return null;
+  let b;
+  try {
+    const bin = atob(dataUri.slice(comma + 1));
+    const n = bin.length;
+    b = new Uint8Array(n);
+    for (let i = 0; i < n; i++) b[i] = bin.charCodeAt(i);
+  } catch { return null; }
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const wav = durWav(b, dv);
+  if (wav != null) return wav;
+  const mp4 = durMp4(b, dv);
+  if (mp4 != null) return mp4;
+  return durMp3(b);
+}
+
+// RIFF/WAVE: duration = data-chunk bytes / byteRate (exact for PCM).
+function durWav(b, dv) {
+  if (b.length < 44) return null;
+  if (b[0] !== 0x52 || b[1] !== 0x49 || b[2] !== 0x46 || b[3] !== 0x46) return null; // "RIFF"
+  if (b[8] !== 0x57 || b[9] !== 0x41 || b[10] !== 0x56 || b[11] !== 0x45) return null; // "WAVE"
+  let off = 12, byteRate = 0, dataSize = 0;
+  while (off + 8 <= b.length) {
+    const id = String.fromCharCode(b[off], b[off + 1], b[off + 2], b[off + 3]);
+    const size = dv.getUint32(off + 4, true);
+    if (id === "fmt " && off + 24 <= b.length) byteRate = dv.getUint32(off + 16, true);
+    else if (id === "data") {
+      dataSize = size && off + 8 + size <= b.length ? size : b.length - (off + 8);
+      break;
+    }
+    off += 8 + size + (size & 1); // chunks are word-aligned
+  }
+  return byteRate > 0 && dataSize > 0 ? dataSize / byteRate : null;
+}
+
+// ISO base-media (mp4/m4a/aac-in-mp4): moov → mvhd → duration / timescale.
+function durMp4(b, dv) {
+  if (b.length < 16) return null;
+  if (b[4] !== 0x66 || b[5] !== 0x74 || b[6] !== 0x79 || b[7] !== 0x70) return null; // "ftyp"
+  const find = (start, end, name) => {
+    let off = start;
+    while (off + 8 <= end) {
+      let size = dv.getUint32(off), hdr = 8;
+      const type = String.fromCharCode(b[off + 4], b[off + 5], b[off + 6], b[off + 7]);
+      if (size === 1) { if (off + 16 > end) break; size = Number(dv.getBigUint64(off + 8)); hdr = 16; }
+      else if (size === 0) size = end - off;
+      if (size < hdr) break;
+      if (type === name) return { off, size, hdr };
+      off += size;
+    }
+    return null;
+  };
+  const moov = find(0, b.length, "moov");
+  if (!moov) return null;
+  const mvhd = find(moov.off + moov.hdr, Math.min(moov.off + moov.size, b.length), "mvhd");
+  if (!mvhd) return null;
+  const p = mvhd.off + mvhd.hdr; // version(1) + flags(3) then the fields
+  if (p + 20 > b.length) return null;
+  if (b[p] === 1) {
+    if (p + 32 > b.length) return null;
+    const ts = dv.getUint32(p + 20), dur = Number(dv.getBigUint64(p + 24));
+    return ts ? dur / ts : null;
+  }
+  const ts = dv.getUint32(p + 12), dur = dv.getUint32(p + 16);
+  return ts ? dur / ts : null;
+}
+
+// MPEG audio: honour a Xing/Info VBR header (exact frame count) else assume CBR
+// from the first frame's bitrate over the remaining bytes.
+const MP3_BR = {
+  // [MPEG1 L1, L2, L3, MPEG2/2.5 L1, L2&L3] in kbps, indexed by the 4-bit field
+  1: [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0],
+  2: [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0],
+  3: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0],
+  4: [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0],
+  5: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
+};
+function durMp3(b) {
+  const total = b.length;
+  let i = 0;
+  if (total > 10 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) { // "ID3" v2 tag
+    i = 10 + ((b[6] & 0x7f) << 21 | (b[7] & 0x7f) << 14 | (b[8] & 0x7f) << 7 | (b[9] & 0x7f));
+    if (b[5] & 0x10) i += 10; // footer present
+  }
+  const scanEnd = Math.min(total - 4, i + 200000);
+  while (i <= scanEnd && !(b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0)) i++;
+  if (i + 4 > total || !(b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0)) return null;
+  const b1 = b[i + 1], b2 = b[i + 2], b3 = b[i + 3];
+  const verBits = (b1 >> 3) & 3, layerBits = (b1 >> 1) & 3;
+  if (verBits === 1 || layerBits === 0) return null; // reserved
+  const layer = 4 - layerBits;                       // 1 | 2 | 3
+  const isV1 = verBits === 3;
+  const brRow = layer === 1 ? (isV1 ? 1 : 4) : layer === 2 ? (isV1 ? 2 : 5) : (isV1 ? 3 : 5);
+  const brIdx = (b2 >> 4) & 0xf, srIdx = (b2 >> 2) & 3;
+  if (brIdx === 0 || brIdx === 15 || srIdx === 3) return null;
+  const bitrate = MP3_BR[brRow][brIdx] * 1000;
+  const srTable = verBits === 3 ? [44100, 48000, 32000] : verBits === 2 ? [22050, 24000, 16000] : [11025, 12000, 8000];
+  const sr = srTable[srIdx];
+  if (!bitrate || !sr) return null;
+  const spf = layer === 1 ? 384 : layer === 3 && !isV1 ? 576 : 1152; // samples/frame
+  // Xing/Info header lives after the side-info block of the first frame.
+  const chanMode = (b3 >> 6) & 3;
+  const sideInfo = isV1 ? (chanMode === 3 ? 17 : 32) : (chanMode === 3 ? 9 : 17);
+  const x = i + 4 + sideInfo;
+  if (x + 12 <= total) {
+    const tag = String.fromCharCode(b[x], b[x + 1], b[x + 2], b[x + 3]);
+    if (tag === "Xing" || tag === "Info") {
+      const flags = (b[x + 4] << 24 | b[x + 5] << 16 | b[x + 6] << 8 | b[x + 7]) >>> 0;
+      if (flags & 1) {
+        const frames = (b[x + 8] << 24 | b[x + 9] << 16 | b[x + 10] << 8 | b[x + 11]) >>> 0;
+        if (frames > 0) return (frames * spf) / sr;
+      }
+    }
+  }
+  return ((total - i) * 8) / bitrate; // CBR
+}
+
 // Deduct credits atomically under the caller's own JWT. Returns the new
 // balance, or -1 when the balance is too low; throws if the ledger is down.
 async function useCredits(authHeader, cost) {
@@ -234,10 +361,11 @@ async function authUser(request) {
 
 const UNAUTHED = () => Response.json({ error: "sign in required" }, { status: 401 });
 
-// Baseline security headers on every response (audit item). script/style keep
-// 'unsafe-inline' because the UI relies on inline on* handlers and style=""
-// attributes; img/media/connect allow Supabase Storage + fal.media (generated
-// media) plus data:/blob: (attachment thumbnails and blob downloads).
+// Baseline security headers on every response (audit item). script-src is
+// 'self' with NO 'unsafe-inline' (all handlers are wired via addEventListener /
+// data-act hooks, so injected HTML can't execute as script); style-src keeps
+// 'unsafe-inline' for the handful of style="" attributes; img/media/connect
+// allow Supabase Storage + fal.media plus data:/blob: (thumbnails, downloads).
 const CSP = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -608,7 +736,8 @@ async function handleRequest(request, env, ctx) {
       url.pathname === "/api/image" ? "image" :
       url.pathname === "/api/audio" ? "audio" : null;
     if (genKind && request.method === "POST") {
-      if (!(await authUser(request))) return UNAUTHED();
+      const genUser = await authUser(request);
+      if (!genUser) return UNAUTHED();
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
       }
@@ -665,7 +794,7 @@ async function handleRequest(request, env, ctx) {
       const first = dataImage(body.first);
       const last = dataImage(body.last);
       const refs = Array.isArray(body.refs)
-        ? body.refs.slice(0, 3).map(dataImage).filter(Boolean)
+        ? body.refs.slice(0, 9).map(dataImage).filter(Boolean)
         : [];
 
       let endpoint = model;
@@ -721,57 +850,84 @@ async function handleRequest(request, env, ctx) {
       } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
+        const isKlingV3 = model.includes("kling-video/v3");
+        const isKlingO3 = model.includes("kling-video/o3");
         const isGrok = model.includes("grok-imagine");
         const isVeo = model.includes("veo");
         const isSora = model.includes("sora");
 
-        // Route by attachment. Params below match each family's fal schema:
-        //  Seedance i2v: image_url + end_image_url; ref2v: image_urls[] + audio_urls[]
-        //  Kling i2v: start_image_url + end_image_url (NO aspect_ratio/resolution)
-        //  Grok i2v: image_url only (no end frame)
-        //  Gemini: text-to-video only, no image input
-        // Audio input only exists on Seedance reference-to-video, so any audio
-        // attachment routes there (carrying along a reference image if present).
-        if ((avatar || audio || extraImages.length) && isSeedance) {
+        // The image-to-video endpoint id — Veo's base id has no "/text-to-video"
+        // segment to swap, so it gets the suffix appended instead.
+        const i2v = isVeo ? model + "/image-to-video" : model.replace("/text-to-video", "/image-to-video");
+        // Start-image field name differs by family: Kling v3 wants start_image_url;
+        // everyone else (Seedance, Kling o3, Grok, Veo, Sora, Hailuo) wants image_url.
+        const startField = isKlingV3 ? "start_image_url" : "image_url";
+
+        // Reference-to-video (hold a subject/identity across a fresh scene).
+        // Seedance folds any driving audio + multi-image references in here;
+        // Veo has its own reference endpoint (≤3 images, no audio).
+        if (isSeedance && (refs.length || audio)) {
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          const sRefs = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
-          // fal rule: reference audio requires at least one image/video ref.
-          if (audio && !sRefs.length) {
-            return Response.json({ error: "Seedance needs a reference image along with the audio — add an image too" }, { status: 400 });
+          const rImgs = (refs.length ? refs : [image].filter(Boolean)).slice(0, 9);
+          // fal rule: a driving audio needs at least one image/video reference.
+          if (audio && !rImgs.length) {
+            return Response.json({ error: "Add a reference image along with the audio." }, { status: 400 });
           }
-          if (sRefs.length) input.image_urls = sRefs;
+          if (rImgs.length) {
+            input.image_urls = rImgs;
+            // Seedance only uses a reference if the prompt cites it as @ImageN.
+            // The director writes those tags; for a raw prompt without them,
+            // append the tags so the uploaded images aren't silently ignored.
+            if (typeof input.prompt === "string" && !/@Image\d/i.test(input.prompt)) {
+              const tags = rImgs.map((_, i) => "@Image" + (i + 1)).join(", ");
+              input.prompt = (input.prompt.trim() + ` Feature ${tags}.`).trim();
+            }
+          }
           if (audio) input.audio_urls = [audio];
         } else if (isVeo && refs.length) {
-          // Veo reference-to-video: up to 3 images to hold subject identity.
           endpoint = model + "/reference-to-video";
-          input.image_urls = refs;
-        } else if (isVeo && first && last) {
-          // Veo first/last-frame: pin both ends, model fills the motion between.
-          endpoint = model + "/first-last-frame-to-video";
-          input.first_frame_url = first;
-          input.last_frame_url = last;
-        } else if (isVeo && (first || last)) {
-          // Only one of the two frames was given — fall back to plain
-          // image-to-video from whichever frame is present, rather than
-          // silently dropping it and running text-to-video.
-          endpoint = model + "/image-to-video";
-          input.image_url = first || last;
-        } else if (image) {
-          const isKlingO3 = model.includes("kling-video/o3");
-          // Veo's base id has no "/text-to-video" to swap, so append the suffix.
-          endpoint = isVeo
-            ? model + "/image-to-video"
-            : model.replace("/text-to-video", "/image-to-video");
-          if (isKling && !isKlingO3) {
-            // Kling v3 image-to-video uses start_image_url.
-            input.start_image_url = image;
-            if (end) input.end_image_url = end;
+          input.image_urls = refs.slice(0, 3);
+        } else if (first && last) {
+          // First & last frame. Veo has a dedicated endpoint; every other family
+          // pins the two frames as start+end on their image-to-video endpoint.
+          if (isVeo) {
+            endpoint = model + "/first-last-frame-to-video";
+            input.first_frame_url = first;
+            input.last_frame_url = last;
           } else {
-            // Seedance / Grok / Veo / Sora / Kling o3 all use image_url.
-            input.image_url = image;
-            // End frame only exists on Seedance and Kling o3.
-            if (end && (isSeedance || isKlingO3)) input.end_image_url = end;
+            endpoint = i2v;
+            input[startField] = first;
+            input.end_image_url = last;
           }
+        } else if (first || last) {
+          // Only one of the two frames was given — run it as a single start image.
+          endpoint = i2v;
+          input[startField] = first || last;
+        } else if (image) {
+          endpoint = i2v;
+          input[startField] = image;
+          // A standalone end frame only applies to families whose i2v accepts one.
+          if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
+        }
+
+        // Reconcile @ImageN reference tags with the ACTUAL generation. Tags only
+        // mean something for a Seedance reference-to-video; on a rerun/revise of
+        // an old reference prompt (references already cleared), or a plan-mode
+        // prompt whose reference set shrank, they'd be dangling noise pointing at
+        // images that aren't there. Strip tags that don't map to a sent image.
+        if (typeof input.prompt === "string" && /@(?:Image|Video|Audio)\d/i.test(input.prompt)) {
+          const isRefGen = isSeedance && endpoint.includes("/reference-to-video");
+          const refN = isRefGen && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
+          if (!isRefGen) {
+            // Drop the appended "Feature @Image1, @Image2." clause and any inline tags.
+            input.prompt = input.prompt
+              .replace(/\s*\bFeature\s+@(?:Image|Video|Audio)\d+(?:\s*,\s*@(?:Image|Video|Audio)\d+)*\s*\.?/gi, "")
+              .replace(/\s*@(?:Image|Video|Audio)\d+/gi, "");
+          } else {
+            // Reference gen: keep only tags that point at an attached reference.
+            input.prompt = input.prompt.replace(/@(?:Image|Video|Audio)(\d+)/gi, (m, d) => (+d <= refN ? m : ""));
+          }
+          input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
         }
 
         if (duration) {
@@ -819,27 +975,35 @@ async function handleRequest(request, env, ctx) {
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
       // Driving-audio length for the audio-billed video models (fal charges by
-      // it). Trust the client's measured duration, but floor it by a size-derived
-      // lower bound: a file of N bytes can't be shorter than N*8 / (highest
-      // plausible bitrate for its format), so a tampered short claim can't
-      // underpay a big clip. The bitrate cap is per-format and set ABOVE any
-      // real encode, so honest uploads (incl. uncompressed WAV) never overpay.
+      // it). The ground truth is the real length read out of the uploaded file
+      // header, so the charge matches fal's regardless of what the client
+      // claims. When the format can't be parsed we fall back to the client's
+      // measured duration floored by a size-derived lower bound: a file of N
+      // bytes can't be shorter than N*8 / (highest plausible bitrate for its
+      // format), so a tampered short claim can't underpay a big clip.
       let audioSeconds = 0;
       if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
         const claimed = Number(body.audioDuration);
         const hasClaim = Number.isFinite(claimed) && claimed > 0;
-        if (hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
+        const real = audioDurationFromDataUri(audio); // authoritative when parseable
+        // Reject over-length clips on the real duration when we have it, else on
+        // the claim (0.5s tolerance for encoder padding on the parsed value).
+        if (real != null ? real > AUDIO_DRIVE_MAX_S + 0.5 : hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
           return Response.json({ error: `audio clip too long — max ${AUDIO_DRIVE_MAX_S}s for lip-sync` }, { status: 400 });
         }
-        const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
-        // Uncompressed PCM/WAV runs ~1.5 Mbps; lossy (mp3/aac/opus/ogg) tops out
-        // near 320 kbps — cap at 384 kbps so the floor is tight but never over.
-        const isPcm = /^data:audio\/(wav|x-wav|wave|pcm|aiff|x-aiff|basic)/i.test(audio || "");
-        const maxBitrate = isPcm ? 1_536_000 : 384_000;
-        const floorSec = bytes ? (bytes * 8) / maxBitrate : 0;
-        // A real client always measures and sends the duration; a missing one
-        // is treated as the cap so a tampered request can never undercharge.
-        audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+        if (real != null) {
+          audioSeconds = Math.min(AUDIO_DRIVE_MAX_S, Math.max(1, real));
+        } else {
+          const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
+          // Uncompressed PCM/WAV runs ~1.5 Mbps; lossy (mp3/aac/opus/ogg) tops
+          // out near 320 kbps — cap at 384 kbps so the floor is tight but never over.
+          const isPcm = /^data:audio\/(wav|x-wav|wave|pcm|aiff|x-aiff|basic)/i.test(audio || "");
+          const maxBitrate = isPcm ? 1_536_000 : 384_000;
+          const floorSec = bytes ? (bytes * 8) / maxBitrate : 0;
+          // A real client always measures and sends the duration; a missing one
+          // is treated as the cap so a tampered request can never undercharge.
+          audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+        }
       }
 
       const genCost = creditCost(genKind, model, {
@@ -901,6 +1065,25 @@ async function handleRequest(request, env, ctx) {
       if (!(balanceAfter >= 0)) {
         if (ctx && ctx.waitUntil) ctx.waitUntil(cancelFal(data, env));
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
+      }
+
+      // Record the charge so /api/refund can credit it back if fal never bills
+      // us (the render fails). Best-effort with the service key (RLS-locked
+      // table); a missed record just means no refund for that rare job. Fire and
+      // forget so it never delays the generation response.
+      if (env.SUPABASE_SERVICE_KEY && data.request_id) {
+        const rec = fetch(`${SUPABASE_URL}/rest/v1/gen_charges`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            Prefer: "resolution=ignore-duplicates",
+          },
+          body: JSON.stringify({ request_id: data.request_id, user_id: genUser.id, cost: genCost }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => {});
+        if (ctx && ctx.waitUntil) ctx.waitUntil(rec); else await rec;
       }
 
       return Response.json({
@@ -1253,6 +1436,7 @@ async function handleRequest(request, env, ctx) {
       const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
       const hasImage = !!body.hasImage;
       const hasEnd = !!body.hasEnd;
+      const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
       // The attached image itself (downscaled by the client) so the director
       // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
       let imageBlock = null;
@@ -1301,8 +1485,16 @@ async function handleRequest(request, env, ctx) {
       if (kind !== "audio") {
         ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
+        if (refCount) ctxBits.push(`${refCount} reference image${refCount > 1 ? "s" : ""} attached`);
       }
       const ctxLine = ctxBits.join(" · ");
+      // References work differently per family. Seedance binds each reference by
+      // an @-tag written INTO the prompt; Veo uses them holistically for identity.
+      const refLine = (refCount && kind === "video")
+        ? (/seedance/.test(genModel)
+          ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. Seedance binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.`
+          : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words.`)
+        : "";
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
         ? body.history
@@ -1361,7 +1553,7 @@ Fix patterns:
 
 Previous prompt:
 ${prevPrompt}
-${briefLine}${memoryLine}
+${briefLine}${memoryLine}${refLine ? refLine + " Preserve the existing @ImageN tags exactly." : ""}
 Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
@@ -1378,7 +1570,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}${factsLine}${memoryLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -1668,6 +1860,52 @@ Context: ${ctxLine}`
       }
     }
 
+    // Refund a generation that fal never billed us for (the render failed). We
+    // re-verify the terminal failure with fal ourselves — the client can't claim
+    // a refund for a job that actually completed — then credit back the exact
+    // recorded charge, idempotently. Mirrors fal's billing: no bill, no charge.
+    if (url.pathname === "/api/refund" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const statusUrl = typeof body.statusUrl === "string" ? body.statusUrl : "";
+      const m = statusUrl.match(/^https:\/\/queue\.fal\.run\/[^?#]+\/requests\/([A-Za-z0-9_-]+)\/status\b/);
+      if (!m) return Response.json({ error: "invalid url" }, { status: 400 });
+      const requestId = m[1];
+      if (!env.FAL_KEY || !env.SUPABASE_SERVICE_KEY) return Response.json({ refunded: 0 });
+      // Confirm with fal that the job terminally failed (fal didn't bill us).
+      let status = "";
+      try {
+        const r = await fetch(statusUrl, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
+        const st = await r.json().catch(() => ({}));
+        status = String(st.status || "").toUpperCase();
+      } catch {
+        return Response.json({ error: "verify failed" }, { status: 502 });
+      }
+      if (!["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
+        return Response.json({ refunded: 0 }); // still running, completed, or unknown — nothing to refund
+      }
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/refund_charge`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+          body: JSON.stringify({ p_request_id: requestId, p_user: user.id }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const refunded = r.ok ? (Number(await r.json()) || 0) : 0;
+        return Response.json({ refunded });
+      } catch {
+        return Response.json({ error: "refund failed" }, { status: 502 });
+      }
+    }
+
     // Copies a finished fal output into Supabase Storage so chats keep a
     // permanent URL (fal links expire). Uploads with the caller's own JWT,
     // so storage RLS applies and no extra server secret is needed.
@@ -1812,6 +2050,9 @@ Context: ${ctxLine}`
     // tab can create a product from a store link.
     if (url.pathname === "/api/product/scan" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
+      // Each scan makes up to 2 server-side outbound fetches; gate it so a
+      // logged-in user can't drive unbounded outbound requests through us.
+      if (!(await useQuota(request, "scan", 60))) return QUOTA_EXCEEDED();
       let body;
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });

@@ -190,6 +190,7 @@
           </div>
           <div class="thread-inner" id="messages"></div>
         </div>
+        <button id="scrollDown" class="scroll-down" data-act="scroll-down" aria-label="Jump to latest" title="Jump to latest">▾</button>
       </section>
 
       <div class="opt-wrap effort-pick">
@@ -214,9 +215,9 @@
         <input type="file" id="fileFlast" accept="image/*" hidden data-change="attach" data-attach="flast" />
         <input type="file" id="fileRef" accept="image/*" multiple hidden data-change="attach-ref" />
         <div class="ap-row" id="rowImage">
-          <button class="ap-head" data-act="ap-row" data-row="image"><span class="ap-label">Image<b class="ap-count" id="cntImage"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="ap-head" data-act="ap-row" data-row="image"><span class="ap-label">Image<b class="ap-count" id="cntImage"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><button class="ap-info" type="button" data-act="ap-info" data-info="image" aria-label="About the Image input">i</button>
           <div class="ap-body">
-            <button class="attach-btn" id="btnImage" data-act="img-src" data-src="main"><span class="plus-big">+</span></button>
+            <button class="attach-btn" id="btnImage" data-act="img-src" data-src="main" aria-label="Add image"><span class="plus-big">+</span></button>
             <div class="ap-extra" id="extraImages"></div>
             <button class="attach-btn ap-add" id="btnMoreImages" style="display:none" data-act="img-src" data-src="extra">+ Add image</button>
             <div class="model-menu img-src-menu" id="imgSrcMenu">
@@ -228,7 +229,7 @@
         <div class="ap-row" id="rowAvatar">
           <button class="ap-head" data-act="ap-row" data-row="avatar"><span class="ap-label">Avatar<b class="ap-count" id="cntAvatar"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
-            <button class="attach-btn" id="btnAvatar" data-act="file" data-file="fileAvatar"><span class="plus-big">+</span></button>
+            <button class="attach-btn" id="btnAvatar" data-act="file" data-file="fileAvatar" aria-label="Add avatar image"><span class="plus-big">+</span></button>
           </div>
         </div>
         <div class="ap-row" id="rowAudio">
@@ -246,24 +247,25 @@
         <div class="ap-row" id="rowEnd">
           <button class="ap-head" data-act="ap-row" data-row="end"><span class="ap-label">End frame<b class="ap-count" id="cntEnd"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
-            <button class="attach-btn" id="btnEnd" data-act="file" data-file="fileEnd"><span class="plus-big">+</span></button>
+            <button class="attach-btn" id="btnEnd" data-act="file" data-file="fileEnd" aria-label="Add end frame"><span class="plus-big">+</span></button>
           </div>
         </div>
         <div class="ap-row" id="rowFlf" style="display:none">
-          <button class="ap-head" data-act="ap-row" data-row="flf"><span class="ap-label">First &amp; last frame<b class="ap-count" id="cntFlf"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="ap-head" data-act="ap-row" data-row="flf"><span class="ap-label">First &amp; last frame<b class="ap-count" id="cntFlf"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><button class="ap-info" type="button" data-act="ap-info" data-info="flf" aria-label="About First & last frame">i</button>
           <div class="ap-body">
-            <button class="attach-btn" id="btnFfirst" data-act="file" data-file="fileFfirst">+ First frame</button>
-            <button class="attach-btn" id="btnFlast" data-act="file" data-file="fileFlast">+ Last frame</button>
+            <button class="attach-btn" id="btnFfirst" data-act="file" data-file="fileFfirst" aria-label="Add first frame"><span class="plus-big">+</span><span class="slot-lab">First frame</span></button>
+            <button class="attach-btn" id="btnFlast" data-act="file" data-file="fileFlast" aria-label="Add last frame"><span class="plus-big">+</span><span class="slot-lab">Last frame</span></button>
           </div>
         </div>
         <div class="ap-row" id="rowRef" style="display:none">
-          <button class="ap-head" data-act="ap-row" data-row="ref"><span class="ap-label">Reference to video<b class="ap-count" id="cntRef"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <button class="ap-head" data-act="ap-row" data-row="ref"><span class="ap-label">Reference to video<b class="ap-count" id="cntRef"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button><button class="ap-info" type="button" data-act="ap-info" data-info="ref" aria-label="About Reference to video">i</button>
           <div class="ap-body">
             <div class="ap-extra" id="refImages"></div>
-            <button class="attach-btn ap-add" id="btnRef" data-act="file" data-file="fileRef"><span class="plus-big">+</span></button>
+            <button class="attach-btn ap-add" id="btnRef" data-act="file" data-file="fileRef" aria-label="Add reference image"><span class="plus-big">+</span><span class="slot-count">0/3</span></button>
           </div>
         </div>
       </div>
+      <div id="apInfoPop"></div>
 
       <div class="composer-wrap">
         <div class="q-dock" id="qDock"></div>
@@ -277,10 +279,10 @@
             </span>
           </div>
           <div class="composer-row">
-            <div class="mode-switch">
-              <button class="mode-btn" data-mode="audio" data-act="set-mode">Audio</button>
-              <button class="mode-btn" data-mode="image" data-act="set-mode">Image</button>
-              <button class="mode-btn active" data-mode="video" data-act="set-mode">Video</button>
+            <div class="mode-switch" role="group" aria-label="Generation mode">
+              <button class="mode-btn" data-mode="audio" data-act="set-mode" aria-pressed="false">Audio</button>
+              <button class="mode-btn" data-mode="image" data-act="set-mode" aria-pressed="false">Image</button>
+              <button class="mode-btn active" data-mode="video" data-act="set-mode" aria-pressed="true">Video</button>
             </div>
             <span class="opt-wrap" id="modelWrap">
               <button class="opt-btn" data-act="model-menu" title="Choose model">Model: <b id="modelLabel">Auto</b> ▾</button>

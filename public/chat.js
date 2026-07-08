@@ -15,17 +15,25 @@ const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
-  caps: { image: true, end: true, avatar: true, audio: true, maxImages: 9 },
+  // image-to-video, first-&-last (start+end frames), and reference-to-video
+  // (≤9 images + optional driving audio). References are cited as @ImageN in the
+  // prompt — the director writes the tags, worker appends them for raw prompts.
+  // Video references (@VideoN) are a richer follow-up, not yet exposed.
+  caps: { image: true, flf: true, ref: 9, audio: true },
 };
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
   ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-  caps: { image: true, end: true, avatar: false },
+  // Kling v3 i2v takes start+end frames; the "elements" reference mode is a
+  // nested combo feature left for later.
+  caps: { image: true, flf: true },
 };
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
   'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
-  'bytedance/seedance-2.0/mini/text-to-video': SEEDANCE_OPTS,
+  // Mini has image-to-video (image_url + end_image_url) but NO reference-to-video
+  // endpoint on fal — so no Reference row and no driving audio for it.
+  'bytedance/seedance-2.0/mini/text-to-video': { ...SEEDANCE_OPTS, caps: { image: true, flf: true } },
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
   'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
   'xai/grok-imagine-video/text-to-video': {
@@ -56,10 +64,13 @@ const MODEL_OPTS = {
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    caps: { image: true, end: true, avatar: false },
+    // o3 i2v takes image_url + end_image_url; no reference/elements mode.
+    caps: { image: true, flf: true },
   },
   // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
-  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: {} },
+  // fal does expose image-to-video (image_url = first frame); no end frame or
+  // reference, so a single Image slot is the whole image-input surface.
+  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: { image: true, end: false, avatar: false } },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
   // LipSync = a source clip + voice.
@@ -155,8 +166,8 @@ const ATTACH_LABELS = {
   audio: '+ Audio',
   clip: '+ Video clip',
   end: '<span class="plus-big">+</span>',
-  ffirst: '+ First frame',
-  flast: '+ Last frame',
+  ffirst: '<span class="plus-big">+</span><span class="slot-lab">First frame</span>',
+  flast: '<span class="plus-big">+</span><span class="slot-lab">Last frame</span>',
 };
 
 function attachBtn(kind) {
@@ -179,16 +190,20 @@ function onAttach(kind, inputEl) {
     if (kind === 'audio') {
       awName = (file.name || 'audio').replace(/[<>&"]/g, '');
       if (awPlayer) { try { awPlayer.pause(); } catch (e) {} awPlayer = null; } // re-pick: drop the old clip's player
+      awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
     }
     renderAttach(kind);
+    // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
+    if (kind === 'image') clearImageInputsExcept('image');
+    else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
   };
   reader.readAsDataURL(file);
 }
 
 // ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
 const AW_N = 40;
-let awPeaks = null, awDur = 0, awName = '', awPlayer = null;
+let awPeaks = null, awDur = 0, awName = '', awPlayer = null, awDecoding = false;
 
 // Decorative envelope for the empty slot; replaced by the real waveform once decoded.
 function awPlaceholder(lo) {
@@ -204,9 +219,10 @@ function awBarsHtml(peaks, lit) {
 
 // Decode the attached clip and reduce it to AW_N peak buckets.
 async function awDecode(dataUrl) {
+  let actx = null;
   try {
     const buf = await (await fetch(dataUrl)).arrayBuffer();
-    const actx = new (window.AudioContext || window.webkitAudioContext)();
+    actx = new (window.AudioContext || window.webkitAudioContext)();
     const audio = await actx.decodeAudioData(buf);
     const ch = audio.getChannelData(0);
     const step = Math.max(1, Math.floor(ch.length / AW_N));
@@ -219,8 +235,9 @@ async function awDecode(dataUrl) {
     const top = Math.max(...peaks, 0.01);
     awPeaks = peaks.map((p) => Math.pow(p / top, 0.7));
     awDur = audio.duration;
-    actx.close();
   } catch { awPeaks = null; awDur = 0; }
+  finally { if (actx) { try { actx.close(); } catch {} } } // always release the context, even on a decode failure (browsers cap ~6)
+  awDecoding = false;
   renderAttach('audio');
   updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
 }
@@ -352,6 +369,7 @@ function clearAttach(ev, kind) {
 // Show only the panel rows the current model actually supports (same rules
 // as the old inline pickers), and clear anything a model can't use.
 function updateAttachVisibility() {
+  closeApInfo(); // rows are about to be re-shown/hidden — a tooltip pointing at one mustn't linger
   const caps = (currentOpts() && currentOpts().caps) || {};
   // No slots for this model → hide the whole panel, don't leave an empty box.
   const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref);
@@ -389,6 +407,50 @@ function toggleApRow(kind) {
   const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
   if (row) row.classList.toggle('open');
 }
+
+// One-line explainer for each input row's ⓘ. Keyed to the row's data-info.
+const AP_INFO = {
+  imageVideo: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
+  imageEdit: 'Attach an image to edit — describe the change and the model applies it to your picture.',
+  flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
+  ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
+};
+function showApInfo(kind, ev, el) {
+  ev.stopPropagation(); // don't let the click toggle the row open/closed
+  const pop = document.getElementById('apInfoPop');
+  if (!pop) return;
+  if (pop.classList.contains('open') && pop.dataset.for === kind) { pop.classList.remove('open'); return; }
+  // The Image row means image-to-video in video mode, but image editing in image mode.
+  const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
+  pop.textContent = AP_INFO[key] || '';
+  pop.dataset.for = kind;
+  const r = el.getBoundingClientRect();
+  const w = 244;
+  // Line the caret (::before at left:16px, ~5px half-width) up under the icon.
+  const left = (r.left + r.width / 2) - 21;
+  pop.style.left = Math.max(12, Math.min(left, window.innerWidth - w - 12)) + 'px';
+  pop.style.top = (r.bottom + 8) + 'px';
+  pop.classList.add('open');
+}
+function closeApInfo() { const p = document.getElementById('apInfoPop'); if (p) { p.classList.remove('open'); p.dataset.for = ''; } }
+// Any click that isn't on an ⓘ or inside the popover dismisses it.
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('apInfoPop');
+  if (pop && pop.classList.contains('open') && !e.target.closest('.ap-info') && !e.target.closest('#apInfoPop')) {
+    pop.classList.remove('open');
+  }
+});
+// The popover is position:fixed off the icon's rect — if the panel scrolls the
+// icon moves out from under it, so dismiss rather than let it float orphaned.
+(function () {
+  const ap = document.getElementById('attachPanel');
+  if (ap) ap.addEventListener('scroll', closeApInfo);
+  window.addEventListener('resize', closeApInfo);
+  // Toggle the jump-to-latest chevron as the user scrolls the thread.
+  const box = document.getElementById('messages');
+  const thread = box && box.parentElement;
+  if (thread) thread.addEventListener('scroll', () => updateScrollDown(thread), { passive: true });
+})();
 
 // ── Image source chooser: device files or the isibi gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
@@ -467,6 +529,7 @@ async function useGalleryImage(url) {
       if (extraImages.length < cap - 1) extraImages.push(dataUrl);
     } else {
       attachments.image = dataUrl;
+      clearImageInputsExcept('image'); // keep image-input modes exclusive
     }
     renderAttach('image');
     renderExtraImages();
@@ -514,12 +577,26 @@ function renderExtraImages() {
   if (more) {
     const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
     const total = (attachments.image ? 1 : 0) + extraImages.length;
-    more.style.display = (cap > 1 && attachments.image) ? '' : 'none';
+    // Hide the add tile once the cap is reached (was a dead, clickable control at N/N).
+    more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
 }
 
-// Reference-to-video images (Veo): its own row, capped at caps.ref (≤3).
+// The three image-input modes — image-to-video, first-&-last frame, and
+// reference-to-video — are mutually exclusive (one fal endpoint per generation),
+// so filling one clears the others. Otherwise the worker's routing precedence
+// would silently drop a staged input the user meant to use.
+function clearImageInputsExcept(keep) {
+  if (keep !== 'image' && attachments.image) { attachments.image = null; renderAttach('image'); }
+  if (keep !== 'flf') {
+    if (attachments.ffirst) { attachments.ffirst = null; renderAttach('ffirst'); }
+    if (attachments.flast) { attachments.flast = null; renderAttach('flast'); }
+  }
+  if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
+}
+
+// Reference-to-video images (Veo ≤3, Seedance ≤9): its own row, capped at caps.ref.
 function refCap() { return ((currentOpts() || {}).caps || {}).ref || 0; }
 function onAttachRef(inputEl) {
   const files = Array.from(inputEl.files || []);
@@ -529,7 +606,7 @@ function onAttachRef(inputEl) {
     if (refList.length >= cap) return;
     if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
     const reader = new FileReader();
-    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); renderRefList(); } };
+    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); clearImageInputsExcept('ref'); renderRefList(); } };
     reader.readAsDataURL(file);
   });
 }
@@ -640,8 +717,11 @@ function buildMenu() {
 
 function setMode(m) {
   mode = m;
-  document.querySelectorAll('.mode-btn').forEach((b) =>
-    b.classList.toggle('active', b.dataset.mode === m));
+  document.querySelectorAll('.mode-btn').forEach((b) => {
+    const on = b.dataset.mode === m;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   buildMenu();
   document.getElementById('input').placeholder =
     m === 'image' ? 'Describe your image…' :
@@ -838,6 +918,7 @@ function currentOpts() {
 // it (keyed by model+voice) so replays and re-tests are instant and free.
 const voicePreviewCache = {};
 let previewAudio = null;
+let previewing = false; // in-flight guard: the preview control is a <span>, so btn.disabled is a no-op
 
 function stopPreview() {
   if (previewAudio) { previewAudio.pause(); previewAudio.currentTime = 0; }
@@ -850,6 +931,8 @@ async function previewVoice(name, btn) {
   stopPreview();
   const key = model + '|' + name;
   if (voicePreviewCache[key]) { playPreview(voicePreviewCache[key], btn); return; }
+  if (previewing) return; // a live TTS preview is already generating — don't spend a second credit
+  previewing = true;
 
   btn.disabled = true;
   btn.textContent = '…';
@@ -897,6 +980,7 @@ async function previewVoice(name, btn) {
     setTimeout(() => { btn.textContent = '▶'; }, 1600);
   } finally {
     btn.disabled = false;
+    previewing = false;
   }
 }
 
@@ -916,7 +1000,7 @@ function buildOptMenus() {
   const panel = document.getElementById('settingsMenu');
   const wrap = document.getElementById('settingsWrap');
   if (!panel || !wrap) return;
-  const opts = currentOpts();
+  const opts = currentOpts() || {}; // a model id missing from MODEL_OPTS must not throw here
 
   // reset to this model's defaults
   if (opts.durations) duration = opts.defDur;
@@ -998,7 +1082,7 @@ function pickSetting(chip) {
 function updateSettingsSummary() {
   const el = document.getElementById('settingsSummary');
   if (!el) return;
-  const opts = currentOpts();
+  const opts = currentOpts() || {};
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
@@ -1025,7 +1109,9 @@ function pickModel(el) {
   if (el.classList.contains('disabled')) return;
   model = el.dataset.model;
   selectedModels[mode] = model;
-  document.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
+  // Scope to the model menu — effort/director/img-src menus reuse .model-item
+  // and a document-wide toggle would wipe their checkmarks.
+  modelMenu.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
   document.getElementById('modelLabel').textContent = el.dataset.label;
   modelMenu.classList.remove('open');
   buildOptMenus();
@@ -1035,6 +1121,35 @@ if (modelMenu) {
   document.addEventListener('click', () =>
     document.querySelectorAll('.model-menu.open').forEach((m) => m.classList.remove('open')));
 }
+
+// Keep aria-expanded on dropdown triggers in sync with their menu's open state.
+// The menus are toggled from ~10 different places (model/dir/effort/img pickers);
+// rather than thread the ARIA update through each, one observer watches the
+// menus' class attribute and reflects it onto the controlling button. The
+// trigger is the button immediately preceding the .model-menu in the DOM.
+(function wireMenuAria() {
+  const menus = document.querySelectorAll('.model-menu');
+  const trigOf = (menu) => {
+    let el = menu.previousElementSibling;
+    while (el && el.tagName !== 'BUTTON') el = el.previousElementSibling;
+    return el;
+  };
+  menus.forEach((menu) => {
+    const trig = trigOf(menu);
+    if (!trig) return;
+    trig.setAttribute('aria-haspopup', 'menu');
+    trig.setAttribute('aria-expanded', menu.classList.contains('open') ? 'true' : 'false');
+  });
+  if (typeof MutationObserver !== 'function') return;
+  const obs = new MutationObserver((muts) => {
+    muts.forEach((mu) => {
+      const menu = mu.target;
+      const trig = trigOf(menu);
+      if (trig) trig.setAttribute('aria-expanded', menu.classList.contains('open') ? 'true' : 'false');
+    });
+  });
+  menus.forEach((menu) => obs.observe(menu, { attributes: true, attributeFilter: ['class'] }));
+})();
 
 function newChat() {
   // A fresh chat wouldn't match an active search filter and would be
@@ -1067,6 +1182,25 @@ function msgStamp(kind, ts) {
   return t;
 }
 
+// Scroll the thread to the bottom, but only when the user is already near it —
+// so a streaming reply or a background finish never yanks them up while they're
+// reading earlier turns. `force` (their own send) always scrolls. Also toggles
+// the jump-to-bottom chevron.
+function scrollThreadBottom(scroller, force) {
+  if (!scroller) return;
+  const near = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+  if (force || near) scroller.scrollTop = scroller.scrollHeight;
+  updateScrollDown(scroller);
+}
+function updateScrollDown(scroller) {
+  const btn = document.getElementById('scrollDown');
+  if (!btn) return;
+  const sc = scroller || (document.getElementById('messages') || {}).parentElement;
+  if (!sc) return;
+  const far = sc.scrollHeight - sc.scrollTop - sc.clientHeight > 240;
+  btn.classList.toggle('show', far);
+}
+
 function addMsg(kind, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + kind;
@@ -1089,7 +1223,7 @@ function addMsg(kind, text) {
     addCopyBtn(div, text);
     pushSaved({ t: kind, text, ts });
   }
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement, kind === 'user'); // force only on the user's own send
   return div;
 }
 
@@ -1097,6 +1231,7 @@ function addMsg(kind, text) {
 function addCopyBtn(div, text) {
   const btn = document.createElement('button');
   btn.className = 'copy-btn'; btn.type = 'button'; btn.title = 'Copy';
+  btn.setAttribute('aria-label', 'Copy message');
   btn.textContent = '⧉';
   btn.onclick = async (e) => {
     e.stopPropagation();
@@ -1303,13 +1438,20 @@ async function pullChats() {
       local.title = r.title || local.title;
       local.brief = r.brief || undefined;
       local.lastPrompt = r.last_prompt || undefined;
-      // Merge, don't wholesale-replace: a remote that "wins" only by a skewed
-      // clock must not drop messages this device has and the remote lacks.
+      // When the remote clearly wins (well past any clock skew) its message
+      // list is authoritative — otherwise a message deleted on another device
+      // gets unioned back in and re-pushed (resurrection). Only inside the skew
+      // window do we union, so a skewed clock can't drop messages this device
+      // just added and the remote hasn't seen yet.
       let gainedLocal = false;
       if (Array.isArray(r.msgs)) {
-        const merged = mergeMsgs(r.msgs, local.msgs);
-        gainedLocal = merged.length > r.msgs.length; // we hold messages the server lacked
-        local.msgs = merged;
+        if (remoteAt - (local.updatedAt || 0) > 90000) {
+          local.msgs = r.msgs; // authoritative: honors deletions
+        } else {
+          const merged = mergeMsgs(r.msgs, local.msgs);
+          gainedLocal = merged.length > r.msgs.length; // we hold messages the server lacked
+          local.msgs = merged;
+        }
       }
       // If we merged in local-only messages, advance the timestamp so the union
       // actually propagates — reusing remoteAt would look "in sync" everywhere
@@ -1370,7 +1512,7 @@ function pushSaved(item) {
 
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
-  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode)); return; }
+  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
@@ -1443,6 +1585,10 @@ function deleteChat(id) {
   // Cancel any in-flight generation for this chat first — otherwise its output
   // would land in storage with no chat to show it (unreachable forever).
   if (activeGens.has(id)) cancelGen(id);
+  // Also drop any PAUSED job record (network-drop/timeout removes it from
+  // activeGens but keeps the refresh-proof record) so boot-resume doesn't
+  // re-poll a render into a chat that no longer exists.
+  jobClear(id);
   chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
@@ -1504,15 +1650,18 @@ function buildMedia(kind, url, prompt) {
   if (kind !== 'audio') {
     const exp = document.createElement('button');
     exp.className = 'media-btn'; exp.type = 'button'; exp.title = 'Full screen'; exp.textContent = '⛶';
+    exp.setAttribute('aria-label', 'View full screen');
     exp.onclick = (e) => { e.stopPropagation(); openLightbox(kind, url); };
     actions.appendChild(exp);
   }
   const dl = document.createElement('button');
   dl.className = 'media-btn'; dl.type = 'button'; dl.title = 'Download'; dl.textContent = '⤓';
+  dl.setAttribute('aria-label', 'Download');
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
   const del = document.createElement('button');
   del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
+  del.setAttribute('aria-label', 'Delete');
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
   actions.appendChild(del);
   div.appendChild(actions);
@@ -1534,6 +1683,9 @@ async function deleteMedia(el, url) {
 }
 
 async function downloadMedia(url, kind) {
+  // Only ever fetch/open a real media URL — never let a stored value smuggle a
+  // javascript:/data:text/html URL into fetch's catch → window.open.
+  if (!/^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(url || '')) return;
   const known = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|ogg|m4a)$/i);
   const ext = known ? known[1].toLowerCase() : (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4');
   const name = 'zephyr-' + Date.now() + '.' + ext;
@@ -1552,16 +1704,29 @@ async function downloadMedia(url, kind) {
 
 // ── Full-screen lightbox (images & videos) ──
 let lightboxEl = null;
+let lightboxReturnFocus = null; // element to restore focus to on close
 function openLightbox(kind, url) {
   if (!lightboxEl) {
     lightboxEl = document.createElement('div');
     lightboxEl.className = 'lightbox';
+    lightboxEl.setAttribute('role', 'dialog');
+    lightboxEl.setAttribute('aria-modal', 'true');
+    lightboxEl.setAttribute('aria-label', 'Media viewer');
     lightboxEl.innerHTML =
-      '<button class="lb-dl" type="button" title="Download">⤓</button>' +
+      '<button class="lb-dl" type="button" title="Download" aria-label="Download">⤓</button>' +
       '<button class="lb-close" type="button" title="Close" aria-label="Close">×</button>' +
       '<div class="lb-stage"></div>';
     lightboxEl.addEventListener('click', (e) => { if (e.target === lightboxEl) closeLightbox(); });
     lightboxEl.querySelector('.lb-close').onclick = closeLightbox;
+    // Trap Tab within the lightbox while it's open.
+    lightboxEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Tab' || !lightboxEl.classList.contains('open')) return;
+      const foci = lightboxEl.querySelectorAll('button, video, [tabindex]:not([tabindex="-1"])');
+      if (!foci.length) return;
+      const first = foci[0], last = foci[foci.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    });
     document.body.appendChild(lightboxEl);
   }
   const stage = lightboxEl.querySelector('.lb-stage');
@@ -1586,11 +1751,18 @@ function openLightbox(kind, url) {
   if (kind !== 'image' && paidKnown && !isPaid) stage.appendChild(wmBadge());
   lightboxEl.querySelector('.lb-dl').onclick = () => downloadMedia(url, kind);
   lightboxEl.classList.add('open');
+  // Remember what had focus so we can restore it, then move focus into the dialog.
+  lightboxReturnFocus = (document.activeElement instanceof HTMLElement) ? document.activeElement : null;
+  lightboxEl.querySelector('.lb-close').focus();
 }
 function closeLightbox() {
   if (!lightboxEl) return;
   lightboxEl.classList.remove('open');
   lightboxEl.querySelector('.lb-stage').innerHTML = ''; // stop playback
+  if (lightboxReturnFocus && document.body.contains(lightboxReturnFocus)) {
+    try { lightboxReturnFocus.focus(); } catch {}
+  }
+  lightboxReturnFocus = null;
 }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
 // Escape closes any open overlay via its own close control (so the welcome
@@ -1662,6 +1834,8 @@ function makeLoader(kind, aspect) {
 
   const status = document.createElement('div');
   status.className = 'gen-status';
+  status.setAttribute('role', 'status'); // announce queue/progress lines to screen readers
+  status.setAttribute('aria-live', 'polite');
   status.innerHTML = '<span class="gen-spinner"></span><span class="gen-status-text"></span><span class="gen-model"></span>';
 
   wrap.appendChild(visual);
@@ -1669,7 +1843,7 @@ function makeLoader(kind, aspect) {
   wrap.appendChild(status);
   const box = document.getElementById('messages');
   box.appendChild(wrap);
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement, true); // a loader follows the user's own send — keep it in view
   return { el: wrap, setText: (t) => { wrap.querySelector('.gen-status-text').textContent = t; } };
 }
 
@@ -1763,39 +1937,63 @@ function claimDelivery(key) {
 
 // Copy a fal output into permanent Supabase Storage, with bounded retries —
 // a failed copy must never silently become the permanent record.
-// Set by trySave when a save is refused for a non-transient reason (402):
-// 'free' = gallery saving is a paid benefit, 'full' = tier storage cap hit.
-// Callers read it to show the right message and skip the retry queue.
-let lastSaveBlock = null;
+// Returns { url, block }: url is the permanent gallery copy (null on failure),
+// block is the non-transient 402 reason ('free' = paid-only, 'full' = cap hit)
+// or null. Returned, not stashed in a global, so concurrent boot save-loops
+// can't cross-attribute each other's result.
 async function trySave(url, kind, attempts, payload) {
-  lastSaveBlock = null;
   for (let i = 0; i < attempts; i++) {
     try {
       const sv = await apiFetch('/api/save', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload || { url, kind }),
       });
-      if (sv.ok) { const d = await sv.json(); if (d.url) return d.url; }
-      if (sv.status === 401) return null; // signed out — retrying now won't help
+      if (sv.ok) { const d = await sv.json().catch(() => ({})); if (d.url) return { url: d.url, block: null }; }
+      if (sv.status === 401) return { url: null, block: null }; // signed out — retrying now won't help
       if (sv.status === 402) { // over cap / not entitled — retrying won't help
-        try { lastSaveBlock = { reason: (await sv.json()).reason || 'full' }; }
-        catch { lastSaveBlock = { reason: 'full' }; }
-        return null;
+        let reason = 'full';
+        try { reason = (await sv.json()).reason || 'full'; } catch {}
+        return { url: null, block: reason };
       }
     } catch {}
     if (i < attempts - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
   }
-  return null;
+  return { url: null, block: null };
 }
 
-// Save one output: free-account images are watermarked server-side by /api/save
-// (see worker.js). The client hands over the fal URL and the returned permanent
-// copy — the one the app then displays — already carries the mark.
+// Save one output: for PAID accounts /api/save stores the permanent copy (and
+// watermarks free-account images server-side on the way in). Free accounts have
+// no gallery storage, so their save is refused (402 free) and the server mark
+// never runs — burnImageWatermark() below covers that case client-side.
 async function saveOutput(u, kind) {
-  // Free-account images are watermarked server-side by /api/save now (the mark
-  // is burned into the stored copy the app then displays), so the client just
-  // hands over the URL — no canvas burn, no client-trust to bypass.
   return trySave(u, kind, 3);
+}
+
+// Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
+// a JPEG data URI. Used for FREE accounts, whose images can't be saved (so the
+// server-side mark never runs) — they still get a watermarked copy on the temp
+// link. Returns null if the source can't be drawn (CORS/decode) so the caller
+// falls back to the raw URL rather than dropping the image.
+async function burnImageWatermark(url) {
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = url; });
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if (!w || !h) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const c = canvas.getContext('2d');
+    c.drawImage(img, 0, 0, w, h);
+    const pad = Math.round(Math.max(w, h) * 0.022);
+    const fs = Math.round(Math.max(16, Math.min(w, h) * 0.038));
+    c.font = '600 ' + fs + "px 'Space Grotesk', Inter, system-ui, sans-serif";
+    c.textAlign = 'right'; c.textBaseline = 'bottom';
+    c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = Math.round(fs * 0.5); c.shadowOffsetY = 1;
+    c.fillStyle = 'rgba(255,255,255,.92)';
+    c.fillText('✦ isibi.ai', w - pad, h - pad);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } catch { return null; }
 }
 
 // Swap a temporary fal URL for its permanent copy wherever it was stored.
@@ -1828,9 +2026,9 @@ async function retryPendingSaves() {
   for (const p of list) {
     if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
     // saveOutput just posts the URL; the server watermarks free-account images.
-    const perm = await saveOutput(p.url, p.kind);
+    const { url: perm, block } = await saveOutput(p.url, p.kind);
     if (perm) replaceMediaUrl(p.url, perm);
-    else if (lastSaveBlock) { /* paid gate (free/full) — retrying won't help, drop it */ }
+    else if (block) { /* paid gate (free/full) — retrying won't help, drop it */ }
     else keep.push(p);
   }
   savesWrite(keep);
@@ -2017,6 +2215,24 @@ async function fetchCredits(attempt) {
     const n = (attempt || 0) + 1;
     if (n <= 4) setTimeout(() => fetchCredits(n), 1500 * n);
   }
+}
+
+// A fal-confirmed failure means fal never billed us — ask the server to refund
+// the charge (it independently re-verifies the failure with fal). Returns the
+// refunded credit amount, and refreshes the balance display when it's non-zero.
+async function requestRefund(statusUrl) {
+  if (!statusUrl) return 0;
+  try {
+    const r = await apiFetch('/api/refund', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ statusUrl }),
+    });
+    if (!r.ok) return 0;
+    const d = await r.json().catch(() => ({}));
+    const n = Number(d.refunded) || 0;
+    if (n > 0) fetchCredits();
+    return n;
+  } catch { return 0; }
 }
 
 // One-time welcome banner for fresh accounts: makes the signup grant feel
@@ -2216,20 +2432,28 @@ function openCredits(topupsOnly) {
 
 // Stop a chat's generation: kill the fal job too (queued jobs never bill),
 // drop the loader, and free the chat.
-function cancelGen(chatId) {
+async function cancelGen(chatId) {
   const gen = activeGens.get(chatId);
   if (!gen) return;
-  if (gen.statusUrl) {
-    apiFetch('/api/cancel', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: gen.statusUrl.replace(/\/status\b.*$/, '/cancel') }),
-    }).catch(() => {});
-  }
+  const statusUrl = gen.statusUrl;
   endGen(chatId);
-  // Credits are charged the moment fal accepts the job, so a run that already
-  // reached the generator was charged; only a stop during the brief submit
-  // window (before it was sent) escapes the charge.
-  deliverAgent(chatId, '⏹ Cancelled — credits for a run are used once it reaches the generator.');
+  if (statusUrl) {
+    // Tell fal to cancel, then refund — but only if fal confirms the job never
+    // ran (CANCELED while queued = fal didn't bill us). requestRefund re-checks
+    // fal's status, so a job that had already started/completed isn't refunded.
+    try {
+      await apiFetch('/api/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: statusUrl.replace(/\/status\b.*$/, '/cancel') }),
+      });
+    } catch {}
+    const refunded = await requestRefund(statusUrl);
+    deliverAgent(chatId, refunded > 0
+      ? '⏹ Cancelled — your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.'
+      : '⏹ Cancelled. If the run had already started, its credits were used.');
+    return;
+  }
+  deliverAgent(chatId, '⏹ Cancelled.');
 }
 
 // Failures become a conversation: isibi.ai explains what went wrong in plain
@@ -2311,7 +2535,8 @@ async function generateMedia(text, opts = {}) {
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
-        director: directorMode === 'off' ? 'off' : 'on', // off waives the surcharge
+        // 'off' waives the surcharge; promptless lip-sync runs no director step, so it must not pay it either.
+        director: (directorMode === 'off' || (currentOpts() && currentOpts().noPrompt)) ? 'off' : 'on',
       }),
     });
     if (res.status === 401) { // session died — stop cleanly, the gate is up
@@ -2319,14 +2544,16 @@ async function generateMedia(text, opts = {}) {
       deliverAgent(origin, '⚠️ Your session expired — sign in and try again.');
       return;
     }
-    const job = await res.json();
+    const job = await res.json().catch(() => ({})); // a non-JSON error body must not throw past the status checks
     if (!alive()) return; // cancelled while submitting
     if (res.status === 402) { // out of credits — nothing was spent
       endGen(origin);
       deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance up top to get more.');
       return;
     }
-    if (!res.ok || !job.status_url) {
+    // Need both URLs: a status_url with no response_url would poll forever and
+    // then fetch `url=undefined`, dropping a charged render.
+    if (!res.ok || !job.status_url || !job.response_url) {
       endGen(origin);
       if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
@@ -2407,7 +2634,9 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // isn't re-polled at boot.
       if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED' || state === 'CANCELLED') {
         endGen(origin);
-        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.');
+        const refunded = await requestRefund(statusUrl); // fal didn't bill us — credit it back
+        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.'
+          + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : ''));
         return;
       }
       myGen.model = label;
@@ -2430,8 +2659,18 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     }
 
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
-    const out = await rr.json();
     if (!alive()) return;
+    // The job COMPLETED on fal and is already charged. A non-OK result fetch
+    // (the poll proxy's 502 timeout returns a parseable {error} body; or a 401)
+    // is transient — keep the refresh-proof record and let boot-resume re-fetch,
+    // instead of reading the error body as "no media" and dropping a paid render.
+    if (!rr.ok) {
+      jobBumpTries(origin);
+      pauseGen(origin);
+      deliverAgent(origin, '⚠️ The render finished but I couldn’t fetch it just now — the app will retrieve it automatically.');
+      return;
+    }
+    const out = await rr.json().catch(() => ({}));
     // Images may come back as several variations; video/audio is a single URL.
     let urls = [];
     if (kind === 'image') {
@@ -2455,9 +2694,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       let saveFailed = false;
       let blocked = null;
       for (const u of urls) {
-        const perm = await saveOutput(u, kind);
+        const { url: perm, block } = await saveOutput(u, kind);
         if (perm) finals.push(perm);
-        else if (lastSaveBlock) { finals.push(u); blocked = lastSaveBlock.reason; } // paid gate — don't queue a doomed retry
+        else if (block) { // paid gate — don't queue a doomed retry
+          // Free tier can't save, so the server-side image watermark never ran —
+          // burn it in client-side and deliver the marked copy on the temp link.
+          const marked = (block === 'free' && kind === 'image') ? await burnImageWatermark(u) : null;
+          finals.push(marked || u); blocked = block;
+        }
         else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }
       if (!alive()) return;
@@ -2577,8 +2821,12 @@ function directorContext() {
     model: model,
     duration: mode === 'video' ? duration : undefined,
     ratio: mode !== 'audio' ? ratio : undefined,
-    hasImage: !!attachments.image,
-    hasEnd: !!attachments.end,
+    // A "start image" is the Image slot or the First slot of a first-&-last pair;
+    // the End frame is the End slot or the Last slot. Reference images are counted
+    // separately so the director can cite them (Seedance) or lean on them (Veo).
+    hasImage: !!(attachments.image || attachments.ffirst),
+    hasEnd: !!(attachments.end || attachments.flast),
+    refCount: (mode === 'video' && refList.length) ? refList.length : undefined,
     brief: (activeChat() || {}).brief || undefined,
     // Universal taste — only when enabled and there's something to apply.
     memory: memoryEnabled() && mode !== 'audio' && memoryItems().length ? memoryItems() : undefined,
@@ -2595,12 +2843,15 @@ let pendingMemory = null;
 // The director gets to SEE the attached image (downscaled — it only needs to
 // understand the picture, not generate from it).
 async function directorImage() {
-  if (!attachments.image || mode === 'audio') return {};
+  // Show the director whatever image is attached: the start image, the first
+  // frame, or the first reference — so it can look before it writes.
+  const src = attachments.image || attachments.ffirst || (mode === 'video' ? refList[0] : null);
+  if (!src || mode === 'audio') return {};
   try {
     const img = new Image();
-    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = attachments.image; });
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });
     const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
-    if (scale === 1 && attachments.image.length < 1500000) return { image: attachments.image };
+    if (scale === 1 && src.length < 1500000) return { image: src };
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(img.width * scale));
     canvas.height = Math.max(1, Math.round(img.height * scale));
@@ -2736,7 +2987,7 @@ function esc(s) {
 function threadAppend(el) {
   const box = document.getElementById('messages');
   box.appendChild(el);
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement); // near-bottom only — don't yank a user who scrolled up
 }
 
 async function startDirector(text) {
@@ -2754,10 +3005,12 @@ async function startDirector(text) {
       thinking.remove();
       live = document.createElement('div');
       live.className = 'msg agent live';
+      live.setAttribute('aria-live', 'polite'); // announce the streamed reply to screen readers
+      live.setAttribute('aria-atomic', 'false');
       document.getElementById('messages').appendChild(live);
     }
     live.textContent += d;
-    live.parentElement.parentElement.scrollTop = live.parentElement.parentElement.scrollHeight;
+    scrollThreadBottom(live.parentElement.parentElement); // follow the stream only if the user is at the bottom
   };
   let res;
   try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
@@ -2859,7 +3112,7 @@ function clearQDock() {
 // Build the Plan-mode review card (approve to run). Extracted so it can be
 // re-rendered from a persisted {t:'review'} message — otherwise switching
 // chats, a background sync-renderThread, or a reload lost the composed prompt.
-function buildReviewCard(prompt, cardMode) {
+function buildReviewCard(prompt, cardMode, cardBrief, cardMemory) {
   const m = cardMode || mode;
   const box = document.createElement('div');
   box.className = 'review-card';
@@ -2889,11 +3142,12 @@ function buildReviewCard(prompt, cardMode) {
     // composer happens to be in now (mode resets to 'video' on reload) — else an
     // approved voice line would run as a video and bill at video rates.
     if (m !== mode) setMode(m);
-    // Approval is the signal that this direction is right — commit the brief
-    // and let the composer's evolved taste settle into universal memory.
+    // Approval is the signal that this direction is right — commit THIS card's
+    // own brief/memory (captured when the card was built), never the live
+    // globals, which a later compose may have overwritten.
     const c = activeChat();
-    if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
-    if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
+    if (cardBrief && c) { c.brief = cardBrief; persistStore(); touchSync(c.id); }
+    if (cardMemory) commitMemory(cardMemory);
     generateMedia(prompt, { announce: false });
   };
   actions.appendChild(deny); actions.appendChild(allow);
@@ -2909,8 +3163,14 @@ function clearReviews() {
   if (c.msgs.length !== before) { persistStore(); touchSync(c.id); }
 }
 function reviewPrompt(prompt) {
-  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now() });
-  threadAppend(buildReviewCard(prompt, mode));
+  // Capture the brief/memory THIS card represents — the globals get overwritten
+  // by the next compose, so approving an older (or previously denied) card must
+  // not commit a different draft's durable memory. Also persist them on the
+  // message so a card approved after a reload still commits the right ones.
+  const cardBrief = pendingBrief, cardMemory = pendingMemory;
+  pendingBrief = null; pendingMemory = null;
+  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined });
+  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory));
 }
 
 // Grow the message box downward as the user types; cap it, then scroll.
@@ -2936,6 +3196,14 @@ function send(fromButton) {
   // here (keeping the text) instead of letting the tail get silently cut off.
   if (mode === 'audio' && text.length > 2000) {
     addMsg('agent', "That's a long one — voice scripts are capped at 2,000 characters (this is " + text.length.toLocaleString() + "). Trim it a little and send again.");
+    return;
+  }
+  // Lip-sync bills by the audio length (awDur). Never submit with an unmeasured
+  // clip — the worker charges the 60s max, which the price quote never showed.
+  if (promptless && attachments.audio && !awDur) {
+    addMsg('agent', awDecoding
+      ? "One sec — I'm still reading that audio clip. Hit send again in a moment."
+      : "I couldn't read that audio clip — try a different file (mp3, wav, or m4a).");
     return;
   }
   input.value = '';
@@ -3180,7 +3448,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
@@ -3215,7 +3483,7 @@ async function doSignOut(everywhere) {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   if (everywhere) await Auth.signOutEverywhere();
@@ -4018,12 +4286,14 @@ function renderGallery() {
     actions.className = 'g-actions';
     const dl = document.createElement('a');
     dl.className = 'g-btn'; dl.textContent = '⤓'; dl.title = 'Download';
+    dl.setAttribute('aria-label', 'Download');
     // Only ever link to a real media URL — never let a stored value smuggle a
     // javascript: URL into an anchor (self-XSS on click).
     dl.href = /^(https?:|blob:|data:)/i.test(it.url || '') ? it.url : '#';
     dl.download = ''; dl.target = '_blank'; dl.rel = 'noopener';
     const del = document.createElement('button');
     del.className = 'g-btn'; del.textContent = '🗑'; del.title = 'Delete';
+    del.setAttribute('aria-label', 'Delete');
     del.onclick = () => galleryDelete(it, d);
     actions.appendChild(dl); actions.appendChild(del);
     d.appendChild(actions);
@@ -4053,6 +4323,9 @@ function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  // The jump-to-latest chevron belongs to the Home thread only.
+  const sd = document.getElementById('scrollDown');
+  if (sd && name !== 'home') sd.classList.remove('show');
   if (name === 'landing') renderLanding();
   if (name === 'gallery') { renderGallery(); refreshStorageBar(); }
   if (name === 'products') renderProducts();
@@ -4120,6 +4393,7 @@ const CLICK_ACTIONS = {
   'effort-menu': (e) => toggleEffortMenu(e),
   'set-effort': (e, el) => setEffort(el.dataset.effort),
   'ap-row': (e, el) => toggleApRow(el.dataset.row),
+  'ap-info': (e, el) => showApInfo(el.dataset.info, e, el),
   'img-src': (e, el) => openImgSrc(el.dataset.src, e),
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
@@ -4133,6 +4407,7 @@ const CLICK_ACTIONS = {
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
   'gal-upgrade': () => openCredits(),
+  'scroll-down': () => { const box = document.getElementById('messages'); if (box) scrollThreadBottom(box.parentElement, true); },
   'studio-send': () => studioSend(),
   'sb-speed': () => sbCycleSpeed(),
   'sb-mute': () => sbToggleMute(),

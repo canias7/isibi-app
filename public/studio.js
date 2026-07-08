@@ -452,7 +452,7 @@ async function sbGenerateShot(s) {
     if (!urlOut) throw new Error('no video in result');
     // trySave/queuePendingSave live in chat.js: bounded retries, and a failed
     // copy queues a boot-time retry that swaps in the permanent URL later.
-    const perm = await trySave(urlOut, 'video', 3);
+    const { url: perm } = await trySave(urlOut, 'video', 3);
     if (perm) urlOut = perm;
     else queuePendingSave(urlOut, 'video');
     s.url = urlOut; s.in = null; s.out = null; s.status = 'ready';
