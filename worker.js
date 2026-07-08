@@ -878,9 +878,9 @@ async function handleRequest(request, env, ctx) {
     // (first charge and each renewal) mints that month's credits via the
     // webhook. Both no-op cleanly until the Stripe secrets are configured.
     const PLANS = {
-      "25": { cents: 2500, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
-      "50": { cents: 5000, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
-      "100": { cents: 10000, credits: 8000, name: "isibi Max — 8,000 credits / month" },
+      "25": { cents: 2499, credits: 2000, name: "isibi Plus — 2,000 credits / month" },
+      "50": { cents: 4999, credits: 4000, name: "isibi Pro — 4,000 credits / month" },
+      "100": { cents: 9999, credits: 8000, name: "isibi Max — 8,000 credits / month" },
     };
     // One-time top-ups at $0.014/credit — dearer than membership on purpose.
     const TOPUPS = {
