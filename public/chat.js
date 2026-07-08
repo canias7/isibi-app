@@ -446,6 +446,10 @@ document.addEventListener('click', (e) => {
   const ap = document.getElementById('attachPanel');
   if (ap) ap.addEventListener('scroll', closeApInfo);
   window.addEventListener('resize', closeApInfo);
+  // Toggle the jump-to-latest chevron as the user scrolls the thread.
+  const box = document.getElementById('messages');
+  const thread = box && box.parentElement;
+  if (thread) thread.addEventListener('scroll', () => updateScrollDown(thread), { passive: true });
 })();
 
 // ── Image source chooser: device files or the isibi gallery ──
@@ -1146,6 +1150,25 @@ function msgStamp(kind, ts) {
   return t;
 }
 
+// Scroll the thread to the bottom, but only when the user is already near it —
+// so a streaming reply or a background finish never yanks them up while they're
+// reading earlier turns. `force` (their own send) always scrolls. Also toggles
+// the jump-to-bottom chevron.
+function scrollThreadBottom(scroller, force) {
+  if (!scroller) return;
+  const near = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 140;
+  if (force || near) scroller.scrollTop = scroller.scrollHeight;
+  updateScrollDown(scroller);
+}
+function updateScrollDown(scroller) {
+  const btn = document.getElementById('scrollDown');
+  if (!btn) return;
+  const sc = scroller || (document.getElementById('messages') || {}).parentElement;
+  if (!sc) return;
+  const far = sc.scrollHeight - sc.scrollTop - sc.clientHeight > 240;
+  btn.classList.toggle('show', far);
+}
+
 function addMsg(kind, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + kind;
@@ -1168,7 +1191,7 @@ function addMsg(kind, text) {
     addCopyBtn(div, text);
     pushSaved({ t: kind, text, ts });
   }
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement, kind === 'user'); // force only on the user's own send
   return div;
 }
 
@@ -1382,13 +1405,20 @@ async function pullChats() {
       local.title = r.title || local.title;
       local.brief = r.brief || undefined;
       local.lastPrompt = r.last_prompt || undefined;
-      // Merge, don't wholesale-replace: a remote that "wins" only by a skewed
-      // clock must not drop messages this device has and the remote lacks.
+      // When the remote clearly wins (well past any clock skew) its message
+      // list is authoritative — otherwise a message deleted on another device
+      // gets unioned back in and re-pushed (resurrection). Only inside the skew
+      // window do we union, so a skewed clock can't drop messages this device
+      // just added and the remote hasn't seen yet.
       let gainedLocal = false;
       if (Array.isArray(r.msgs)) {
-        const merged = mergeMsgs(r.msgs, local.msgs);
-        gainedLocal = merged.length > r.msgs.length; // we hold messages the server lacked
-        local.msgs = merged;
+        if (remoteAt - (local.updatedAt || 0) > 90000) {
+          local.msgs = r.msgs; // authoritative: honors deletions
+        } else {
+          const merged = mergeMsgs(r.msgs, local.msgs);
+          gainedLocal = merged.length > r.msgs.length; // we hold messages the server lacked
+          local.msgs = merged;
+        }
       }
       // If we merged in local-only messages, advance the timestamp so the union
       // actually propagates — reusing remoteAt would look "in sync" everywhere
@@ -1755,7 +1785,7 @@ function makeLoader(kind, aspect) {
   wrap.appendChild(status);
   const box = document.getElementById('messages');
   box.appendChild(wrap);
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement, true); // a loader follows the user's own send — keep it in view
   return { el: wrap, setText: (t) => { wrap.querySelector('.gen-status-text').textContent = t; } };
 }
 
@@ -1873,14 +1903,39 @@ async function trySave(url, kind, attempts, payload) {
   return { url: null, block: null };
 }
 
-// Save one output: free-account images are watermarked server-side by /api/save
-// (see worker.js). The client hands over the fal URL and the returned permanent
-// copy — the one the app then displays — already carries the mark.
+// Save one output: for PAID accounts /api/save stores the permanent copy (and
+// watermarks free-account images server-side on the way in). Free accounts have
+// no gallery storage, so their save is refused (402 free) and the server mark
+// never runs — burnImageWatermark() below covers that case client-side.
 async function saveOutput(u, kind) {
-  // Free-account images are watermarked server-side by /api/save now (the mark
-  // is burned into the stored copy the app then displays), so the client just
-  // hands over the URL — no canvas burn, no client-trust to bypass.
   return trySave(u, kind, 3);
+}
+
+// Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
+// a JPEG data URI. Used for FREE accounts, whose images can't be saved (so the
+// server-side mark never runs) — they still get a watermarked copy on the temp
+// link. Returns null if the source can't be drawn (CORS/decode) so the caller
+// falls back to the raw URL rather than dropping the image.
+async function burnImageWatermark(url) {
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = url; });
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if (!w || !h) return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const c = canvas.getContext('2d');
+    c.drawImage(img, 0, 0, w, h);
+    const pad = Math.round(Math.max(w, h) * 0.022);
+    const fs = Math.round(Math.max(16, Math.min(w, h) * 0.038));
+    c.font = '600 ' + fs + "px 'Space Grotesk', Inter, system-ui, sans-serif";
+    c.textAlign = 'right'; c.textBaseline = 'bottom';
+    c.shadowColor = 'rgba(0,0,0,.55)'; c.shadowBlur = Math.round(fs * 0.5); c.shadowOffsetY = 1;
+    c.fillStyle = 'rgba(255,255,255,.92)';
+    c.fillText('✦ isibi.ai', w - pad, h - pad);
+    return canvas.toDataURL('image/jpeg', 0.9);
+  } catch { return null; }
 }
 
 // Swap a temporary fal URL for its permanent copy wherever it was stored.
@@ -2555,7 +2610,12 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       for (const u of urls) {
         const { url: perm, block } = await saveOutput(u, kind);
         if (perm) finals.push(perm);
-        else if (block) { finals.push(u); blocked = block; } // paid gate — don't queue a doomed retry
+        else if (block) { // paid gate — don't queue a doomed retry
+          // Free tier can't save, so the server-side image watermark never ran —
+          // burn it in client-side and deliver the marked copy on the temp link.
+          const marked = (block === 'free' && kind === 'image') ? await burnImageWatermark(u) : null;
+          finals.push(marked || u); blocked = block;
+        }
         else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
       }
       if (!alive()) return;
@@ -2841,7 +2901,7 @@ function esc(s) {
 function threadAppend(el) {
   const box = document.getElementById('messages');
   box.appendChild(el);
-  box.parentElement.scrollTop = box.parentElement.scrollHeight;
+  scrollThreadBottom(box.parentElement); // near-bottom only — don't yank a user who scrolled up
 }
 
 async function startDirector(text) {
@@ -2862,7 +2922,7 @@ async function startDirector(text) {
       document.getElementById('messages').appendChild(live);
     }
     live.textContent += d;
-    live.parentElement.parentElement.scrollTop = live.parentElement.parentElement.scrollHeight;
+    scrollThreadBottom(live.parentElement.parentElement); // follow the stream only if the user is at the bottom
   };
   let res;
   try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
@@ -4173,6 +4233,9 @@ function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  // The jump-to-latest chevron belongs to the Home thread only.
+  const sd = document.getElementById('scrollDown');
+  if (sd && name !== 'home') sd.classList.remove('show');
   if (name === 'landing') renderLanding();
   if (name === 'gallery') { renderGallery(); refreshStorageBar(); }
   if (name === 'products') renderProducts();
@@ -4254,6 +4317,7 @@ const CLICK_ACTIONS = {
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
   'gal-upgrade': () => openCredits(),
+  'scroll-down': () => { const box = document.getElementById('messages'); if (box) scrollThreadBottom(box.parentElement, true); },
   'studio-send': () => studioSend(),
   'sb-speed': () => sbCycleSpeed(),
   'sb-mute': () => sbToggleMute(),

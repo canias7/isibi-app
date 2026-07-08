@@ -1752,6 +1752,20 @@
 /* No header bar anymore — keep the first message clear of the floating chip. */
 .view-home .thread { padding-top: 3.4rem; }
 
+/* Jump-to-latest chevron: shown only when the thread is scrolled up (JS toggles
+   .show), so autoscroll no longer has to yank the user down on every message. */
+.scroll-down {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 200px; z-index: 40;
+  width: 36px; height: 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text);
+  font-size: 1.2rem; line-height: 1; cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  box-shadow: 0 6px 22px rgba(0,0,0,.5);
+}
+.scroll-down.show { opacity: 1; pointer-events: auto; }
+.scroll-down:hover { border-color: var(--text); }
+
 /* ── Audio slot: waveform bars (design B) ── */
 #rowAudio .ap-body { padding-left: .6rem; }
 #rowAudio .attach-btn {
