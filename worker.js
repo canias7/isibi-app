@@ -144,6 +144,133 @@ function creditCost(kind, model, { duration, quality, num, chars, effort, direct
   return directorCr(effort, director) + Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
+// Read the TRUE length (seconds) out of an uploaded audio data URI, so the
+// lip-sync charge matches what fal bills — fal bills by the real driving-audio
+// length, and a tampered client could otherwise claim a short duration on a
+// long clip and underpay (omnihuman is $0.14/s → ~$8 per 60s clip). Returns a
+// number when a header can be parsed confidently, else null (caller falls back
+// to the conservative size-derived floor). Covers WAV, MP3 (CBR + Xing/Info
+// VBR) and MP4/M4A — the formats a voice clip actually arrives in.
+function audioDurationFromDataUri(dataUri) {
+  if (typeof dataUri !== "string") return null;
+  const comma = dataUri.indexOf(",");
+  if (comma < 0 || !/;base64/i.test(dataUri.slice(0, comma))) return null;
+  let b;
+  try {
+    const bin = atob(dataUri.slice(comma + 1));
+    const n = bin.length;
+    b = new Uint8Array(n);
+    for (let i = 0; i < n; i++) b[i] = bin.charCodeAt(i);
+  } catch { return null; }
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const wav = durWav(b, dv);
+  if (wav != null) return wav;
+  const mp4 = durMp4(b, dv);
+  if (mp4 != null) return mp4;
+  return durMp3(b);
+}
+
+// RIFF/WAVE: duration = data-chunk bytes / byteRate (exact for PCM).
+function durWav(b, dv) {
+  if (b.length < 44) return null;
+  if (b[0] !== 0x52 || b[1] !== 0x49 || b[2] !== 0x46 || b[3] !== 0x46) return null; // "RIFF"
+  if (b[8] !== 0x57 || b[9] !== 0x41 || b[10] !== 0x56 || b[11] !== 0x45) return null; // "WAVE"
+  let off = 12, byteRate = 0, dataSize = 0;
+  while (off + 8 <= b.length) {
+    const id = String.fromCharCode(b[off], b[off + 1], b[off + 2], b[off + 3]);
+    const size = dv.getUint32(off + 4, true);
+    if (id === "fmt " && off + 24 <= b.length) byteRate = dv.getUint32(off + 16, true);
+    else if (id === "data") {
+      dataSize = size && off + 8 + size <= b.length ? size : b.length - (off + 8);
+      break;
+    }
+    off += 8 + size + (size & 1); // chunks are word-aligned
+  }
+  return byteRate > 0 && dataSize > 0 ? dataSize / byteRate : null;
+}
+
+// ISO base-media (mp4/m4a/aac-in-mp4): moov → mvhd → duration / timescale.
+function durMp4(b, dv) {
+  if (b.length < 16) return null;
+  if (b[4] !== 0x66 || b[5] !== 0x74 || b[6] !== 0x79 || b[7] !== 0x70) return null; // "ftyp"
+  const find = (start, end, name) => {
+    let off = start;
+    while (off + 8 <= end) {
+      let size = dv.getUint32(off), hdr = 8;
+      const type = String.fromCharCode(b[off + 4], b[off + 5], b[off + 6], b[off + 7]);
+      if (size === 1) { if (off + 16 > end) break; size = Number(dv.getBigUint64(off + 8)); hdr = 16; }
+      else if (size === 0) size = end - off;
+      if (size < hdr) break;
+      if (type === name) return { off, size, hdr };
+      off += size;
+    }
+    return null;
+  };
+  const moov = find(0, b.length, "moov");
+  if (!moov) return null;
+  const mvhd = find(moov.off + moov.hdr, Math.min(moov.off + moov.size, b.length), "mvhd");
+  if (!mvhd) return null;
+  const p = mvhd.off + mvhd.hdr; // version(1) + flags(3) then the fields
+  if (p + 20 > b.length) return null;
+  if (b[p] === 1) {
+    if (p + 32 > b.length) return null;
+    const ts = dv.getUint32(p + 20), dur = Number(dv.getBigUint64(p + 24));
+    return ts ? dur / ts : null;
+  }
+  const ts = dv.getUint32(p + 12), dur = dv.getUint32(p + 16);
+  return ts ? dur / ts : null;
+}
+
+// MPEG audio: honour a Xing/Info VBR header (exact frame count) else assume CBR
+// from the first frame's bitrate over the remaining bytes.
+const MP3_BR = {
+  // [MPEG1 L1, L2, L3, MPEG2/2.5 L1, L2&L3] in kbps, indexed by the 4-bit field
+  1: [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0],
+  2: [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0],
+  3: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0],
+  4: [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0],
+  5: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0],
+};
+function durMp3(b) {
+  const total = b.length;
+  let i = 0;
+  if (total > 10 && b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) { // "ID3" v2 tag
+    i = 10 + ((b[6] & 0x7f) << 21 | (b[7] & 0x7f) << 14 | (b[8] & 0x7f) << 7 | (b[9] & 0x7f));
+    if (b[5] & 0x10) i += 10; // footer present
+  }
+  const scanEnd = Math.min(total - 4, i + 200000);
+  while (i <= scanEnd && !(b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0)) i++;
+  if (i + 4 > total || !(b[i] === 0xff && (b[i + 1] & 0xe0) === 0xe0)) return null;
+  const b1 = b[i + 1], b2 = b[i + 2], b3 = b[i + 3];
+  const verBits = (b1 >> 3) & 3, layerBits = (b1 >> 1) & 3;
+  if (verBits === 1 || layerBits === 0) return null; // reserved
+  const layer = 4 - layerBits;                       // 1 | 2 | 3
+  const isV1 = verBits === 3;
+  const brRow = layer === 1 ? (isV1 ? 1 : 4) : layer === 2 ? (isV1 ? 2 : 5) : (isV1 ? 3 : 5);
+  const brIdx = (b2 >> 4) & 0xf, srIdx = (b2 >> 2) & 3;
+  if (brIdx === 0 || brIdx === 15 || srIdx === 3) return null;
+  const bitrate = MP3_BR[brRow][brIdx] * 1000;
+  const srTable = verBits === 3 ? [44100, 48000, 32000] : verBits === 2 ? [22050, 24000, 16000] : [11025, 12000, 8000];
+  const sr = srTable[srIdx];
+  if (!bitrate || !sr) return null;
+  const spf = layer === 1 ? 384 : layer === 3 && !isV1 ? 576 : 1152; // samples/frame
+  // Xing/Info header lives after the side-info block of the first frame.
+  const chanMode = (b3 >> 6) & 3;
+  const sideInfo = isV1 ? (chanMode === 3 ? 17 : 32) : (chanMode === 3 ? 9 : 17);
+  const x = i + 4 + sideInfo;
+  if (x + 12 <= total) {
+    const tag = String.fromCharCode(b[x], b[x + 1], b[x + 2], b[x + 3]);
+    if (tag === "Xing" || tag === "Info") {
+      const flags = (b[x + 4] << 24 | b[x + 5] << 16 | b[x + 6] << 8 | b[x + 7]) >>> 0;
+      if (flags & 1) {
+        const frames = (b[x + 8] << 24 | b[x + 9] << 16 | b[x + 10] << 8 | b[x + 11]) >>> 0;
+        if (frames > 0) return (frames * spf) / sr;
+      }
+    }
+  }
+  return ((total - i) * 8) / bitrate; // CBR
+}
+
 // Deduct credits atomically under the caller's own JWT. Returns the new
 // balance, or -1 when the balance is too low; throws if the ledger is down.
 async function useCredits(authHeader, cost) {
@@ -848,27 +975,35 @@ async function handleRequest(request, env, ctx) {
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
       // Driving-audio length for the audio-billed video models (fal charges by
-      // it). Trust the client's measured duration, but floor it by a size-derived
-      // lower bound: a file of N bytes can't be shorter than N*8 / (highest
-      // plausible bitrate for its format), so a tampered short claim can't
-      // underpay a big clip. The bitrate cap is per-format and set ABOVE any
-      // real encode, so honest uploads (incl. uncompressed WAV) never overpay.
+      // it). The ground truth is the real length read out of the uploaded file
+      // header, so the charge matches fal's regardless of what the client
+      // claims. When the format can't be parsed we fall back to the client's
+      // measured duration floored by a size-derived lower bound: a file of N
+      // bytes can't be shorter than N*8 / (highest plausible bitrate for its
+      // format), so a tampered short claim can't underpay a big clip.
       let audioSeconds = 0;
       if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
         const claimed = Number(body.audioDuration);
         const hasClaim = Number.isFinite(claimed) && claimed > 0;
-        if (hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
+        const real = audioDurationFromDataUri(audio); // authoritative when parseable
+        // Reject over-length clips on the real duration when we have it, else on
+        // the claim (0.5s tolerance for encoder padding on the parsed value).
+        if (real != null ? real > AUDIO_DRIVE_MAX_S + 0.5 : hasClaim && claimed > AUDIO_DRIVE_MAX_S) {
           return Response.json({ error: `audio clip too long — max ${AUDIO_DRIVE_MAX_S}s for lip-sync` }, { status: 400 });
         }
-        const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
-        // Uncompressed PCM/WAV runs ~1.5 Mbps; lossy (mp3/aac/opus/ogg) tops out
-        // near 320 kbps — cap at 384 kbps so the floor is tight but never over.
-        const isPcm = /^data:audio\/(wav|x-wav|wave|pcm|aiff|x-aiff|basic)/i.test(audio || "");
-        const maxBitrate = isPcm ? 1_536_000 : 384_000;
-        const floorSec = bytes ? (bytes * 8) / maxBitrate : 0;
-        // A real client always measures and sends the duration; a missing one
-        // is treated as the cap so a tampered request can never undercharge.
-        audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+        if (real != null) {
+          audioSeconds = Math.min(AUDIO_DRIVE_MAX_S, Math.max(1, real));
+        } else {
+          const bytes = audio ? Math.floor(audio.length * 0.75) : 0;
+          // Uncompressed PCM/WAV runs ~1.5 Mbps; lossy (mp3/aac/opus/ogg) tops
+          // out near 320 kbps — cap at 384 kbps so the floor is tight but never over.
+          const isPcm = /^data:audio\/(wav|x-wav|wave|pcm|aiff|x-aiff|basic)/i.test(audio || "");
+          const maxBitrate = isPcm ? 1_536_000 : 384_000;
+          const floorSec = bytes ? (bytes * 8) / maxBitrate : 0;
+          // A real client always measures and sends the duration; a missing one
+          // is treated as the cap so a tampered request can never undercharge.
+          audioSeconds = hasClaim ? Math.min(AUDIO_DRIVE_MAX_S, Math.max(claimed, floorSec)) : AUDIO_DRIVE_MAX_S;
+        }
       }
 
       const genCost = creditCost(genKind, model, {
