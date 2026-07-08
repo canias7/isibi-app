@@ -1079,6 +1079,12 @@ async function handleRequest(request, env, ctx) {
       // Facts gathered by a prior web-search (research) step, folded into
       // prompt writing so "the newest X" is depicted as the real current thing.
       const webFacts = kind !== "audio" && typeof body.webFacts === "string" ? body.webFacts.trim().slice(0, 2000) : "";
+      // Universal auto-learned taste: the user's durable creative preferences,
+      // learned across ALL chats and applied to every generation. The composer
+      // reads it and returns an evolved list; the client persists it globally.
+      const memory = Array.isArray(body.memory)
+        ? body.memory.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim().slice(0, 140)).slice(0, 15)
+        : [];
 
       // ── Web-search research step ──────────────────────────────────────────
       // Fires only when the ask step judged the request depends on current
@@ -1244,6 +1250,9 @@ async function handleRequest(request, env, ctx) {
       const factsLine = webFacts
         ? `\nVerified current facts (from a live web search — treat as ground truth and depict accordingly, do not contradict them): ${webFacts}`
         : "";
+      const memoryLine = memory.length
+        ? `\nThe user's durable creative taste, learned across all their projects — apply it by default unless THIS request overrides it: ${memory.map((s) => `"${s}"`).join("; ")}.`
+        : "";
       const system = step === "ask"
         ? (kind === "audio"
           ? `You are isibi, the voice side of an AI studio: the user types either words they want a TTS voice to SPEAK, or chat aimed at you. Always write a short, friendly reply in your own voice (1-2 sentences). Then decide:
@@ -1284,7 +1293,7 @@ Fix patterns:
 
 Previous prompt:
 ${prevPrompt}
-${briefLine}
+${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
@@ -1301,7 +1310,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}${factsLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -1312,7 +1321,7 @@ Craft rules:
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
 ${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
 - ${familyHint}` : ""}
-${effortLine}${briefLine}${factsLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
         : `You are the prompt writer for isibi, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
 
@@ -1417,12 +1426,17 @@ Context: ${ctxLine}`
           }
         : {
             name: "write_prompt",
-            description: "Return the final generation prompt and the chat's updated creative brief.",
+            description: "Return the final generation prompt, the chat's updated creative brief, and the user's updated durable taste memory.",
             input_schema: {
               type: "object",
               properties: {
                 prompt: { type: "string" },
                 brief: { type: "string", description: "1-3 sentence updated running creative brief for this chat — subject, style, mood, standing constraints; carry forward what still holds, fold in what this request adds" },
+                memory: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "The user's DURABLE creative taste, learned across ALL their projects — short standing preferences that should apply to future generations (e.g. 'Cinematic, filmic color grading', 'Prefers vertical 9:16', 'Warm, moody lighting', 'Minimal on-screen text'). Return the FULL updated list (not a delta): carry forward what was given, fold in any durable preference THIS request reveals, dedupe and merge near-duplicates, and DROP anything project- or subject-specific (that belongs in the brief, not here). Each item one short phrase. Keep it tight — at most 12 items. Omit or return the list unchanged if this request reveals nothing new about lasting taste.",
+                },
               },
               required: ["prompt"],
             },
@@ -1547,6 +1561,11 @@ Context: ${ctxLine}`
       return Response.json({
         prompt: String(parsed.prompt || prompt).slice(0, 2000),
         brief: parsed.brief ? String(parsed.brief).slice(0, 600) : undefined,
+        // Evolved durable taste, same cap/sanitize as the inbound list. Absent
+        // when the model returned nothing new — the client keeps what it has.
+        memory: Array.isArray(parsed.memory)
+          ? parsed.memory.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim().slice(0, 140)).slice(0, 12)
+          : undefined,
       });
     }
 

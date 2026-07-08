@@ -2231,7 +2231,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .mem-fab { animation: none; } }
 
-/* Memory "space" — a full-page placeholder the button opens */
+/* Memory "space" — an ambient placeholder (taste-memory is backend-only) */
 .view-memory.active { flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; }
 .ms-back {
   position: absolute; top: 20px; left: 22px; z-index: 3;

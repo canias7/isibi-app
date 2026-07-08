@@ -2441,6 +2441,65 @@ function directorHistory() {
 
 // Generation context, so the director writes prompts for the actual target
 // (model family, attachments, clip length) instead of guessing blind.
+// ── Universal memory: one auto-learned taste list, applied to EVERY
+// generation across all chats (not per-chat). Local (zephyr_memory_v1) plus a
+// per-user Supabase row so it follows the account across devices. The composer
+// evolves it on each approved generation; the Memory space shows/edits it. ──
+const MEMORY_KEY = 'zephyr_memory_v1';
+const MEMORY_ENDPOINT = SUPABASE_URL + '/rest/v1/user_memory';
+let memoryState = { items: [], enabled: true, updatedAt: 0 };
+function normMemItems(a) {
+  return Array.isArray(a) ? a.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim().slice(0, 140)).slice(0, 15) : [];
+}
+function loadMemory() {
+  try {
+    const s = JSON.parse(localStorage.getItem(MEMORY_KEY) || 'null');
+    if (s && typeof s === 'object') memoryState = { items: normMemItems(s.items), enabled: s.enabled !== false, updatedAt: s.updatedAt || 0 };
+  } catch {}
+}
+function persistMemory(touch) {
+  if (touch) memoryState.updatedAt = Date.now();
+  try { localStorage.setItem(MEMORY_KEY, JSON.stringify(memoryState)); } catch {}
+}
+function memoryEnabled() { return memoryState.enabled !== false; }
+function memoryItems() { return normMemItems(memoryState.items); }
+// Replace the learned taste with the composer's evolved list (on approval).
+function commitMemory(items) {
+  const clean = normMemItems(items);
+  if (JSON.stringify(clean) === JSON.stringify(memoryState.items)) return; // no real change
+  memoryState.items = clean;
+  persistMemory(true);
+  pushMemory();
+}
+async function pushMemory() {
+  const h = await syncHeaders();
+  const uid = window.Auth && Auth.userId ? Auth.userId() : '';
+  if (!h || !uid) return;
+  try {
+    await fetch(MEMORY_ENDPOINT + '?on_conflict=user_id', {
+      method: 'POST',
+      headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
+      body: JSON.stringify({ user_id: uid, items: memoryState.items, enabled: memoryState.enabled, updated_at: new Date(memoryState.updatedAt || Date.now()).toISOString() }),
+    });
+  } catch {}
+}
+async function pullMemory() {
+  const h = await syncHeaders();
+  if (!h) return;
+  try {
+    const res = await fetch(MEMORY_ENDPOINT + '?select=items,enabled,updated_at&limit=1', { headers: h });
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) return;
+    const r = rows[0];
+    const remoteAt = Date.parse(r.updated_at) || 0;
+    if (remoteAt > (memoryState.updatedAt || 0)) { // last-writer-wins on the whole object
+      memoryState = { items: normMemItems(r.items), enabled: r.enabled !== false, updatedAt: remoteAt };
+      persistMemory(false);
+    }
+  } catch {}
+}
+
 function directorContext() {
   return {
     model: model,
@@ -2449,13 +2508,17 @@ function directorContext() {
     hasImage: !!attachments.image,
     hasEnd: !!attachments.end,
     brief: (activeChat() || {}).brief || undefined,
+    // Universal taste — only when enabled and there's something to apply.
+    memory: memoryEnabled() && mode !== 'audio' && memoryItems().length ? memoryItems() : undefined,
     effort: effort,
   };
 }
 
-// The composer returns an updated per-chat creative brief with each prompt;
-// it only becomes the chat's memory when the user APPROVES that prompt.
+// The composer returns an updated per-chat creative brief AND an evolved
+// universal taste list with each prompt; both only commit when the user
+// APPROVES that prompt (so abandoned drafts never teach isibi anything).
 let pendingBrief = null;
+let pendingMemory = null;
 
 // The director gets to SEE the attached image (downscaled — it only needs to
 // understand the picture, not generate from it).
@@ -2532,7 +2595,7 @@ async function directorAsk(text, history, onDelta) {
 // Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
 async function directorRevise(feedback) {
   const prev = (activeChat() || {}).lastPrompt || '';
-  pendingBrief = null;
+  pendingBrief = null; pendingMemory = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2544,6 +2607,7 @@ async function directorRevise(feedback) {
     if (!res.ok) throw 0;
     const data = await res.json();
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
+    if (Array.isArray(data.memory)) pendingMemory = data.memory;
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return prev ? prev + ' ' + feedback : feedback; }
@@ -2551,7 +2615,7 @@ async function directorRevise(feedback) {
 
 async function directorCompose(text, answers, webFacts) {
   if (mode === 'audio') return text; // voice: speak the words as given
-  pendingBrief = null;
+  pendingBrief = null; pendingMemory = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2564,6 +2628,7 @@ async function directorCompose(text, answers, webFacts) {
     if (!res.ok) throw 0;
     const data = await res.json();
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
+    if (Array.isArray(data.memory)) pendingMemory = data.memory;
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return localCompose(text, answers); }
@@ -2704,6 +2769,7 @@ function deliverPrompt(prompt) {
   if (directorMode === 'plan') { reviewPrompt(prompt); return; }
   const c = activeChat();
   if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
+  if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
   generateMedia(prompt, { announce: false });
 }
 
@@ -2747,9 +2813,11 @@ function buildReviewCard(prompt, cardMode) {
     // composer happens to be in now (mode resets to 'video' on reload) — else an
     // approved voice line would run as a video and bill at video rates.
     if (m !== mode) setMode(m);
-    // Approval is the signal that this direction is right — commit the brief.
+    // Approval is the signal that this direction is right — commit the brief
+    // and let the composer's evolved taste settle into universal memory.
     const c = activeChat();
     if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
+    if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
     generateMedia(prompt, { announce: false });
   };
   actions.appendChild(deny); actions.appendChild(allow);
@@ -3036,10 +3104,11 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       chatStore = { active: null, chats: [] };
+      memoryState = { items: [], enabled: true, updatedAt: 0 };
       syncDirty.clear(); syncDeleted.clear();
       loadStore();
       renderChatList(); renderThread();
@@ -3052,8 +3121,9 @@ function enterApp() {
   // would land in the outgoing account's chat and be discarded by the reset.
   const ranFirstMsg = !!pendingFirstMsg;
   if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
-  // Signed in — pull the account's chats from the server and merge.
+  // Signed in — pull the account's chats and universal memory, merge both.
   pullChats();
+  pullMemory();
   fetchCredits();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
@@ -3069,7 +3139,7 @@ async function doSignOut(everywhere) {
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   if (everywhere) await Auth.signOutEverywhere();
@@ -3528,8 +3598,10 @@ function acGenerate() {
   if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
 }
 
-// ── Memory: a floating dock button on the Builder page opens the Memory
-// "space" (viewMemory) — a placeholder page for now. ──
+// ── Memory: universal auto-learned taste is a SYSTEM feature with no
+// front-end — it learns and applies silently (see the memory store above and
+// directorContext().memory). The Builder's floating button still opens the
+// Memory "space" (viewMemory), which stays an ambient placeholder page. ──
 
 // ── Products: save a product from a store link or a manual upload, then reuse
 // it across generations. Stored locally for now (zephyr_products_v1). ──
@@ -3991,6 +4063,7 @@ buildMenu();
 buildOptMenus();
 renderAttach('audio');
 loadStore();
+loadMemory();
 renderChatList();
 renderThread();
 
