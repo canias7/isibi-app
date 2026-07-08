@@ -14,7 +14,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - run: npm install @fal-ai/client@1
       - run: node .github/scripts/fal-wm-test.mjs
         env:
