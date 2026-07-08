@@ -1831,18 +1831,19 @@
 /* Gallery controls: filter chips + sort — on their OWN row under the title,
    so they clear the fixed top-right credit pill / avatar instead of colliding. */
 .gallery-controls { width: 100%; margin-top: .9rem; display: flex; align-items: center; gap: .7rem; }
-.g-filters {
-  display: flex; gap: 2px; padding: 3px;
-  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 99px;
-}
+/* Underline tabs: plain text, active gets a pink→amber underline. */
+.g-filters { display: inline-flex; gap: 1.5rem; }
 .g-chip {
   background: none; border: none; color: var(--muted);
-  font-weight: 600; font-size: .8rem; padding: .35rem .8rem;
-  border-radius: 99px; cursor: pointer;
-  transition: color .15s ease, background .15s ease;
+  font-weight: 600; font-size: .92rem; padding: .2rem 0 .5rem;
+  position: relative; cursor: pointer; transition: color .15s ease;
 }
 .g-chip:hover { color: var(--text); }
-.g-chip.active { background: var(--split); color: #0a0a0b; }
+.g-chip.active { color: var(--text); }
+.g-chip.active::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 2px; border-radius: 2px; background: var(--split);
+}
 .g-sort { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; margin-left: auto; }
 
 /* ── Model picker: logo rows with spec chips (Higgsfield-style) ── */
