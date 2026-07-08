@@ -3064,7 +3064,7 @@ function enterApp() {
   showView(ranFirstMsg ? 'home' : 'landing');
 }
 
-async function doSignOut() {
+async function doSignOut(everywhere) {
   // Flush any unsynced edits first, then wipe this browser's local copy so
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
@@ -3072,7 +3072,8 @@ async function doSignOut() {
     [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
-  await Auth.signOut();
+  if (everywhere) await Auth.signOutEverywhere();
+  else await Auth.signOut();
   location.reload();
 }
 
@@ -3141,6 +3142,18 @@ function renderSettings() {
       '</div>' +
 
       '<button type="button" class="sp-signout" id="spSignout">Sign out</button>' +
+      '<button type="button" class="sp-signout-all" id="spSignoutAll">Sign out on all devices</button>' +
+
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Danger zone</div>' +
+        '<div class="sp-list">' +
+          '<button type="button" class="sp-item sp-tap" id="spDelete">' +
+            '<span class="sp-item-l"><span class="sp-item-t sp-red">Delete account</span>' +
+            '<span class="sp-item-s">Permanently removes your account, chats, saved media and remaining credits.</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
     '</div>';
 
   view.querySelector('#spCredits').onclick = () => openCredits();
@@ -3162,6 +3175,34 @@ function renderSettings() {
   };
 
   view.querySelector('#spSignout').onclick = () => doSignOut();
+
+  // Global sign-out: same local flush/wipe as a normal sign-out, but GoTrue
+  // revokes the session on every device, not just this one.
+  view.querySelector('#spSignoutAll').onclick = () => doSignOut(true);
+
+  view.querySelector('#spDelete').onclick = async (e) => {
+    const btn = e.currentTarget;
+    if (!confirm('Delete your isibi account? This permanently removes your chats, saved media and remaining credits.')) return;
+    if (!confirm('Last check — this cannot be undone. Delete everything?')) return;
+    btn.disabled = true;
+    try {
+      // Files first via the Storage API (clean byte removal; best-effort —
+      // the RPC sweeps whatever this misses), then the account itself.
+      await Auth.storageWipeOwn();
+      await Auth.deleteAccount();
+    } catch (err) {
+      btn.disabled = false;
+      alert((err && err.message) || 'Could not delete the account — try again in a moment.');
+      return;
+    }
+    // Everything server-side is gone; drop every trace in this browser too.
+    try {
+      Object.keys(localStorage)
+        .filter((k) => k.startsWith('zephyr_'))
+        .forEach((k) => localStorage.removeItem(k));
+    } catch {}
+    location.reload();
+  };
 }
 
 // Netflix-style model showcase rows on the Home landing. Each row is a model
