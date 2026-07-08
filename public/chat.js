@@ -3599,9 +3599,8 @@ function acGenerate() {
 }
 
 // ── Memory: universal auto-learned taste is a SYSTEM feature with no
-// front-end — it learns and applies silently (see the memory store above and
-// directorContext().memory). The Builder's floating button still opens the
-// Memory "space" (viewMemory), which stays an ambient placeholder page. ──
+// front-end — no button, no page. It learns and applies silently (see the
+// memory store above and directorContext().memory). ──
 
 // ── Products: save a product from a store link or a manual upload, then reuse
 // it across generations. Stored locally for now (zephyr_products_v1). ──
@@ -3918,7 +3917,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', memory: 'Memory', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', projects: 'Projects', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
