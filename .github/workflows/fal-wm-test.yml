@@ -1,1 +1,27 @@
-« FILE CONTENT ELIDED »
+# Test bench for the fal blend-video watermark burn. Runs on pushes that
+# touch the test bench itself (workflow_dispatch is blocked for the app
+# integration) — delete or neuter after the /api/save wiring ships.
+name: fal watermark test
+on:
+  push:
+    branches: [claude/chat-session-q1hla6]
+    paths: ['.github/scripts/fal-wm-test.mjs', '.github/workflows/fal-wm-test.yml']
+jobs:
+  wm-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install @fal-ai/client@1
+      - run: node .github/scripts/fal-wm-test.mjs
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wm-test-out
+          path: wm-test-out/
+          retention-days: 3
