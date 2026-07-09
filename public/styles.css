@@ -474,6 +474,10 @@
 .orch-ctl { display: inline-flex; align-items: center; gap: .45rem; margin-top: .15rem; }
 .orch-name { font-size: .82rem; font-weight: 600; color: var(--muted); white-space: nowrap; transition: color .16s ease; }
 .orch-ctl.on .orch-name { color: var(--text); }
+/* Non-subscriber: switch is dimmed and the label carries a small lock; tapping
+   opens the add-on upsell instead of toggling. */
+.st-switch.locked { opacity: .5; }
+.orch-ctl.locked .orch-name::after { content: " 🔒"; font-size: .72em; opacity: .8; }
 .model-menu.drop-up.dir-menu { min-width: 300px; background: #16161b; left: auto; right: 0; }
 .dir-item { padding: .6rem .8rem; }
 .dir-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
@@ -2289,6 +2293,47 @@
   font-family: inherit; font-size: .88rem; padding: 0;
 }
 .up-topup-link:hover { text-decoration: underline; }
+
+/* AI Orchestrator add-on band on the pricing page */
+.up-addon {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  margin-top: 1.4rem; padding: 1rem 1.2rem; border-radius: 14px;
+  border: 1px solid transparent;
+  background: linear-gradient(#14121b, #14121b) padding-box, linear-gradient(120deg, #ff79c6, #ffb84d) border-box;
+}
+.up-addon-txt { flex: 1; min-width: 220px; }
+.up-addon-txt b { display: block; font-size: .98rem;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.up-addon-txt span { font-size: .84rem; color: var(--muted); }
+.up-addon-buy {
+  flex-shrink: 0; border: none; border-radius: 10px; padding: .6rem 1rem; cursor: pointer;
+  font-family: inherit; font-weight: 700; font-size: .88rem; color: #0a0a0b;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); transition: transform .12s ease;
+}
+.up-addon-buy:hover { transform: translateY(-1px); }
+
+/* AI Orchestrator upsell modal */
+.orch-up { text-align: left; padding-top: 1.6rem; }
+.orch-up-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .9rem; }
+.orch-up-spark { font-size: 1.1rem;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.orch-up-name { font-size: 1.15rem; font-weight: 700; letter-spacing: -.02em; }
+.orch-up-price { margin-left: auto; font-size: 1.3rem; font-weight: 800; letter-spacing: -.02em;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.orch-up-price span { font-size: .78rem; color: var(--muted); -webkit-text-fill-color: var(--muted); font-weight: 600; }
+.orch-up-lead { font-size: .9rem; color: var(--ink-2, #b6afc1); line-height: 1.5; margin: 0 0 1rem; }
+.orch-up-feat { list-style: none; padding: 0; margin: 0 0 1.2rem; display: grid; gap: .5rem; }
+.orch-up-feat li { position: relative; padding-left: 1.5rem; font-size: .88rem; color: var(--text); }
+.orch-up-feat li::before { content: "✓"; position: absolute; left: 0; font-weight: 800;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.orch-up-buy {
+  width: 100%; border: none; border-radius: 12px; padding: .85rem; cursor: pointer;
+  font-family: inherit; font-weight: 800; font-size: .98rem; color: #0a0a0b;
+  background: linear-gradient(120deg, #ff79c6, #ffb84d); transition: transform .12s ease;
+}
+.orch-up-buy:hover { transform: translateY(-1px); }
+.orch-up-fine { font-size: .78rem; color: var(--muted); line-height: 1.45; margin: .9rem 0 0; }
+
 @media (max-width: 820px) {
   .up-grid { grid-template-columns: 1fr; gap: 1rem; }
 }

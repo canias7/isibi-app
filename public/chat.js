@@ -768,19 +768,32 @@ let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.
 // The last Auto/Plan choice, so flipping the switch back on restores it.
 let lastOrchMode = directorMode === 'off' ? 'auto' : directorMode;
 function orchestratorOn() { return directorMode !== 'off'; }
+// AI Orchestrator add-on subscription state. Until /api/orchestrator resolves,
+// orchKnown is false and orchActive() is false — we fail toward raw prompting so
+// the paid director is never called for a non-subscriber. `exhausted` flips on a
+// 402 (monthly budget spent) so the client stops trying until the next refresh.
+let orchSub = { active: false, used: 0, budget: 0, exhausted: false };
+let orchKnown = false;
+function orchActive() { return orchSub.active === true && !orchSub.exhausted; }
 function renderOrchSwitch() {
+  const subbed = orchActive();
   const sw = document.getElementById('orchSwitch');
   if (sw) {
-    const on = orchestratorOn();
+    const on = subbed && orchestratorOn(); // "on" only when subscribed AND toggled on
     sw.classList.toggle('on', on);
+    sw.classList.toggle('locked', !subbed); // padlock look for non-subscribers
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    sw.title = subbed
+      ? 'Orchestrator — isibi reads your message, picks the model and writes the prompt. Off = raw prompting.'
+      : 'AI Orchestrator is an add-on ($19.99/mo) — tap to unlock prompt help, effort levels and research.';
     const ctl = sw.closest('.orch-ctl');
-    if (ctl) ctl.classList.toggle('on', on);
+    if (ctl) { ctl.classList.toggle('on', on); ctl.classList.toggle('locked', !subbed); }
   }
   const chip = document.getElementById('dirModeChip');
-  if (chip) chip.style.display = orchestratorOn() ? '' : 'none'; // Auto/Plan only matters when on
+  if (chip) chip.style.display = (subbed && orchestratorOn()) ? '' : 'none'; // Auto/Plan only when live
 }
 function toggleOrchestrator() {
+  if (!orchActive()) { openOrchestratorUpsell(); return; } // not subscribed → sell the add-on
   if (orchestratorOn()) { lastOrchMode = directorMode; setDirectorMode('off'); }
   else setDirectorMode(lastOrchMode || 'auto');
 }
@@ -805,7 +818,7 @@ function setDirectorMode(m) {
 }
 function toggleDirMenu(e) {
   e.stopPropagation();
-  if (!orchestratorOn()) return; // chip is hidden while the orchestrator is off
+  if (!orchActive() || !orchestratorOn()) return; // chip is hidden unless subscribed + on
   const menu = document.getElementById('dirMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
@@ -907,20 +920,23 @@ function usePreset(it) {
 
 function toggleEffortMenu(e) {
   e.stopPropagation();
-  if (directorMode === 'off') return; // raw mode: effort has nothing to control
+  if (directorMode === 'off' || !orchActive()) return; // raw / no add-on: effort has nothing to control
   const menu = document.getElementById('effortMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
 }
-// Raw mode greys the effort picker out — the knob only shapes the prompt
-// isibi.ai writes, and in raw mode isibi.ai isn't writing one.
+// The effort picker only shapes the prompt isibi.ai writes, so it greys out in
+// raw mode AND when the AI Orchestrator add-on isn't active (no writer at all).
 function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
   if (!pick) return;
-  const off = directorMode === 'off';
+  const subbed = orchActive();
+  const off = directorMode === 'off' || !subbed;
   pick.classList.toggle('locked', off);
-  pick.querySelector('.opt-btn').title = off
-    ? 'Effort applies when isibi.ai writes the prompt — turn prompt help back on to use it'
+  pick.querySelector('.opt-btn').title = !subbed
+    ? 'Effort is part of the AI Orchestrator add-on ($19.99/mo)'
+    : off
+    ? 'Effort applies when isibi.ai writes the prompt — turn the orchestrator on to use it'
     : 'How detailed the written prompt gets';
   if (off) document.getElementById('effortMenu').classList.remove('open');
 }
@@ -2130,16 +2146,12 @@ const AUDIO_PRICE = { // $ per 1,000 characters spoken
   'fal-ai/elevenlabs/tts/multilingual-v2': 0.10,
 };
 
-// 1 credit = $0.008 — same conversion the worker charges with.
-// Director surcharge at cost (must match worker directorCr): +1 credit on
-// the Haiku levels (Low/Medium), +2 on the Sonnet levels (High/Ultra/Max).
+// 1 credit = $0.008 — same conversion the worker charges with. Generation
+// credits are PURE fal cost now: the AI/director cost is billed separately
+// against the AI Orchestrator add-on's budget, never on the generation.
 const CREDIT_USD = 0.008;
-function directorCr() {
-  if (directorMode === 'off') return 0; // raw prompting — no Claude in the loop
-  return effort === 'high' || effort === 'ultra' || effort === 'max' ? 2 : 1;
-}
 function fmtPrice(usd) {
-  return '✦ ' + (directorCr() + Math.max(1, Math.ceil(usd / CREDIT_USD))).toLocaleString();
+  return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
 }
 function estimatePrice(textForAudio) {
   if (mode === 'image') {
@@ -2244,6 +2256,24 @@ async function fetchCredits(attempt) {
   }
 }
 
+// AI Orchestrator add-on status → gates the switch, effort picker and the whole
+// director flow. Retries a few times so a transient failure doesn't strand a
+// subscriber in raw mode.
+async function fetchOrchestrator(attempt) {
+  try {
+    const r = await apiFetch('/api/orchestrator');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    orchSub = { active: d.active === true, used: Number(d.used) || 0, budget: Number(d.budget) || 0, exhausted: false };
+    orchKnown = true;
+    renderOrchSwitch();
+    renderEffortLock();
+  } catch {
+    const n = (attempt || 0) + 1;
+    if (n <= 4) setTimeout(() => fetchOrchestrator(n), 1500 * n);
+  }
+}
+
 // A fal-confirmed failure means fal never billed us — ask the server to refund
 // the charge (it independently re-verifies the failure with fal). Returns the
 // refunded credit amount, and refreshes the balance display when it's non-zero.
@@ -2302,9 +2332,10 @@ function maybeShowWelcome(balance) {
 // the charged price is always `usd`.
 // Output equivalences are DERIVED from the live price tables so they can never
 // drift from what a generation actually costs: a Nano Banana 2 image and a
-// 5-second Kling 3.0 Standard video, each with the default director surcharge.
-const IMG_CR = Math.max(1, Math.ceil(0.08 / CREDIT_USD)) + 1;          // Nano Banana 2 + director
-const VID_CR = Math.max(1, Math.ceil((0.126 * 5) / CREDIT_USD)) + 1;   // Kling 3.0 Std 5s + director
+// 5-second Kling 3.0 Standard video, at pure fal cost (no director surcharge —
+// AI is the separate Orchestrator add-on now).
+const IMG_CR = Math.max(1, Math.ceil(0.08 / CREDIT_USD));          // Nano Banana 2
+const VID_CR = Math.max(1, Math.ceil((0.126 * 5) / CREDIT_USD));   // Kling 3.0 Std 5s
 const roundTo = (n, step) => Math.round(n / step) * step;
 const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
 const estVideos = (cr) => roundTo(cr / VID_CR, 5);
@@ -2340,6 +2371,49 @@ const TOPUPS = [
   { topup: '75', usd: 75, credits: 5350 },
   { topup: '100', usd: 100, credits: 7140 },
 ];
+
+// Focused upsell for the AI Orchestrator add-on ($19.99/mo, at cost). Opened
+// from the locked Orchestrator switch and the pricing page's add-on band.
+function openOrchestratorUpsell() {
+  if (document.querySelector('.credits-overlay')) return;
+  document.getElementById('profilePop')?.classList.remove('open');
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML =
+    '<div class="cp-box cp-narrow orch-up">' +
+      '<button type="button" class="cp-close">✕</button>' +
+      '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">AI Orchestrator</div>' +
+        '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
+      '<p class="orch-up-lead">Let isibi direct your generations — it reads your message, picks the model, writes the prompt, and researches real subjects when it matters. Every effort level and all prompt help runs on this.</p>' +
+      '<ul class="orch-up-feat">' +
+        '<li>Auto &amp; Plan prompt-writing</li>' +
+        '<li>All five effort levels (Low → Max)</li>' +
+        '<li>Live web-research for real people, products &amp; events</li>' +
+        '<li>Priced at cost — no markup, cancel anytime</li>' +
+      '</ul>' +
+      '<button type="button" class="orch-up-buy">Add AI Orchestrator →</button>' +
+      '<div class="cp-note" id="cpNote"></div>' +
+      '<p class="orch-up-fine">Without it, your words go to the model exactly as typed (raw prompting) — generation always works on your credits.</p>' +
+    '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelector('.orch-up-buy').onclick = async () => {
+    const note = document.getElementById('cpNote');
+    note.textContent = 'Opening secure checkout…';
+    try {
+      const r = await apiFetch('/api/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orchestrator: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll add it.'; return; }
+      if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
+      note.textContent = 'Checkout hit a snag — try again in a moment.';
+    } catch { note.textContent = 'Checkout hit a snag — try again in a moment.'; }
+  };
+  document.body.appendChild(ov);
+}
+
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   document.getElementById('profilePop')?.classList.remove('open'); // don't leave the menu open behind the overlay
@@ -2399,6 +2473,10 @@ function openCredits(topupsOnly) {
         '<p class="up-sub">Fresh credits every month at a better rate than one-time top-ups — unused credits roll over, and you can cancel anytime.</p>' +
       '</div>' +
       '<div class="up-grid">' + cards + '</div>' +
+      '<div class="up-addon" id="upAddon">' +
+        '<div class="up-addon-txt"><b>✦ AI Orchestrator</b><span>Add-on — let isibi write your prompts, pick models &amp; research. $19.99/mo, at cost.</span></div>' +
+        '<button type="button" class="up-addon-buy">Add for $19.99 →</button>' +
+      '</div>' +
       '<div class="cp-note up-note" id="cpNote"></div>' +
       '<div class="up-trust"><span>Secure checkout</span><span>Cancel anytime</span><span>Every model included</span><span>Credits roll over</span></div>' +
       '<div class="up-topnote">Just need a one-off? <button type="button" class="up-topup-link">Grab a one-time top-up →</button></div>';
@@ -2407,6 +2485,8 @@ function openCredits(topupsOnly) {
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   const topupLink = ov.querySelector('.up-topup-link');
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
+  const addonBuy = ov.querySelector('.up-addon-buy');
+  if (addonBuy) addonBuy.onclick = () => { ov.remove(); openOrchestratorUpsell(); };
   const heroCta = ov.querySelector('.up-hero-cta');
   if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
   // Live launch-offer countdown; the interval dies with the overlay.
@@ -2900,6 +2980,9 @@ async function directorAsk(text, history, onDelta) {
         ...directorContext(), ...(await directorImage()),
       }),
     });
+    // 402 = no active add-on / monthly budget spent → mark exhausted so the rest
+    // of the session goes raw without another round-trip, then fall back locally.
+    if (res.status === 402) { orchSub.exhausted = true; renderOrchSwitch(); renderEffortLock(); }
     if (!res.ok) throw 0;
     // Streamed reply: render deltas live, then return the final payload.
     if ((res.headers.get('content-type') || '').includes('text/event-stream') && res.body) {
@@ -3236,8 +3319,9 @@ function send(fromButton) {
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
   if (promptless) { generateMedia(text); return; }
-  // Raw mode: no director — the words go to the model exactly as typed.
-  if (directorMode === 'off') { generateMedia(text); return; }
+  // Raw prompting — words go to the model exactly as typed — when the user turned
+  // the orchestrator off OR they don't have the add-on (or its budget is spent).
+  if (directorMode === 'off' || !orchActive()) { generateMedia(text); return; }
   startDirector(text);
 }
 
@@ -3496,6 +3580,7 @@ function enterApp() {
   pullChats();
   pullMemory();
   fetchCredits();
+  fetchOrchestrator();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
   resumeJobs();
