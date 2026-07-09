@@ -2424,57 +2424,81 @@
   transform: translateY(-3px); border-color: rgba(255, 184, 77, .28);
   box-shadow: 0 18px 44px -22px rgba(255, 121, 198, .5);
 }
-/* The badge is drawn entirely in CSS + SVG (no image), so it's razor-sharp,
-   fully themeable, and has no baked background to fight. It hangs from its
-   lanyard and gently sways. The stage carries the pink→amber glow. */
+/* The badge is drawn entirely in CSS + SVG (no image): razor-sharp, themeable,
+   and no baked background to fight. Glassy lit card, carbon-weave header, a
+   volumetric glowing figure that emerges from the card, hung from a woven
+   lanyard that gently sways. The stage carries the pink→amber glow. */
 .addon-env-badge {
   position: relative; display: grid; place-items: start center; margin-bottom: .35rem;
-  padding: .2rem .5rem 1rem; border-radius: 16px; overflow: visible;
-  background: radial-gradient(56% 52% at 50% 46%, rgba(255, 121, 198, .22), rgba(255, 184, 77, .09) 55%, transparent 76%);
+  padding: .1rem .5rem 1.2rem; border-radius: 16px; overflow: visible;
+  background: radial-gradient(54% 50% at 50% 48%, rgba(255, 121, 198, .22), rgba(255, 184, 77, .10) 52%, transparent 74%);
 }
 .idb {
-  --w: 168px; display: flex; flex-direction: column; align-items: center;
-  transform-origin: 50% 0; animation: idb-sway 5s ease-in-out infinite; will-change: transform;
+  --w: 178px; display: flex; flex-direction: column; align-items: center;
+  transform-origin: 50% 0; animation: idb-sway 5.2s ease-in-out infinite; will-change: transform;
 }
-.idb.b { animation-delay: -2.6s; animation-duration: 5.6s; }
+.idb.b { animation-delay: -2.7s; animation-duration: 5.8s; }
 .idb-strap {
-  width: 16px; height: 40px; border-radius: 3px;
-  background: repeating-linear-gradient(45deg, #2b2b33 0 3px, #232329 3px 6px);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .05);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%);
-          mask-image: linear-gradient(to bottom, transparent, #000 30%);
+  width: 17px; height: 46px; border-radius: 3px; position: relative;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, .06) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(46deg, #33333c 0 3px, #26262d 3px 6px);
+  box-shadow: inset 1px 0 0 rgba(255, 255, 255, .06), inset -1px 0 0 rgba(0, 0, 0, .5);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 26%);
+          mask-image: linear-gradient(to bottom, transparent, #000 26%);
 }
 .idb-clip {
-  width: 34px; height: 16px; margin-top: -2px; border-radius: 5px; position: relative; z-index: 2;
-  background: linear-gradient(#c9ccd4, #7c7f89 55%, #4a4c54); box-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  width: 30px; height: 15px; margin-top: -3px; border-radius: 5px; position: relative; z-index: 3;
+  background: linear-gradient(150deg, #e7e9ef, #9a9da6 42%, #63656e 60%, #3f4048);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .55), inset 0 1px 0 rgba(255, 255, 255, .6);
 }
 .idb-clip::after {
-  content: ''; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 18px; height: 5px; border-radius: 3px; background: #2a2b31;
+  content: ''; position: absolute; left: 50%; top: 52%; transform: translate(-50%, -50%);
+  width: 15px; height: 4px; border-radius: 3px; background: #212228; box-shadow: inset 0 1px 1px rgba(0, 0, 0, .9);
 }
 .idb-card {
-  width: var(--w); height: calc(var(--w) * 1.42); margin-top: -4px; border-radius: 14px;
+  width: var(--w); height: calc(var(--w) * 1.46); margin-top: -4px; border-radius: 16px;
   position: relative; overflow: hidden;
-  background: linear-gradient(180deg, #14141a, #0e0e13 62%, #0b0b10);
-  border: 1px solid rgba(255, 255, 255, .09);
-  box-shadow: 0 20px 40px -18px rgba(0, 0, 0, .7), inset 0 1px 0 rgba(255, 255, 255, .06);
+  background:
+    radial-gradient(120% 75% at 50% 0%, rgba(255, 255, 255, .07), transparent 42%),
+    radial-gradient(78% 52% at 50% 64%, rgba(255, 121, 198, .12), transparent 72%),
+    linear-gradient(163deg, #24242c 0%, #17171d 46%, #0e0e13 100%);
+  border: 1px solid rgba(255, 255, 255, .11);
+  box-shadow: 0 28px 52px -22px rgba(0, 0, 0, .78), inset 0 1px 0 rgba(255, 255, 255, .10), inset 0 -34px 44px -34px rgba(0, 0, 0, .7);
 }
-.idb-card::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 20%;
-  background: repeating-linear-gradient(-45deg, #1c1c22 0 3px, #17171c 3px 6px);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
+.idb-card::before { /* carbon-weave header */
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 19%; z-index: 2;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, .045) 0 2px, transparent 2px 5px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, .5) 0 2px, transparent 2px 5px),
+    linear-gradient(#1d1d24, #15151b);
+  border-bottom: 1px solid rgba(255, 255, 255, .07); box-shadow: 0 2px 6px rgba(0, 0, 0, .4);
+}
+.idb-card::after { /* dotted security texture, faded toward the edges */
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, .055) 1px, transparent 1.5px); background-size: 9px 9px; opacity: .6;
+  -webkit-mask-image: radial-gradient(78% 66% at 50% 56%, #000, transparent 76%);
+          mask-image: radial-gradient(78% 66% at 50% 56%, #000, transparent 76%);
 }
 .idb-slot {
-  position: absolute; top: 7px; left: 50%; transform: translateX(-50%); z-index: 2;
-  width: 34px; height: 7px; border-radius: 4px; background: #050507; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .8);
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 3;
+  width: 32px; height: 6px; border-radius: 4px; background: #050507; box-shadow: inset 0 1px 2px rgba(0, 0, 0, .9), 0 1px 0 rgba(255, 255, 255, .06);
+}
+.idb-sheen { /* glossy diagonal highlight */
+  position: absolute; inset: 0; z-index: 2; pointer-events: none; border-radius: 16px;
+  background: linear-gradient(122deg, transparent 30%, rgba(255, 255, 255, .09) 44%, rgba(255, 255, 255, .02) 50%, transparent 60%);
 }
 .idb-label {
-  position: absolute; top: 24%; left: 0; right: 0; text-align: center; z-index: 2;
-  font-size: .62rem; font-weight: 600; letter-spacing: .04em; color: rgba(237, 234, 243, .82);
+  position: absolute; top: 23.5%; left: 0; right: 0; text-align: center; z-index: 3;
+  font-size: .6rem; font-weight: 600; letter-spacing: .05em; color: rgba(237, 234, 243, .85); text-shadow: 0 1px 3px rgba(0, 0, 0, .6);
+}
+.idb-glow { /* internal bloom behind the figure */
+  position: absolute; left: 50%; bottom: 3%; transform: translateX(-50%); width: 80%; height: 60%; z-index: 1; pointer-events: none;
+  background: radial-gradient(48% 52% at 50% 44%, rgba(226, 232, 255, .55), rgba(196, 210, 255, .14) 44%, transparent 70%); filter: blur(3px);
 }
 .idb-fig {
-  position: absolute; left: 50%; bottom: -2%; transform: translateX(-50%); width: 74%; z-index: 1;
-  filter: drop-shadow(0 0 7px rgba(255, 255, 255, .55)) drop-shadow(0 0 20px rgba(255, 121, 198, .4)) drop-shadow(0 0 30px rgba(255, 184, 77, .22));
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 76%; z-index: 1;
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, .5)) drop-shadow(0 0 18px rgba(255, 121, 198, .4)) drop-shadow(0 0 30px rgba(255, 184, 77, .2));
 }
 .idb-fig svg { display: block; width: 100%; }
 @keyframes idb-sway { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
