@@ -1226,10 +1226,22 @@ const SB_FILTER_CSS = {
   vivid: 'saturate(1.65) contrast(1.08)',
 };
 const SB_SPEED_OPTS = [0.25, 0.5, 1, 1.5, 2, 4];
-function sbFilterStr(s) { return (s && s.filter && SB_FILTER_CSS[s.filter]) || 'none'; }
+// Named look + color-correction combined into one string, valid for CSS and canvas.
+function sbFilterStr(s) {
+  const parts = [];
+  if (s && s.filter && SB_FILTER_CSS[s.filter]) parts.push(SB_FILTER_CSS[s.filter]);
+  const a = s && s.adj;
+  if (a) {
+    if (a.br != null && a.br !== 1) parts.push('brightness(' + a.br + ')');
+    if (a.con != null && a.con !== 1) parts.push('contrast(' + a.con + ')');
+    if (a.sat != null && a.sat !== 1) parts.push('saturate(' + a.sat + ')');
+  }
+  return parts.join(' ') || 'none';
+}
 function sbClipVol(s) { return s.muted ? 0 : (s.volume != null ? s.volume : 1); }
+function sbAdjOn(a) { return !!(a && ((a.br != null && a.br !== 1) || (a.con != null && a.con !== 1) || (a.sat != null && a.sat !== 1))); }
 function sbClipHasAdjust(s) {
-  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1)));
+  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj)));
 }
 // Push the selected clip's look / speed / volume onto the live preview <video>.
 function sbApplyPreview(s) {
@@ -1262,6 +1274,15 @@ function sbRenderAdjust() {
   } else if (sbAdjTool === 'speed') {
     html = '<div class="adj-title">Speed</div><div class="adj-speeds">' +
       SB_SPEED_OPTS.map((sp) => '<button class="adj-s' + ((s.speed || 1) === sp ? ' on' : '') + '" data-s="' + sp + '">' + sp + '×</button>').join('') + '</div>';
+  } else if (sbAdjTool === 'adjust') {
+    const a = s.adj || {};
+    const row = (key, label, val) => {
+      const v = Math.round((val != null ? val : 1) * 100);
+      return '<div class="adj-row"><label>' + label + ' · <b>' + v + '%</b></label>' +
+        '<input type="range" class="adj-r" data-adj="' + key + '" min="50" max="150" value="' + v + '" /></div>';
+    };
+    html = '<div class="adj-title">Color <button class="adj-reset" data-reset="1">Reset</button></div>' +
+      row('br', 'Brightness', a.br) + row('con', 'Contrast', a.con) + row('sat', 'Saturation', a.sat);
   } else if (sbAdjTool === 'volume') {
     const vol = Math.round(sbClipVol(s) * 100);
     html = '<div class="adj-title">Volume · <b id="adjVolVal">' + vol + '%</b></div><input type="range" class="adj-vol" min="0" max="100" value="' + vol + '" />';
@@ -1269,8 +1290,17 @@ function sbRenderAdjust() {
   pop.innerHTML = html;
   pop.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => sbSetClipFilter(b.dataset.f); });
   pop.querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => sbSetClipSpeed(parseFloat(b.dataset.s)); });
+  pop.querySelectorAll('[data-adj]').forEach((r) => { r.oninput = () => sbSetClipAdjust(r.dataset.adj, parseInt(r.value, 10) / 100, r); });
+  const rst = pop.querySelector('[data-reset]');
+  if (rst) rst.onclick = () => { const sh = sbShot(sbSelected); if (sh) { sh.adj = null; sbSave(); sbApplyPreview(sh); sbRenderAdjust(); } };
   const vr = pop.querySelector('.adj-vol');
   if (vr) vr.oninput = () => { const val = parseInt(vr.value, 10); const lab = document.getElementById('adjVolVal'); if (lab) lab.textContent = val + '%'; sbSetClipVolume(val / 100); };
+}
+function sbSetClipAdjust(key, val, rangeEl) {
+  const s = sbShot(sbSelected); if (!s) return;
+  s.adj = s.adj || {}; s.adj[key] = val;
+  sbSave(); sbApplyPreview(s);
+  if (rangeEl) { const lab = rangeEl.parentElement.querySelector('b'); if (lab) lab.textContent = Math.round(val * 100) + '%'; }
 }
 function sbSetClipFilter(k) { const s = sbShot(sbSelected); if (!s) return; s.filter = k === 'none' ? null : k; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
 function sbSetClipSpeed(sp) { const s = sbShot(sbSelected); if (!s) return; s.speed = sp === 1 ? null : sp; sbSave(); sbApplyPreview(s); sbRender(); }

@@ -1387,6 +1387,13 @@
 .adj-s:hover { border-color: #4a4a52; }
 .adj-s.on { color: #0a0a0b; background: var(--split); border-color: transparent; font-weight: 700; }
 .adj-vol { width: 100%; accent-color: var(--neon); cursor: pointer; }
+.adj-row { margin-bottom: .55rem; }
+.adj-row:last-child { margin-bottom: 0; }
+.adj-row label { display: block; font-size: .68rem; color: var(--muted); margin-bottom: .22rem; }
+.adj-row label b { color: var(--neon); }
+.adj-r { width: 100%; accent-color: var(--neon); cursor: pointer; }
+.adj-reset { float: right; background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 6px; font-size: .6rem; padding: .12rem .42rem; cursor: pointer; font-family: inherit; }
+.adj-reset:hover { color: var(--text); border-color: #4a4a52; }
 .preview-stage {
   flex: 1; min-height: 0; border-radius: 12px; border: 1px solid var(--line);
   background: radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, .04), transparent 60%), #000;
