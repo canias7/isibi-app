@@ -289,6 +289,19 @@ function sbRender() {
     track.appendChild(inner);
     const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
 
+    // Time ruler: mm:ss ticks across the top, shared with every lane below.
+    const ruler = document.createElement('div');
+    ruler.className = 'tl-ruler';
+    const step = total <= 12 ? 1 : total <= 45 ? 5 : total <= 120 ? 10 : 30;
+    for (let t = 0; t <= total + 0.001; t += step) {
+      const tick = document.createElement('span');
+      tick.className = 'tl-tick';
+      tick.style.left = Math.min(100, t / total * 100) + '%';
+      tick.textContent = sbFmt(t);
+      ruler.appendChild(tick);
+    }
+    inner.appendChild(ruler);
+
     // Video lane: clips butt together, positioned by time so they line up with
     // the audio lanes below.
     const vlane = document.createElement('div');
