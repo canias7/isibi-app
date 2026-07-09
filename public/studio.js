@@ -13,6 +13,7 @@ let sbBusy = false;         // an export or generation batch is running
 let sbZoomLevel = 1;        // timeline zoom (1 = fit; >1 scrolls)
 let sbTitleState = null;    // {id, elapsed} while a title card is "playing"
 let sbTitleRAF = 0;
+let sbTab = 'shots';        // asset browser tab: shots | transitions | titles | backgrounds
 
 // Account switched on this browser (expired session → different login without
 // a reload): drop the previous user's projects from memory and rebuild from
@@ -319,7 +320,11 @@ function sbRender() {
         '<span class="sb-trim r" title="Trim the end"></span>';
       block.querySelector('.cl-dur').textContent = (Math.round(sbShotDur(s) * 10) / 10) + 's';
       block.querySelector('.cl-name').textContent = isTitle ? '' : (s.src === 'import' ? 'Clip ' + n : (s.title || 'Shot ' + n));
-      if (isTitle) block.querySelector('.sb-titletext').textContent = s.text || 'Title';
+      if (isTitle) {
+        const tt = block.querySelector('.sb-titletext');
+        tt.textContent = s.text || '';
+        tt.style.color = sbTitleInk(s);
+      }
       block.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
       block.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
       const mute = block.querySelector('.sb-cmute');
@@ -371,6 +376,7 @@ function sbRender() {
   sbMusicLoad();
   sbVoiceLoad();
   sbRenderStyleControls();
+  sbRenderBrowser();
 }
 
 // One audio lane (music or voice) drawn as a waveform clip from the film start,
@@ -797,7 +803,7 @@ function sbAddTitle() {
   const t = {
     id: sbUid('s'), title: 'Title', text: String(text).slice(0, 120) || 'Title',
     prompt: '', status: 'ready', src: 'title', onTimeline: true,
-    dur: 3, in: 0, out: 3, srcDur: 3, bg: 'linear-gradient(135deg,#ff79c6,#ffb84d)',
+    dur: 3, in: 0, out: 3, srcDur: 3, g0: '#ff79c6', g1: '#ffb84d', bg: sbGrad('#ff79c6', '#ffb84d'),
   };
   proj.shots.push(t);
   sbSave(); sbRender(); sbSelect(t.id);
@@ -815,19 +821,36 @@ function sbEditTitle(id) {
 function sbShowTitleCard(s) {
   const stage = document.getElementById('previewStage');
   if (!stage) return;
-  stage.innerHTML = '<div class="preview-title" style="background:' + (s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)') + '"><span></span></div>';
-  stage.querySelector('.preview-title span').textContent = s.text || 'Title';
+  stage.innerHTML = '<div class="preview-title" style="background:' + (s.bg || sbGrad('#ff79c6', '#ffb84d')) + ';color:' + sbTitleInk(s) + '"><span></span></div>';
+  stage.querySelector('.preview-title span').textContent = s.text || '';
 }
-// Draw a title card onto the export canvas (word-wrapped, centered).
+// Relative luminance of a #hex colour (0..1), for picking readable ink.
+function sbHexLum(h) {
+  h = String(h || '').replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) || 0, g = parseInt(h.slice(2, 4), 16) || 0, b = parseInt(h.slice(4, 6), 16) || 0;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+// White ink on dark title/background gradients, near-black on light ones.
+function sbTitleInk(s) {
+  const l = (sbHexLum(s.g0 || '#ff79c6') + sbHexLum(s.g1 || '#ffb84d')) / 2;
+  return l < 0.52 ? '#ffffff' : '#0b0b10';
+}
+function sbGrad(a, b) { return 'linear-gradient(135deg,' + a + ',' + b + ')'; }
+
+// Draw a title/background card onto the export canvas (word-wrapped, centered).
+// A background clip carries an empty text and paints the gradient only.
 function sbPaintTitle(ctx, W, H, s) {
   const g = ctx.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, '#ff79c6'); g.addColorStop(1, '#ffb84d');
+  g.addColorStop(0, s.g0 || '#ff79c6'); g.addColorStop(1, s.g1 || '#ffb84d');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#0b0b10';
+  const txt = String(s.text || '').trim();
+  if (!txt) return; // background: gradient only
+  ctx.fillStyle = sbTitleInk(s);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const fs = Math.round(H * 0.12);
   ctx.font = '700 ' + fs + "px 'Space Grotesk', Inter, sans-serif";
-  const words = String(s.text || 'Title').split(/\s+/);
+  const words = txt.split(/\s+/);
   const lines = []; let line = '';
   for (const w of words) {
     const test = line ? line + ' ' + w : w;
@@ -837,6 +860,127 @@ function sbPaintTitle(ctx, W, H, s) {
   if (line) lines.push(line);
   const lh = fs * 1.2, y0 = H / 2 - (lines.length - 1) * lh / 2;
   lines.forEach((ln, i) => ctx.fillText(ln, W / 2, y0 + i * lh));
+}
+
+// ── Asset browser: Shots · Transitions · Titles · Backgrounds ────────────────
+// The middle column doubles as an iMovie-style browser. "Shots" is the
+// storyboard; the other tabs are draggable-free click-to-add grids.
+const SB_BROWSER_TABS = [
+  { k: 'shots', label: 'Shots' },
+  { k: 'transitions', label: 'Transitions' },
+  { k: 'titles', label: 'Titles' },
+  { k: 'backgrounds', label: 'Backgrounds' },
+];
+// Only transitions the exporter actually renders (applied film-wide).
+const SB_TRANSITIONS = [
+  { k: 'none', label: 'None', kind: 'cut' },
+  { k: 'crossfade', label: 'Cross Dissolve', kind: 'xfade' },
+  { k: 'dip', label: 'Dip to Black', kind: 'dip' },
+];
+const SB_TITLE_PRESETS = [
+  { k: 'sunset', label: 'Sunset', g0: '#ff79c6', g1: '#ffb84d' },
+  { k: 'grape', label: 'Grape', g0: '#a06cff', g1: '#ff79c6' },
+  { k: 'ocean', label: 'Ocean', g0: '#3ec6ff', g1: '#8a7bff' },
+  { k: 'mint', label: 'Mint', g0: '#34d399', g1: '#3ec6ff' },
+  { k: 'ember', label: 'Ember', g0: '#ff7a5b', g1: '#ff2d78' },
+  { k: 'mono', label: 'Mono', g0: '#20202a', g1: '#0b0b10' },
+];
+const SB_BG_PRESETS = [
+  { k: 'black', label: 'Black', g0: '#0b0b10', g1: '#0b0b10' },
+  { k: 'white', label: 'White', g0: '#f4f4f8', g1: '#e7e7ee' },
+  { k: 'sunset', label: 'Sunset', g0: '#ff79c6', g1: '#ffb84d' },
+  { k: 'ocean', label: 'Ocean', g0: '#3ec6ff', g1: '#8a7bff' },
+  { k: 'grape', label: 'Grape', g0: '#a06cff', g1: '#ff79c6' },
+  { k: 'forest', label: 'Forest', g0: '#34d399', g1: '#0e7d5a' },
+  { k: 'slate', label: 'Slate', g0: '#3a3a46', g1: '#1a1a22' },
+  { k: 'gold', label: 'Gold', g0: '#ffd76b', g1: '#f0932b' },
+];
+
+function sbSetTab(t) {
+  sbTab = SB_BROWSER_TABS.some((x) => x.k === t) ? t : 'shots';
+  sbRenderBrowser();
+}
+function sbRenderBrowser() {
+  const tabsEl = document.getElementById('sbBrowserTabs');
+  if (tabsEl) {
+    tabsEl.innerHTML = '';
+    SB_BROWSER_TABS.forEach((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mb-tab' + (t.k === sbTab ? ' active' : '');
+      b.textContent = t.label;
+      b.onclick = () => sbSetTab(t.k);
+      tabsEl.appendChild(b);
+    });
+  }
+  const onShots = sbTab === 'shots';
+  const list = document.getElementById('sbList');
+  const actions = document.getElementById('sbActions');
+  const browser = document.getElementById('sbBrowser');
+  if (list) list.hidden = !onShots;
+  if (actions) actions.style.display = onShots ? '' : 'none';
+  if (!browser) return;
+  browser.hidden = onShots;
+  if (onShots) return;
+  const proj = sbProject();
+  browser.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'mb-grid';
+  if (sbTab === 'transitions') {
+    const note = document.createElement('div');
+    note.className = 'mb-note'; note.textContent = 'Applied between every clip in the film.';
+    browser.appendChild(note);
+    SB_TRANSITIONS.forEach((tr) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'mb-item' + ((proj.transition || 'none') === tr.k ? ' active' : '');
+      item.innerHTML = '<span class="mb-prev mb-tr mb-tr-' + tr.kind + '"></span><span class="mb-label">' + tr.label + '</span>';
+      item.onclick = () => {
+        sbSetTransition(tr.k); sbRenderBrowser();
+        sbStudioNote(tr.k === 'none' ? 'Transitions off — hard cuts between clips.' : tr.label + ' between every clip.');
+      };
+      grid.appendChild(item);
+    });
+  } else if (sbTab === 'titles') {
+    SB_TITLE_PRESETS.forEach((p) => {
+      const item = document.createElement('button');
+      item.type = 'button'; item.className = 'mb-item';
+      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '"><b style="color:' + sbTitleInk(p) + '">Title</b></span><span class="mb-label">' + p.label + '</span>';
+      item.onclick = () => sbAddTitlePreset(p);
+      grid.appendChild(item);
+    });
+  } else if (sbTab === 'backgrounds') {
+    SB_BG_PRESETS.forEach((p) => {
+      const item = document.createElement('button');
+      item.type = 'button'; item.className = 'mb-item';
+      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '"></span><span class="mb-label">' + p.label + '</span>';
+      item.onclick = () => sbAddBackground(p);
+      grid.appendChild(item);
+    });
+  }
+  browser.appendChild(grid);
+}
+function sbAddTitlePreset(p) {
+  const proj = sbProject();
+  const t = {
+    id: sbUid('s'), title: 'Title', text: 'Title', prompt: '', status: 'ready',
+    src: 'title', onTimeline: true, dur: 3, in: 0, out: 3, srcDur: 3,
+    g0: p.g0, g1: p.g1, bg: sbGrad(p.g0, p.g1),
+  };
+  proj.shots.push(t);
+  sbSave(); sbRender(); sbSelect(t.id);
+  sbStudioNote('Added the ' + p.label + ' title. Double-click it on the timeline to edit the text; drag its edges to change how long it holds.');
+}
+function sbAddBackground(p) {
+  const proj = sbProject();
+  const bgc = {
+    id: sbUid('s'), title: 'Background', text: '', prompt: '', status: 'ready',
+    src: 'title', onTimeline: true, dur: 3, in: 0, out: 3, srcDur: 3,
+    g0: p.g0, g1: p.g1, bg: sbGrad(p.g0, p.g1),
+  };
+  proj.shots.push(bgc);
+  sbSave(); sbRender(); sbSelect(bgc.id);
+  sbStudioNote('Added the ' + p.label + ' background. Drag its edges to change its length.');
 }
 function sbStopTitle() {
   if (sbTitleRAF) { cancelAnimationFrame(sbTitleRAF); sbTitleRAF = 0; }

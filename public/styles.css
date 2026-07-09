@@ -1523,6 +1523,33 @@
 .sb-project option { background: #14121a; color: var(--text); }
 .sb-project option:checked { background: #2a2533; color: #fff; }
 .sb-actions { padding: .6rem; border-top: 1px solid var(--line); }
+/* Asset browser — Shots · Transitions · Titles · Backgrounds */
+.mb-tabs { display: flex; gap: .2rem; flex-wrap: wrap; padding: .5rem .6rem; border-bottom: 1px solid var(--line); }
+.mb-tab {
+  background: transparent; border: none; color: var(--muted); font: inherit; font-weight: 600;
+  font-size: .78rem; padding: .32rem .62rem; border-radius: 8px; cursor: pointer;
+  transition: color .12s ease, background .12s ease;
+}
+.mb-tab:hover { color: var(--text); }
+.mb-tab.active { color: #0a0a0b; background: var(--split); box-shadow: 0 3px 12px rgba(255, 121, 198, .28); }
+.editor-media .media-body[hidden] { display: none; }
+.mb-browser { display: block; overflow-y: auto; padding: .8rem; }
+.mb-note { color: var(--muted); font-size: .72rem; margin-bottom: .7rem; }
+.mb-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .7rem; }
+.mb-item {
+  display: flex; flex-direction: column; gap: .4rem; padding: .35rem; text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 11px; font: inherit;
+  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+}
+.mb-item:hover { background: rgba(255, 255, 255, .04); border-color: var(--line-2); transform: translateY(-2px); }
+.mb-item.active { border-color: rgba(255, 184, 77, .6); background: rgba(255, 184, 77, .08); }
+.mb-prev { aspect-ratio: 16 / 10; border-radius: 8px; overflow: hidden; display: grid; place-items: center; background: #17161d; }
+.mb-prev b { font-size: .82rem; font-weight: 800; }
+.mb-label { font-size: .74rem; font-weight: 600; color: var(--text); }
+/* transition mini-previews (two panels + the transition zone) */
+.mb-tr-cut { background: linear-gradient(90deg, #b57cf0 0 50%, #8ec5ff 50% 100%); }
+.mb-tr-xfade { background: linear-gradient(90deg, #b57cf0 0 30%, #a9a2ea 50%, #8ec5ff 70% 100%); }
+.mb-tr-dip { background: linear-gradient(90deg, #b57cf0 0 28%, #0b0b10 50%, #8ec5ff 72% 100%); }
 .sb-btn { width: 100%; background: none; border: 1px dashed var(--line-2); color: var(--muted); border-radius: 10px; padding: .55rem; cursor: pointer; font-size: .85rem; }
 .sb-btn:hover { color: var(--text); border-color: #4a4a52; }
 .sb-toast {
