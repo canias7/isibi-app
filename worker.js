@@ -107,21 +107,15 @@ const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
 };
 
-// The director's Claude bill, passed through at cost — no markup, profit
-// stays the fal margin alone. Priced at Sonnet 5's STANDARD rates ($3/$15,
-// live from 2026-09-01) so nothing changes when the intro pricing ends:
-// Low/Medium run on Haiku (~$0.005/gen ≈ 1 credit sold), High/Ultra/Max on
-// Sonnet (~$0.017–0.022/gen ≈ 2 credits sold).
-function directorCr(effort, director) {
-  if (director === "off") return 0; // prompt help off — no Claude in the loop
-  return effort === "high" || effort === "ultra" || effort === "max" ? 2 : 1;
-}
-
 // Audio-driven video models (OmniHuman, Kling LipSync) are billed by fal on
 // the driving clip's real length, so we cap and charge by measured seconds.
 const AUDIO_DRIVE_MAX_S = 60;
 
-function creditCost(kind, model, { duration, quality, num, chars, effort, director, audioSeconds }) {
+// Generation credits are now PURE fal cost — the director's Claude bill is no
+// longer folded in here. AI usage is a separate paid product (the AI
+// Orchestrator add-on), metered against its own $19.99 budget, so charging it
+// again on the generation would double-bill.
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -141,7 +135,7 @@ function creditCost(kind, model, { duration, quality, num, chars, effort, direct
       usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
   }
-  return directorCr(effort, director) + Math.max(1, Math.ceil(usd / CREDIT_USD));
+  return Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
 
 // Read the TRUE length (seconds) out of an uploaded audio data URI, so the
@@ -722,6 +716,48 @@ async function storageStatus(request) {
   } catch { return null; }
 }
 
+// ── AI Orchestrator add-on ($19.99/mo, at cost, no roll-over) ────────────────
+// The director (ask/compose/revise/research/error/studio) runs ONLY for members
+// of this add-on. orchestrator_gate() checks entitlement + this month's budget
+// (rolls the month); orchestrator_debit() bills the call's real Claude cost
+// against it. Fails CLOSED — an unverifiable caller falls back to raw prompting,
+// so the paid feature never leaks on a ledger hiccup (raw still generates fine).
+async function orchestratorGate(request) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_gate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: "{}",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch { return false; }
+}
+// Fire-and-forget: debit micro-dollars of AI cost. No-op server-side if lapsed.
+async function orchestratorDebit(request, micros) {
+  if (!(micros > 0)) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_debit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: JSON.stringify({ p_cost_micros: Math.round(micros) }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {}
+}
+// Estimated at-cost price of one director call, in micro-dollars (1e-6 USD).
+// The budget is really an abuse ceiling ($19.99 ≈ thousands of calls), so a
+// per-step estimate keyed to the model that runs it is close enough — Sonnet
+// (High+) and web-search research cost most; Haiku steps are pennies.
+function orchestratorCostMicros(step, effort) {
+  if (step === "research") return 35000; // Sonnet + up to 4 web searches
+  if ((step === "compose" || step === "revise") &&
+      (effort === "high" || effort === "ultra" || effort === "max")) return 25000; // Sonnet
+  if (step === "ask") return 3000; // Haiku, thinking off, ~1.5k tokens
+  return 4000; // Haiku prompt-writing / error / studio
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1113,6 +1149,10 @@ async function handleRequest(request, env, ctx) {
       "75": { cents: 7500, credits: 5350 },
       "100": { cents: 10000, credits: 7140 },
     };
+    // AI Orchestrator add-on — a $19.99/mo subscription, priced AT COST (no
+    // markup). Unlocks the director (chat/prompt-help/effort/research). Grants no
+    // credits: it activates its own budget via set_orchestrator on invoice.paid.
+    const ORCH = { cents: 1999, name: "isibi AI Orchestrator" };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
@@ -1126,22 +1166,25 @@ async function handleRequest(request, env, ctx) {
       }
       const plan = body.plan != null ? PLANS[String(body.plan)] : null;
       const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
-      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const orch = !plan && !topup && body.orchestrator ? ORCH : null;
+      if (!plan && !topup && !orch) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const sub = plan || orch; // both are monthly subscriptions
       const form = new URLSearchParams({
-        mode: plan ? "subscription" : "payment",
+        mode: sub ? "subscription" : "payment",
         success_url: "https://isibi.ai/?credits=added",
         cancel_url: "https://isibi.ai/",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
+        "line_items[0][price_data][unit_amount]": String((plan || topup || orch).cents),
       });
-      if (plan) {
+      if (sub) {
         form.set("line_items[0][price_data][recurring][interval]", "month");
-        form.set("line_items[0][price_data][product_data][name]", plan.name);
-        // Subscription metadata rides along on every invoice, so renewals
-        // know who to credit and how much.
+        form.set("line_items[0][price_data][product_data][name]", sub.name);
+        // Subscription metadata rides along on every invoice, so renewals know
+        // who to grant and what (credits for a plan, orchestrator flag for the add-on).
         form.set("subscription_data[metadata][user_id]", user.id);
-        form.set("subscription_data[metadata][credits]", String(plan.credits));
+        if (plan) form.set("subscription_data[metadata][credits]", String(plan.credits));
+        else form.set("subscription_data[metadata][orchestrator]", "1");
       } else {
         form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
         form.set("metadata[user_id]", user.id);
@@ -1233,8 +1276,23 @@ async function handleRequest(request, env, ctx) {
           {};
         const uid = meta.user_id;
         const credits = Number(meta.credits) || 0;
+        const isOrch = meta.orchestrator === "1" || meta.orchestrator === 1;
         const paid = inv && (inv.status === "paid" || inv.paid === true);
-        if (uid && credits > 0 && paid && inv.id) {
+        // AI Orchestrator sub: activate/extend the add-on on a rolling 32-day
+        // window (grants no credits). Lapses to raw once no invoice renews it.
+        if (uid && isOrch && paid && inv.id) {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_orchestrator`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+            body: JSON.stringify({
+              target: uid,
+              p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
+              mint_key: env.CREDITS_MINT_SECRET,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!r.ok) return Response.json({ error: "orchestrator grant failed" }, { status: 500 });
+        } else if (uid && credits > 0 && paid && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
@@ -1301,10 +1359,33 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // AI Orchestrator status for the client ({active, used, budget, resets_at}).
+    if (url.pathname === "/api/orchestrator" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+          body: "{}",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) throw 0;
+        return Response.json(await r.json());
+      } catch {
+        return Response.json({ error: "orchestrator unavailable" }, { status: 503 });
+      }
+    }
+
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
     if (url.pathname === "/api/direct" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
-      if (!(await useQuota(request, "director", 300))) return QUOTA_EXCEEDED();
+      // The director IS the paid AI Orchestrator add-on. No active sub (or the
+      // monthly at-cost budget is spent) → 402 locked; the client falls back to
+      // raw prompting. This gate also replaces the old per-day director quota —
+      // the $19.99 monthly budget is the cap now.
+      if (!(await orchestratorGate(request))) {
+        return Response.json({ error: "orchestrator required", locked: true }, { status: 402 });
+      }
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
@@ -1321,6 +1402,13 @@ async function handleRequest(request, env, ctx) {
       // ("slower", "fix the text") and the revise step edit surgically.
       const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
       if (step === "revise" && !prevPrompt) step = "compose";
+      // Bill this call's estimated at-cost price against the member's monthly
+      // orchestrator budget (fire-and-forget — the gate above already confirmed
+      // they're a member and under budget). Covers every step incl. research.
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(orchestratorDebit(request, orchestratorCostMicros(
+          step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium")));
+      }
       // Raw pipeline error, for the explain-a-failure step.
       const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
       // The chat's running creative brief — per-chat taste memory, maintained
