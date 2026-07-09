@@ -279,6 +279,8 @@
     flex-direction: column;
     position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
   }
+  /* Nudge the builder conversation column a touch right of centre. */
+  .view-home .thread-inner, .view-home .composer { transform: translateX(22px); }
 }
 .mode-btn {
   background: none; border: none; color: var(--muted);
