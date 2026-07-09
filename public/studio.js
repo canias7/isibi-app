@@ -518,6 +518,65 @@ async function sbApplyTrim(s, startRel, endRel) {
   }
 }
 
+// Swap a shot's source for a freshly-rendered on-device clip (blob), clearing
+// any virtual in/out and marking it a tab-local edited file.
+function sbSwapClip(s, blob, newDur) {
+  const newURL = URL.createObjectURL(blob);
+  if (s.local && typeof s.url === 'string' && s.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(s.url); } catch (e) {}
+  }
+  s.url = newURL; s.in = null; s.out = null;
+  if (newDur != null) s.dur = newDur;
+  s.status = 'ready'; s.edited = true; s.local = true;
+}
+
+// Shared runner for the render-and-swap edits (speed, reframe). `render(onProg)`
+// returns the new clip Blob; `noteDone` builds the success message. Unlike trim
+// there's no virtual fallback — if the editor can't run we just say so.
+async function sbRenderEdit(s, verb, render, newDur, noteDone) {
+  const idx = sbProject().shots.indexOf(s) + 1;
+  if (!s.url || !window.sbFFSupported || !window.sbFFSupported()) {
+    sbStudioNote('The on-device editor can’t run in this browser, so I couldn’t ' + verb + ' shot ' + idx + '.');
+    return;
+  }
+  const prevStatus = s.status;
+  s.status = 'editing'; sbSave(); sbRender();
+  try {
+    const blob = await render((p) => sbStudioProgress('Editing shot ' + idx + '… ' + Math.round(p * 100) + '%'));
+    sbSwapClip(s, blob, newDur);
+    await sbThumb(s).catch(() => {});
+    sbSave(); sbRender();
+    sbStudioNote(noteDone(idx));
+  } catch (e) {
+    console.error('on-device ' + verb + ' failed:', e);
+    s.status = prevStatus; sbSave(); sbRender();
+    sbStudioNote('I couldn’t ' + verb + ' shot ' + idx + ' on-device — ' + String(e.message || e).slice(0, 80) + '.');
+  }
+}
+
+// Retime a shot (2 = twice as fast, 0.5 = slow motion). Applies to the shot's
+// current window (an imported slice's in/out is honored).
+async function sbApplySpeed(s, speed) {
+  const spd = Math.max(0.25, Math.min(4, Number(speed) || 1));
+  const winDur = sbShotDur(s) || 0;
+  const newDur = winDur ? winDur / spd : null;
+  await sbRenderEdit(s, 'change the speed of',
+    (onProgress) => window.sbFFSpeed(s.url, spd, { url: s.url, start: s.in || 0, dur: winDur, onProgress }),
+    newDur,
+    (idx) => (spd >= 1 ? 'Sped shot ' + idx + ' up to ' + spd + '×' : 'Slowed shot ' + idx + ' to ' + spd + '×') +
+      (newDur ? ' — now ' + sbFmt(newDur) : '') + '. Fresh clip in this tab; Export or download to keep it.');
+}
+
+// Re-crop a shot to a target aspect ratio (centered), e.g. 9:16 vertical.
+async function sbApplyReframe(s, aspect) {
+  const asp = /^\d+:\d+$/.test(String(aspect)) ? String(aspect) : '9:16';
+  const winDur = sbShotDur(s) || 0;
+  await sbRenderEdit(s, 'reframe',
+    (onProgress) => window.sbFFReframe(s.url, asp, { url: s.url, start: s.in || 0, dur: winDur, onProgress }),
+    winDur || null,
+    (idx) => 'Reframed shot ' + idx + ' to ' + asp + '. Fresh clip in this tab; Export or download to keep it.');
+}
+
 // Resolve when the video seeks, but never hang: a decode error or a stalled
 // source that emits no event would otherwise leave the caller awaiting forever.
 function sbSeek(v, time) {
@@ -726,7 +785,7 @@ async function studioSend() {
     if (data.reply) sbStudioNote(data.reply);
     if (data.brief) { proj.brief = String(data.brief).slice(0, 600); }
     const toGenerate = [];
-    const toTrim = [];
+    const edits = [];
     for (const a of Array.isArray(data.actions) ? data.actions : []) {
       if (a.type === 'add_shots' && Array.isArray(a.shots)) {
         for (const ns of a.shots.slice(0, 12)) {
@@ -744,9 +803,12 @@ async function studioSend() {
           if (a.prompt) { s.prompt = String(a.prompt).slice(0, 1200); if (s.src !== 'import') { s.status = 'draft'; } }
           if (a.title) s.title = String(a.title).slice(0, 60);
           if (a.duration) s.dur = Math.max(3, Math.min(12, Number(a.duration)));
+          // On-device edits (rendered after the loop, in the order listed).
           if (a.trim && s.url) {
-            toTrim.push({ s, start: Number(a.trim.start) || 0, end: a.trim.end != null ? Number(a.trim.end) : null });
+            edits.push({ op: 'trim', s, start: Number(a.trim.start) || 0, end: a.trim.end != null ? Number(a.trim.end) : null });
           }
+          if (a.speed && s.url) edits.push({ op: 'speed', s, speed: Number(a.speed) });
+          if (a.reframe && s.url) edits.push({ op: 'reframe', s, aspect: String(a.reframe) });
         }
       } else if (a.type === 'remove_shot') {
         const s = proj.shots[a.n - 1];
@@ -765,8 +827,12 @@ async function studioSend() {
       }
     }
     sbSave(); sbRender();
-    // Real on-device trims first (ffmpeg loads once, ops are serialized).
-    for (const t of toTrim) await sbApplyTrim(t.s, t.start, t.end);
+    // Real on-device edits first (ffmpeg loads once, ops are serialized).
+    for (const e of edits) {
+      if (e.op === 'trim') await sbApplyTrim(e.s, e.start, e.end);
+      else if (e.op === 'speed') await sbApplySpeed(e.s, e.speed);
+      else if (e.op === 'reframe') await sbApplyReframe(e.s, e.aspect);
+    }
     // Generate sequentially so last-frame chaining sees each finished shot.
     for (const s of toGenerate) await sbGenerateShot(s);
   } catch (e) {
