@@ -2224,7 +2224,23 @@ Context: ${ctxLine}`
       // streaming path we trust the upstream Content-Length. Reject when the new
       // object would push the user past their GB cap.
       if (store && store.cap > 0) {
-        const newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
+        let newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
+        // Streaming save whose upstream sent no Content-Length (chunked): the
+        // size reads as 0 and would skip the cap entirely. Measure it by
+        // buffering up to the remaining space (bounded by a hard ceiling so a
+        // length-less body can't OOM the isolate), then store the measured bytes
+        // instead of the already-consumed stream.
+        if (!bytes && media && newSize <= 0) {
+          const HARD_MAX = 314_572_800; // 300MB absolute per-file ceiling
+          const remaining = store.cap - store.used;
+          const buffered = await readCapped(media, Math.min(remaining, HARD_MAX) + 1);
+          media = null;
+          if (buffered.length > remaining || buffered.length > HARD_MAX) {
+            return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
+          }
+          bytes = buffered;
+          newSize = buffered.length;
+        }
         if (store.used + newSize > store.cap) {
           return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
         }

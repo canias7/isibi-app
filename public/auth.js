@@ -91,25 +91,45 @@ const Auth = (() => {
   let refreshing = null;
   async function refresh() {
     if (!session || !session.refresh_token) return null;
-    if (refreshing) return refreshing;
-    const rt = session.refresh_token;
+    if (refreshing) return refreshing;             // per-tab guard (fast path)
     refreshing = (async () => {
       try {
-        return adopt(await gotrue('token?grant_type=refresh_token', { refresh_token: rt }));
-      } catch (e) {
-        // Only a genuine auth rejection (GoTrue HTTP error) invalidates the
-        // session. A network failure (fetch throws a TypeError) leaves it
-        // intact so a later call can retry instead of hard-signing-out.
-        if (e && e.name === 'TypeError') return null;
-        // Another tab may have rotated the token while this refresh was in
-        // flight — then GoTrue rejects our now-stale `rt` as reuse, but the
-        // session in storage is the fresh valid one. Don't wipe it.
-        if (session && session.refresh_token && session.refresh_token !== rt) return null;
-        saveSession(null);
-        return null;
+        // Cross-tab mutex: two tabs refreshing with the same rotating token trips
+        // GoTrue's reuse-detection and revokes the whole family (signs the user
+        // out everywhere). navigator.locks serializes across tabs; where it's
+        // unavailable the per-tab guard alone still holds within a tab.
+        if (navigator.locks && navigator.locks.request) {
+          return await navigator.locks.request('zephyr-token-refresh', doRefresh);
+        }
+        return await doRefresh();
       } finally { refreshing = null; }
     })();
     return refreshing;
+  }
+  async function doRefresh() {
+    // Inside the lock, re-read storage: another tab may have just rotated the
+    // token, making ours stale. Adopt the stored session, and if its access token
+    // still has real life left, that tab already refreshed — skip the network
+    // round-trip (and the reuse it would trigger) entirely.
+    const stored = loadSession();
+    if (stored && stored.refresh_token) session = stored;
+    if (!session || !session.refresh_token) return null;
+    if (session.expires_at && session.expires_at - Date.now() > 60_000) return session;
+    const rt = session.refresh_token;
+    try {
+      return adopt(await gotrue('token?grant_type=refresh_token', { refresh_token: rt }));
+    } catch (e) {
+      // Only a genuine auth rejection (GoTrue HTTP error) invalidates the
+      // session. A network failure (fetch throws a TypeError) leaves it intact
+      // so a later call can retry instead of hard-signing-out.
+      if (e && e.name === 'TypeError') return null;
+      // The token was rotated (by us or another tab) while this was in flight —
+      // GoTrue rejects our now-stale `rt` as reuse, but the stored session is the
+      // fresh valid one. Don't wipe it.
+      if (session && session.refresh_token && session.refresh_token !== rt) return null;
+      saveSession(null);
+      return null;
+    }
   }
 
   // Another tab may rotate the token, sign in, or sign out. Adopt its session

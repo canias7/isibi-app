@@ -5,6 +5,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Least privilege: the deploy only reads the repo; Cloudflare auth is via secrets,
+# not GITHUB_TOKEN. Stops a compromised action in the job from writing to the repo.
+permissions:
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

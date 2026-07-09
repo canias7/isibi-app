@@ -1732,14 +1732,23 @@ function buildMedia(kind, url, prompt) {
 // the gallery bucket too — RLS only lets users delete their own files.
 async function deleteMedia(el, url) {
   if (!confirm('Delete this from your chat and gallery?')) return;
+  // Delete the stored file FIRST — only clear it from the chat/UI once we know
+  // it's actually gone. Otherwise a failed storage delete leaves the file in the
+  // bucket (still counting against the storage cap) while the UI says it's gone.
+  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+  if (m && window.Auth) {
+    try { await Auth.storageDelete(m[1]); }
+    catch {
+      alert('Couldn’t remove this from your gallery just now — it’s still there. Check your connection and try again.');
+      return;
+    }
+  }
   el.remove();
   const chat = activeChat();
   if (chat) {
-    const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
+    const i = chat.msgs.findIndex((mm) => mm.t === 'media' && mm.url === url);
     if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
   }
-  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-  if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
 }
 
 async function downloadMedia(url, kind) {
