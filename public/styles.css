@@ -1300,7 +1300,7 @@
 
 /* ── Studio: chat + iMovie-style editor ── */
 .studio-chat {
-  flex: 0 0 31%; max-width: 460px; min-width: 330px;
+  flex: 0 0 35%; max-width: 500px; min-width: 360px;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--line);
   background: rgba(255, 255, 255, .03);
