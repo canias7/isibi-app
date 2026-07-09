@@ -358,6 +358,24 @@ function sbRender() {
         mute.addEventListener('click', (e) => { e.stopPropagation(); sbToggleClipMute(s.id); });
       }
       if (isTitle) block.addEventListener('dblclick', (e) => { e.stopPropagation(); sbEditTitle(s.id); });
+      // Keyboard access: focusable, labeled, operable without a mouse.
+      // Enter/Space selects & previews · Delete removes from the timeline ·
+      // Alt+←/→ reorders. (Trim stays pointer-only for now.)
+      block.tabIndex = 0;
+      block.setAttribute('role', 'button');
+      block.dataset.sid = s.id;
+      block.setAttribute('aria-label',
+        (isTitle ? 'Title card' + (s.text ? ': ' + s.text : '') : (s.src === 'import' ? 'Clip ' + n : (s.title || 'Shot ' + n)))
+        + ', ' + (Math.round(sbShotDur(s) * 10) / 10) + ' seconds' + (s.id === sbSelected ? ', selected' : ''));
+      block.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sbSelect(s.id); }
+        else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); sbToggleTimeline(s.id); }
+        else if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+          e.preventDefault();
+          const idx = tl.indexOf(s), nb = e.key === 'ArrowRight' ? tl[idx + 1] : tl[idx - 1];
+          if (nb) { sbMoveShot(s.id, nb.id); const el = document.querySelector('.sb-block[data-sid="' + s.id + '"]'); if (el) el.focus(); }
+        }
+      });
       vlane.appendChild(block);
     });
 
@@ -469,6 +487,22 @@ function sbAudioLane(inner, tr, kind, total) {
   clip.querySelector('.tl-fadedot.l').addEventListener('pointerdown', (e) => sbAudioFade(e, tr, 'l', total));
   clip.querySelector('.tl-fadedot.r').addEventListener('pointerdown', (e) => sbAudioFade(e, tr, 'r', total));
   clip.addEventListener('pointerdown', (e) => sbAudioDrag(e, tr, kind, total));
+  // Keyboard access: focusable, labeled. Delete removes · Alt+←/→ nudges start.
+  clip.tabIndex = 0;
+  clip.setAttribute('role', 'group');
+  clip.setAttribute('aria-label',
+    (kind === 'music' ? 'Music' : 'Voiceover') + ' “' + (tr.name || kind) +
+    '”, starts at ' + sbFmt(tr.offset || 0) + ', ' + sbFmt(clipDur) + ' long');
+  clip.addEventListener('keydown', (e) => {
+    if (e.target.closest('.tl-actrl')) return; // the volume slider owns its own keys
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); if (kind === 'music') sbRemoveMusic(); else sbRemoveVoice(); }
+    else if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      tr.offset = Math.max(0, (tr.offset || 0) + (e.key === 'ArrowRight' ? 0.5 : -0.5));
+      sbSave(); sbRender();
+      const el = document.querySelector('#timelineTrack .tl-' + kind + ' .tl-aclip'); if (el) el.focus();
+    }
+  });
   lane.appendChild(clip);
   inner.appendChild(lane);
   if (!tr.wave && !tr._waving && !tr._waveFailed) sbBuildWave(tr, kind);
@@ -558,9 +592,10 @@ function sbAudioFade(e, tr, side, total) {
 async function sbBuildWave(tr, kind) {
   if (!tr || !tr.url || tr._waving) return;
   tr._waving = true;
+  let ac = null;
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
-    const ac = new AC();
+    ac = new AC();
     const bytes = await fetch(tr.url).then((r) => r.arrayBuffer());
     const audio = await ac.decodeAudioData(bytes);
     const ch = audio.getChannelData(0);
@@ -582,9 +617,8 @@ async function sbBuildWave(tr, kind) {
     for (let i = peaks - 1; i >= 0; i--) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid + Math.max(1.2, vals[i] * amp)); }
     cx.closePath(); cx.fill();
     tr.wave = c.toDataURL('image/png');
-    ac.close().catch(() => {});
   } catch (e) { tr._waveFailed = true; /* keep the solid clip body, don't retry */ }
-  finally { tr._waving = false; sbRender(); }
+  finally { if (ac) ac.close().catch(() => {}); tr._waving = false; sbRender(); }
 }
 
 // Add/remove a clip to the film (the bottom timeline). The clip stays in the
@@ -888,6 +922,10 @@ function sbVoiceSync(v, opts) {
 }
 async function sbSetMusic(f) {
   const proj = sbProject();
+  // Replacing an existing track — free its old object URL first.
+  if (proj.music && typeof proj.music.url === 'string' && proj.music.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(proj.music.url); } catch (e) {}
+  }
   const url = URL.createObjectURL(f);
   proj.music = { name: f.name.replace(/\.[^.]+$/, ''), mime: f.type || '', url, stored: false, dur: 0, volume: 0.6 };
   sbSave(); sbRenderMusicBar();
@@ -908,6 +946,9 @@ function sbRemoveMusic() {
   const a = document.getElementById('sbMusicAudio');
   if (a) { a.pause(); a.removeAttribute('src'); a.dataset.src = ''; }
   if (proj.music.stored) sbMediaDel('music-' + proj.id);
+  if (typeof proj.music.url === 'string' && proj.music.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(proj.music.url); } catch (e) {}
+  }
   proj.music = null;
   sbSave(); sbRenderMusicBar();
 }
@@ -1174,6 +1215,10 @@ async function sbToggleVoiceRecord() {
 }
 async function sbSetVoice(blob) {
   const proj = sbProject();
+  // Replacing an existing voiceover — free its old object URL first.
+  if (proj.voice && typeof proj.voice.url === 'string' && proj.voice.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(proj.voice.url); } catch (e) {}
+  }
   const url = URL.createObjectURL(blob);
   proj.voice = { name: 'Voiceover', mime: blob.type || 'audio/webm', url, stored: false, dur: 0, volume: 1 };
   sbSave(); sbRenderVoiceBar();
@@ -1194,6 +1239,9 @@ function sbRemoveVoice() {
   const a = document.getElementById('sbVoiceAudio');
   if (a) { a.pause(); a.removeAttribute('src'); }
   if (proj.voice.stored) sbMediaDel('voice-' + proj.id);
+  if (typeof proj.voice.url === 'string' && proj.voice.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(proj.voice.url); } catch (e) {}
+  }
   proj.voice = null;
   sbSave(); sbRenderVoiceBar();
 }
@@ -1227,6 +1275,10 @@ function sbRemoveShot(id) {
   const i = shots.findIndex((s) => s.id === id);
   if (i >= 0) {
     if (shots[i].src === 'import' && shots[i].stored) sbMediaDel(id); // free the stored file
+    // Free the clip's object URL — nothing references it once the shot is gone.
+    if (typeof shots[i].url === 'string' && shots[i].url.indexOf('blob:') === 0) {
+      try { URL.revokeObjectURL(shots[i].url); } catch (e) {}
+    }
     shots.splice(i, 1);
   }
   if (sbSelected === id) { sbSelected = null; sbPreviewClear(); }
@@ -1734,6 +1786,10 @@ async function sbApplyTrim(s, startRel, endRel) {
     }
     s.url = newURL; s.in = null; s.out = null; s.dur = durSec;
     s.status = 'ready'; s.edited = true; s.local = true;
+    // If this was a persisted import, overwrite its stored blob so the trim
+    // survives a reload — otherwise rehydrate restores the untrimmed original
+    // while the timeline still shows the trimmed length (they'd disagree).
+    if (s.src === 'import' && s.stored) sbMediaPut(s.id, blob).catch(() => {});
     await sbThumb(s).catch(() => {});
     sbSave(); sbRender();
     sbStudioNote('Trimmed shot ' + idx + ' to ' + sbFmt(durSec) +
@@ -1756,6 +1812,9 @@ function sbSwapClip(s, blob, newDur) {
   s.url = newURL; s.in = null; s.out = null;
   if (newDur != null) s.dur = newDur;
   s.status = 'ready'; s.edited = true; s.local = true;
+  // Persist the edit for stored imports so a reload restores the edited clip,
+  // not the original (which would disagree with the timeline's duration/thumb).
+  if (s.src === 'import' && s.stored) sbMediaPut(s.id, blob).catch(() => {});
 }
 
 // Shared runner for the render-and-swap edits (speed, reframe). `render(onProg)`
@@ -2043,31 +2102,53 @@ async function sbExportCanvas(shots, deliver, quiet) {
     // Feed the background music into the recorded audio (only to dest, so it's
     // captured but not audible during export). Loops to cover the whole film.
     const filmDur = shots.reduce((a, s) => a + (sbShotDur(s) || 0), 0);
-    // Tap an audio track into the recorded mix, honoring its offset (delayed
-    // start), trim (in/out), fade dots (gain ramps), and volume.
-    const timers = [];
+    // Film-render clock: seconds of FINISHED FILM painted so far, updated by
+    // sbExportShot as each frame draws. Audio is driven from THIS, not wall-clock
+    // time — so a shot that stalls on load/seek can't let the music run ahead and
+    // end early (the old approach pre-scheduled audio on the AudioContext clock).
+    const clock = { film: 0 };
+    // Each audio track = element + gain, repositioned every frame to match the
+    // film clock (honoring offset, trim in/out, fades, volume, duck).
+    const tracks = [];
     function tapAudio(tr, kind) {
-      if (!tr || !tr.url) return null;
+      if (!tr || !tr.url) return;
       try {
         sbAudioInit(tr);
-        const el = new Audio(); el.src = tr.url; el.crossOrigin = 'anonymous';
+        const el = new Audio(); el.src = tr.url; el.crossOrigin = 'anonymous'; el.preload = 'auto';
         const node = ac.createMediaElementSource(el);
-        const g = ac.createGain();
-        const base = (tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1)) * (kind === 'music' && tr.duck ? 0.4 : 1);
-        const off = tr.offset || 0, clipDur = sbAClipDur(tr), t0 = ac.currentTime + off;
-        g.gain.setValueAtTime(base, ac.currentTime);
-        if (tr.fadeIn > 0) { g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(base, t0 + tr.fadeIn); }
-        if (tr.fadeOut > 0) { g.gain.setValueAtTime(base, Math.max(t0, t0 + clipDur - tr.fadeOut)); g.gain.linearRampToValueAtTime(0.0001, t0 + clipDur); }
+        const g = ac.createGain(); g.gain.value = 0.0001;
         node.connect(g).connect(dest);
+        const base = (tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1)) * (kind === 'music' && tr.duck ? 0.4 : 1);
         el.currentTime = tr.in || 0;
-        if (off > 0) { el.pause(); timers.push(setTimeout(() => el.play().catch(() => {}), off * 1000)); }
-        else el.play().catch(() => {});
-        timers.push(setTimeout(() => { try { el.pause(); } catch (e) {} }, (off + clipDur) * 1000));
-        return el;
-      } catch (e) { console.warn(kind + ' tap failed (exporting without it):', e); return null; }
+        tracks.push({ el, g, base, offset: tr.offset || 0, tin: tr.in || 0, clipDur: sbAClipDur(tr), fadeIn: tr.fadeIn || 0, fadeOut: tr.fadeOut || 0 });
+      } catch (e) { console.warn(kind + ' tap failed (exporting without it):', e); }
     }
-    const musicAudio = tapAudio(sbProject().music, 'music');
-    const voiceAudio = tapAudio(sbProject().voice, 'voice');
+    tapAudio(sbProject().music, 'music');
+    tapAudio(sbProject().voice, 'voice');
+    // Lock each track to the film clock: play only while the picture advances,
+    // pause during load/seek stalls, resync position on real drift, ramp fades.
+    let audioRAF = 0, lastFilm = -1, lastAdvance = performance.now();
+    function syncAudio() {
+      const now = performance.now();
+      const fc = clock.film;
+      if (fc > lastFilm + 1e-4) { lastFilm = fc; lastAdvance = now; }
+      const stalled = (now - lastAdvance) > 90; // film not progressing → hold audio
+      for (const t of tracks) {
+        const local = fc - t.offset;
+        if (local < 0 || local >= t.clipDur) { if (!t.el.paused) { try { t.el.pause(); } catch (e) {} } t.g.gain.value = 0.0001; continue; }
+        if (stalled) { if (!t.el.paused) { try { t.el.pause(); } catch (e) {} } }
+        else {
+          if (t.el.paused) { try { t.el.play().catch(() => {}); } catch (e) {} }
+          const want = t.tin + local;
+          if (Math.abs((t.el.currentTime || 0) - want) > 0.18) { try { t.el.currentTime = want; } catch (e) {} }
+        }
+        let gain = t.base;
+        if (t.fadeIn > 0 && local < t.fadeIn) gain = t.base * (local / t.fadeIn);
+        if (t.fadeOut > 0 && local > t.clipDur - t.fadeOut) gain = Math.min(gain, t.base * (t.clipDur - local) / t.fadeOut);
+        t.g.gain.value = Math.max(0.0001, gain);
+      }
+      audioRAF = requestAnimationFrame(syncAudio);
+    }
     // Pick a container the browser can actually record. Chrome keeps webm/vp9;
     // Safari has no webm MediaRecorder, so fall through to mp4 (else its
     // constructor throws). Last resort: let the browser choose its default.
@@ -2081,6 +2162,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
     rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
     const done = new Promise((ok) => { rec.onstop = ok; });
     rec.start(250);
+    if (tracks.length) syncAudio(); // drive the audio off the film clock, once recording
 
     // Transitions + film-wide fade are painted as overlays here (the ffmpeg path
     // does them natively; this realtime path must draw them itself).
@@ -2096,7 +2178,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
       try {
         prevFrame = await sbExportShot(shots[i], {
           ctx, W, H, ac, dest, filmStart, filmTotal: filmDur, transition, fade,
-          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame,
+          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame, clock,
         });
         ok++;
       } catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; prevFrame = null; }
@@ -2104,9 +2186,8 @@ async function sbExportCanvas(shots, deliver, quiet) {
     }
     rec.stop();
     await done;
-    timers.forEach(clearTimeout);
-    if (musicAudio) { try { musicAudio.pause(); } catch (e) {} }
-    if (voiceAudio) { try { voiceAudio.pause(); } catch (e) {} }
+    cancelAnimationFrame(audioRAF);
+    tracks.forEach((t) => { try { t.el.pause(); } catch (e) {} });
     ac.close().catch(() => {});
     if (!ok) { sbStudioNote('Export failed — none of the shots could be read (they may still be uploading, or blocked by the browser).'); return; }
     // Match the file to what the recorder actually produced (webm on Chrome,
@@ -2156,14 +2237,17 @@ function sbFrameOverlays(ctx, W, H, o, st, dur) {
 function sbExportShot(s, o) {
   const { ctx, W, H, ac, dest } = o;
   const shotDur = sbShotDur(s) || (s.src === 'title' ? 3 : 4);
+  if (o.clock) o.clock.film = o.filmStart; // hold the audio clock at this shot's start until it renders
   // Title / background cards have no video — paint the card for the clip length.
   if (s.src === 'title') {
     return new Promise((resolve) => {
       const durMs = shotDur * 1000;
       const t0 = performance.now();
       const draw = () => {
+        const within = (performance.now() - t0) / 1000;
+        if (o.clock) o.clock.film = o.filmStart + Math.min(shotDur, within);
         sbPaintTitle(ctx, W, H, s);
-        try { sbFrameOverlays(ctx, W, H, o, (performance.now() - t0) / 1000, shotDur); } catch (e) {}
+        try { sbFrameOverlays(ctx, W, H, o, within, shotDur); } catch (e) {}
         if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
         requestAnimationFrame(draw);
       };
@@ -2200,6 +2284,7 @@ function sbExportShot(s, o) {
         const filt = sbFilterStr(s);
         const playRange = (isFinite(stopAt) ? stopAt : (v.duration || start + shotDur * sp)) - start;
         const draw = () => {
+          if (o.clock) o.clock.film = o.filmStart + Math.max(0, (v.currentTime - start) / sp);
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
           if (filt !== 'none') ctx.filter = filt;
           if (sbHasMotion(s) && v.videoWidth) {
