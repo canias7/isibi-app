@@ -1507,14 +1507,18 @@
 @keyframes sbpulse { from { opacity: .35; } to { opacity: 1; } }
 .sb-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .95rem; padding: 0 .1rem; flex: none; }
 .sb-x:hover { color: #f43f5e; }
-.sb-block { position: relative; background-size: contain; background-repeat: no-repeat; background-position: center; background-color: #000; min-width: 34px; cursor: pointer; }
-.sb-block span { position: absolute; left: .4rem; top: .25rem; font-size: .7rem; color: #fff; text-shadow: 0 1px 2px #000; }
+.sb-block { position: relative; background-size: cover; background-position: center; background-color: #000; min-width: 34px; cursor: pointer; }
+.sb-blocknum { position: absolute; z-index: 2; left: .4rem; top: .25rem; font-size: .7rem; color: #fff; text-shadow: 0 1px 2px #000; }
+/* iMovie-style filmstrip: distinct frames laid edge-to-edge across the clip. */
+.sb-strip { position: absolute; inset: 0; display: flex; z-index: 1; }
+.sb-frame { flex: 1 1 0; min-width: 0; background-size: cover; background-position: center; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .35); }
+.sb-frame:last-child { box-shadow: none; }
 .sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); }
 .sb-block.st-draft { opacity: .45; }
 .sb-block.st-generating { animation: sbpulse .9s infinite alternate; }
 /* shot-strip mode: the track becomes a flex row of proportional blocks */
 .timeline-track.has-shots { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; place-items: unset; }
-.clip-block.sb-block { position: static; inset: auto; width: auto; height: auto; padding: 0; }
+.clip-block.sb-block { position: relative; inset: auto; width: auto; height: auto; padding: 0; }
 
 /* ── Effort chip: floats just right of the attach panel ── */
 .effort-pick { position: absolute; top: 72px; left: 298px; z-index: 3; }
