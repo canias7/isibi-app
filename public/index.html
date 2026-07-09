@@ -382,9 +382,11 @@
               <div class="preview-toolbar">
                 <span class="pt-title">My Movie</span>
                 <div class="pt-spacer"></div>
-                <button class="pt-icon" id="sbSpeedBtn" title="Playback speed" data-act="sb-speed">1×</button>
-                <button class="pt-icon" id="sbVolBtn" title="Mute" data-act="sb-mute">🔊</button>
+                <button class="pt-icon" data-act="sb-adj" data-tool="filter" title="Filters">🎨</button>
+                <button class="pt-icon" data-act="sb-adj" data-tool="speed" title="Speed">⏩</button>
+                <button class="pt-icon" data-act="sb-adj" data-tool="volume" title="Clip volume">🔊</button>
               </div>
+              <div class="adjust-panel" id="sbAdjustPanel" hidden></div>
               <div class="preview-stage" id="previewStage">
                 <div class="preview-empty">
                   <div class="preview-empty-text">Import a video to preview it here</div>
