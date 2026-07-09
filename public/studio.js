@@ -65,7 +65,7 @@ function sbSave() {
     // thumbs and retry once so at least the project structure survives, and
     // tell the user rather than silently losing work.
     try {
-      sb.projects.forEach((p) => p.shots.forEach((s) => { if (s.thumb) s.thumb = null; }));
+      sb.projects.forEach((p) => p.shots.forEach((s) => { if (s.thumb) s.thumb = null; if (s.strip) s.strip = null; }));
       localStorage.setItem(SB_KEY, JSON.stringify(sb));
       if (typeof sbToast === 'function') sbToast('Storage is full — cleared shot thumbnails to save your project.');
       return true;
@@ -231,8 +231,17 @@ function sbRender() {
       const block = document.createElement('div');
       block.className = 'clip-block sb-block' + (s.id === sbSelected ? ' sel' : '') + ' st-' + s.status;
       block.style.width = Math.max(6, ((sbShotDur(s) || 4) / total) * 100) + '%';
-      if (s.thumb) block.style.backgroundImage = 'url(' + s.thumb + ')';
-      block.innerHTML = '<span>' + (i + 1) + '</span>';
+      // iMovie-style filmstrip: a row of frames sampled across the clip fills the
+      // block edge-to-edge. Falls back to the single poster frame if no strip yet.
+      let inner = '';
+      if (Array.isArray(s.strip) && s.strip.length) {
+        inner = '<div class="sb-strip">' +
+          s.strip.map((src) => '<i class="sb-frame" style="background-image:url(' + src + ')"></i>').join('') +
+          '</div>';
+      } else if (s.thumb) {
+        block.style.backgroundImage = 'url(' + s.thumb + ')';
+      }
+      block.innerHTML = inner + '<span class="sb-blocknum">' + (i + 1) + '</span>';
       block.onclick = () => sbSelect(s.id);
       track.appendChild(block);
     });
@@ -704,6 +713,18 @@ async function sbThumb(s) {
   s.dur = s.dur || v.duration;
   await sbSeek(v, Math.min(0.1, v.duration / 2));
   s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
+  // Filmstrip: sample a handful of frames across the clip so the timeline block
+  // fills like iMovie's (distinct frames edge-to-edge) instead of one image.
+  try {
+    const dur = s.dur || v.duration || 0;
+    const n = Math.max(3, Math.min(8, Math.round((dur || 4) / 1.5)));
+    const frames = [];
+    for (let i = 0; i < n; i++) {
+      await sbSeek(v, Math.min((dur * (i + 0.5)) / n, dur - 0.01));
+      frames.push(sbGrabFrame(v, 160).toDataURL('image/jpeg', 0.5));
+    }
+    s.strip = frames;
+  } catch (e) { /* keep the single poster fallback */ }
 }
 
 // Trigger a browser download for a produced Blob, named after the project.
