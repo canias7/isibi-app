@@ -74,6 +74,15 @@ function sbFFJob(job, onProgress) {
     const ff = await sbFFLoad(sbFFNote);
     _ffOnProgress = onProgress || null;
     try { return await job(ff); }
+    catch (e) {
+      // A wasm-level failure (an abort, or the MEMFS wedging after a long run of
+      // heavy ops) can leave the core unusable. Drop it so the NEXT job reloads a
+      // fresh instance instead of erroring forever. The gz is HTTP-cached, so the
+      // reload is fast (decompress + instantiate, no re-download).
+      try { ff.terminate(); } catch (e2) {}
+      _ffInstance = null; _ffLoading = null;
+      throw e;
+    }
     finally { _ffOnProgress = null; }
   };
   // chain regardless of prior success/failure so one bad op can't wedge the queue
@@ -321,11 +330,52 @@ async function sbFFExport(shots, opts = {}) {
       }
       if (!segs.length) throw new Error('no shots could be prepared for export');
 
-      // 4. Concat the uniform segments (stream copy — fast, lossless).
-      const list = track('concat.txt');
-      await ff.writeFile(list, new TextEncoder().encode(segs.map((s) => "file '" + s + "'").join('\n') + '\n'));
+      // 4. Join the segments. Default: concat demuxer (stream copy — fast,
+      //    lossless). With transitions or edge fades: an xfade/acrossfade
+      //    filtergraph (a real re-encode of the joins).
+      const useXfade = (opts.transition === 'crossfade' || opts.transition === 'dip') && segs.length >= 2;
+      const useFade = !!opts.fade;
       try { await ff.deleteFile('out.mp4'); } catch (e) {}
-      await ff.exec(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', 'out.mp4']);
+      if (!useXfade && !useFade) {
+        const list = track('concat.txt');
+        await ff.writeFile(list, new TextEncoder().encode(segs.map((s) => "file '" + s + "'").join('\n') + '\n'));
+        await ff.exec(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', 'out.mp4']);
+      } else {
+        // Actual per-segment durations drive the crossfade offsets.
+        const durs = [];
+        for (const s of segs) { let inf; try { inf = await sbFFProbe(ff, s, logbuf); } catch (e) { inf = {}; } durs.push(inf.dur || 0); }
+        const minDur = Math.min.apply(null, durs.filter((d) => d > 0).concat([999]));
+        const T = useXfade ? Math.max(0.1, Math.min(Number(opts.transitionDur) || 0.6, minDur * 0.5)) : 0;
+        const xt = opts.transition === 'dip' ? 'fadeblack' : 'fade';
+        const inputs = [];
+        for (const s of segs) inputs.push('-i', s);
+        const fc = [];
+        let vlab = '[0:v]', alab = '[0:a]', total = durs[0] || 0;
+        if (useXfade) {
+          for (let k = 1; k < segs.length; k++) {
+            const off = Math.max(0, total - T).toFixed(3);
+            fc.push(vlab + '[' + k + ':v]xfade=transition=' + xt + ':duration=' + T + ':offset=' + off + '[vx' + k + ']');
+            fc.push(alab + '[' + k + ':a]acrossfade=d=' + T + '[ax' + k + ']');
+            vlab = '[vx' + k + ']'; alab = '[ax' + k + ']';
+            total = total + (durs[k] || 0) - T;
+          }
+        } else {
+          const parts = [];
+          for (let k = 0; k < segs.length; k++) parts.push('[' + k + ':v][' + k + ':a]');
+          fc.push(parts.join('') + 'concat=n=' + segs.length + ':v=1:a=1[vc][ac]');
+          vlab = '[vc]'; alab = '[ac]';
+          total = durs.reduce((a, b) => a + (b || 0), 0);
+        }
+        if (useFade) {
+          const fd = Math.max(0.15, Math.min(0.8, (total || 1) * 0.15));
+          const outAt = Math.max(0, total - fd).toFixed(3);
+          fc.push(vlab + 'fade=t=in:st=0:d=' + fd + ',fade=t=out:st=' + outAt + ':d=' + fd + '[vout]');
+          fc.push(alab + 'afade=t=in:st=0:d=' + fd + ',afade=t=out:st=' + outAt + ':d=' + fd + '[aout]');
+          vlab = '[vout]'; alab = '[aout]';
+        }
+        await ff.exec([...inputs, '-filter_complex', fc.join(';'), '-map', vlab, '-map', alab,
+          ...SB_VENC, ...SB_AENC, '-movflags', '+faststart', 'out.mp4']);
+      }
       let data; try { data = await ff.readFile('out.mp4'); } catch (e) { data = null; }
       if (!data || !data.length) throw new Error('export produced no output');
       if (opts.onProgress) opts.onProgress(1);
