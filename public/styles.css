@@ -1474,6 +1474,7 @@
 .sb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
 .sb-card.st-ready .sb-dot { background: #34d399; }
 .sb-card.st-generating .sb-dot { background: #ffb84d; animation: sbpulse .9s infinite alternate; }
+.sb-card.st-editing .sb-dot { background: #ff79c6; animation: sbpulse .9s infinite alternate; }
 .sb-card.st-missing .sb-dot { background: #f43f5e; }
 @keyframes sbpulse { from { opacity: .35; } to { opacity: 1; } }
 .sb-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .95rem; padding: 0 .1rem; flex: none; }

@@ -469,6 +469,55 @@ async function sbGenerateShot(s) {
   }
 }
 
+// ── Real trim: cut a fresh clip on-device (ffmpeg.wasm) ───────────────────────
+// The director asks for trim {start,end} (seconds within the shot). We render an
+// actual clipped MP4 in the browser — free, private, frame-accurate — and swap
+// it in as the shot's source. Degrades to the old in/out virtual trim if the
+// on-device editor can't run (old browser, wasm blocked, or a render error).
+async function sbApplyTrim(s, startRel, endRel) {
+  const idx = sbProject().shots.indexOf(s) + 1;
+  const base = s.in || 0;
+  const winEnd = s.out != null ? s.out : (s.dur || 0);
+  const absStart = base + Math.max(0, Number(startRel) || 0);
+  let absEnd = endRel != null ? base + Number(endRel) : winEnd;
+  if (winEnd && absEnd > winEnd) absEnd = winEnd;
+  const durSec = Math.max(0.05, absEnd - absStart);
+  // Fallback: keep the non-destructive in/out range (old behaviour).
+  const virtualTrim = () => {
+    s.in = absStart;
+    if (endRel != null) s.out = absEnd;
+    sbSave(); sbRender();
+  };
+  if (typeof window.sbFFTrim !== 'function' || !window.sbFFSupported || !window.sbFFSupported()) {
+    virtualTrim();
+    return;
+  }
+  const prevStatus = s.status;
+  s.status = 'editing'; sbSave(); sbRender();
+  try {
+    const blob = await window.sbFFTrim(s.url, absStart, durSec, {
+      url: s.url,
+      onProgress: (p) => sbStudioProgress('Trimming shot ' + idx + '… ' + Math.round(p * 100) + '%'),
+    });
+    const newURL = URL.createObjectURL(blob);
+    // A previous on-device edit left a blob we own — revoke it to free memory.
+    if (s.local && typeof s.url === 'string' && s.url.indexOf('blob:') === 0) {
+      try { URL.revokeObjectURL(s.url); } catch (e) {}
+    }
+    s.url = newURL; s.in = null; s.out = null; s.dur = durSec;
+    s.status = 'ready'; s.edited = true; s.local = true;
+    await sbThumb(s).catch(() => {});
+    sbSave(); sbRender();
+    sbStudioNote('Trimmed shot ' + idx + ' to ' + sbFmt(durSec) +
+      ' ✂ — that’s a fresh clip living in this tab. Export or download it to keep it.');
+  } catch (e) {
+    console.error('on-device trim failed:', e);
+    s.status = prevStatus;
+    virtualTrim();
+    sbStudioNote('I couldn’t render that trim on-device, so I set the shot’s in/out points instead.');
+  }
+}
+
 // Resolve when the video seeks, but never hang: a decode error or a stalled
 // source that emits no event would otherwise leave the caller awaiting forever.
 function sbSeek(v, time) {
@@ -677,6 +726,7 @@ async function studioSend() {
     if (data.reply) sbStudioNote(data.reply);
     if (data.brief) { proj.brief = String(data.brief).slice(0, 600); }
     const toGenerate = [];
+    const toTrim = [];
     for (const a of Array.isArray(data.actions) ? data.actions : []) {
       if (a.type === 'add_shots' && Array.isArray(a.shots)) {
         for (const ns of a.shots.slice(0, 12)) {
@@ -695,9 +745,7 @@ async function studioSend() {
           if (a.title) s.title = String(a.title).slice(0, 60);
           if (a.duration) s.dur = Math.max(3, Math.min(12, Number(a.duration)));
           if (a.trim && s.url) {
-            const base = s.in || 0;
-            s.in = base + Math.max(0, Number(a.trim.start) || 0);
-            if (a.trim.end != null) s.out = base + Number(a.trim.end);
+            toTrim.push({ s, start: Number(a.trim.start) || 0, end: a.trim.end != null ? Number(a.trim.end) : null });
           }
         }
       } else if (a.type === 'remove_shot') {
@@ -717,6 +765,8 @@ async function studioSend() {
       }
     }
     sbSave(); sbRender();
+    // Real on-device trims first (ffmpeg loads once, ops are serialized).
+    for (const t of toTrim) await sbApplyTrim(t.s, t.start, t.end);
     // Generate sequentially so last-frame chaining sees each finished shot.
     for (const s of toGenerate) await sbGenerateShot(s);
   } catch (e) {

@@ -368,8 +368,11 @@ const CSP = [
   "form-action 'self'",
   // No 'unsafe-inline' for scripts: all handlers are wired via addEventListener
   // (data-act hooks), so a would-be HTML injection can't execute as script.
+  // 'wasm-unsafe-eval' lets the Studio's on-device video editor (ffmpeg.wasm,
+  // self-hosted under /vendor/ffmpeg) compile WebAssembly WITHOUT permitting
+  // JS eval() — the narrow token, not 'unsafe-eval'.
   // style-src keeps 'unsafe-inline' for the handful of inline style attributes.
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
@@ -377,7 +380,9 @@ const CSP = [
   // (measures its real duration → correct lip-sync billing) and play it back.
   // These directives don't govern scripts, so this doesn't weaken script-src.
   "media-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
-  "connect-src 'self' data: https://*.supabase.co https://fal.media https://*.fal.media",
+  // blob: on connect-src so the Studio editor's worker can fetch the
+  // decompressed ffmpeg-core.wasm (a blob: URL); non-script directive.
+  "connect-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
 ].join("; ");
 
 // Reduce an upstream (fal/Anthropic) error payload to a short, plain string
