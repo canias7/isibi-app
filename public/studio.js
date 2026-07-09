@@ -60,6 +60,8 @@ function sbLoad() {
     // A background music/voice track survives a reload the same way imports do.
     if (p.music && p.music.stored && p.music.url && p.music.url.startsWith('blob:')) p.music.url = null;
     if (p.voice && p.voice.stored && p.voice.url && p.voice.url.startsWith('blob:')) p.voice.url = null;
+    // All audio is green now — drop a cached purple voice waveform so it redraws.
+    if (p.voice && p.voice.wave && !p.voice._green) { p.voice.wave = null; p.voice._waveFailed = false; p.voice._green = true; }
   }
 }
 // A short, collision-resistant id (timestamp alone collides within a ms).
@@ -429,7 +431,7 @@ async function sbBuildWave(tr, kind) {
       for (let j = 0; j < bucket; j += stride) { const v = Math.abs(ch[base + j] || 0); if (v > max) max = v; }
       vals[i] = Math.min(1, max);
     }
-    cx.fillStyle = kind === 'music' ? 'rgba(11,66,32,.5)' : 'rgba(50,24,92,.5)'; // darker shade of the body
+    cx.fillStyle = 'rgba(11,66,32,.5)'; // darker green — all audio is green, like iMovie
     cx.beginPath();
     cx.moveTo(0, mid);
     for (let i = 0; i < peaks; i++) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid - Math.max(1.2, vals[i] * amp)); }
