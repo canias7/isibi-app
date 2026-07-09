@@ -2341,15 +2341,15 @@ const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
 const estVideos = (cr) => roundTo(cr / VID_CR, 5);
 const MEMBERSHIPS = [
   { plan: '25', usd: 24.99, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
-    desc: 'For getting started with AI creation', storage: '1 GB',
+    desc: 'For getting started with AI creation', storage: '10 GB',
     save: 'Save $3/mo while the launch offer lasts',
     feats: [1, 1, 1] },
   { plan: '50', usd: 49.99, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
-    desc: 'For consistent, everyday creation', storage: '5 GB',
+    desc: 'For consistent, everyday creation', storage: '50 GB',
     save: 'Save $13/mo while the launch offer lasts',
     feats: [1, 1, 1] },
   { plan: '100', usd: 99.99, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
-    desc: 'For creators building big projects', storage: '10 GB',
+    desc: 'For creators building big projects', storage: '100 GB',
     save: 'Save $33/mo while the launch offer lasts',
     feats: [1, 1, 1] },
 ];
