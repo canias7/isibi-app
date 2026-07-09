@@ -469,6 +469,126 @@ async function sbGenerateShot(s) {
   }
 }
 
+// ── Real trim: cut a fresh clip on-device (ffmpeg.wasm) ───────────────────────
+// The director asks for trim {start,end} (seconds within the shot). We render an
+// actual clipped MP4 in the browser — free, private, frame-accurate — and swap
+// it in as the shot's source. Degrades to the old in/out virtual trim if the
+// on-device editor can't run (old browser, wasm blocked, or a render error).
+async function sbApplyTrim(s, startRel, endRel) {
+  const idx = sbProject().shots.indexOf(s) + 1;
+  const base = s.in || 0;
+  const winEnd = s.out != null ? s.out : (s.dur || 0);
+  const absStart = base + Math.max(0, Number(startRel) || 0);
+  let absEnd = endRel != null ? base + Number(endRel) : winEnd;
+  if (winEnd && absEnd > winEnd) absEnd = winEnd;
+  const durSec = Math.max(0.05, absEnd - absStart);
+  // Fallback: keep the non-destructive in/out range (old behaviour).
+  const virtualTrim = () => {
+    s.in = absStart;
+    if (endRel != null) s.out = absEnd;
+    sbSave(); sbRender();
+  };
+  if (typeof window.sbFFTrim !== 'function' || !window.sbFFSupported || !window.sbFFSupported()) {
+    virtualTrim();
+    return;
+  }
+  const prevStatus = s.status;
+  s.status = 'editing'; sbSave(); sbRender();
+  try {
+    const blob = await window.sbFFTrim(s.url, absStart, durSec, {
+      url: s.url,
+      onProgress: (p) => sbStudioProgress('Trimming shot ' + idx + '… ' + Math.round(p * 100) + '%'),
+    });
+    const newURL = URL.createObjectURL(blob);
+    // A previous on-device edit left a blob we own — revoke it to free memory.
+    if (s.local && typeof s.url === 'string' && s.url.indexOf('blob:') === 0) {
+      try { URL.revokeObjectURL(s.url); } catch (e) {}
+    }
+    s.url = newURL; s.in = null; s.out = null; s.dur = durSec;
+    s.status = 'ready'; s.edited = true; s.local = true;
+    await sbThumb(s).catch(() => {});
+    sbSave(); sbRender();
+    sbStudioNote('Trimmed shot ' + idx + ' to ' + sbFmt(durSec) +
+      ' ✂ — that’s a fresh clip living in this tab. Export or download it to keep it.');
+  } catch (e) {
+    console.error('on-device trim failed:', e);
+    s.status = prevStatus;
+    virtualTrim();
+    sbStudioNote('I couldn’t render that trim on-device, so I set the shot’s in/out points instead.');
+  }
+}
+
+// Swap a shot's source for a freshly-rendered on-device clip (blob), clearing
+// any virtual in/out and marking it a tab-local edited file.
+function sbSwapClip(s, blob, newDur) {
+  const newURL = URL.createObjectURL(blob);
+  if (s.local && typeof s.url === 'string' && s.url.indexOf('blob:') === 0) {
+    try { URL.revokeObjectURL(s.url); } catch (e) {}
+  }
+  s.url = newURL; s.in = null; s.out = null;
+  if (newDur != null) s.dur = newDur;
+  s.status = 'ready'; s.edited = true; s.local = true;
+}
+
+// Shared runner for the render-and-swap edits (speed, reframe). `render(onProg)`
+// returns the new clip Blob; `noteDone` builds the success message. Unlike trim
+// there's no virtual fallback — if the editor can't run we just say so.
+async function sbRenderEdit(s, verb, render, newDur, noteDone) {
+  const idx = sbProject().shots.indexOf(s) + 1;
+  if (!s.url || !window.sbFFSupported || !window.sbFFSupported()) {
+    sbStudioNote('The on-device editor can’t run in this browser, so I couldn’t ' + verb + ' shot ' + idx + '.');
+    return;
+  }
+  const prevStatus = s.status;
+  s.status = 'editing'; sbSave(); sbRender();
+  try {
+    const blob = await render((p) => sbStudioProgress('Editing shot ' + idx + '… ' + Math.round(p * 100) + '%'));
+    sbSwapClip(s, blob, newDur);
+    await sbThumb(s).catch(() => {});
+    sbSave(); sbRender();
+    sbStudioNote(noteDone(idx));
+  } catch (e) {
+    console.error('on-device ' + verb + ' failed:', e);
+    s.status = prevStatus; sbSave(); sbRender();
+    sbStudioNote('I couldn’t ' + verb + ' shot ' + idx + ' on-device — ' + String(e.message || e).slice(0, 80) + '.');
+  }
+}
+
+// Retime a shot (2 = twice as fast, 0.5 = slow motion). Applies to the shot's
+// current window (an imported slice's in/out is honored).
+async function sbApplySpeed(s, speed) {
+  const spd = Math.max(0.25, Math.min(4, Number(speed) || 1));
+  const winDur = sbShotDur(s) || 0;
+  const newDur = winDur ? winDur / spd : null;
+  await sbRenderEdit(s, 'change the speed of',
+    (onProgress) => window.sbFFSpeed(s.url, spd, { url: s.url, start: s.in || 0, dur: winDur, onProgress }),
+    newDur,
+    (idx) => (spd >= 1 ? 'Sped shot ' + idx + ' up to ' + spd + '×' : 'Slowed shot ' + idx + ' to ' + spd + '×') +
+      (newDur ? ' — now ' + sbFmt(newDur) : '') + '. Fresh clip in this tab; Export or download to keep it.');
+}
+
+// Re-crop a shot to a target aspect ratio (centered), e.g. 9:16 vertical.
+async function sbApplyReframe(s, aspect) {
+  const asp = /^\d+:\d+$/.test(String(aspect)) ? String(aspect) : '9:16';
+  const winDur = sbShotDur(s) || 0;
+  await sbRenderEdit(s, 'reframe',
+    (onProgress) => window.sbFFReframe(s.url, asp, { url: s.url, start: s.in || 0, dur: winDur, onProgress }),
+    winDur || null,
+    (idx) => 'Reframed shot ' + idx + ' to ' + asp + '. Fresh clip in this tab; Export or download to keep it.');
+}
+
+// Burn a caption onto a shot (bottom / top / center).
+async function sbApplyText(s, content, position) {
+  const text = String(content || '').slice(0, 200);
+  if (!text.trim()) return;
+  const pos = ['bottom', 'top', 'center'].indexOf(position) >= 0 ? position : 'bottom';
+  const winDur = sbShotDur(s) || 0;
+  await sbRenderEdit(s, 'add a caption to',
+    (onProgress) => window.sbFFText(s.url, text, { url: s.url, position: pos, start: s.in || 0, dur: winDur, onProgress }),
+    winDur || null,
+    (idx) => 'Captioned shot ' + idx + ' — “' + text.slice(0, 40) + (text.length > 40 ? '…' : '') + '”. Fresh clip in this tab; Export or download to keep it.');
+}
+
 // Resolve when the video seeks, but never hang: a decode error or a stalled
 // source that emits no event would otherwise leave the caller awaiting forever.
 function sbSeek(v, time) {
@@ -509,9 +629,20 @@ async function sbThumb(s) {
   s.thumb = sbGrabFrame(v, 160).toDataURL('image/jpeg', 0.6);
 }
 
-// ── Export: stitch ready shots into one WebM, all in-browser ──────────────
-// Canvas + MediaRecorder: universally supported, realtime. Audio comes along
-// via an AudioContext tap. (WebCodecs fast path is a v2 upgrade.)
+// Trigger a browser download for a produced Blob, named after the project.
+function sbDownloadBlob(blob, ext) {
+  const a = document.createElement('a');
+  const objUrl = URL.createObjectURL(blob);
+  a.href = objUrl;
+  a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.' + ext;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 15000);
+}
+
+// ── Export: stitch ready shots into one film ──────────────────────────────
+// Prefer the on-device ffmpeg stitch (fast, higher quality, orientation-aware);
+// fall back to the realtime canvas + MediaRecorder path if the editor can't run
+// or the stitch fails.
 async function sbExport() {
   if (sbBusy) return;
   const shots = sbProject().shots.filter((s) => s.url && s.status === 'ready');
@@ -520,6 +651,34 @@ async function sbExport() {
   const btn = document.getElementById('sbExportBtn');
   if (btn) btn.textContent = 'Exporting…';
   try {
+    if (window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+      try {
+        const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0 }));
+        const r = await window.sbFFExport(descriptors, {
+          onProgress: (p) => sbStudioProgress('Stitching your film… ' + Math.round(p * 100) + '%'),
+        });
+        sbDownloadBlob(r.blob, 'mp4');
+        sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
+          (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + ') — check your downloads ✦');
+        return;
+      } catch (e) {
+        console.warn('on-device stitch failed, using the realtime exporter:', e);
+      }
+    }
+    await sbExportCanvas(shots);
+  } catch (e) {
+    console.error('export failed:', e);
+    sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
+  } finally {
+    sbBusy = false;
+    if (btn) btn.textContent = 'Export';
+  }
+}
+
+// Realtime fallback: canvas + MediaRecorder, universally supported. Audio comes
+// along via an AudioContext tap. Letterboxes every shot into a 1280x720 frame.
+async function sbExportCanvas(shots) {
+  {
     const W = 1280, H = 720;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
@@ -558,21 +717,9 @@ async function sbExport() {
     // mp4 on Safari) so the download opens cleanly.
     const outType = ((rec.mimeType || mime || 'video/webm').split(';')[0]) || 'video/webm';
     const ext = outType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
-    const blob = new Blob(parts, { type: outType });
-    const a = document.createElement('a');
-    const objUrl = URL.createObjectURL(blob);
-    a.href = objUrl;
-    a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.' + ext;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(objUrl), 10000); // free the blob after the download starts
+    sbDownloadBlob(new Blob(parts, { type: outType }), ext);
     sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
       (skipped ? ', ' + skipped + ' skipped' : '') + ') — check your downloads ✦');
-  } catch (e) {
-    console.error('export failed:', e);
-    sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
-  } finally {
-    sbBusy = false;
-    if (btn) btn.textContent = 'Export';
   }
 }
 
@@ -677,6 +824,7 @@ async function studioSend() {
     if (data.reply) sbStudioNote(data.reply);
     if (data.brief) { proj.brief = String(data.brief).slice(0, 600); }
     const toGenerate = [];
+    const edits = [];
     for (const a of Array.isArray(data.actions) ? data.actions : []) {
       if (a.type === 'add_shots' && Array.isArray(a.shots)) {
         for (const ns of a.shots.slice(0, 12)) {
@@ -694,10 +842,15 @@ async function studioSend() {
           if (a.prompt) { s.prompt = String(a.prompt).slice(0, 1200); if (s.src !== 'import') { s.status = 'draft'; } }
           if (a.title) s.title = String(a.title).slice(0, 60);
           if (a.duration) s.dur = Math.max(3, Math.min(12, Number(a.duration)));
+          // On-device edits (rendered after the loop, in the order listed).
           if (a.trim && s.url) {
-            const base = s.in || 0;
-            s.in = base + Math.max(0, Number(a.trim.start) || 0);
-            if (a.trim.end != null) s.out = base + Number(a.trim.end);
+            edits.push({ op: 'trim', s, start: Number(a.trim.start) || 0, end: a.trim.end != null ? Number(a.trim.end) : null });
+          }
+          if (a.speed && s.url) edits.push({ op: 'speed', s, speed: Number(a.speed) });
+          if (a.reframe && s.url) edits.push({ op: 'reframe', s, aspect: String(a.reframe) });
+          if (a.text && s.url) {
+            const tx = typeof a.text === 'string' ? { content: a.text } : a.text;
+            if (tx && tx.content) edits.push({ op: 'text', s, content: String(tx.content), position: tx.position });
           }
         }
       } else if (a.type === 'remove_shot') {
@@ -717,6 +870,13 @@ async function studioSend() {
       }
     }
     sbSave(); sbRender();
+    // Real on-device edits first (ffmpeg loads once, ops are serialized).
+    for (const e of edits) {
+      if (e.op === 'trim') await sbApplyTrim(e.s, e.start, e.end);
+      else if (e.op === 'speed') await sbApplySpeed(e.s, e.speed);
+      else if (e.op === 'reframe') await sbApplyReframe(e.s, e.aspect);
+      else if (e.op === 'text') await sbApplyText(e.s, e.content, e.position);
+    }
     // Generate sequentially so last-frame chaining sees each finished shot.
     for (const s of toGenerate) await sbGenerateShot(s);
   } catch (e) {

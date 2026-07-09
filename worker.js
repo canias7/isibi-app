@@ -368,8 +368,11 @@ const CSP = [
   "form-action 'self'",
   // No 'unsafe-inline' for scripts: all handlers are wired via addEventListener
   // (data-act hooks), so a would-be HTML injection can't execute as script.
+  // 'wasm-unsafe-eval' lets the Studio's on-device video editor (ffmpeg.wasm,
+  // self-hosted under /vendor/ffmpeg) compile WebAssembly WITHOUT permitting
+  // JS eval() — the narrow token, not 'unsafe-eval'.
   // style-src keeps 'unsafe-inline' for the handful of inline style attributes.
-  "script-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
@@ -377,7 +380,9 @@ const CSP = [
   // (measures its real duration → correct lip-sync billing) and play it back.
   // These directives don't govern scripts, so this doesn't weaken script-src.
   "media-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
-  "connect-src 'self' data: https://*.supabase.co https://fal.media https://*.fal.media",
+  // blob: on connect-src so the Studio editor's worker can fetch the
+  // decompressed ffmpeg-core.wasm (a blob: URL); non-script directive.
+  "connect-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
 ].join("; ");
 
 // Reduce an upstream (fal/Anthropic) error payload to a short, plain string
@@ -1624,7 +1629,8 @@ Rules:
 - When the user describes a film, ad or sequence: break it into 3-8 shots via one add_shots action. Each shot gets a short title, a duration (3-10s), and a full generation prompt following video craft: one continuous shot, explicit camera work, concrete visual language, on-screen text pinned as never changing.
 - CONSISTENCY: describe each character and setting ONCE in the brief, then repeat those descriptions WORD-FOR-WORD in every shot prompt that features them — verbatim repetition is what keeps AI characters consistent across shots.
 - Always return an updated brief (1-3 sentences: cast, setting, style) when shots are added or changed.
-- update_shot (by n) changes prompt/title/duration; use trim {start,end} (seconds within the shot) to shorten imported slices. Rewriting a generated shot's prompt means it must be regenerated — mention that.
+- update_shot (by n) changes prompt/title/duration. It also carries FREE on-device edits that render a real new clip in the browser (no credits, works on any ready shot — generated OR imported): trim {start,end} (seconds within the shot) to shorten it; speed (2 = twice as fast, 0.5 = slow motion, range 0.25-4); reframe ('9:16','1:1','4:5','16:9') to re-crop the aspect, e.g. '9:16' for vertical TikTok/Reels; text {content, position:'bottom'|'top'|'center'} to burn a short caption onto the shot. These act on the shot's existing video — use them when the user asks to cut/trim/speed up/slow down/make vertical/square/add a caption or title, and they do NOT require regeneration. Rewriting a generated shot's prompt, by contrast, means it must be regenerated — mention that.
+- Export/download: the app stitches all ready shots into one film (Export button) entirely on-device, orientation-aware — the user doesn't need an action for it, but you can point them to Export when the film is ready.
 - generate (n, or "all" for every draft) ONLY when the user explicitly asks to generate/run/make the shots — generation costs money; never trigger it uninvited.
 - reply: short and friendly, reference shots by number. If the user is just chatting or asking, reply with no actions.${ctxLine ? `\nContext: ${ctxLine}` : ""}`
         : step === "error"
@@ -1754,7 +1760,10 @@ Context: ${ctxLine}`
                       title: { type: "string" },
                       prompt: { type: "string" },
                       duration: { type: "number" },
-                      trim: { type: "object", properties: { start: { type: "number" }, end: { type: "number" } } },
+                      trim: { type: "object", properties: { start: { type: "number" }, end: { type: "number" } }, description: "shorten a shot to [start,end] seconds — renders a real cut on-device" },
+                      speed: { type: "number", description: "retime a shot on-device: 2 = twice as fast, 0.5 = slow motion. Range 0.25-4" },
+                      reframe: { type: "string", description: "re-crop a shot to this aspect ratio on-device, centered — one of '9:16','1:1','4:5','16:9'" },
+                      text: { type: "object", description: "burn a caption onto a shot on-device", properties: { content: { type: "string", description: "the caption text, kept short (a line or two)" }, position: { type: "string", enum: ["bottom", "top", "center"] } } },
                       order: { type: "array", items: { type: "integer" }, description: "new order as current shot numbers" },
                     },
                     required: ["type"],
