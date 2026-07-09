@@ -298,17 +298,27 @@ function sbRender() {
       if (isTitle) {
         block.style.background = s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)';
         body = '<span class="sb-titletext"></span>';
-      } else if (Array.isArray(s.strip) && s.strip.length) {
-        body = '<div class="sb-strip">' +
-          s.strip.map((src) => '<i class="sb-frame" style="background-image:url(' + src + ')"></i>').join('') +
-          '</div>';
-      } else if (s.thumb) {
-        block.style.backgroundImage = 'url(' + s.thumb + ')';
+      } else {
+        // iMovie-style filmstrip: real sampled frames when we have them,
+        // otherwise repeat the poster thumb across the clip (one tile per ~1.4s)
+        // so it still reads as a strip of frames rather than one flat block.
+        const frames = (Array.isArray(s.strip) && s.strip.length)
+          ? s.strip
+          : (s.thumb ? Array(Math.max(2, Math.min(8, Math.round(dur / 1.4)))).fill(s.thumb) : []);
+        if (frames.length) {
+          body = '<div class="sb-strip">' +
+            frames.map((src) => '<i class="sb-frame" style="background-image:url(\'' + src + '\')"></i>').join('') +
+            '</div>';
+        }
       }
-      block.innerHTML = body + '<span class="sb-blocknum">' + n + '</span>' +
+      // Per-clip label bar: amber duration + name, iMovie-style ("4.0s Skyline dawn").
+      block.innerHTML = body +
+        '<span class="sb-cliplabel"><b class="cl-dur"></b><span class="cl-name"></span></span>' +
         (isTitle ? '' : '<button class="sb-cmute" title="Mute this clip">' + (s.muted ? '🔇' : '🔊') + '</button>') +
         '<span class="sb-trim l" title="Trim the start"></span>' +
         '<span class="sb-trim r" title="Trim the end"></span>';
+      block.querySelector('.cl-dur').textContent = (Math.round(sbShotDur(s) * 10) / 10) + 's';
+      block.querySelector('.cl-name').textContent = isTitle ? '' : (s.src === 'import' ? 'Clip ' + n : (s.title || 'Shot ' + n));
       if (isTitle) block.querySelector('.sb-titletext').textContent = s.text || 'Title';
       block.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
       block.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
