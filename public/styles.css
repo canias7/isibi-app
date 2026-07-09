@@ -1300,7 +1300,7 @@
 
 /* ── Studio: chat + iMovie-style editor ── */
 .studio-chat {
-  flex: 0 0 26%; max-width: 400px; min-width: 290px;
+  flex: 0 0 31%; max-width: 460px; min-width: 330px;
   display: flex; flex-direction: column; min-height: 0;
   border-right: 1px solid var(--line);
   background: rgba(255, 255, 255, .03);
@@ -1312,8 +1312,8 @@
 .studio-composer { display: flex; gap: .5rem; align-items: flex-end; padding: .75rem; border-top: 1px solid var(--line); }
 .studio-composer textarea {
   flex: 1; resize: none; background: rgba(0, 0, 0, .28); border: 1px solid var(--line-2); color: var(--text);
-  border-radius: 12px; padding: .6rem .75rem; font-family: inherit; font-size: .92rem; outline: none;
-  max-height: 30vh; line-height: 1.4;
+  border-radius: 14px; padding: .75rem .9rem; font-family: inherit; font-size: .95rem; outline: none;
+  min-height: 88px; max-height: 40vh; line-height: 1.45;
 }
 .studio-composer textarea:focus { border-color: rgba(255, 214, 10, .4); }
 /* Two-class selector so it beats the later single-class `.send` block that
