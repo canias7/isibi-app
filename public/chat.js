@@ -901,12 +901,12 @@ function renderPresets() {
   const cat = PRESET_CATS.find((c) => c.key === presetCat) || PRESET_CATS[0];
   const kindIco = (k) => (k === 'image' ? '🖼' : k === 'audio' ? '🎙' : '🎬');
   const cards = cat.items.map((it, i) => {
-    const prev = (Array.isArray(it.previews) && it.previews.length ? it.previews.slice(0, 3) : [null, null, null])
-      .map((p, k) => p
-        ? '<span class="pt-prev"><img src="' + esc(p) + '" alt="" loading="lazy" /></span>'
-        : '<span class="pt-prev pt-prev-ph pt-ph' + (k % 3) + '"></span>').join('');
+    const first = Array.isArray(it.previews) && it.previews.length ? it.previews[0] : null;
+    const prev = first
+      ? '<span class="pt-prev"><img src="' + esc(first) + '" alt="" loading="lazy" /></span>'
+      : '<span class="pt-prev pt-prev-ph pt-ph' + (i % 4) + '"></span>';
     return '<button type="button" class="pt-card" data-i="' + i + '">' +
-      '<span class="pt-previews">' + prev + '</span>' +
+      prev +
       '<span class="pt-foot">' +
         '<span class="pt-ico">' + kindIco(it.kind) + '</span>' +
         '<span class="pt-meta"><span class="pt-card-t">' + esc(it.label) + '</span>' +
