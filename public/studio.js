@@ -1270,8 +1270,9 @@ function sbFilterStr(s) {
 }
 function sbClipVol(s) { return s.muted ? 0 : (s.volume != null ? s.volume : 1); }
 function sbAdjOn(a) { return !!(a && ((a.br != null && a.br !== 1) || (a.con != null && a.con !== 1) || (a.sat != null && a.sat !== 1))); }
+function sbHasOverlay(s) { return !!(s && s.overlay && s.overlay.text && String(s.overlay.text).trim()); }
 function sbClipHasAdjust(s) {
-  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj) || sbHasMotion(s)));
+  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj) || sbHasMotion(s) || sbHasOverlay(s)));
 }
 // Push the selected clip's look / speed / volume onto the live preview <video>.
 function sbApplyPreview(s) {
@@ -1283,6 +1284,16 @@ function sbApplyPreview(s) {
   v.volume = sbClipVol(s);
   v.style.objectFit = sbHasMotion(s) ? 'cover' : '';
   v.style.animation = (s.motion && SB_KB_ANIM[s.motion]) ? SB_KB_ANIM[s.motion] : '';
+  // live title overlay text drawn over the clip
+  const stage = document.getElementById('previewStage');
+  if (stage) {
+    let cap = stage.querySelector('.preview-caption');
+    if (sbHasOverlay(s)) {
+      if (!cap) { cap = document.createElement('div'); stage.appendChild(cap); }
+      cap.className = 'preview-caption pos-' + (s.overlay.pos || 'lower');
+      cap.textContent = s.overlay.text;
+    } else if (cap) { cap.remove(); }
+  }
 }
 let sbAdjTool = null; // which adjust popover is open: filter | speed | volume
 function sbToggleAdjust(tool) {
@@ -1299,7 +1310,11 @@ function sbRenderAdjust() {
   if (!sbAdjTool || !s || s.src === 'title') { pop.hidden = true; pop.innerHTML = ''; return; }
   pop.hidden = false;
   let html = '';
-  if (sbAdjTool === 'crop') {
+  if (sbAdjTool === 'text') {
+    html = '<div class="adj-title">Text on this clip</div>' +
+      '<input type="text" class="adj-text" maxlength="120" placeholder="Add a caption…" />' +
+      '<div class="adj-pos">' + [['upper', 'Top'], ['center', 'Center'], ['lower', 'Bottom']].map(([k, l]) => '<button class="adj-p' + (((s.overlay && s.overlay.pos) || 'lower') === k ? ' on' : '') + '" data-pos="' + k + '">' + l + '</button>').join('') + '</div>';
+  } else if (sbAdjTool === 'crop') {
     html = '<div class="adj-title">Crop &amp; Ken Burns</div>' +
       '<button class="adj-fill' + (s.fill ? ' on' : '') + '" data-fill="1">' + (s.fill ? '✓ ' : '') + 'Crop to fill</button>' +
       '<div class="adj-motion">' + SB_MOTION.map((m) => '<button class="adj-m' + ((s.motion || 'none') === m.k ? ' on' : '') + '" data-m="' + m.k + '">' + m.label + '</button>').join('') + '</div>';
@@ -1330,6 +1345,9 @@ function sbRenderAdjust() {
   pop.querySelectorAll('[data-m]').forEach((b) => { b.onclick = () => sbSetClipMotion(b.dataset.m); });
   const fb = pop.querySelector('[data-fill]');
   if (fb) fb.onclick = () => sbToggleFill();
+  const ti = pop.querySelector('.adj-text');
+  if (ti) { ti.value = (s.overlay && s.overlay.text) || ''; ti.oninput = () => sbSetOverlayText(ti.value); }
+  pop.querySelectorAll('[data-pos]').forEach((b) => { b.onclick = () => sbSetOverlayPos(b.dataset.pos); });
   const rst = pop.querySelector('[data-reset]');
   if (rst) rst.onclick = () => { const sh = sbShot(sbSelected); if (sh) { sh.adj = null; sbSave(); sbApplyPreview(sh); sbRenderAdjust(); } };
   const vr = pop.querySelector('.adj-vol');
@@ -1343,6 +1361,38 @@ function sbSetClipAdjust(key, val, rangeEl) {
 }
 function sbSetClipMotion(k) { const s = sbShot(sbSelected); if (!s) return; s.motion = k === 'none' ? null : k; if (s.motion) s.fill = true; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
 function sbToggleFill() { const s = sbShot(sbSelected); if (!s) return; s.fill = !s.fill; if (!s.fill) s.motion = null; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
+function sbSetOverlayText(t) {
+  const s = sbShot(sbSelected); if (!s) return;
+  t = String(t).slice(0, 120);
+  if (!t.trim()) s.overlay = null;
+  else { s.overlay = s.overlay || { pos: 'lower' }; s.overlay.text = t; }
+  sbSave(); sbApplyPreview(s);
+}
+function sbSetOverlayPos(p) {
+  const s = sbShot(sbSelected); if (!s) return;
+  s.overlay = s.overlay || {}; s.overlay.pos = p;
+  sbSave(); sbApplyPreview(s); sbRenderAdjust();
+}
+// Draw a clip's overlay caption onto the export canvas (word-wrapped, shadowed).
+function sbPaintCaption(ctx, W, H, s) {
+  if (!sbHasOverlay(s)) return;
+  const txt = String(s.overlay.text).trim();
+  const fs = Math.round(H * 0.062);
+  ctx.save();
+  ctx.font = '700 ' + fs + "px 'Space Grotesk', Inter, sans-serif";
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const words = txt.split(/\s+/); const lines = []; let line = '';
+  for (const w of words) { const test = line ? line + ' ' + w : w; if (ctx.measureText(test).width > W * 0.86 && line) { lines.push(line); line = w; } else line = test; }
+  if (line) lines.push(line);
+  const lh = fs * 1.25;
+  const pos = s.overlay.pos || 'lower';
+  const cy = pos === 'upper' ? H * 0.14 : pos === 'center' ? H * 0.5 : H * 0.86;
+  const y0 = cy - (lines.length - 1) * lh / 2;
+  ctx.shadowColor = 'rgba(0,0,0,.78)'; ctx.shadowBlur = fs * 0.45; ctx.shadowOffsetY = 2;
+  ctx.fillStyle = '#fff';
+  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, y0 + i * lh));
+  ctx.restore();
+}
 function sbSetClipFilter(k) { const s = sbShot(sbSelected); if (!s) return; s.filter = k === 'none' ? null : k; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
 function sbSetClipSpeed(sp) { const s = sbShot(sbSelected); if (!s) return; s.speed = sp === 1 ? null : sp; sbSave(); sbApplyPreview(s); sbRender(); }
 function sbSetClipVolume(vol) { const s = sbShot(sbSelected); if (!s) return; s.volume = vol; if (vol > 0) s.muted = false; sbSave(); sbApplyPreview(s); }
@@ -2052,6 +2102,7 @@ function sbExportShot(s, o) {
             ctx.drawImage(v, dx, dy, dw, dh);
           }
           ctx.filter = 'none';
+          try { sbPaintCaption(ctx, W, H, s); } catch (e) {}
           try { sbFrameOverlays(ctx, W, H, o, (v.currentTime - start) / sp, shotDur); } catch (e) {}
           if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
           raf = requestAnimationFrame(draw);
