@@ -653,13 +653,19 @@ async function sbExport() {
   try {
     if (window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
       try {
+        const proj = sbProject();
         const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0 }));
         const r = await window.sbFFExport(descriptors, {
+          transition: proj.transition || 'none',
+          fade: !!proj.fade,
           onProgress: (p) => sbStudioProgress('Stitching your film… ' + Math.round(p * 100) + '%'),
         });
         sbDownloadBlob(r.blob, 'mp4');
+        const styleNote = (proj.transition && proj.transition !== 'none')
+          ? ', ' + (proj.transition === 'dip' ? 'dip-to-black' : 'crossfade') + ' transitions' : '';
         sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
-          (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + ') — check your downloads ✦');
+          (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + styleNote +
+          (proj.fade ? ', fades' : '') + ') — check your downloads ✦');
         return;
       } catch (e) {
         console.warn('on-device stitch failed, using the realtime exporter:', e);
@@ -867,6 +873,13 @@ async function studioSend() {
       } else if (a.type === 'generate') {
         if (a.n === 'all') proj.shots.forEach((s) => { if (s.status === 'draft' && s.prompt) toGenerate.push(s); });
         else { const s = proj.shots[a.n - 1]; if (s && s.prompt) toGenerate.push(s); }
+      } else if (a.type === 'export_style') {
+        // How the film is stitched at Export time (applies to all shots).
+        if (a.transition != null) {
+          const t = String(a.transition);
+          proj.transition = ['crossfade', 'dip', 'none'].indexOf(t) >= 0 ? t : 'none';
+        }
+        if (a.fade != null) proj.fade = !!a.fade;
       }
     }
     sbSave(); sbRender();
