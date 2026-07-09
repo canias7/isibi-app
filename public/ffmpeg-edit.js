@@ -192,6 +192,29 @@ async function sbFFExtractAudio(src, opts = {}) {
   }, opts.onProgress);
 }
 
+// ── Remux (repair a MediaRecorder capture) ────────────────────────────────────
+// The realtime canvas exporter records via MediaRecorder, which writes no
+// top-level duration into the webm — so players show Infinity/no seek bar until
+// the whole file buffers. A stream-copy remux through ffmpeg (no re-encode, so
+// it's fast) rewrites the header with the real duration + seek cues. Returns the
+// repaired Blob, or the original untouched if the editor can't run or fails.
+async function sbFFRemux(blob) {
+  if (!blob || !blob.size || !sbFFSupported()) return blob;
+  if ((blob.type || '').indexOf('webm') < 0) return blob; // MediaRecorder mp4 is already seekable
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  try {
+    return await sbFFJob(async (ff) => {
+      const inName = 'rmx-in.webm';
+      await ff.writeFile(inName, bytes);
+      try { await ff.deleteFile('rmx-out.webm'); } catch (e) {}
+      await ff.exec(['-fflags', '+genpts', '-i', inName, '-c', 'copy', 'rmx-out.webm']);
+      let data = null; try { data = await ff.readFile('rmx-out.webm'); } catch (e) {}
+      try { await ff.deleteFile(inName); await ff.deleteFile('rmx-out.webm'); } catch (e) {}
+      return (data && data.length) ? new Blob([data.buffer], { type: 'video/webm' }) : blob;
+    });
+  } catch (e) { return blob; }
+}
+
 // ── Speed ─────────────────────────────────────────────────────────────────────
 // Retime to `speed`× (2 = twice as fast, 0.5 = slow motion). Video via setpts,
 // audio via a chained atempo. New duration = old / speed.
@@ -457,6 +480,7 @@ async function sbFFExport(shots, opts = {}) {
 // expose for studio.js + tests
 window.sbFFTrim = sbFFTrim;
 window.sbFFExtractAudio = sbFFExtractAudio;
+window.sbFFRemux = sbFFRemux;
 window.sbFFSpeed = sbFFSpeed;
 window.sbFFReframe = sbFFReframe;
 window.sbFFText = sbFFText;
