@@ -2430,11 +2430,10 @@
   background: radial-gradient(58% 52% at 50% 42%, rgba(255, 121, 198, .2), rgba(255, 184, 77, .08) 55%, transparent 76%);
 }
 .apb {
-  max-height: 260px; width: auto; display: block; mix-blend-mode: screen;
-  filter: drop-shadow(0 22px 26px rgba(0, 0, 0, .5)) brightness(1.06) contrast(1.04);
-  /* Keep the strap + card solid, fade only the floor reflection at the bottom. */
-  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 97%);
-          mask-image: linear-gradient(to bottom, #000 80%, transparent 97%);
+  /* The badge art has a baked-in transparent background (background keyed out),
+     so it melts onto the card on any page background — no blend/mask needed. */
+  max-height: 260px; width: auto; display: block;
+  filter: drop-shadow(0 20px 26px rgba(0, 0, 0, .45)) brightness(1.05);
   /* Swing from the top of the lanyard, like a real hanging badge. */
   transform-origin: 50% 2%;
   animation: apb-sway 5s ease-in-out infinite;

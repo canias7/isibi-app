@@ -2482,14 +2482,14 @@ function openCredits(topupsOnly) {
       '<div class="addon-eyebrow">Membership add-ons</div>' +
       '<div class="addon-env-row">' +
         '<div class="addon-env">' +
-          '<div class="addon-env-badge"><img class="apb" src="/img/badge-orchestrator.webp" alt="isibi.ai orchestrator" loading="lazy" /></div>' +
+          '<div class="addon-env-badge"><img class="apb" src="/img/badge-orchestrator-cut.webp" alt="isibi.ai orchestrator" loading="lazy" /></div>' +
           '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
           '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
           '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
         '</div>' +
         '<div class="addon-env">' +
-          '<div class="addon-env-badge"><img class="apb" src="/img/badge-video-editor.webp" alt="isibi.ai video editor" loading="lazy" /></div>' +
+          '<div class="addon-env-badge"><img class="apb" src="/img/badge-video-editor-cut.webp" alt="isibi.ai video editor" loading="lazy" /></div>' +
           '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
           '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
