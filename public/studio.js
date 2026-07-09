@@ -1618,6 +1618,12 @@ async function sbExport(deliver) {
         console.warn('on-device stitch failed, using the realtime exporter:', e);
       }
     }
+    // Titles / backgrounds / voiceover force the realtime canvas exporter, which
+    // can't render clip transitions or the film-wide fade. Say so plainly rather
+    // than silently dropping a crossfade/dip the user picked in the browser.
+    if ((proj0.transition && proj0.transition !== 'none') || proj0.fade) {
+      sbStudioNote('Heads-up: your film has a title, background or voiceover, so it exports as clean cuts — the crossfade/dip and film-wide fade aren’t applied on this path. Every clip, title and the music are still included.');
+    }
     await sbExportCanvas(shots, send, !!deliver);
   } catch (e) {
     console.error('export failed:', e);
