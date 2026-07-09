@@ -1271,23 +1271,25 @@ function addMsg(kind, text) {
 }
 
 // Hover chip that copies a message's text to the clipboard.
+const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5 9 17.5 20 6.5"/></svg>';
 function addCopyBtn(div, text) {
   const btn = document.createElement('button');
   btn.className = 'copy-btn'; btn.type = 'button'; btn.title = 'Copy';
   btn.setAttribute('aria-label', 'Copy message');
-  btn.textContent = '⧉';
+  btn.innerHTML = COPY_ICON;
   btn.onclick = async (e) => {
     e.stopPropagation();
     try {
       await navigator.clipboard.writeText(text);
-      btn.textContent = '✓';
+      btn.innerHTML = CHECK_ICON;
     } catch {
       const ta = document.createElement('textarea'); // older-browser fallback
       ta.value = text; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); btn.textContent = '✓'; } catch { btn.textContent = '✗'; }
+      try { document.execCommand('copy'); btn.innerHTML = CHECK_ICON; } catch { btn.innerHTML = COPY_ICON; }
       ta.remove();
     }
-    setTimeout(() => { btn.textContent = '⧉'; }, 1200);
+    setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1200);
   };
   div.appendChild(btn);
 }
