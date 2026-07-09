@@ -58,6 +58,9 @@ async function sbFFLoad(onNote) {
     });
     // No classWorkerURL: it auto-resolves 814.ffmpeg.js from /vendor/ffmpeg.
     await ff.load({ coreURL: '/vendor/ffmpeg/ffmpeg-core.js', wasmURL });
+    // The core is instantiated now; the ~32 MB decompressed-wasm blob URL is no
+    // longer referenced, so free it instead of pinning it for the whole session.
+    try { URL.revokeObjectURL(wasmURL); } catch (e) {}
     _ffInstance = ff;
     return ff;
   })();
@@ -101,8 +104,14 @@ function sbFFNote(msg) {
 // whose UMD build calls require() and breaks in-browser).
 async function sbFFBytes(src) {
   if (src instanceof Uint8Array) return src;
-  const buf = await (await fetch(typeof src === 'string' ? src : URL.createObjectURL(src))).arrayBuffer();
-  return new Uint8Array(buf);
+  let tmp = null;
+  const target = typeof src === 'string' ? src : (tmp = URL.createObjectURL(src));
+  try {
+    const buf = await (await fetch(target)).arrayBuffer();
+    return new Uint8Array(buf);
+  } finally {
+    if (tmp) { try { URL.revokeObjectURL(tmp); } catch (e) {} } // don't leak the temp URL
+  }
 }
 
 // Pick an input filename extension ffmpeg's demuxers are happy with.
