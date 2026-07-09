@@ -1006,6 +1006,14 @@ async function studioSend() {
         })),
       }),
     });
+    // The Studio chat editor is the Video Editor add-on ($19.99/mo). No sub →
+    // 402: surface the upsell instead of a generic error.
+    if (res.status === 402) {
+      if (sbProgressEl) { sbProgressEl.remove(); sbProgressEl = null; }
+      sbStudioNote('The Video Editor add-on ($19.99/mo) powers this chat editor. Add it to direct your edits by chat — the editing tools themselves stay free.');
+      if (typeof window.openVideoEditorUpsell === 'function') window.openVideoEditorUpsell();
+      return;
+    }
     if (!res.ok) throw 0;
     const data = await res.json();
     if (data.reply) sbStudioNote(data.reply);

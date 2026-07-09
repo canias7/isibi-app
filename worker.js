@@ -760,7 +760,24 @@ function orchestratorCostMicros(step, effort) {
   if ((step === "compose" || step === "revise") &&
       (effort === "high" || effort === "ultra" || effort === "max")) return 25000; // Sonnet
   if (step === "ask") return 3000; // Haiku, thinking off, ~1.5k tokens
-  return 4000; // Haiku prompt-writing / error / studio
+  return 4000; // Haiku prompt-writing / error
+}
+
+// ── Video Editor add-on ($19.99/mo) ─────────────────────────────────────────
+// Powers the Studio's chat director (the step:'studio' calls to /api/direct).
+// Flat monthly subscription — no usage meter (the Studio director is Haiku).
+// Fails CLOSED like the orchestrator gate.
+async function videoEditorGate(request) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/video_editor_gate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: "{}",
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return false;
+    return (await r.json()) === true;
+  } catch { return false; }
 }
 
 export default {
@@ -1158,6 +1175,9 @@ async function handleRequest(request, env, ctx) {
     // markup). Unlocks the director (chat/prompt-help/effort/research). Grants no
     // credits: it activates its own budget via set_orchestrator on invoice.paid.
     const ORCH = { cents: 1999, name: "isibi AI Orchestrator" };
+    // Video Editor add-on — $19.99/mo subscription. Unlocks the Studio chat
+    // director. Grants no credits; activates via set_video_editor on invoice.paid.
+    const VE = { cents: 1999, name: "isibi Video Editor" };
 
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
@@ -1172,15 +1192,16 @@ async function handleRequest(request, env, ctx) {
       const plan = body.plan != null ? PLANS[String(body.plan)] : null;
       const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
       const orch = !plan && !topup && body.orchestrator ? ORCH : null;
-      if (!plan && !topup && !orch) return Response.json({ error: "unknown plan" }, { status: 400 });
-      const sub = plan || orch; // both are monthly subscriptions
+      const ve = !plan && !topup && !orch && body.videoEditor ? VE : null;
+      if (!plan && !topup && !orch && !ve) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const sub = plan || orch || ve; // all monthly subscriptions
       const form = new URLSearchParams({
         mode: sub ? "subscription" : "payment",
         success_url: "https://isibi.ai/?credits=added",
         cancel_url: "https://isibi.ai/",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String((plan || topup || orch).cents),
+        "line_items[0][price_data][unit_amount]": String((plan || topup || orch || ve).cents),
       });
       if (sub) {
         form.set("line_items[0][price_data][recurring][interval]", "month");
@@ -1189,7 +1210,8 @@ async function handleRequest(request, env, ctx) {
         // who to grant and what (credits for a plan, orchestrator flag for the add-on).
         form.set("subscription_data[metadata][user_id]", user.id);
         if (plan) form.set("subscription_data[metadata][credits]", String(plan.credits));
-        else form.set("subscription_data[metadata][orchestrator]", "1");
+        else if (orch) form.set("subscription_data[metadata][orchestrator]", "1");
+        else form.set("subscription_data[metadata][video_editor]", "1");
       } else {
         form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
         form.set("metadata[user_id]", user.id);
@@ -1282,6 +1304,7 @@ async function handleRequest(request, env, ctx) {
         const uid = meta.user_id;
         const credits = Number(meta.credits) || 0;
         const isOrch = meta.orchestrator === "1" || meta.orchestrator === 1;
+        const isVE = meta.video_editor === "1" || meta.video_editor === 1;
         const paid = inv && (inv.status === "paid" || inv.paid === true);
         // AI Orchestrator sub: activate/extend the add-on on a rolling 32-day
         // window (grants no credits). Lapses to raw once no invoice renews it.
@@ -1297,6 +1320,19 @@ async function handleRequest(request, env, ctx) {
             signal: AbortSignal.timeout(10000),
           });
           if (!r.ok) return Response.json({ error: "orchestrator grant failed" }, { status: 500 });
+        } else if (uid && isVE && paid && inv.id) {
+          // Video Editor sub: activate/extend on a rolling 32-day window.
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_video_editor`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+            body: JSON.stringify({
+              target: uid,
+              p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
+              mint_key: env.CREDITS_MINT_SECRET,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!r.ok) return Response.json({ error: "video editor grant failed" }, { status: 500 });
         } else if (uid && credits > 0 && paid && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
@@ -1381,16 +1417,26 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // Video Editor status for the client ({active, resets_at}).
+    if (url.pathname === "/api/video-editor" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/video_editor_status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+          body: "{}",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) throw 0;
+        return Response.json(await r.json());
+      } catch {
+        return Response.json({ error: "video editor unavailable" }, { status: 503 });
+      }
+    }
+
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
     if (url.pathname === "/api/direct" && request.method === "POST") {
       if (!(await authUser(request))) return UNAUTHED();
-      // The director IS the paid AI Orchestrator add-on. No active sub (or the
-      // monthly at-cost budget is spent) → 402 locked; the client falls back to
-      // raw prompting. This gate also replaces the old per-day director quota —
-      // the $19.99 monthly budget is the cap now.
-      if (!(await orchestratorGate(request))) {
-        return Response.json({ error: "orchestrator required", locked: true }, { status: 402 });
-      }
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
@@ -1400,6 +1446,17 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
       let step = ["compose", "revise", "error", "studio", "research"].includes(body.step) ? body.step : "ask";
+      // The director is a paid add-on, split by surface: the 'studio' step is the
+      // Video Editor add-on's chat; every other step is the AI Orchestrator.
+      // No active sub (or the orchestrator's monthly budget is spent) → 402 locked;
+      // the client falls back to raw prompting / an upsell.
+      const isStudio = step === "studio";
+      if (!(isStudio ? await videoEditorGate(request) : await orchestratorGate(request))) {
+        return Response.json({
+          error: isStudio ? "video editor required" : "orchestrator required",
+          locked: true, need: isStudio ? "video_editor" : "orchestrator",
+        }, { status: 402 });
+      }
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
@@ -1409,8 +1466,9 @@ async function handleRequest(request, env, ctx) {
       if (step === "revise" && !prevPrompt) step = "compose";
       // Bill this call's estimated at-cost price against the member's monthly
       // orchestrator budget (fire-and-forget — the gate above already confirmed
-      // they're a member and under budget). Covers every step incl. research.
-      if (ctx && ctx.waitUntil) {
+      // they're a member and under budget). The Video Editor is a flat sub with
+      // no per-call meter, so studio steps don't debit.
+      if (!isStudio && ctx && ctx.waitUntil) {
         ctx.waitUntil(orchestratorDebit(request, orchestratorCostMicros(
           step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium")));
       }
