@@ -344,7 +344,10 @@ async function sbFFExport(shots, opts = {}) {
       // 4. Join the segments. Default: concat demuxer (stream copy — fast,
       //    lossless). With transitions or edge fades: an xfade/acrossfade
       //    filtergraph (a real re-encode of the joins).
-      const useXfade = (opts.transition === 'crossfade' || opts.transition === 'dip') && segs.length >= 2;
+      // Studio transition key → ffmpeg xfade transition name (xfade supports many
+      // natively, so extra styles are just another entry here).
+      const XT = { crossfade: 'fade', dip: 'fadeblack', dipwhite: 'fadewhite', wipe: 'wipeleft' };
+      const useXfade = !!XT[opts.transition] && segs.length >= 2;
       const useFade = !!opts.fade;
       try { await ff.deleteFile('out.mp4'); } catch (e) {}
       if (!useXfade && !useFade) {
@@ -357,7 +360,7 @@ async function sbFFExport(shots, opts = {}) {
         for (const s of segs) { let inf; try { inf = await sbFFProbe(ff, s, logbuf); } catch (e) { inf = {}; } durs.push(inf.dur || 0); }
         const minDur = Math.min.apply(null, durs.filter((d) => d > 0).concat([999]));
         const T = useXfade ? Math.max(0.1, Math.min(Number(opts.transitionDur) || 0.6, minDur * 0.5)) : 0;
-        const xt = opts.transition === 'dip' ? 'fadeblack' : 'fade';
+        const xt = XT[opts.transition] || 'fade';
         const inputs = [];
         for (const s of segs) inputs.push('-i', s);
         const fc = [];
