@@ -13,6 +13,7 @@ let sbBusy = false;         // an export or generation batch is running
 let sbZoomLevel = 1;        // timeline zoom (1 = fit; >1 scrolls)
 let sbTitleState = null;    // {id, elapsed} while a title card is "playing"
 let sbTitleRAF = 0;
+let sbTab = 'shots';        // asset browser tab: shots | transitions | titles | backgrounds
 
 // Account switched on this browser (expired session → different login without
 // a reload): drop the previous user's projects from memory and rebuild from
@@ -262,6 +263,12 @@ function sbRender() {
     track.ondragleave = () => track.classList.remove('drop-here');
     track.ondrop = (e) => {
       e.preventDefault(); track.classList.remove('drop-here');
+      // A title/background dragged in from the browser tabs.
+      const asset = e.dataTransfer.getData('text/sb-asset');
+      if (asset) {
+        try { const a = JSON.parse(asset); if (a.kind === 'title') sbAddTitlePreset(a); else if (a.kind === 'bg') sbAddBackground(a); } catch (_) {}
+        return;
+      }
       const id = e.dataTransfer.getData('text/sb');
       if (id) sbAddToTimeline(id);
     };
@@ -298,18 +305,32 @@ function sbRender() {
       if (isTitle) {
         block.style.background = s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)';
         body = '<span class="sb-titletext"></span>';
-      } else if (Array.isArray(s.strip) && s.strip.length) {
-        body = '<div class="sb-strip">' +
-          s.strip.map((src) => '<i class="sb-frame" style="background-image:url(' + src + ')"></i>').join('') +
-          '</div>';
-      } else if (s.thumb) {
-        block.style.backgroundImage = 'url(' + s.thumb + ')';
+      } else {
+        // iMovie-style filmstrip: real sampled frames when we have them,
+        // otherwise repeat the poster thumb across the clip (one tile per ~1.4s)
+        // so it still reads as a strip of frames rather than one flat block.
+        const frames = (Array.isArray(s.strip) && s.strip.length)
+          ? s.strip
+          : (s.thumb ? Array(Math.max(2, Math.min(8, Math.round(dur / 1.4)))).fill(s.thumb) : []);
+        if (frames.length) {
+          body = '<div class="sb-strip">' +
+            frames.map((src) => '<i class="sb-frame" style="background-image:url(\'' + src + '\')"></i>').join('') +
+            '</div>';
+        }
       }
-      block.innerHTML = body + '<span class="sb-blocknum">' + n + '</span>' +
+      // Per-clip label bar: amber duration + name, iMovie-style ("4.0s Skyline dawn").
+      block.innerHTML = body +
+        '<span class="sb-cliplabel"><b class="cl-dur"></b><span class="cl-name"></span></span>' +
         (isTitle ? '' : '<button class="sb-cmute" title="Mute this clip">' + (s.muted ? '🔇' : '🔊') + '</button>') +
         '<span class="sb-trim l" title="Trim the start"></span>' +
         '<span class="sb-trim r" title="Trim the end"></span>';
-      if (isTitle) block.querySelector('.sb-titletext').textContent = s.text || 'Title';
+      block.querySelector('.cl-dur').textContent = (Math.round(sbShotDur(s) * 10) / 10) + 's';
+      block.querySelector('.cl-name').textContent = isTitle ? '' : (s.src === 'import' ? 'Clip ' + n : (s.title || 'Shot ' + n));
+      if (isTitle) {
+        const tt = block.querySelector('.sb-titletext');
+        tt.textContent = s.text || '';
+        tt.style.color = sbTitleInk(s);
+      }
       block.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
       block.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
       const mute = block.querySelector('.sb-cmute');
@@ -361,6 +382,7 @@ function sbRender() {
   sbMusicLoad();
   sbVoiceLoad();
   sbRenderStyleControls();
+  sbRenderBrowser();
 }
 
 // One audio lane (music or voice) drawn as a waveform clip from the film start,
@@ -787,7 +809,7 @@ function sbAddTitle() {
   const t = {
     id: sbUid('s'), title: 'Title', text: String(text).slice(0, 120) || 'Title',
     prompt: '', status: 'ready', src: 'title', onTimeline: true,
-    dur: 3, in: 0, out: 3, srcDur: 3, bg: 'linear-gradient(135deg,#ff79c6,#ffb84d)',
+    dur: 3, in: 0, out: 3, srcDur: 3, g0: '#ff79c6', g1: '#ffb84d', bg: sbGrad('#ff79c6', '#ffb84d'),
   };
   proj.shots.push(t);
   sbSave(); sbRender(); sbSelect(t.id);
@@ -805,19 +827,36 @@ function sbEditTitle(id) {
 function sbShowTitleCard(s) {
   const stage = document.getElementById('previewStage');
   if (!stage) return;
-  stage.innerHTML = '<div class="preview-title" style="background:' + (s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)') + '"><span></span></div>';
-  stage.querySelector('.preview-title span').textContent = s.text || 'Title';
+  stage.innerHTML = '<div class="preview-title" style="background:' + (s.bg || sbGrad('#ff79c6', '#ffb84d')) + ';color:' + sbTitleInk(s) + '"><span></span></div>';
+  stage.querySelector('.preview-title span').textContent = s.text || '';
 }
-// Draw a title card onto the export canvas (word-wrapped, centered).
+// Relative luminance of a #hex colour (0..1), for picking readable ink.
+function sbHexLum(h) {
+  h = String(h || '').replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) || 0, g = parseInt(h.slice(2, 4), 16) || 0, b = parseInt(h.slice(4, 6), 16) || 0;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+// White ink on dark title/background gradients, near-black on light ones.
+function sbTitleInk(s) {
+  const l = (sbHexLum(s.g0 || '#ff79c6') + sbHexLum(s.g1 || '#ffb84d')) / 2;
+  return l < 0.52 ? '#ffffff' : '#0b0b10';
+}
+function sbGrad(a, b) { return 'linear-gradient(135deg,' + a + ',' + b + ')'; }
+
+// Draw a title/background card onto the export canvas (word-wrapped, centered).
+// A background clip carries an empty text and paints the gradient only.
 function sbPaintTitle(ctx, W, H, s) {
   const g = ctx.createLinearGradient(0, 0, W, H);
-  g.addColorStop(0, '#ff79c6'); g.addColorStop(1, '#ffb84d');
+  g.addColorStop(0, s.g0 || '#ff79c6'); g.addColorStop(1, s.g1 || '#ffb84d');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#0b0b10';
+  const txt = String(s.text || '').trim();
+  if (!txt) return; // background: gradient only
+  ctx.fillStyle = sbTitleInk(s);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const fs = Math.round(H * 0.12);
   ctx.font = '700 ' + fs + "px 'Space Grotesk', Inter, sans-serif";
-  const words = String(s.text || 'Title').split(/\s+/);
+  const words = txt.split(/\s+/);
   const lines = []; let line = '';
   for (const w of words) {
     const test = line ? line + ' ' + w : w;
@@ -827,6 +866,141 @@ function sbPaintTitle(ctx, W, H, s) {
   if (line) lines.push(line);
   const lh = fs * 1.2, y0 = H / 2 - (lines.length - 1) * lh / 2;
   lines.forEach((ln, i) => ctx.fillText(ln, W / 2, y0 + i * lh));
+}
+
+// ── Asset browser: Shots · Transitions · Titles · Backgrounds ────────────────
+// The middle column doubles as an iMovie-style browser. "Shots" is the
+// storyboard; the other tabs are draggable-free click-to-add grids.
+const SB_BROWSER_TABS = [
+  { k: 'shots', label: 'Shots' },
+  { k: 'transitions', label: 'Transitions' },
+  { k: 'titles', label: 'Titles' },
+  { k: 'backgrounds', label: 'Backgrounds' },
+];
+// Only transitions the exporter actually renders (applied film-wide).
+const SB_TRANSITIONS = [
+  { k: 'none', label: 'None', kind: 'cut' },
+  { k: 'crossfade', label: 'Cross Dissolve', kind: 'xfade' },
+  { k: 'dip', label: 'Dip to Black', kind: 'dip' },
+];
+const SB_TITLE_PRESETS = [
+  { k: 'sunset', label: 'Sunset', g0: '#ff79c6', g1: '#ffb84d' },
+  { k: 'grape', label: 'Grape', g0: '#a06cff', g1: '#ff79c6' },
+  { k: 'ocean', label: 'Ocean', g0: '#3ec6ff', g1: '#8a7bff' },
+  { k: 'mint', label: 'Mint', g0: '#34d399', g1: '#3ec6ff' },
+  { k: 'ember', label: 'Ember', g0: '#ff7a5b', g1: '#ff2d78' },
+  { k: 'mono', label: 'Mono', g0: '#20202a', g1: '#0b0b10' },
+];
+const SB_BG_PRESETS = [
+  { k: 'black', label: 'Black', g0: '#0b0b10', g1: '#0b0b10' },
+  { k: 'white', label: 'White', g0: '#f4f4f8', g1: '#e7e7ee' },
+  { k: 'sunset', label: 'Sunset', g0: '#ff79c6', g1: '#ffb84d' },
+  { k: 'ocean', label: 'Ocean', g0: '#3ec6ff', g1: '#8a7bff' },
+  { k: 'grape', label: 'Grape', g0: '#a06cff', g1: '#ff79c6' },
+  { k: 'forest', label: 'Forest', g0: '#34d399', g1: '#0e7d5a' },
+  { k: 'slate', label: 'Slate', g0: '#3a3a46', g1: '#1a1a22' },
+  { k: 'gold', label: 'Gold', g0: '#ffd76b', g1: '#f0932b' },
+];
+
+function sbSetTab(t) {
+  sbTab = SB_BROWSER_TABS.some((x) => x.k === t) ? t : 'shots';
+  sbRenderBrowser();
+}
+function sbRenderBrowser() {
+  const tabsEl = document.getElementById('sbBrowserTabs');
+  if (tabsEl) {
+    tabsEl.innerHTML = '';
+    SB_BROWSER_TABS.forEach((t) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mb-tab' + (t.k === sbTab ? ' active' : '');
+      b.textContent = t.label;
+      b.onclick = () => sbSetTab(t.k);
+      tabsEl.appendChild(b);
+    });
+  }
+  const onShots = sbTab === 'shots';
+  const list = document.getElementById('sbList');
+  const actions = document.getElementById('sbActions');
+  const browser = document.getElementById('sbBrowser');
+  if (list) list.hidden = !onShots;
+  if (actions) actions.style.display = onShots ? '' : 'none';
+  if (!browser) return;
+  browser.hidden = onShots;
+  if (onShots) return;
+  const proj = sbProject();
+  browser.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'mb-grid';
+  if (sbTab === 'transitions') {
+    const note = document.createElement('div');
+    note.className = 'mb-note'; note.textContent = 'Applied between every clip in the film.';
+    browser.appendChild(note);
+    SB_TRANSITIONS.forEach((tr) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'mb-item' + ((proj.transition || 'none') === tr.k ? ' active' : '');
+      item.innerHTML = '<span class="mb-prev mb-tr mb-tr-' + tr.kind + '"></span><span class="mb-label">' + tr.label + '</span>';
+      item.onclick = () => {
+        sbSetTransition(tr.k); sbRenderBrowser();
+        sbStudioNote(tr.k === 'none' ? 'Transitions off — hard cuts between clips.' : tr.label + ' between every clip.');
+      };
+      grid.appendChild(item);
+    });
+    // Whole-film fade in/out is an independent toggle, stackable on any transition.
+    const fadeItem = document.createElement('button');
+    fadeItem.type = 'button';
+    fadeItem.className = 'mb-item' + (proj.fade ? ' active' : '');
+    fadeItem.innerHTML = '<span class="mb-prev mb-tr mb-tr-fade"></span><span class="mb-label">Fade in / out</span>';
+    fadeItem.onclick = () => {
+      sbToggleFade(); sbRenderBrowser();
+      sbStudioNote(sbProject().fade ? 'The film now fades in from black and out to black.' : 'Film-wide fade off.');
+    };
+    grid.appendChild(fadeItem);
+  } else if (sbTab === 'titles' || sbTab === 'backgrounds') {
+    const isTitles = sbTab === 'titles';
+    const note = document.createElement('div');
+    note.className = 'mb-note'; note.textContent = 'Click or drag onto the timeline.';
+    browser.appendChild(note);
+    (isTitles ? SB_TITLE_PRESETS : SB_BG_PRESETS).forEach((p) => {
+      const item = document.createElement('button');
+      item.type = 'button'; item.className = 'mb-item'; item.draggable = true;
+      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '">'
+        + (isTitles ? '<b style="color:' + sbTitleInk(p) + '">Title</b>' : '') + '</span>'
+        + '<span class="mb-label">' + p.label + '</span>';
+      item.onclick = () => isTitles ? sbAddTitlePreset(p) : sbAddBackground(p);
+      item.ondragstart = (e) => {
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/sb-asset', JSON.stringify({ kind: isTitles ? 'title' : 'bg', k: p.k, label: p.label, g0: p.g0, g1: p.g1 }));
+      };
+      item.ondragend = () => item.classList.remove('dragging');
+      grid.appendChild(item);
+    });
+  }
+  browser.appendChild(grid);
+}
+function sbAddTitlePreset(p) {
+  const proj = sbProject();
+  const t = {
+    id: sbUid('s'), title: 'Title', text: 'Title', prompt: '', status: 'ready',
+    src: 'title', onTimeline: true, dur: 3, in: 0, out: 3, srcDur: 3,
+    g0: p.g0, g1: p.g1, bg: sbGrad(p.g0, p.g1),
+  };
+  proj.shots.push(t);
+  sbSave(); sbRender(); sbSelect(t.id);
+  sbStudioNote('Added the ' + p.label + ' title. Double-click it on the timeline to edit the text; drag its edges to change how long it holds.');
+}
+function sbAddBackground(p) {
+  const proj = sbProject();
+  const bgc = {
+    id: sbUid('s'), title: 'Background', text: '', prompt: '', status: 'ready',
+    src: 'title', onTimeline: true, dur: 3, in: 0, out: 3, srcDur: 3,
+    g0: p.g0, g1: p.g1, bg: sbGrad(p.g0, p.g1),
+  };
+  proj.shots.push(bgc);
+  sbSave(); sbRender(); sbSelect(bgc.id);
+  sbStudioNote('Added the ' + p.label + ' background. Drag its edges to change its length.');
 }
 function sbStopTitle() {
   if (sbTitleRAF) { cancelAnimationFrame(sbTitleRAF); sbTitleRAF = 0; }
@@ -1612,13 +1786,25 @@ async function sbExportCanvas(shots, deliver, quiet) {
     const done = new Promise((ok) => { rec.onstop = ok; });
     rec.start(250);
 
-    let ok = 0, skipped = 0;
+    // Transitions + film-wide fade are painted as overlays here (the ffmpeg path
+    // does them natively; this realtime path must draw them itself).
+    const proj0c = sbProject();
+    const transition = proj0c.transition || 'none';
+    const fade = !!proj0c.fade;
+    let ok = 0, skipped = 0, filmStart = 0, prevFrame = null;
     for (let i = 0; i < shots.length; i++) {
+      const sdur = sbShotDur(shots[i]) || 0;
       sbStudioProgress('Exporting shot ' + (i + 1) + '/' + shots.length + '…');
       // One unreadable/stalled shot must not abort the whole export — skip it
       // and keep the shots that worked.
-      try { await sbExportShot(shots[i], ctx, W, H, ac, dest); ok++; }
-      catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; }
+      try {
+        prevFrame = await sbExportShot(shots[i], {
+          ctx, W, H, ac, dest, filmStart, filmTotal: filmDur, transition, fade,
+          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame,
+        });
+        ok++;
+      } catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; prevFrame = null; }
+      filmStart += sdur;
     }
     rec.stop();
     await done;
@@ -1636,15 +1822,52 @@ async function sbExportCanvas(shots, deliver, quiet) {
   }
 }
 
-function sbExportShot(s, ctx, W, H, ac, dest) {
-  // Title cards have no video — paint the text card for the clip's duration.
+// Snapshot the current export canvas into a detached canvas — the outgoing
+// clip's last frame, dissolved out over the next clip for a cross dissolve.
+function sbSnapshot(ctx, W, H) {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  try { c.getContext('2d').drawImage(ctx.canvas, 0, 0); } catch (e) {}
+  return c;
+}
+// Paint transition / film-wide-fade overlays over the just-drawn base frame.
+// st = seconds into this clip, dur = clip length. Cosmetic; callers wrap it.
+function sbFrameOverlays(ctx, W, H, o, st, dur) {
+  const T = Math.min(0.6, (dur || 4) * 0.4);          // per-seam transition length
+  const FF = Math.min(0.5, (o.filmTotal || 1) * 0.1); // film fade length
+  const ft = o.filmStart + Math.max(0, st);
+  // Cross dissolve: fade the previous clip's frozen last frame out over our first T.
+  if (o.transition === 'crossfade' && !o.isFirst && o.prevFrame && st < T) {
+    ctx.globalAlpha = Math.max(0, 1 - st / T);
+    ctx.drawImage(o.prevFrame, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  let black = 0;
+  if (o.fade && o.filmTotal) {
+    if (ft < FF) black = Math.max(black, 1 - ft / FF);
+    if (ft > o.filmTotal - FF) black = Math.max(black, (ft - (o.filmTotal - FF)) / FF);
+  }
+  if (o.transition === 'dip') {
+    const t2 = T / 2;
+    if (!o.isFirst && st < t2) black = Math.max(black, 1 - st / t2);
+    if (!o.isLast && st > dur - t2) black = Math.max(black, (st - (dur - t2)) / t2);
+  }
+  black = Math.max(0, Math.min(1, black));
+  if (black > 0) { ctx.globalAlpha = black; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+// Play one clip onto the shared export canvas; resolves with its last frame.
+function sbExportShot(s, o) {
+  const { ctx, W, H, ac, dest } = o;
+  const shotDur = sbShotDur(s) || (s.src === 'title' ? 3 : 4);
+  // Title / background cards have no video — paint the card for the clip length.
   if (s.src === 'title') {
     return new Promise((resolve) => {
-      const dur = (sbShotDur(s) || 3) * 1000;
+      const durMs = shotDur * 1000;
       const t0 = performance.now();
       const draw = () => {
         sbPaintTitle(ctx, W, H, s);
-        if (performance.now() - t0 >= dur) { resolve(); return; }
+        try { sbFrameOverlays(ctx, W, H, o, (performance.now() - t0) / 1000, shotDur); } catch (e) {}
+        if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
         requestAnimationFrame(draw);
       };
       draw();
@@ -1667,7 +1890,7 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
     const finish = (fn, arg) => { if (settled) return; settled = true; cleanup(); fn(arg); };
     // Hard stop: a shot that never loads or a remote stream that stalls (no
     // error event) can't hang the whole export. Bound to the clip length + 20s.
-    const budget = ((sbShotDur(s) || 10) + 20) * 1000;
+    const budget = (shotDur + 20) * 1000;
     const guard = setTimeout(() => finish(reject, new Error('shot timed out')), Math.min(budget, 180000));
     v.onerror = () => finish(reject, new Error('could not read a shot (CORS or codec)'));
     v.onloadedmetadata = () => {
@@ -1682,7 +1905,8 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
           if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
           ctx.drawImage(v, dx, dy, dw, dh);
-          if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve); return; }
+          try { sbFrameOverlays(ctx, W, H, o, v.currentTime - start, shotDur); } catch (e) {}
+          if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
           raf = requestAnimationFrame(draw);
         };
         draw();
