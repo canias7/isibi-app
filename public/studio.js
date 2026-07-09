@@ -45,6 +45,10 @@ function sbLoad() {
       // would be a permanent ⏳ that no button restarts — reset it so it can run
       // again (or shows its result if the URL survived).
       if (s.status === 'generating') s.status = s.url ? 'ready' : 'draft';
+      // Library vs. timeline: a clip lives in the left list; only clips added to
+      // the film show on the bottom timeline. Older projects (no flag) and
+      // AI-generated shots default onto the timeline; imports start off it.
+      if (s.onTimeline === undefined) s.onTimeline = true;
     }
   }
 }
@@ -199,12 +203,20 @@ function sbRender() {
         '<span class="sb-num">' + (i + 1) + '</span>' + thumb +
         '<span class="sb-meta"><b></b><small></small></span>' +
         '<span class="sb-dot" title="' + s.status + '"></span>' +
-        '<button class="sb-x" title="Remove shot">×</button>';
+        '<button class="sb-tl' + (s.onTimeline ? ' on' : '') + '" title="' +
+          (s.onTimeline ? 'On the timeline — click to remove from your film' : 'Add this clip to the timeline') +
+          '">' + (s.onTimeline ? '🎞' : '＋') + '</button>' +
+        '<button class="sb-x" title="Remove clip">×</button>';
       // Imported clips carry no title label — the user just wants the frame.
       card.querySelector('b').textContent = s.src === 'import' ? '' : (s.title || 'Shot ' + (i + 1));
       card.querySelector('small').textContent =
-        sbFmt(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status);
-      card.onclick = (e) => { if (e.target.className !== 'sb-x') sbSelect(s.id); };
+        sbFmt(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status) +
+        (s.onTimeline ? '' : ' · in list');
+      card.onclick = (e) => {
+        const c = e.target.className || '';
+        if (c !== 'sb-x' && c.indexOf('sb-tl') < 0) sbSelect(s.id);
+      };
+      card.querySelector('.sb-tl').onclick = (e) => { e.stopPropagation(); sbToggleTimeline(s.id); };
       card.querySelector('.sb-x').onclick = () => sbRemoveShot(s.id);
       card.addEventListener('dragstart', (e) => e.dataTransfer.setData('text/sb', s.id));
       card.addEventListener('dragover', (e) => e.preventDefault());
@@ -215,19 +227,29 @@ function sbRender() {
       list.appendChild(card);
     });
   }
-  // shot strip on the timeline
+  // shot strip on the timeline — only the clips the user has added to the film
   const track = document.getElementById('timelineTrack');
   if (track) {
+    const tl = proj.shots.filter((s) => s.onTimeline);
     track.innerHTML = '';
-    track.classList.toggle('has-shots', proj.shots.length > 0);
-    if (!proj.shots.length) {
+    track.classList.toggle('has-shots', tl.length > 0);
+    // Dropping a library clip onto the track adds it to the film.
+    track.ondragover = (e) => { e.preventDefault(); track.classList.add('drop-here'); };
+    track.ondragleave = () => track.classList.remove('drop-here');
+    track.ondrop = (e) => {
+      e.preventDefault(); track.classList.remove('drop-here');
+      const id = e.dataTransfer.getData('text/sb');
+      if (id) sbAddToTimeline(id);
+    };
+    if (!tl.length) {
       const empty = document.createElement('div');
       empty.className = 'timeline-empty';
-      empty.textContent = 'Describe your film to isibi.ai — or import a video — and its shots land here.';
+      empty.textContent = 'Drag a clip here — or tap ＋ on a clip in the list — to build your film.';
       track.appendChild(empty);
     }
-    const total = proj.shots.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
-    proj.shots.forEach((s, i) => {
+    const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
+    tl.forEach((s) => {
+      const n = proj.shots.indexOf(s) + 1;
       const block = document.createElement('div');
       block.className = 'clip-block sb-block' + (s.id === sbSelected ? ' sel' : '') + ' st-' + s.status;
       block.style.width = Math.max(6, ((sbShotDur(s) || 4) / total) * 100) + '%';
@@ -241,18 +263,68 @@ function sbRender() {
       } else if (s.thumb) {
         block.style.backgroundImage = 'url(' + s.thumb + ')';
       }
-      block.innerHTML = inner + '<span class="sb-blocknum">' + (i + 1) + '</span>';
+      block.innerHTML = inner + '<span class="sb-blocknum">' + n + '</span>';
       block.onclick = () => sbSelect(s.id);
+      block.draggable = true;
+      block.addEventListener('dragstart', (e) => { e.stopPropagation(); e.dataTransfer.setData('text/sb', s.id); });
+      block.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+      block.addEventListener('drop', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const from = e.dataTransfer.getData('text/sb');
+        if (from) { sbAddToTimeline(from); sbMoveShot(from, s.id); }
+      });
       track.appendChild(block);
     });
+    // Playhead line that sweeps across the film during playback.
+    const ph = document.createElement('div');
+    ph.className = 'playhead';
+    ph.style.display = 'none';
+    track.appendChild(ph);
+    sbUpdatePlayhead(document.querySelector('#previewStage video'));
   }
   const totalEl = document.getElementById('sbTotalDur');
   if (totalEl) {
-    const ready = proj.shots.filter((s) => s.status === 'ready').length;
-    totalEl.textContent = proj.shots.length
-      ? sbFmt(proj.shots.reduce((a, s) => a + sbShotDur(s), 0)) + ' · ' + ready + '/' + proj.shots.length + ' shots ready'
+    const tl = proj.shots.filter((s) => s.onTimeline);
+    const ready = tl.filter((s) => s.status === 'ready').length;
+    totalEl.textContent = tl.length
+      ? sbFmt(tl.reduce((a, s) => a + sbShotDur(s), 0)) + ' · ' + ready + '/' + tl.length + ' shots ready'
       : '';
   }
+}
+
+// Add/remove a clip to the film (the bottom timeline). The clip stays in the
+// left library either way — the timeline is just the ordered subset that plays
+// and exports.
+function sbAddToTimeline(id) {
+  const s = sbShot(id);
+  if (!s || s.onTimeline) return;
+  s.onTimeline = true;
+  sbSave(); sbRender();
+}
+function sbToggleTimeline(id) {
+  const s = sbShot(id);
+  if (!s) return;
+  s.onTimeline = !s.onTimeline;
+  sbSave(); sbRender();
+}
+
+// Map the currently-playing clip + its progress onto a left-offset across the
+// timeline, so a single line tracks the film position.
+function sbUpdatePlayhead(v) {
+  const track = document.getElementById('timelineTrack');
+  const ph = track && track.querySelector('.playhead');
+  if (!ph) return;
+  const tl = sbProject().shots.filter((s) => s.onTimeline);
+  const idx = tl.findIndex((s) => s.id === sbSelected);
+  if (!v || idx < 0) { ph.style.display = 'none'; return; }
+  const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
+  let before = 0;
+  for (let k = 0; k < idx; k++) before += (sbShotDur(tl[k]) || 4);
+  const s = tl[idx];
+  const dur = sbShotDur(s) || 4;
+  const within = Math.min(dur, Math.max(0, v.currentTime - (s.in || 0)));
+  ph.style.left = ((before + within) / total * 100).toFixed(2) + '%';
+  ph.style.display = '';
 }
 
 function sbSwitchProject(v) {
@@ -305,6 +377,7 @@ function sbVideoEl() {
       const tc = document.getElementById('studioTimecode');
       if (tc) tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(v.duration || 0);
       sbSegmentTick(v);
+      sbUpdatePlayhead(v);
     });
   }
   return v;
@@ -389,8 +462,8 @@ function sbSelect(id) {
 }
 
 function sbPlayAll() {
-  const shots = sbProject().shots.filter((s) => s.url && s.status === 'ready');
-  if (!shots.length) { sbStudioNote('Nothing to play yet — generate or import some shots first.'); return; }
+  const shots = sbProject().shots.filter((s) => s.onTimeline && s.url && s.status === 'ready');
+  if (!shots.length) { sbStudioNote('Nothing on the timeline yet — add clips to your film first (drag them onto the timeline or tap ＋).'); return; }
   let i = 0;
   const playNext = () => {
     if (i >= shots.length) { sbSegment = null; return; }
@@ -415,6 +488,7 @@ async function sbImportFile(f) {
     prompt: '',
     status: 'ready',
     src: 'import',
+    onTimeline: false,    // lands in the clip list — drag onto the timeline to use it
     url, in: null, out: null, dur: 0,
     thumb: null,
     stored: false,        // flipped true once the blob lands in IndexedDB
@@ -746,8 +820,8 @@ function sbDownloadBlob(blob, ext) {
 // or the stitch fails.
 async function sbExport() {
   if (sbBusy) return;
-  const shots = sbProject().shots.filter((s) => s.url && s.status === 'ready');
-  if (!shots.length) { sbStudioNote('Nothing to export yet.'); return; }
+  const shots = sbProject().shots.filter((s) => s.onTimeline && s.url && s.status === 'ready');
+  if (!shots.length) { sbStudioNote('Nothing on the timeline to export — add clips to your film first.'); return; }
   sbBusy = true;
   const btn = document.getElementById('sbExportBtn');
   if (btn) btn.textContent = 'Exporting…';
@@ -946,7 +1020,7 @@ async function studioSend() {
             title: String(ns.title || 'Shot').slice(0, 60),
             prompt: String(ns.prompt || '').slice(0, 1200),
             dur: Math.max(3, Math.min(12, Number(ns.duration) || 5)),
-            status: 'draft', src: 'gen', url: null, thumb: null, in: null, out: null,
+            status: 'draft', src: 'gen', onTimeline: true, url: null, thumb: null, in: null, out: null,
           });
         }
       } else if (a.type === 'update_shot') {
