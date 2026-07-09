@@ -759,36 +759,57 @@ async function storageStatus(request) {
     return { used: Number(s.used) || 0, cap: Number(s.cap) || 0, tier: String(s.tier || "free") };
   } catch { return null; }
 }
+// Atomic gallery-storage reservation: the storage_reserve RPC counts committed
+// objects PLUS in-flight reservations under a per-user lock, so concurrent saves
+// can't each pass a stale check and overshoot the cap. Returns the parsed
+// { ok, id, reason, ... } — or null if the ledger is unreachable, in which case
+// the caller fails open (never blocks a paid save on a ledger hiccup).
+async function storageReserve(request, bytes) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/storage_reserve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: JSON.stringify({ p_bytes: Math.max(0, Math.round(bytes || 0)) }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch { return null; }
+}
+// Release a reservation once the upload settled — on success the object now
+// counts in storage.objects, on failure the space is freed. Best-effort; a
+// missed release self-heals via the reservation's 2-minute TTL.
+async function storageRelease(request, id) {
+  if (!id) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/storage_release`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+      body: JSON.stringify({ p_id: id }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {}
+}
 
 // ── AI Orchestrator add-on ($19.99/mo, at cost, no roll-over) ────────────────
 // The director (ask/compose/revise/research/error/studio) runs ONLY for members
-// of this add-on. orchestrator_gate() checks entitlement + this month's budget
-// (rolls the month); orchestrator_debit() bills the call's real Claude cost
-// against it. Fails CLOSED — an unverifiable caller falls back to raw prompting,
-// so the paid feature never leaks on a ledger hiccup (raw still generates fine).
-async function orchestratorGate(request) {
+// of this add-on. Because the per-call cost is deterministic (step+effort),
+// orchestrator_reserve() checks entitlement + this month's budget AND charges the
+// call in ONE row-locked step (rolls the month too) — so concurrent calls can't
+// all pass a read-only gate before a separate debit lands and burst past budget.
+// Fails CLOSED — an unverifiable caller falls back to raw prompting, so the paid
+// feature never leaks on a ledger hiccup (raw still generates fine).
+async function orchestratorReserve(request, micros) {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_gate`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_reserve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-      body: "{}",
+      body: JSON.stringify({ p_cost_micros: Math.round(micros > 0 ? micros : 0) }),
       signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) return false;
     return (await r.json()) === true;
   } catch { return false; }
-}
-// Fire-and-forget: debit micro-dollars of AI cost. No-op server-side if lapsed.
-async function orchestratorDebit(request, micros) {
-  if (!(micros > 0)) return;
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_debit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-      body: JSON.stringify({ p_cost_micros: Math.round(micros) }),
-      signal: AbortSignal.timeout(8000),
-    });
-  } catch {}
 }
 // Estimated at-cost price of one director call, in micro-dollars (1e-6 USD).
 // The budget is really an abuse ceiling ($19.99 ≈ thousands of calls), so a
@@ -1500,7 +1521,15 @@ async function handleRequest(request, env, ctx) {
       // No active sub (or the orchestrator's monthly budget is spent) → 402 locked;
       // the client falls back to raw prompting / an upsell.
       const isStudio = step === "studio";
-      if (!(isStudio ? await videoEditorGate(request) : await orchestratorGate(request))) {
+      // Non-studio steps meter against the monthly orchestrator budget. The cost
+      // per call is deterministic (step+effort), so reserve it atomically at the
+      // gate — check entitlement + budget AND charge in one locked step — rather
+      // than debiting afterwards, which let concurrent calls all pass the check
+      // before any debit landed and burst past the budget. (compose/revise cost
+      // the same, so the pre-reassignment step value gives the right price.)
+      const estMicros = isStudio ? 0 : orchestratorCostMicros(
+        step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium");
+      if (!(isStudio ? await videoEditorGate(request) : await orchestratorReserve(request, estMicros))) {
         return Response.json({
           error: isStudio ? "video editor required" : "orchestrator required",
           locked: true, need: isStudio ? "video_editor" : "orchestrator",
@@ -1513,14 +1542,8 @@ async function handleRequest(request, env, ctx) {
       // ("slower", "fix the text") and the revise step edit surgically.
       const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
       if (step === "revise" && !prevPrompt) step = "compose";
-      // Bill this call's estimated at-cost price against the member's monthly
-      // orchestrator budget (fire-and-forget — the gate above already confirmed
-      // they're a member and under budget). The Video Editor is a flat sub with
-      // no per-call meter, so studio steps don't debit.
-      if (!isStudio && ctx && ctx.waitUntil) {
-        ctx.waitUntil(orchestratorDebit(request, orchestratorCostMicros(
-          step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium")));
-      }
+      // (The orchestrator budget was already reserved atomically at the gate
+      // above — no separate debit step, which is what let bursts overspend.)
       // Raw pipeline error, for the explain-a-failure step.
       const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
       // The chat's running creative brief — per-chat taste memory, maintained
@@ -2220,30 +2243,38 @@ Context: ${ctxLine}`
         }
       }
       // Capacity gate for paid tiers (cap > 0). By here `bytes` holds the final
-      // payload for the buffered paths (b64 upload, watermarked image); on the
-      // streaming path we trust the upstream Content-Length. Reject when the new
-      // object would push the user past their GB cap.
+      // payload for the buffered paths (b64 upload, watermarked image); the
+      // streaming path uses the upstream Content-Length, or buffers to measure it
+      // when that's absent. The size is then reserved atomically so concurrent
+      // saves can't overshoot the cap; the reservation is released after upload.
+      let reservationId = null;
       if (store && store.cap > 0) {
         let newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
-        // Streaming save whose upstream sent no Content-Length (chunked): the
-        // size reads as 0 and would skip the cap entirely. Measure it by
-        // buffering up to the remaining space (bounded by a hard ceiling so a
-        // length-less body can't OOM the isolate), then store the measured bytes
-        // instead of the already-consumed stream.
+        // Streaming save whose upstream sent no Content-Length (chunked): the size
+        // reads as 0 and would skip the cap. Buffer it (bounded) so we can measure
+        // and store the real bytes instead of the already-consumed stream.
         if (!bytes && media && newSize <= 0) {
           const HARD_MAX = 314_572_800; // 300MB absolute per-file ceiling
-          const remaining = store.cap - store.used;
-          const buffered = await readCapped(media, Math.min(remaining, HARD_MAX) + 1);
+          const buffered = await readCapped(media, HARD_MAX + 1);
           media = null;
-          if (buffered.length > remaining || buffered.length > HARD_MAX) {
-            return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
+          if (buffered.length > HARD_MAX) {
+            return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
           }
           bytes = buffered;
           newSize = buffered.length;
         }
-        if (store.used + newSize > store.cap) {
-          return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
+        // Atomic reserve-then-write (MON-3): the ledger counts committed objects
+        // PLUS live reservations under a per-user lock, so concurrent saves can't
+        // each pass a stale check and overshoot the cap. null → ledger unreachable
+        // → fail open (never block a paid save on a ledger hiccup).
+        const resv = await storageReserve(request, newSize);
+        if (resv && resv.ok === false) {
+          return Response.json({
+            error: resv.reason === "free" ? "saving is a paid feature" : "gallery storage full",
+            reason: resv.reason || "full",
+          }, { status: 402 });
         }
+        reservationId = resv && resv.id ? resv.id : null;
       }
       const EXT = {
         "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
@@ -2262,8 +2293,12 @@ Context: ${ctxLine}`
           signal: AbortSignal.timeout(30000),
         });
       } catch {
+        if (ctx && ctx.waitUntil) ctx.waitUntil(storageRelease(request, reservationId)); else await storageRelease(request, reservationId);
         return Response.json({ error: "store failed" }, { status: 502 });
       }
+      // Release the reservation now the upload settled: on success the object is
+      // committed to storage.objects (counted there); on failure the space frees.
+      if (ctx && ctx.waitUntil) ctx.waitUntil(storageRelease(request, reservationId)); else await storageRelease(request, reservationId);
       if (!up.ok) return Response.json({ error: "store failed" }, { status: 502 });
       return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${path}` });
     }
