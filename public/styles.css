@@ -157,16 +157,25 @@
       max-width: 78%; padding: .7rem 1rem; border-radius: 16px;
       font-size: .95rem; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
     }
+    /* Bare-bar chat style — plain text with a pink→amber vertical accent bar on
+       the outer edge (right for the user, left for isibi). Scoped to text
+       bubbles so generated-media / loading cards keep their framed look. */
+    .msg.user,
+    .msg.agent:not(.image):not(.video):not(.audio):not(.gen-loading) {
+      background: none; border: none; border-radius: 0; box-shadow: none;
+      color: var(--text); padding: .15rem 0;
+    }
     .msg.user {
-      align-self: flex-end; color: var(--text); font-weight: 500;
-      background: linear-gradient(130deg, rgba(255,121,198,.16), rgba(255,184,77,.16));
-      border: 1px solid rgba(255,170,110,.28);
-      border-bottom-right-radius: 5px;
-      box-shadow: 0 4px 24px rgba(255,140,110,.08);
+      align-self: flex-end; text-align: right; font-weight: 500;
+      padding-right: .95rem;
+      border-right: 2px solid; border-image: linear-gradient(180deg, #ff79c6, #ffb84d) 1;
     }
     /* No per-bubble backdrop blur — long chats would stack dozens of live
        blur layers; the big surfaces (composer, cards, menus) keep theirs. */
-    .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+    .msg.agent:not(.image):not(.video):not(.audio):not(.gen-loading) {
+      align-self: flex-start; padding-left: .95rem;
+      border-left: 2px solid; border-image: linear-gradient(180deg, #ff79c6, #ffb84d) 1;
+    }
     .msg.typing { color: var(--muted); }
     .msg.typing .dots::after { content: '·'; animation: dots 1.2s steps(3, end) infinite; letter-spacing: 2px; }
     @keyframes dots { 33% { content: '··'; } 66% { content: '···'; } }
@@ -1396,9 +1405,17 @@
 .side-item.active .nav-ico { color: var(--text); }
 
 /* Message timestamps — tight caption under each bubble. */
-.msg-time { font-size: .68rem; color: var(--muted); margin-top: -.35rem; padding: 0 .35rem; }
+.msg-time {
+  font-size: .68rem; margin-top: -.35rem; padding: 0 .35rem;
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+  letter-spacing: .01em; color: rgba(140, 162, 156, .55);
+}
 .msg-time.user { align-self: flex-end; }
-.msg-time.agent { align-self: flex-start; }
+.msg-time.agent { align-self: flex-start; display: flex; align-items: center; }
+.msg-time.agent::before {
+  content: ''; flex: 0 0 13px; width: 13px; height: 13px; border-radius: 50%;
+  margin-right: 6px; background: url('/logo.png') center/cover no-repeat;
+}
 
 /* Space Grotesk on the wordmark + names, like the mockup. */
 .side-logo, .logo, .chat-head .cname, .auth-brand, .auth-title { font-family: 'Space Grotesk', Inter, sans-serif; }
