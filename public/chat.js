@@ -899,7 +899,13 @@ function renderPresets() {
   const tabs = PRESET_CATS.map((c) =>
     '<button type="button" class="pt-tab' + (c.key === presetCat ? ' active' : '') + '" data-cat="' + c.key + '">' + esc(c.label) + '</button>').join('');
   const cat = PRESET_CATS.find((c) => c.key === presetCat) || PRESET_CATS[0];
-  const kindIco = (k) => (k === 'image' ? '🖼' : k === 'audio' ? '🎙' : '🎬');
+  // Clean amber line-icons per kind (stroke:currentColor, tinted by .pt-ico).
+  const svg = (paths) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
+  const kindIco = (k) => k === 'image'
+    ? svg('<rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15.5l-4.5-4.5L5.5 21"/>')
+    : k === 'audio'
+      ? svg('<rect x="9" y="2.5" width="6" height="11.5" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 18v3.5"/>')
+      : svg('<path d="M3 8.5h18V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8.5Z"/><path d="M3 8.5l2.4-4h3.2L6.2 8.5m4 0l2.4-4h3.2L13 8.5m4 0l2.4-4h1.4"/>');
   const cards = cat.items.map((it, i) => {
     const first = Array.isArray(it.previews) && it.previews.length ? it.previews[0] : null;
     const prev = first

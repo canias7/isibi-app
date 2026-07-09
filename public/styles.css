@@ -1760,10 +1760,8 @@
 .pt-ph2 { background: linear-gradient(135deg, #ff8fb8 0%, #b06ff0 52%, #ff936b 100%); }
 .pt-ph3 { background: linear-gradient(135deg, #ffa0c2 0%, #a86cf0 50%, #ffb56b 100%); }
 .pt-foot { display: flex; align-items: center; gap: .6rem; padding: .75rem .55rem .4rem; }
-.pt-ico {
-  flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: rgba(255, 255, 255, .05); border: 1px solid var(--line); font-size: .95rem;
-}
+.pt-ico { flex: 0 0 auto; display: grid; place-items: center; color: var(--neon); }
+.pt-ico svg { width: 20px; height: 20px; }
 .pt-meta { flex: 1; min-width: 0; }
 .pt-card-t { display: block; font-size: .95rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pt-card-s {
