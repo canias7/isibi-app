@@ -2479,9 +2479,26 @@ function openCredits(topupsOnly) {
         '<p class="up-sub">Fresh credits every month at a better rate than one-time top-ups — unused credits roll over, and you can cancel anytime.</p>' +
       '</div>' +
       '<div class="up-grid">' + cards + '</div>' +
-      '<div class="up-addon" id="upAddon">' +
-        '<div class="up-addon-txt"><b>✦ AI Orchestrator</b><span>Add-on — let isibi write your prompts, pick models &amp; research. $19.99/mo, at cost.</span></div>' +
-        '<button type="button" class="up-addon-buy">Add for $19.99 →</button>' +
+      '<div class="addon-eyebrow">Membership add-ons</div>' +
+      '<div class="addon-badges">' +
+        '<div class="addon-badge">' +
+          '<div class="addon-badge-card"><img class="addon-badge-img" src="/img/badge-orchestrator.webp" alt="isibi.ai orchestrator" loading="lazy" /></div>' +
+          '<div class="addon-badge-body">' +
+            '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
+            '<div class="addon-badge-desc">isibi writes your prompts, picks the right models and researches the real world for you.</div>' +
+            '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
+            '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="addon-badge">' +
+          '<div class="addon-badge-card"><img class="addon-badge-img" src="/img/badge-video-editor.webp" alt="isibi.ai video editor" loading="lazy" /></div>' +
+          '<div class="addon-badge-body">' +
+            '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
+            '<div class="addon-badge-desc">Cut, retime, reframe, caption and export — turn raw clips into a finished film.</div>' +
+            '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
+            '<button type="button" class="addon-badge-buy" data-addon="ve">Add →</button></div>' +
+          '</div>' +
+        '</div>' +
       '</div>' +
       '<div class="cp-note up-note" id="cpNote"></div>' +
       '<div class="up-trust"><span>Secure checkout</span><span>Cancel anytime</span><span>Every model included</span><span>Credits roll over</span></div>' +
@@ -2491,8 +2508,16 @@ function openCredits(topupsOnly) {
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   const topupLink = ov.querySelector('.up-topup-link');
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
-  const addonBuy = ov.querySelector('.up-addon-buy');
-  if (addonBuy) addonBuy.onclick = () => { ov.remove(); openOrchestratorUpsell(); };
+  ov.querySelectorAll('.addon-badge-buy').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.addon === 'orch') { ov.remove(); openOrchestratorUpsell(); }
+      else {
+        // Video Editor billing isn't wired yet — surface it honestly.
+        const n = ov.querySelector('#cpNote');
+        if (n) { n.textContent = 'The Video Editor membership is coming soon ✦'; n.classList.add('show'); }
+      }
+    };
+  });
   const heroCta = ov.querySelector('.up-hero-cta');
   if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
   // Live launch-offer countdown; the interval dies with the overlay.
