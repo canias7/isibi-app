@@ -1394,6 +1394,17 @@
 .adj-r { width: 100%; accent-color: var(--neon); cursor: pointer; }
 .adj-reset { float: right; background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 6px; font-size: .6rem; padding: .12rem .42rem; cursor: pointer; font-family: inherit; }
 .adj-reset:hover { color: var(--text); border-color: #4a4a52; }
+.adj-fill { display: block; width: 100%; text-align: left; background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); color: var(--text); border-radius: 9px; padding: .4rem .6rem; font: inherit; font-size: .78rem; cursor: pointer; margin-bottom: .55rem; }
+.adj-fill.on { color: var(--neon); border-color: rgba(255, 184, 77, .5); background: rgba(255, 184, 77, .08); }
+.adj-motion { display: flex; flex-wrap: wrap; gap: .4rem; }
+.adj-m { background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; padding: .34rem .6rem; font: inherit; font-size: .78rem; cursor: pointer; }
+.adj-m:hover { border-color: #4a4a52; }
+.adj-m.on { color: #0a0a0b; background: var(--split); border-color: transparent; font-weight: 700; }
+/* Ken Burns preview loops — export is exact (sbSourceRect) */
+@keyframes kb-zin { from { transform: scale(1); } to { transform: scale(1.22); } }
+@keyframes kb-zout { from { transform: scale(1.22); } to { transform: scale(1); } }
+@keyframes kb-panr { from { transform: scale(1.18) translateX(-6%); } to { transform: scale(1.18) translateX(6%); } }
+@keyframes kb-panl { from { transform: scale(1.18) translateX(6%); } to { transform: scale(1.18) translateX(-6%); } }
 .preview-stage {
   flex: 1; min-height: 0; border-radius: 12px; border: 1px solid var(--line);
   background: radial-gradient(120% 120% at 50% 0%, rgba(255, 255, 255, .04), transparent 60%), #000;
