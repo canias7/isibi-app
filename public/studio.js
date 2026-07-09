@@ -1176,9 +1176,7 @@ function sbPlayShot(s, next) {
   sbSegment = { out: s.out != null ? s.out : null, next: next || null };
   const go = () => {
     sbNoteSrcDur(s, v);
-    v.style.filter = sbFilterStr(s);
-    v.playbackRate = s.speed && s.speed > 0 ? s.speed : 1;
-    v.volume = sbClipVol(s);
+    sbApplyPreview(s);
     v.currentTime = start; v.play().catch(() => {});
   };
   if (v.dataset.src !== s.url) {
@@ -1226,6 +1224,38 @@ const SB_FILTER_CSS = {
   vivid: 'saturate(1.65) contrast(1.08)',
 };
 const SB_SPEED_OPTS = [0.25, 0.5, 1, 1.5, 2, 4];
+const SB_MOTION = [
+  { k: 'none', label: 'None' }, { k: 'zoomIn', label: 'Zoom In' }, { k: 'zoomOut', label: 'Zoom Out' },
+  { k: 'panR', label: 'Pan →' }, { k: 'panL', label: '← Pan' },
+];
+// Preview-only Ken Burns loops (export is exact, driven by sbSourceRect).
+const SB_KB_ANIM = {
+  zoomIn: 'kb-zin 5s ease-in-out infinite alternate',
+  zoomOut: 'kb-zout 5s ease-in-out infinite alternate',
+  panR: 'kb-panr 6s ease-in-out infinite alternate',
+  panL: 'kb-panl 6s ease-in-out infinite alternate',
+};
+function sbHasMotion(s) { return !!(s && ((s.motion && s.motion !== 'none') || s.fill)); }
+// The animated source-crop rectangle for fill / Ken Burns, given clip progress p.
+function sbSourceRect(s, vW, vH, p, W, H) {
+  const frameAR = W / H, vAR = vW / vH;
+  let cw = vW, ch = vH;                    // cover-crop to the frame aspect
+  if (vAR > frameAR) cw = vH * frameAR; else ch = vW / frameAR;
+  let cx = (vW - cw) / 2, cy = (vH - ch) / 2;
+  const z = 0.82; // tightest window for zoom/pan
+  switch (s.motion) {
+    case 'zoomIn': { const k = 1 - (1 - z) * p; cw *= k; ch *= k; cx = (vW - cw) / 2; cy = (vH - ch) / 2; break; }
+    case 'zoomOut': { const k = z + (1 - z) * p; cw *= k; ch *= k; cx = (vW - cw) / 2; cy = (vH - ch) / 2; break; }
+    case 'panR': case 'panL': {
+      cw *= z; ch *= z; cy = (vH - ch) / 2;
+      const range = Math.max(0, vW - cw);
+      cx = (s.motion === 'panR' ? p : 1 - p) * range;
+      break;
+    }
+    default: break; // plain fill — static cover crop
+  }
+  return { sx: cx, sy: cy, sw: cw, sh: ch };
+}
 // Named look + color-correction combined into one string, valid for CSS and canvas.
 function sbFilterStr(s) {
   const parts = [];
@@ -1241,7 +1271,7 @@ function sbFilterStr(s) {
 function sbClipVol(s) { return s.muted ? 0 : (s.volume != null ? s.volume : 1); }
 function sbAdjOn(a) { return !!(a && ((a.br != null && a.br !== 1) || (a.con != null && a.con !== 1) || (a.sat != null && a.sat !== 1))); }
 function sbClipHasAdjust(s) {
-  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj)));
+  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj) || sbHasMotion(s)));
 }
 // Push the selected clip's look / speed / volume onto the live preview <video>.
 function sbApplyPreview(s) {
@@ -1251,6 +1281,8 @@ function sbApplyPreview(s) {
   v.style.filter = sbFilterStr(s);
   v.playbackRate = s.speed && s.speed > 0 ? s.speed : 1;
   v.volume = sbClipVol(s);
+  v.style.objectFit = sbHasMotion(s) ? 'cover' : '';
+  v.style.animation = (s.motion && SB_KB_ANIM[s.motion]) ? SB_KB_ANIM[s.motion] : '';
 }
 let sbAdjTool = null; // which adjust popover is open: filter | speed | volume
 function sbToggleAdjust(tool) {
@@ -1267,7 +1299,11 @@ function sbRenderAdjust() {
   if (!sbAdjTool || !s || s.src === 'title') { pop.hidden = true; pop.innerHTML = ''; return; }
   pop.hidden = false;
   let html = '';
-  if (sbAdjTool === 'filter') {
+  if (sbAdjTool === 'crop') {
+    html = '<div class="adj-title">Crop &amp; Ken Burns</div>' +
+      '<button class="adj-fill' + (s.fill ? ' on' : '') + '" data-fill="1">' + (s.fill ? '✓ ' : '') + 'Crop to fill</button>' +
+      '<div class="adj-motion">' + SB_MOTION.map((m) => '<button class="adj-m' + ((s.motion || 'none') === m.k ? ' on' : '') + '" data-m="' + m.k + '">' + m.label + '</button>').join('') + '</div>';
+  } else if (sbAdjTool === 'filter') {
     html = '<div class="adj-title">Filter</div><div class="adj-filters">' +
       SB_FILTERS.map((f) => '<button class="adj-f' + ((s.filter || 'none') === f.k ? ' on' : '') + '" data-f="' + f.k + '">' +
         '<span class="adj-fp" style="filter:' + (SB_FILTER_CSS[f.k] || 'none') + '"></span><span>' + f.label + '</span></button>').join('') + '</div>';
@@ -1291,6 +1327,9 @@ function sbRenderAdjust() {
   pop.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => sbSetClipFilter(b.dataset.f); });
   pop.querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => sbSetClipSpeed(parseFloat(b.dataset.s)); });
   pop.querySelectorAll('[data-adj]').forEach((r) => { r.oninput = () => sbSetClipAdjust(r.dataset.adj, parseInt(r.value, 10) / 100, r); });
+  pop.querySelectorAll('[data-m]').forEach((b) => { b.onclick = () => sbSetClipMotion(b.dataset.m); });
+  const fb = pop.querySelector('[data-fill]');
+  if (fb) fb.onclick = () => sbToggleFill();
   const rst = pop.querySelector('[data-reset]');
   if (rst) rst.onclick = () => { const sh = sbShot(sbSelected); if (sh) { sh.adj = null; sbSave(); sbApplyPreview(sh); sbRenderAdjust(); } };
   const vr = pop.querySelector('.adj-vol');
@@ -1302,6 +1341,8 @@ function sbSetClipAdjust(key, val, rangeEl) {
   sbSave(); sbApplyPreview(s);
   if (rangeEl) { const lab = rangeEl.parentElement.querySelector('b'); if (lab) lab.textContent = Math.round(val * 100) + '%'; }
 }
+function sbSetClipMotion(k) { const s = sbShot(sbSelected); if (!s) return; s.motion = k === 'none' ? null : k; if (s.motion) s.fill = true; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
+function sbToggleFill() { const s = sbShot(sbSelected); if (!s) return; s.fill = !s.fill; if (!s.fill) s.motion = null; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
 function sbSetClipFilter(k) { const s = sbShot(sbSelected); if (!s) return; s.filter = k === 'none' ? null : k; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
 function sbSetClipSpeed(sp) { const s = sbShot(sbSelected); if (!s) return; s.speed = sp === 1 ? null : sp; sbSave(); sbApplyPreview(s); sbRender(); }
 function sbSetClipVolume(vol) { const s = sbShot(sbSelected); if (!s) return; s.volume = vol; if (vol > 0) s.muted = false; sbSave(); sbApplyPreview(s); }
@@ -1994,14 +2035,22 @@ function sbExportShot(s, o) {
       v.currentTime = start;
       v.play().then(() => {
         const filt = sbFilterStr(s);
+        const playRange = (isFinite(stopAt) ? stopAt : (v.duration || start + shotDur * sp)) - start;
         const draw = () => {
-          // letterbox into the export frame
-          const vr = v.videoWidth / v.videoHeight, fr = W / H;
-          let dw = W, dh = H, dx = 0, dy = 0;
-          if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
           if (filt !== 'none') ctx.filter = filt;
-          ctx.drawImage(v, dx, dy, dw, dh);
+          if (sbHasMotion(s) && v.videoWidth) {
+            // crop-to-fill / Ken Burns: draw an animated source window over the frame
+            const p = playRange > 0 ? Math.max(0, Math.min(1, (v.currentTime - start) / playRange)) : 0;
+            const r = sbSourceRect(s, v.videoWidth, v.videoHeight, p, W, H);
+            ctx.drawImage(v, r.sx, r.sy, r.sw, r.sh, 0, 0, W, H);
+          } else {
+            // letterbox into the export frame
+            const vr = v.videoWidth / v.videoHeight, fr = W / H;
+            let dw = W, dh = H, dx = 0, dy = 0;
+            if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
+            ctx.drawImage(v, dx, dy, dw, dh);
+          }
           ctx.filter = 'none';
           try { sbFrameOverlays(ctx, W, H, o, (v.currentTime - start) / sp, shotDur); } catch (e) {}
           if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
