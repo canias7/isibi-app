@@ -2341,17 +2341,17 @@ const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
 const estVideos = (cr) => roundTo(cr / VID_CR, 5);
 const MEMBERSHIPS = [
   { plan: '25', usd: 24.99, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
-    desc: 'For getting started with AI creation',
+    desc: 'For getting started with AI creation', storage: '1 GB',
     save: 'Save $3/mo while the launch offer lasts',
-    feats: [1, 1, 1, 1, 0, 0] },
+    feats: [1, 1, 1, 0] },
   { plan: '50', usd: 49.99, credits: 4000, name: 'Pro', klass: 't-pro best', off: '20% OFF', strike: 63, pop: 1,
-    desc: 'For consistent, everyday creation',
+    desc: 'For consistent, everyday creation', storage: '5 GB',
     save: 'Save $13/mo while the launch offer lasts',
-    feats: [1, 1, 1, 1, 1, 0] },
+    feats: [1, 1, 1, 1] },
   { plan: '100', usd: 99.99, credits: 8000, name: 'Max', klass: 't-max', off: '25% OFF', val: 'Best value', strike: 133,
-    desc: 'For creators building big projects',
+    desc: 'For creators building big projects', storage: '10 GB',
     save: 'Save $33/mo while the launch offer lasts',
-    feats: [1, 1, 1, 1, 1, 1] },
+    feats: [1, 1, 1, 1] },
 ];
 // Launch offer is a rolling window: it always ends N days out, computed at open
 // time, so the countdown can never freeze into "Ends in soon".
@@ -2360,9 +2360,7 @@ const MEMBER_ROWS = [
   'All video, image &amp; voice models',
   'No watermark on your files',
   'Unused credits roll over',
-  'Cancel anytime',
   'Room for ~' + estVideos(4000) + ' videos a month',
-  'Studio-scale — ~' + estVideos(8000) + ' videos a month',
 ];
 const TOPUPS = [
   { topup: '15', usd: 15, credits: 1070 },
@@ -2437,12 +2435,13 @@ function openCredits(topupsOnly) {
       '<div class="up-priceline">' +
         (p.strike ? '<span class="up-strike">$' + p.strike + '</span>' : '') +
         '<span class="up-pprice">$' + p.usd + '</span>' +
-        '<span class="up-permo">per month, cancel anytime</span>' +
+        '<span class="up-permo">per month</span>' +
       '</div>' +
       '<span class="up-buy">Get ' + p.name + '</span>' +
       '<div class="up-save">' + p.save + '</div>' +
       '<ul class="up-feat">' + MEMBER_ROWS.map((row, i) =>
-        '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') + '</ul>' +
+        '<li class="' + (p.feats[i] ? 'ok' : 'no') + '">' + row + '</li>').join('') +
+        '<li class="ok">' + p.storage + ' gallery storage</li>' + '</ul>' +
     '</button>').join('');
   // Top-ups-only view (from the profile menu) is a quiet list — credits left,
   // price right, hairline separators.
