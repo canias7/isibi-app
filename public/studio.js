@@ -577,6 +577,18 @@ async function sbApplyReframe(s, aspect) {
     (idx) => 'Reframed shot ' + idx + ' to ' + asp + '. Fresh clip in this tab; Export or download to keep it.');
 }
 
+// Burn a caption onto a shot (bottom / top / center).
+async function sbApplyText(s, content, position) {
+  const text = String(content || '').slice(0, 200);
+  if (!text.trim()) return;
+  const pos = ['bottom', 'top', 'center'].indexOf(position) >= 0 ? position : 'bottom';
+  const winDur = sbShotDur(s) || 0;
+  await sbRenderEdit(s, 'add a caption to',
+    (onProgress) => window.sbFFText(s.url, text, { url: s.url, position: pos, start: s.in || 0, dur: winDur, onProgress }),
+    winDur || null,
+    (idx) => 'Captioned shot ' + idx + ' — “' + text.slice(0, 40) + (text.length > 40 ? '…' : '') + '”. Fresh clip in this tab; Export or download to keep it.');
+}
+
 // Resolve when the video seeks, but never hang: a decode error or a stalled
 // source that emits no event would otherwise leave the caller awaiting forever.
 function sbSeek(v, time) {
@@ -617,9 +629,20 @@ async function sbThumb(s) {
   s.thumb = sbGrabFrame(v, 160).toDataURL('image/jpeg', 0.6);
 }
 
-// ── Export: stitch ready shots into one WebM, all in-browser ──────────────
-// Canvas + MediaRecorder: universally supported, realtime. Audio comes along
-// via an AudioContext tap. (WebCodecs fast path is a v2 upgrade.)
+// Trigger a browser download for a produced Blob, named after the project.
+function sbDownloadBlob(blob, ext) {
+  const a = document.createElement('a');
+  const objUrl = URL.createObjectURL(blob);
+  a.href = objUrl;
+  a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.' + ext;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 15000);
+}
+
+// ── Export: stitch ready shots into one film ──────────────────────────────
+// Prefer the on-device ffmpeg stitch (fast, higher quality, orientation-aware);
+// fall back to the realtime canvas + MediaRecorder path if the editor can't run
+// or the stitch fails.
 async function sbExport() {
   if (sbBusy) return;
   const shots = sbProject().shots.filter((s) => s.url && s.status === 'ready');
@@ -628,6 +651,34 @@ async function sbExport() {
   const btn = document.getElementById('sbExportBtn');
   if (btn) btn.textContent = 'Exporting…';
   try {
+    if (window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+      try {
+        const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0 }));
+        const r = await window.sbFFExport(descriptors, {
+          onProgress: (p) => sbStudioProgress('Stitching your film… ' + Math.round(p * 100) + '%'),
+        });
+        sbDownloadBlob(r.blob, 'mp4');
+        sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
+          (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + ') — check your downloads ✦');
+        return;
+      } catch (e) {
+        console.warn('on-device stitch failed, using the realtime exporter:', e);
+      }
+    }
+    await sbExportCanvas(shots);
+  } catch (e) {
+    console.error('export failed:', e);
+    sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
+  } finally {
+    sbBusy = false;
+    if (btn) btn.textContent = 'Export';
+  }
+}
+
+// Realtime fallback: canvas + MediaRecorder, universally supported. Audio comes
+// along via an AudioContext tap. Letterboxes every shot into a 1280x720 frame.
+async function sbExportCanvas(shots) {
+  {
     const W = 1280, H = 720;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
@@ -666,21 +717,9 @@ async function sbExport() {
     // mp4 on Safari) so the download opens cleanly.
     const outType = ((rec.mimeType || mime || 'video/webm').split(';')[0]) || 'video/webm';
     const ext = outType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
-    const blob = new Blob(parts, { type: outType });
-    const a = document.createElement('a');
-    const objUrl = URL.createObjectURL(blob);
-    a.href = objUrl;
-    a.download = (sbProject().title.replace(/[^\w\- ]+/g, '') || 'film') + '.' + ext;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(objUrl), 10000); // free the blob after the download starts
+    sbDownloadBlob(new Blob(parts, { type: outType }), ext);
     sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
       (skipped ? ', ' + skipped + ' skipped' : '') + ') — check your downloads ✦');
-  } catch (e) {
-    console.error('export failed:', e);
-    sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
-  } finally {
-    sbBusy = false;
-    if (btn) btn.textContent = 'Export';
   }
 }
 
@@ -809,6 +848,10 @@ async function studioSend() {
           }
           if (a.speed && s.url) edits.push({ op: 'speed', s, speed: Number(a.speed) });
           if (a.reframe && s.url) edits.push({ op: 'reframe', s, aspect: String(a.reframe) });
+          if (a.text && s.url) {
+            const tx = typeof a.text === 'string' ? { content: a.text } : a.text;
+            if (tx && tx.content) edits.push({ op: 'text', s, content: String(tx.content), position: tx.position });
+          }
         }
       } else if (a.type === 'remove_shot') {
         const s = proj.shots[a.n - 1];
@@ -832,6 +875,7 @@ async function studioSend() {
       if (e.op === 'trim') await sbApplyTrim(e.s, e.start, e.end);
       else if (e.op === 'speed') await sbApplySpeed(e.s, e.speed);
       else if (e.op === 'reframe') await sbApplyReframe(e.s, e.aspect);
+      else if (e.op === 'text') await sbApplyText(e.s, e.content, e.position);
     }
     // Generate sequentially so last-frame chaining sees each finished shot.
     for (const s of toGenerate) await sbGenerateShot(s);

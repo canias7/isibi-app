@@ -9,6 +9,7 @@ edits (nothing leaves the tab).
 | `ffmpeg.js`, `814.ffmpeg.js` | `@ffmpeg/ffmpeg` (UMD dist) | 0.12.15 | MIT |
 | `ffmpeg-core.js` | `@ffmpeg/core` (UMD dist) | 0.12.10 | LGPL-2.1 (FFmpeg 5.1.4) |
 | `ffmpeg-core.wasm.gz` | `@ffmpeg/core` core wasm, gzip -9 | 0.12.10 | LGPL-2.1 (FFmpeg 5.1.4) |
+| `SpaceGrotesk.ttf` | Space Grotesk (brand font) variable TTF, for `drawtext` captions | — | OFL-1.1 |
 
 The wasm is shipped gzipped (9.75 MiB) because the raw 32 MB file exceeds
 Cloudflare Workers' 25 MiB per-asset limit; the browser decompresses it via

@@ -214,10 +214,136 @@ async function sbFFReframe(src, aspect, opts = {}) {
   }, opts.onProgress);
 }
 
+// ── Text / caption ────────────────────────────────────────────────────────────
+// Burn a caption onto a shot with drawtext — white Space Grotesk (the brand
+// font, self-hosted) on a subtle box, centered horizontally, at bottom / top /
+// center. textfile= sidesteps filtergraph escaping of the user's text.
+let _sbFont = null;
+async function sbFFFont() {
+  if (_sbFont) return _sbFont;
+  const r = await fetch('/vendor/ffmpeg/SpaceGrotesk.ttf');
+  if (!r.ok) throw new Error('caption font unavailable');
+  _sbFont = new Uint8Array(await r.arrayBuffer());
+  return _sbFont;
+}
+async function sbFFText(src, text, opts = {}) {
+  const content = String(text || '').slice(0, 200);
+  if (!content.trim()) throw new Error('no caption text');
+  const inName = 'in.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  const font = await sbFFFont();
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    await ff.writeFile('cap_font.ttf', font);
+    await ff.writeFile('cap.txt', new TextEncoder().encode(content));
+    const y = opts.position === 'top' ? 'h*0.08'
+      : opts.position === 'center' ? '(h-text_h)/2'
+      : 'h-h*0.16-text_h';
+    const draw = 'drawtext=fontfile=cap_font.ttf:textfile=cap.txt:fontcolor=white:fontsize=h/14:' +
+      'box=1:boxcolor=black@0.45:boxborderw=16:borderw=2:bordercolor=black@0.8:' +
+      'x=(w-text_w)/2:y=' + y + ',fps=30';
+    const win = sbFFWindow(opts);
+    const pre = [...win.pre, '-i', inName, ...win.post];
+    let data = await sbFFRunRead(ff, [...pre, '-vf', draw, ...SB_VENC, ...SB_AENC, ...SB_FAST]);
+    if (!data) data = await sbFFRunRead(ff, [...pre, '-vf', draw, '-an', ...SB_VENC, ...SB_FAST]);
+    try { await ff.deleteFile(inName); await ff.deleteFile('out.mp4'); await ff.deleteFile('cap.txt'); } catch (e) {}
+    if (!data) throw new Error('caption produced no output');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }, opts.onProgress);
+}
+
+// Read a media file's duration, video dimensions and audio presence straight
+// from ffmpeg's own report (decoder-independent). `logbuf` is a live array the
+// caller fills from an ff 'log' listener.
+async function sbFFProbe(ff, name, logbuf) {
+  logbuf.length = 0;
+  await ff.exec(['-i', name]); // no output → prints stream info, exits nonzero
+  const text = logbuf.join('\n');
+  const dm = text.match(/Duration:\s*(\d+):(\d+):(\d+\.\d+)/);
+  const sm = text.match(/Video:[^\n]*?(\d{2,5})x(\d{2,5})/);
+  return {
+    dur: dm ? (+dm[1] * 3600 + +dm[2] * 60 + +dm[3]) : null,
+    w: sm ? +sm[1] : null, h: sm ? +sm[2] : null,
+    hasAudio: /Audio:/.test(text),
+  };
+}
+
+// ── Export: stitch shots into one MP4 ─────────────────────────────────────────
+// Each shot is normalized to a shared frame (scale+pad to WxH, fps=30, setsar=1,
+// H.264 + AAC — silent track synthesized when a shot has none) so the segments
+// share an identical stream layout, then concatenated with the demuxer (-c copy,
+// no second re-encode). Orientation follows the majority of shots (portrait →
+// 720x1280, else 1280x720). A shot that fails to normalize is skipped, not fatal.
+// `shots`: [{ src, url, start, dur }]. Returns an MP4 Blob.
+async function sbFFExport(shots, opts = {}) {
+  return sbFFJob(async (ff) => {
+    const logbuf = [];
+    const onLog = ({ message }) => { logbuf.push(message); if (logbuf.length > 300) logbuf.shift(); };
+    ff.on('log', onLog);
+    const tmp = [];
+    const track = (n) => { tmp.push(n); return n; };
+    try {
+      // 1. Write + probe every shot.
+      const metas = [];
+      for (let i = 0; i < shots.length; i++) {
+        const sh = shots[i];
+        const inName = track('x' + i + '.' + sbFFExt(sh.url || '', sh.mime));
+        await ff.writeFile(inName, await sbFFBytes(sh.src));
+        let info; try { info = await sbFFProbe(ff, inName, logbuf); } catch (e) { info = {}; }
+        metas.push({ inName, info, sh });
+      }
+      // 2. Target orientation: portrait only if most shots are portrait.
+      const known = metas.filter((m) => m.info.w && m.info.h);
+      const portraitVotes = known.filter((m) => m.info.h > m.info.w).length;
+      const portrait = known.length ? portraitVotes * 2 > known.length : false;
+      const W = opts.w || (portrait ? 720 : 1280);
+      const H = opts.h || (portrait ? 1280 : 720);
+      const vf = 'scale=' + W + ':' + H + ':force_original_aspect_ratio=decrease,' +
+        'pad=' + W + ':' + H + ':(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30';
+      const anull = ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
+
+      // 3. Normalize each shot to a uniform segment.
+      const segs = [];
+      for (let i = 0; i < metas.length; i++) {
+        if (opts.onProgress) opts.onProgress(i / (metas.length + 1));
+        const { inName, info, sh } = metas[i];
+        const win = sbFFWindow(sh);
+        const seg = 'seg' + i + '.mp4';
+        const args = info.hasAudio
+          ? [...win.pre, '-i', inName, ...win.post, '-map', '0:v:0', '-map', '0:a:0',
+             '-vf', vf, ...SB_VENC, ...SB_AENC, '-movflags', '+faststart', seg]
+          : [...win.pre, '-i', inName, ...win.post, ...anull, '-map', '0:v:0', '-map', '1:a:0',
+             '-vf', vf, ...SB_VENC, ...SB_AENC, '-shortest', '-movflags', '+faststart', seg];
+        try { await ff.deleteFile(seg); } catch (e) {}
+        await ff.exec(args);
+        let good = false; try { const d = await ff.readFile(seg); good = d && d.length > 0; } catch (e) {}
+        if (good) { segs.push(seg); track(seg); }
+      }
+      if (!segs.length) throw new Error('no shots could be prepared for export');
+
+      // 4. Concat the uniform segments (stream copy — fast, lossless).
+      const list = track('concat.txt');
+      await ff.writeFile(list, new TextEncoder().encode(segs.map((s) => "file '" + s + "'").join('\n') + '\n'));
+      try { await ff.deleteFile('out.mp4'); } catch (e) {}
+      await ff.exec(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', 'out.mp4']);
+      let data; try { data = await ff.readFile('out.mp4'); } catch (e) { data = null; }
+      if (!data || !data.length) throw new Error('export produced no output');
+      if (opts.onProgress) opts.onProgress(1);
+      return { blob: new Blob([data.buffer], { type: 'video/mp4' }), used: segs.length, total: shots.length, w: W, h: H };
+    } finally {
+      ff.off('log', onLog);
+      for (const n of tmp) { try { await ff.deleteFile(n); } catch (e) {} }
+      try { await ff.deleteFile('out.mp4'); } catch (e) {}
+    }
+  }, opts.onProgress);
+}
+
 // expose for studio.js + tests
 window.sbFFTrim = sbFFTrim;
 window.sbFFSpeed = sbFFSpeed;
 window.sbFFReframe = sbFFReframe;
+window.sbFFText = sbFFText;
+window.sbFFExport = sbFFExport;
 window.sbFFSupported = sbFFSupported;
 window.sbFFLoad = sbFFLoad;
 window.sbFFJob = sbFFJob;
