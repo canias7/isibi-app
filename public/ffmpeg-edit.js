@@ -386,22 +386,26 @@ async function sbFFExport(shots, opts = {}) {
       let outName = 'out.mp4';
       if (opts.music && opts.music.src) {
         try {
-          const filmDur = shots.reduce((a, s) => a + (s.dur || 0), 0);
-          const mName = track('music.' + sbFFExt(opts.music.src, opts.music.mime));
-          await ff.writeFile(mName, await sbFFBytes(opts.music.src));
-          const vol = Math.max(0, Math.min(1, opts.music.volume != null ? opts.music.volume : 0.6));
-          // Optional fade in/out on the music, scaled to the film length.
-          let mchain = '[1:a]volume=' + (2 * vol).toFixed(3);
-          if (opts.music.fade) {
-            const fdur = Math.max(0.3, Math.min(2, (filmDur || 8) * 0.12));
-            const outAt = Math.max(0, (filmDur || 0) - fdur).toFixed(3);
-            mchain += ',afade=t=in:st=0:d=' + fdur.toFixed(2) + ',afade=t=out:st=' + outAt + ':d=' + fdur.toFixed(2);
-          }
+          const mu = opts.music;
+          const mName = track('music.' + sbFFExt(mu.src, mu.mime));
+          await ff.writeFile(mName, await sbFFBytes(mu.src));
+          const vol = Math.max(0, Math.min(1, mu.volume != null ? mu.volume : 0.6));
+          // Take the trimmed slice ([0]=music, seek+limit at read), fade it, then
+          // delay it to its start offset in the film so a repositioned/trimmed
+          // music clip lands where the user placed it. [1]=the stitched film.
+          const clipDur = mu.dur > 0 ? mu.dur : null;
+          const inArgs = ['-ss', String(Math.max(0, mu.in || 0))];
+          if (clipDur) inArgs.push('-t', String(clipDur));
+          let mchain = '[0:a]volume=' + (2 * vol).toFixed(3);
+          if (mu.fadeIn > 0) mchain += ',afade=t=in:st=0:d=' + Number(mu.fadeIn).toFixed(2);
+          if (mu.fadeOut > 0 && clipDur) mchain += ',afade=t=out:st=' + Math.max(0, clipDur - mu.fadeOut).toFixed(2) + ':d=' + Number(mu.fadeOut).toFixed(2);
+          const offMs = Math.round((mu.offset || 0) * 1000);
+          if (offMs > 0) mchain += ',adelay=' + offMs + '|' + offMs;
           mchain += ',apad[ma]';
-          const fc = '[0:a]volume=2.0[va];' + mchain + ';[va][ma]amix=inputs=2:duration=first[a]';
+          const fc = '[1:a]volume=2.0[va];' + mchain + ';[va][ma]amix=inputs=2:duration=first[a]';
           try { await ff.deleteFile('final.mp4'); } catch (e) {}
-          await ff.exec(['-i', 'out.mp4', '-i', mName, '-filter_complex', fc,
-            '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', ...SB_AENC, '-movflags', '+faststart', 'final.mp4']);
+          await ff.exec([...inArgs, '-i', mName, '-i', 'out.mp4', '-filter_complex', fc,
+            '-map', '1:v:0', '-map', '[a]', '-c:v', 'copy', ...SB_AENC, '-movflags', '+faststart', 'final.mp4']);
           const fd = await ff.readFile('final.mp4').catch(() => null);
           if (fd && fd.length) { outName = 'final.mp4'; track('final.mp4'); }
         } catch (e) { logbuf.push('music mux failed, exporting without music: ' + e); }

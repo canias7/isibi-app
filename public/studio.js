@@ -63,6 +63,9 @@ function sbLoad() {
     if (p.voice && p.voice.stored && p.voice.url && p.voice.url.startsWith('blob:')) p.voice.url = null;
     // All audio is green now — drop a cached purple voice waveform so it redraws.
     if (p.voice && p.voice.wave && !p.voice._green) { p.voice.wave = null; p.voice._waveFailed = false; p.voice._green = true; }
+    // Audio clips gained offset/trim/fade fields — backfill them.
+    if (p.music) sbAudioInit(p.music);
+    if (p.voice) sbAudioInit(p.voice);
   }
 }
 // A short, collision-resistant id (timestamp alone collides within a ms).
@@ -402,27 +405,47 @@ function sbRender() {
   sbRenderAdjust();
 }
 
-// One audio lane (music or voice) drawn as a waveform clip from the film start,
-// with hover controls (volume, and for music fade/duck, plus remove).
+// Fill in audio-clip defaults (offset in the film + trim in/out + fades).
+function sbAudioInit(tr) {
+  if (!tr) return;
+  if (tr.offset == null) tr.offset = 0;
+  if (tr.in == null) tr.in = 0;
+  if (tr.out == null) tr.out = tr.dur || 0;
+  if (tr.fadeIn == null) tr.fadeIn = 0;
+  if (tr.fadeOut == null) tr.fadeOut = 0;
+}
+function sbAClipDur(tr) { return Math.max(0.1, (tr.out != null && tr.in != null) ? (tr.out - tr.in) : (tr.dur || 0)); }
+
+// One audio lane (music or voice): an iMovie clip you can drag along the lane,
+// trim at either edge, and fade in/out via the corner dots.
 function sbAudioLane(inner, tr, kind, total) {
-  const dur = tr.dur || total;
+  sbAudioInit(tr);
+  const clipDur = sbAClipDur(tr);
+  const leftPct = Math.max(0, Math.min(99, (tr.offset / total) * 100));
+  const wPct = Math.max(2, Math.min(100 - leftPct, (clipDur / total) * 100));
   const lane = document.createElement('div');
   lane.className = 'tl-lane tl-audio tl-' + kind;
   const clip = document.createElement('div');
   clip.className = 'tl-aclip';
-  clip.style.width = Math.min(100, (dur / total) * 100) + '%';
+  clip.style.left = leftPct + '%';
+  clip.style.width = wPct + '%';
   const esc2 = (typeof esc === 'function') ? esc : (x) => x;
   const nm = (kind === 'music' ? '♪ ' : '🎙 ') + (tr.name || kind);
   const vol = tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1);
+  const fiPct = Math.min(50, (tr.fadeIn / clipDur) * 100);
+  const foPct = Math.min(50, (tr.fadeOut / clipDur) * 100);
   clip.innerHTML =
     '<span class="tl-wave"' + (tr.wave ? ' style="background-image:url(' + tr.wave + ')"' : '') + '></span>' +
+    '<span class="tl-fadefill l" style="width:' + fiPct + '%"></span>' +
+    '<span class="tl-fadefill r" style="width:' + foPct + '%"></span>' +
     '<span class="tl-alabel">' + esc2(nm) + '</span>' +
+    '<span class="tl-atrim l" title="Trim the start"></span>' +
+    '<span class="tl-atrim r" title="Trim the end"></span>' +
+    '<span class="tl-fadedot l" title="Fade in" style="left:' + fiPct + '%"></span>' +
+    '<span class="tl-fadedot r" title="Fade out" style="right:' + foPct + '%"></span>' +
     '<span class="tl-actrl">' +
       '<input class="tl-avol" type="range" min="0" max="1" step="0.05" value="' + vol + '" title="Volume" />' +
-      (kind === 'music'
-        ? '<button class="tl-achip tl-fade' + (tr.fade ? ' on' : '') + '" title="Fade in/out">Fade</button>' +
-          '<button class="tl-achip tl-duck' + (tr.duck ? ' on' : '') + '" title="Duck under clips with sound">Duck</button>'
-        : '') +
+      (kind === 'music' ? '<button class="tl-achip tl-duck' + (tr.duck ? ' on' : '') + '" title="Duck under clips with sound">Duck</button>' : '') +
       '<button class="tl-ax" title="Remove ' + kind + '">×</button>' +
     '</span>';
   const av = clip.querySelector('.tl-avol');
@@ -437,15 +460,97 @@ function sbAudioLane(inner, tr, kind, total) {
   ax.addEventListener('pointerdown', (e) => e.stopPropagation());
   ax.addEventListener('click', (e) => { e.stopPropagation(); if (kind === 'music') sbRemoveMusic(); else sbRemoveVoice(); });
   if (kind === 'music') {
-    const fd = clip.querySelector('.tl-fade'), dk = clip.querySelector('.tl-duck');
-    fd.addEventListener('pointerdown', (e) => e.stopPropagation());
-    fd.addEventListener('click', (e) => { e.stopPropagation(); tr.fade = !tr.fade; sbSave(); sbRender(); });
+    const dk = clip.querySelector('.tl-duck');
     dk.addEventListener('pointerdown', (e) => e.stopPropagation());
     dk.addEventListener('click', (e) => { e.stopPropagation(); tr.duck = !tr.duck; sbSave(); sbRender(); });
   }
+  clip.querySelector('.tl-atrim.l').addEventListener('pointerdown', (e) => sbAudioTrim(e, tr, 'l', total));
+  clip.querySelector('.tl-atrim.r').addEventListener('pointerdown', (e) => sbAudioTrim(e, tr, 'r', total));
+  clip.querySelector('.tl-fadedot.l').addEventListener('pointerdown', (e) => sbAudioFade(e, tr, 'l', total));
+  clip.querySelector('.tl-fadedot.r').addEventListener('pointerdown', (e) => sbAudioFade(e, tr, 'r', total));
+  clip.addEventListener('pointerdown', (e) => sbAudioDrag(e, tr, kind, total));
   lane.appendChild(clip);
   inner.appendChild(lane);
   if (!tr.wave && !tr._waving && !tr._waveFailed) sbBuildWave(tr, kind);
+}
+// Drag the audio clip body → move its offset (start time) along the film.
+function sbAudioDrag(e, tr, kind, total) {
+  if (e.target.closest('.tl-atrim') || e.target.closest('.tl-fadedot') || e.target.closest('.tl-actrl')) return;
+  e.stopPropagation();
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (!inner) return;
+  const rect = inner.getBoundingClientRect();
+  const startX = e.clientX, off0 = tr.offset || 0;
+  const el = e.currentTarget;
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
+  el.classList.add('dragging');
+  const move = (ev) => {
+    const dSec = ((ev.clientX - startX) / (rect.width || 1)) * total;
+    tr.offset = Math.max(0, off0 + dSec);
+    el.style.left = Math.max(0, Math.min(99, (tr.offset / total) * 100)) + '%';
+  };
+  const up = () => {
+    el.classList.remove('dragging');
+    el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+    try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+    sbSave(); sbRender();
+  };
+  el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+}
+// Trim an audio clip edge. Left edge also nudges offset so the audio stays put.
+function sbAudioTrim(e, tr, side, total) {
+  e.stopPropagation(); e.preventDefault();
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (!inner) return;
+  const handle = e.currentTarget;
+  try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+  const rect = inner.getBoundingClientRect();
+  const startX = e.clientX;
+  const in0 = tr.in || 0, out0 = tr.out != null ? tr.out : (tr.dur || 0), off0 = tr.offset || 0;
+  const MIN = 0.2;
+  const move = (ev) => {
+    const dSec = ((ev.clientX - startX) / (rect.width || 1)) * total;
+    if (side === 'l') { const ni = Math.max(0, Math.min(in0 + dSec, out0 - MIN)); tr.in = ni; tr.offset = Math.max(0, off0 + (ni - in0)); }
+    else { tr.out = Math.max(in0 + MIN, Math.min(out0 + dSec, tr.dur || (out0 + dSec))); }
+    const cd = sbAClipDur(tr);
+    const lp = Math.max(0, Math.min(99, (tr.offset / total) * 100));
+    handle.parentElement.style.left = lp + '%';
+    handle.parentElement.style.width = Math.max(2, Math.min(100 - lp, (cd / total) * 100)) + '%';
+  };
+  const up = () => {
+    handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up);
+    try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+    sbSave(); sbRender();
+  };
+  handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up); handle.addEventListener('pointercancel', up);
+}
+// Drag a corner dot inward to set fade-in / fade-out length.
+function sbAudioFade(e, tr, side, total) {
+  e.stopPropagation(); e.preventDefault();
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (!inner) return;
+  const dot = e.currentTarget;
+  try { dot.setPointerCapture(e.pointerId); } catch (_) {}
+  const rect = inner.getBoundingClientRect();
+  const startX = e.clientX;
+  const cd = sbAClipDur(tr);
+  const f0 = side === 'l' ? (tr.fadeIn || 0) : (tr.fadeOut || 0);
+  const move = (ev) => {
+    let dSec = ((ev.clientX - startX) / (rect.width || 1)) * total;
+    if (side === 'r') dSec = -dSec; // right dot drags leftward to grow
+    const f = Math.max(0, Math.min(cd / 2, f0 + dSec));
+    if (side === 'l') tr.fadeIn = f; else tr.fadeOut = f;
+    const clip = dot.parentElement;
+    const pct = Math.min(50, (f / cd) * 100);
+    if (side === 'l') { clip.querySelector('.tl-fadefill.l').style.width = pct + '%'; dot.style.left = pct + '%'; }
+    else { clip.querySelector('.tl-fadefill.r').style.width = pct + '%'; dot.style.right = pct + '%'; }
+  };
+  const up = () => {
+    dot.removeEventListener('pointermove', move); dot.removeEventListener('pointerup', up); dot.removeEventListener('pointercancel', up);
+    try { dot.releasePointerCapture(e.pointerId); } catch (_) {}
+    sbSave();
+  };
+  dot.addEventListener('pointermove', move); dot.addEventListener('pointerup', up); dot.addEventListener('pointercancel', up);
 }
 // Decode an audio track to an iMovie-style waveform image: a darker filled shape
 // mirrored around the centre, drawn on transparent canvas so the solid clip body
@@ -727,37 +832,39 @@ function sbFilmTime() {
   else { const v = document.querySelector('#previewStage video'); within = v ? Math.min(sbShotDur(s) || 4, Math.max(0, v.currentTime - (s.in || 0))) : 0; }
   return before + Math.min(sbShotDur(s) || 4, within);
 }
-// Effective music volume — base, dipped when ducking under a clip with audio.
-function sbMusicVol() {
-  const m = sbProject().music;
-  if (!m) return 0;
-  let vol = m.volume != null ? m.volume : 0.6;
-  if (m.duck) {
-    const s = sbShot(sbSelected);
-    const overAudio = s && s.src !== 'title' && !s.muted; // a talking clip is playing
-    if (overAudio) vol *= 0.4;
-  }
-  return vol;
+// Fade multiplier at position localT within a clip of length clipDur.
+function sbFadeMul(tr, localT, clipDur) {
+  let m = 1;
+  if (tr.fadeIn > 0 && localT < tr.fadeIn) m *= Math.max(0, localT / tr.fadeIn);
+  if (tr.fadeOut > 0 && localT > clipDur - tr.fadeOut) m *= Math.max(0, (clipDur - localT) / tr.fadeOut);
+  return m;
 }
-// Keep the music element aligned to the film position + play/pause state.
-function sbMusicSync(v, opts) {
-  const m = sbProject().music;
-  const a = document.getElementById('sbMusicAudio');
-  if (!m || !m.url) { if (a && !a.paused) a.pause(); return; }
-  sbMusicLoad();
-  const am = sbMusicEl();
-  am.volume = sbMusicVol();
-  const ft = sbFilmTime();
-  const target = (m.dur && m.dur > 0.1) ? (ft % m.dur) : ft; // loop if film outlasts the track
-  if ((opts && opts.hard) || Math.abs((am.currentTime || 0) - target) > 0.35) {
-    try { am.currentTime = target; } catch (_) {}
-  }
+// Sync one audio track's element to the film position, honoring its offset,
+// trim (in/out), fades, volume, and (music) ducking. Silent outside its span.
+function sbSyncAudioTrack(tr, el, kind, v, opts) {
+  if (!tr || !tr.url || !el) { if (el && !el.paused) el.pause(); return; }
+  sbAudioInit(tr);
   const playing = (sbTitleState && sbTitleState.playing) || (v && !v.paused && !v.ended);
-  if (playing) { if (am.paused) am.play().catch(() => {}); }
-  else if (!am.paused) am.pause();
+  const ft = sbFilmTime();
+  const off = tr.offset || 0;
+  const clipDur = sbAClipDur(tr);
+  const localT = ft - off;
+  if (!playing || localT < -0.05 || localT > clipDur + 0.05) { if (!el.paused) el.pause(); return; }
+  const lt = Math.max(0, Math.min(clipDur, localT));
+  const srcTime = (tr.in || 0) + lt;
+  if ((opts && opts.hard) || Math.abs((el.currentTime || 0) - srcTime) > 0.35) { try { el.currentTime = srcTime; } catch (_) {} }
+  let vol = tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1);
+  vol *= sbFadeMul(tr, lt, clipDur);
+  if (kind === 'music' && tr.duck) { const s = sbShot(sbSelected); if (s && s.src !== 'title' && !s.muted) vol *= 0.4; }
+  el.volume = Math.max(0, Math.min(1, vol));
+  if (el.paused) el.play().catch(() => {});
+}
+// Keep both audio tracks aligned to the film position + play state.
+function sbMusicSync(v, opts) {
+  sbMusicLoad();
+  sbSyncAudioTrack(sbProject().music, document.getElementById('sbMusicAudio'), 'music', v, opts);
   sbVoiceSync(v, opts);
 }
-// The voiceover plays from the start of the film (film time 0), no loop.
 function sbVoiceEl() {
   let a = document.getElementById('sbVoiceAudio');
   if (!a) { a = document.createElement('audio'); a.id = 'sbVoiceAudio'; a.preload = 'auto'; document.body.appendChild(a); }
@@ -768,20 +875,10 @@ function sbVoiceLoad() {
   const a = sbVoiceEl();
   if (!vo || !vo.url) { a.pause(); if (a.dataset.src) { a.removeAttribute('src'); a.dataset.src = ''; } return; }
   if (a.dataset.src !== vo.url) { a.dataset.src = vo.url; a.src = vo.url; }
-  a.volume = vo.volume != null ? vo.volume : 1;
 }
 function sbVoiceSync(v, opts) {
-  const vo = sbProject().voice;
-  const a = document.getElementById('sbVoiceAudio');
-  if (!vo || !vo.url) { if (a && !a.paused) a.pause(); return; }
   sbVoiceLoad();
-  const av = sbVoiceEl();
-  const ft = sbFilmTime();
-  if (vo.dur && ft > vo.dur + 0.2) { if (!av.paused) av.pause(); return; } // voice ran out
-  if ((opts && opts.hard) || Math.abs((av.currentTime || 0) - ft) > 0.35) { try { av.currentTime = ft; } catch (_) {} }
-  const playing = (sbTitleState && sbTitleState.playing) || (v && !v.paused && !v.ended);
-  if (playing) { if (av.paused) av.play().catch(() => {}); }
-  else if (!av.paused) av.pause();
+  sbSyncAudioTrack(sbProject().voice, document.getElementById('sbVoiceAudio'), 'voice', v, opts);
 }
 async function sbSetMusic(f) {
   const proj = sbProject();
@@ -795,8 +892,9 @@ async function sbSetMusic(f) {
     await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
     proj.music.dur = a.duration || 0;
   } catch (e) {}
+  proj.music.out = proj.music.dur; sbAudioInit(proj.music);
   sbSave(); sbRenderMusicBar(); sbMusicLoad();
-  sbStudioNote('Added music: “' + proj.music.name + '”. It plays under your film and exports with it — drag the slider to balance it.');
+  sbStudioNote('Added music: “' + proj.music.name + '”. Drag it along the lane to reposition, trim its ends, or fade it with the corner dots.');
 }
 function sbRemoveMusic() {
   const proj = sbProject();
@@ -1080,8 +1178,9 @@ async function sbSetVoice(blob) {
     await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
     proj.voice.dur = a.duration || 0;
   } catch (e) {}
+  proj.voice.out = proj.voice.dur; sbAudioInit(proj.voice);
   sbSave(); sbRenderVoiceBar();
-  sbStudioNote('Voiceover added — it plays from the start of your film and mixes into the export.');
+  sbStudioNote('Voiceover added — drag it along the lane to place it, trim its ends, or fade it with the corner dots.');
 }
 function sbRemoveVoice() {
   const proj = sbProject();
@@ -1813,8 +1912,10 @@ async function sbExport(deliver) {
       try {
         const proj = sbProject();
         const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0, muted: !!s.muted }));
-        const music = (proj.music && proj.music.url)
-          ? { src: proj.music.url, mime: proj.music.mime || '', volume: (proj.music.volume != null ? proj.music.volume : 0.6) * (proj.music.duck ? 0.4 : 1), fade: !!proj.music.fade }
+        const m0 = proj.music;
+        const music = (m0 && m0.url)
+          ? { src: m0.url, mime: m0.mime || '', volume: (m0.volume != null ? m0.volume : 0.6) * (m0.duck ? 0.4 : 1),
+              offset: m0.offset || 0, in: m0.in || 0, dur: sbAClipDur(m0), fadeIn: m0.fadeIn || 0, fadeOut: m0.fadeOut || 0 }
           : null;
         const r = await window.sbFFExport(descriptors, {
           transition: proj.transition || 'none',
@@ -1936,39 +2037,31 @@ async function sbExportCanvas(shots, deliver, quiet) {
     // Feed the background music into the recorded audio (only to dest, so it's
     // captured but not audible during export). Loops to cover the whole film.
     const filmDur = shots.reduce((a, s) => a + (sbShotDur(s) || 0), 0);
-    let musicAudio = null;
-    const mus = sbProject().music;
-    if (mus && mus.url) {
+    // Tap an audio track into the recorded mix, honoring its offset (delayed
+    // start), trim (in/out), fade dots (gain ramps), and volume.
+    const timers = [];
+    function tapAudio(tr, kind) {
+      if (!tr || !tr.url) return null;
       try {
-        musicAudio = new Audio(); musicAudio.src = mus.url; musicAudio.loop = true; musicAudio.crossOrigin = 'anonymous';
-        const mnode = ac.createMediaElementSource(musicAudio);
+        sbAudioInit(tr);
+        const el = new Audio(); el.src = tr.url; el.crossOrigin = 'anonymous';
+        const node = ac.createMediaElementSource(el);
         const g = ac.createGain();
-        const base = (mus.volume != null ? mus.volume : 0.6) * (mus.duck ? 0.4 : 1);
-        g.gain.value = base;
-        if (mus.fade && filmDur > 1) {
-          const fd = Math.max(0.3, Math.min(2, filmDur * 0.12));
-          const now = ac.currentTime;
-          g.gain.setValueAtTime(0.0001, now);
-          g.gain.linearRampToValueAtTime(base, now + fd);
-          g.gain.setValueAtTime(base, now + Math.max(fd, filmDur - fd));
-          g.gain.linearRampToValueAtTime(0.0001, now + filmDur);
-        }
-        mnode.connect(g).connect(dest);
-        await musicAudio.play().catch(() => {});
-      } catch (e) { console.warn('music tap failed (exporting without it):', e); musicAudio = null; }
+        const base = (tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1)) * (kind === 'music' && tr.duck ? 0.4 : 1);
+        const off = tr.offset || 0, clipDur = sbAClipDur(tr), t0 = ac.currentTime + off;
+        g.gain.setValueAtTime(base, ac.currentTime);
+        if (tr.fadeIn > 0) { g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(base, t0 + tr.fadeIn); }
+        if (tr.fadeOut > 0) { g.gain.setValueAtTime(base, Math.max(t0, t0 + clipDur - tr.fadeOut)); g.gain.linearRampToValueAtTime(0.0001, t0 + clipDur); }
+        node.connect(g).connect(dest);
+        el.currentTime = tr.in || 0;
+        if (off > 0) { el.pause(); timers.push(setTimeout(() => el.play().catch(() => {}), off * 1000)); }
+        else el.play().catch(() => {});
+        timers.push(setTimeout(() => { try { el.pause(); } catch (e) {} }, (off + clipDur) * 1000));
+        return el;
+      } catch (e) { console.warn(kind + ' tap failed (exporting without it):', e); return null; }
     }
-    // Voiceover tap — plays once from the film's start (no loop).
-    let voiceAudio = null;
-    const vo = sbProject().voice;
-    if (vo && vo.url) {
-      try {
-        voiceAudio = new Audio(); voiceAudio.src = vo.url; voiceAudio.crossOrigin = 'anonymous';
-        const vnode = ac.createMediaElementSource(voiceAudio);
-        const vg = ac.createGain(); vg.gain.value = vo.volume != null ? vo.volume : 1;
-        vnode.connect(vg).connect(dest);
-        await voiceAudio.play().catch(() => {});
-      } catch (e) { console.warn('voice tap failed (exporting without it):', e); voiceAudio = null; }
-    }
+    const musicAudio = tapAudio(sbProject().music, 'music');
+    const voiceAudio = tapAudio(sbProject().voice, 'voice');
     // Pick a container the browser can actually record. Chrome keeps webm/vp9;
     // Safari has no webm MediaRecorder, so fall through to mp4 (else its
     // constructor throws). Last resort: let the browser choose its default.
@@ -2005,6 +2098,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
     }
     rec.stop();
     await done;
+    timers.forEach(clearTimeout);
     if (musicAudio) { try { musicAudio.pause(); } catch (e) {} }
     if (voiceAudio) { try { voiceAudio.pause(); } catch (e) {} }
     ac.close().catch(() => {});
