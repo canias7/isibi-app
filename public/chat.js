@@ -2482,14 +2482,36 @@ function openCredits(topupsOnly) {
       '<div class="addon-eyebrow">Membership add-ons</div>' +
       '<div class="addon-env-row">' +
         '<div class="addon-env">' +
-          '<div class="addon-env-badge"><img class="apb" src="/img/badge-orchestrator-cut.webp" alt="isibi.ai orchestrator" loading="lazy" /></div>' +
+          '<div class="addon-env-badge">' +
+            '<div class="idb"><span class="idb-strap"></span><span class="idb-clip"></span>' +
+              '<div class="idb-card"><span class="idb-slot"></span>' +
+                '<div class="idb-label">isibi.ai orchestrator</div>' +
+                '<div class="idb-fig"><svg viewBox="0 0 120 132"><defs>' +
+                  '<linearGradient id="idbfgO" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"/><stop offset="1" stop-color="#dfe0ff" stop-opacity=".55"/></linearGradient></defs>' +
+                  '<circle cx="60" cy="40" r="21" fill="url(#idbfgO)"/>' +
+                  '<path d="M20 132 C20 96 37 74 60 74 C83 74 100 96 100 132 Z" fill="url(#idbfgO)"/>' +
+                '</svg></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
           '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
           '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
           '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
         '</div>' +
         '<div class="addon-env">' +
-          '<div class="addon-env-badge"><img class="apb" src="/img/badge-video-editor-cut.webp" alt="isibi.ai video editor" loading="lazy" /></div>' +
+          '<div class="addon-env-badge">' +
+            '<div class="idb b"><span class="idb-strap"></span><span class="idb-clip"></span>' +
+              '<div class="idb-card"><span class="idb-slot"></span>' +
+                '<div class="idb-label">isibi.ai video editor</div>' +
+                '<div class="idb-fig"><svg viewBox="0 0 120 132"><defs>' +
+                  '<linearGradient id="idbfgV" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".95"/><stop offset="1" stop-color="#dfe0ff" stop-opacity=".55"/></linearGradient></defs>' +
+                  '<circle cx="60" cy="40" r="21" fill="url(#idbfgV)"/>' +
+                  '<path d="M20 132 C20 96 37 74 60 74 C83 74 100 96 100 132 Z" fill="url(#idbfgV)"/>' +
+                '</svg></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
           '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
           '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
