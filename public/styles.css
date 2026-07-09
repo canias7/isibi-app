@@ -2402,17 +2402,51 @@
   text-transform: uppercase; color: var(--muted); text-align: center;
 }
 /* Two separate badge "envelopes" — the badge render floats on a soft pink→amber
-   glow (black background dropped with mix-blend screen), name/price/Add below. */
-.addon-env-row { display: flex; gap: 1.4rem; align-items: flex-start; }
-.addon-env { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .45rem; }
+   glow. The photo's edges are feathered into the card with a radial mask (so it
+   reads as a floating object, not a pasted rectangle), and it gently bobs above
+   a soft ground shadow. name/price/Add below. */
+.addon-env-row { display: flex; gap: 1.4rem; align-items: stretch; }
+.addon-env {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .45rem;
+  padding: 1rem 1.15rem 1.15rem; border-radius: 18px;
+  background: rgba(255, 255, 255, .022); border: 1px solid var(--line);
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.addon-env:hover {
+  transform: translateY(-3px); border-color: rgba(255, 184, 77, .28);
+  box-shadow: 0 18px 44px -22px rgba(255, 121, 198, .5);
+}
 .addon-env-badge {
-  position: relative; display: grid; place-items: center; margin-bottom: .5rem;
-  padding: .5rem; border-radius: 16px;
-  background: radial-gradient(54% 48% at 50% 42%, rgba(255, 121, 198, .16), rgba(255, 184, 77, .07) 54%, transparent 74%);
+  position: relative; display: grid; place-items: center; margin-bottom: .35rem;
+  padding: 1.1rem .5rem 1.7rem; border-radius: 16px; overflow: hidden;
+  background: radial-gradient(58% 52% at 50% 40%, rgba(255, 121, 198, .2), rgba(255, 184, 77, .08) 55%, transparent 76%);
+}
+/* Soft ground shadow that anchors the floating badge (shrinks as it rises). */
+.addon-env-badge::after {
+  content: ''; position: absolute; z-index: 0; bottom: .7rem; left: 50%;
+  width: 44%; height: 15px; border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(0, 0, 0, .6), transparent);
+  filter: blur(7px); transform: translateX(-50%);
+  animation: apb-shadow 4.6s ease-in-out infinite;
 }
 .apb {
+  position: relative; z-index: 1;
   max-height: 250px; width: auto; display: block; mix-blend-mode: screen;
-  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, .5));
+  filter: drop-shadow(0 24px 30px rgba(0, 0, 0, .55)) brightness(1.06) contrast(1.04);
+  -webkit-mask-image: radial-gradient(74% 80% at 50% 45%, #000 60%, transparent 90%);
+          mask-image: radial-gradient(74% 80% at 50% 45%, #000 60%, transparent 90%);
+  animation: apb-float 4.6s ease-in-out infinite;
+}
+/* Second badge bobs on an offset so the pair doesn't move in lockstep. */
+.addon-env:nth-child(2) .apb,
+.addon-env:nth-child(2) .addon-env-badge::after { animation-delay: -2.3s; }
+@keyframes apb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-11px); } }
+@keyframes apb-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: .6; }
+  50% { transform: translateX(-50%) scale(.82); opacity: .34; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .apb, .addon-env-badge::after { animation: none; }
 }
 .addon-badge-name {
   font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.06rem;
@@ -2420,9 +2454,10 @@
 }
 .addon-tag {
   font-family: Inter, sans-serif; font-size: .62rem; font-weight: 700; letter-spacing: .06em;
-  text-transform: uppercase; padding: .16rem .42rem; border-radius: 6px;
+  text-transform: uppercase; padding: .16rem .42rem; border-radius: 6px; white-space: nowrap; flex: none;
   background: rgba(255, 184, 77, .14); color: #ffb84d; border: 1px solid rgba(255, 184, 77, .28);
 }
+.addon-badge-name { flex-wrap: wrap; }
 .addon-tag.soon { background: rgba(255, 255, 255, .06); color: var(--muted); border-color: var(--line-2); }
 .addon-badge-desc { font-size: .82rem; color: var(--muted); line-height: 1.45; }
 .addon-badge-foot { display: flex; align-items: center; justify-content: space-between; margin-top: .5rem; gap: .6rem; }
