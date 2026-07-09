@@ -2401,10 +2401,10 @@
   margin: 1.6rem 0 .8rem; font-size: .72rem; font-weight: 700; letter-spacing: .14em;
   text-transform: uppercase; color: var(--muted); text-align: center;
 }
-/* Two separate badge "envelopes" — the badge render floats on a soft pink→amber
-   glow. The photo's edges are feathered into the card with a radial mask (so it
-   reads as a floating object, not a pasted rectangle), and it gently bobs above
-   a soft ground shadow. name/price/Add below. */
+/* Two separate badge "envelopes" — each ID badge hangs from its built-in lanyard
+   and gently SWAYS like it's dangling from a cord (pendulum around the strap at
+   the top). The floor reflection is faded out so it reads as hanging, not
+   standing. name/price/Add below. */
 .addon-env-row { display: flex; gap: 1.4rem; align-items: stretch; }
 .addon-env {
   flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .45rem;
@@ -2417,37 +2417,29 @@
   box-shadow: 0 18px 44px -22px rgba(255, 121, 198, .5);
 }
 .addon-env-badge {
-  position: relative; display: grid; place-items: center; margin-bottom: .35rem;
-  padding: 1.1rem .5rem 1.7rem; border-radius: 16px; overflow: hidden;
-  background: radial-gradient(58% 52% at 50% 40%, rgba(255, 121, 198, .2), rgba(255, 184, 77, .08) 55%, transparent 76%);
-}
-/* Soft ground shadow that anchors the floating badge (shrinks as it rises). */
-.addon-env-badge::after {
-  content: ''; position: absolute; z-index: 0; bottom: .7rem; left: 50%;
-  width: 44%; height: 15px; border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(0, 0, 0, .6), transparent);
-  filter: blur(7px); transform: translateX(-50%);
-  animation: apb-shadow 4.6s ease-in-out infinite;
+  position: relative; display: grid; place-items: start center; margin-bottom: .35rem;
+  padding: .3rem .5rem 1rem; border-radius: 16px; overflow: visible;
+  background: radial-gradient(58% 52% at 50% 42%, rgba(255, 121, 198, .2), rgba(255, 184, 77, .08) 55%, transparent 76%);
 }
 .apb {
-  position: relative; z-index: 1;
-  max-height: 250px; width: auto; display: block; mix-blend-mode: screen;
-  filter: drop-shadow(0 24px 30px rgba(0, 0, 0, .55)) brightness(1.06) contrast(1.04);
-  -webkit-mask-image: radial-gradient(74% 80% at 50% 45%, #000 60%, transparent 90%);
-          mask-image: radial-gradient(74% 80% at 50% 45%, #000 60%, transparent 90%);
-  animation: apb-float 4.6s ease-in-out infinite;
+  max-height: 260px; width: auto; display: block; mix-blend-mode: screen;
+  filter: drop-shadow(0 22px 26px rgba(0, 0, 0, .5)) brightness(1.06) contrast(1.04);
+  /* Keep the strap + card solid, fade only the floor reflection at the bottom. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 97%);
+          mask-image: linear-gradient(to bottom, #000 80%, transparent 97%);
+  /* Swing from the top of the lanyard, like a real hanging badge. */
+  transform-origin: 50% 2%;
+  animation: apb-sway 5s ease-in-out infinite;
+  will-change: transform;
 }
-/* Second badge bobs on an offset so the pair doesn't move in lockstep. */
-.addon-env:nth-child(2) .apb,
-.addon-env:nth-child(2) .addon-env-badge::after { animation-delay: -2.3s; }
-@keyframes apb-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-11px); } }
-@keyframes apb-shadow {
-  0%, 100% { transform: translateX(-50%) scale(1); opacity: .6; }
-  50% { transform: translateX(-50%) scale(.82); opacity: .34; }
+/* The second badge swings on an offset + slightly different period so the pair
+   dangles independently instead of in lockstep. */
+.addon-env:nth-child(2) .apb { animation-delay: -2.6s; animation-duration: 5.6s; }
+@keyframes apb-sway {
+  0%, 100% { transform: rotate(-5deg); }
+  50%      { transform: rotate(5deg); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .apb, .addon-env-badge::after { animation: none; }
-}
+@media (prefers-reduced-motion: reduce) { .apb { animation: none; } }
 .addon-badge-name {
   font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.06rem;
   letter-spacing: -.01em; display: flex; align-items: center; gap: .5rem;
