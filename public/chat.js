@@ -633,18 +633,20 @@ function renderRefList() {
 }
 
 // Provider identity per model id: real logo where we have one, monogram otherwise.
+// `tint` is the provider's brand colour — used to give each row's icon tile and
+// accents a splash of life instead of one flat grey.
 function providerOf(id) {
-  if (/veo|gemini|nano-banana|^google\//.test(id)) return { logo: '/logos/google.svg', name: 'Google' };
-  if (/sora|gpt-image|^openai\//.test(id)) return { mono: 'O', name: 'OpenAI' };
-  if (/seedance|seedream|bytedance/.test(id)) return { logo: '/logos/bytedance.svg', name: 'ByteDance' };
-  if (/kling/.test(id)) return { logo: '/logos/kuaishou.svg', name: 'Kling' };
-  if (/hailuo|minimax/.test(id)) return { logo: '/logos/minimax.svg', name: 'MiniMax' };
-  if (/grok|^xai\//.test(id)) return { logo: '/logos/x.svg', name: 'xAI' };
-  if (/elevenlabs/.test(id)) return { logo: '/logos/elevenlabs.svg', name: 'ElevenLabs' };
-  if (/flux/.test(id)) return { mono: 'F', name: 'Black Forest Labs' };
-  if (/recraft/.test(id)) return { mono: 'R', name: 'Recraft' };
-  if (/krea/.test(id)) return { mono: 'K', name: 'Krea' };
-  return { mono: '·', name: '' };
+  if (/veo|gemini|nano-banana|^google\//.test(id)) return { logo: '/logos/google.svg', name: 'Google', tint: '#4285f4' };
+  if (/sora|gpt-image|^openai\//.test(id)) return { mono: 'O', name: 'OpenAI', tint: '#10a37f' };
+  if (/seedance|seedream|bytedance/.test(id)) return { logo: '/logos/bytedance.svg', name: 'ByteDance', tint: '#3c8cff' };
+  if (/kling/.test(id)) return { logo: '/logos/kuaishou.svg', name: 'Kling', tint: '#ff6a2b' };
+  if (/hailuo|minimax/.test(id)) return { logo: '/logos/minimax.svg', name: 'MiniMax', tint: '#6a5bff' };
+  if (/grok|^xai\//.test(id)) return { logo: '/logos/x.svg', name: 'xAI', tint: '#c9ccd4' };
+  if (/elevenlabs/.test(id)) return { logo: '/logos/elevenlabs.svg', name: 'ElevenLabs', tint: '#a6b0c0' };
+  if (/flux/.test(id)) return { mono: 'F', name: 'Black Forest Labs', tint: '#f0585d' };
+  if (/recraft/.test(id)) return { mono: 'R', name: 'Recraft', tint: '#7b6bff' };
+  if (/krea/.test(id)) return { mono: 'K', name: 'Krea', tint: '#ff5c8a' };
+  return { mono: '·', name: '', tint: '#8a8a92' };
 }
 
 function modelChips(id) {
@@ -695,12 +697,16 @@ function buildMenu() {
       .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax'].includes(t))
       .map((t) => t === 'newest'
         ? '<span class="m-badge">NEW</span>'
-        : '<span class="m-tag">' + t.toUpperCase() + '</span>')
+        : '<span class="m-tag' + (/cheap/i.test(t) ? ' cheap' : '') + '">' + t.toUpperCase() + '</span>')
       .join('');
     const chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
 
+    d.style.setProperty('--prov', prov.tint || '#8a8a92');
+    const icoInner = prov.logo
+      ? '<span class="m-logo" style="-webkit-mask-image:url(' + prov.logo + ');mask-image:url(' + prov.logo + ')"></span>'
+      : '<b>' + (prov.mono || '·') + '</b>';
     d.innerHTML =
-      '<span class="m-ico">' + (prov.logo ? '<img src="' + prov.logo + '" alt="" />' : '<b>' + (prov.mono || '·') + '</b>') + '</span>'
+      '<span class="m-ico">' + icoInner + '</span>'
       + '<span class="m-main">'
       +   '<span class="m-title">' + m.label + (hasAudio ? ' <span class="spk">🔊</span>' : '') + badges + '</span>'
       +   (chips ? '<span class="m-chips">' + chips + '</span>' : '')

@@ -1981,17 +1981,47 @@
 .m-search::placeholder { color: var(--muted); }
 .m-search:focus { border-color: #4a4a52; }
 .m-section {
-  font-size: .72rem; font-weight: 600; color: var(--muted);
-  letter-spacing: .05em; padding: .45rem .5rem .4rem;
+  font-size: .72rem; font-weight: 700;
+  letter-spacing: .06em; padding: .45rem .5rem .4rem;
+  background: var(--split); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
 }
-.model-item.m-row { display: flex; align-items: center; gap: .7rem; padding: .5rem .55rem; }
+/* Each row carries its provider's brand colour in --prov, used for the icon
+   tile, hover wash and selected accent so the list reads colourful, not flat. */
+.model-item.m-row {
+  position: relative; display: flex; align-items: center; gap: .7rem;
+  padding: .5rem .55rem; overflow: hidden;
+}
+.model-item.m-row:hover {
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--prov, #fff) 13%, transparent), transparent 62%);
+}
+.model-item.m-row.selected {
+  background: linear-gradient(100deg, rgba(255, 121, 198, .12), rgba(255, 184, 77, .07));
+}
+.model-item.m-row.selected::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 0 3px 3px 0; background: var(--split);
+}
 .m-ico {
   width: 40px; height: 40px; flex: 0 0 40px; border-radius: 11px;
-  background: #1b1b21; border: 1px solid var(--line);
+  background:
+    radial-gradient(120% 120% at 30% 20%, color-mix(in srgb, var(--prov, #8a8a92) 26%, transparent), transparent 70%),
+    #17171d;
+  border: 1px solid color-mix(in srgb, var(--prov, #8a8a92) 34%, var(--line));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--prov, #000) 18%, transparent);
   display: grid; place-items: center;
 }
-.m-ico img { width: 20px; height: 20px; display: block; opacity: .92; }
-.m-ico b { font-size: 1rem; color: var(--text); font-weight: 800; }
+/* Brand-coloured glyph: the monochrome logo SVG is used as a mask and painted
+   in the provider's real colour. */
+.m-logo {
+  width: 21px; height: 21px; display: block;
+  background: var(--prov, #cfcfd6);
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
+.m-ico b { font-size: 1rem; color: var(--prov, var(--text)); font-weight: 800; }
 .m-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .32rem; }
 .m-title { display: flex; align-items: center; gap: .4rem; font-weight: 600; font-size: .92rem; flex-wrap: wrap; }
 .m-title .spk { font-size: .72rem; opacity: .85; }
@@ -1999,11 +2029,16 @@
   font-size: .58rem; font-weight: 800; letter-spacing: .05em;
   padding: .16rem .42rem; border-radius: 5px;
   background: var(--split); color: #0a0a0b;
+  box-shadow: 0 0 12px rgba(255, 150, 120, .35);
 }
 .m-tag {
   font-size: .58rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
   color: var(--muted); border: 1px solid var(--line-2);
   padding: .13rem .4rem; border-radius: 5px;
+}
+.m-tag.cheap {
+  color: #4ade80; border-color: rgba(74, 222, 128, .4);
+  background: rgba(74, 222, 128, .12);
 }
 .m-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
 .m-chip {
@@ -2011,6 +2046,11 @@
   font-size: .68rem; color: var(--muted);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
   padding: .13rem .45rem;
+}
+.m-chip:first-child {
+  color: color-mix(in srgb, var(--neon) 85%, #fff);
+  border-color: rgba(255, 184, 77, .32);
+  background: rgba(255, 184, 77, .1);
 }
 
 /* Credit balance pill above the account row. */
