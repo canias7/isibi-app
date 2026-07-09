@@ -754,6 +754,10 @@ const APP_VERSION = '1.0.0';
 //   plan — isibi.ai interviews first (the question popup), then composes
 //   off  — raw prompting: the text goes to the model exactly as typed,
 //          and the director surcharge disappears from the price
+// The orchestrator (the Sonnet/Haiku layer) is now an explicit on/off switch on
+// the builder page. When OFF, directorMode is 'off' (raw prompting — words go to
+// the model as typed, no Sonnet in the loop). When ON, the Auto/Plan chip picks
+// how it behaves; Plan only exists while the orchestrator is on.
 const DIR_MODE_KEY = 'zephyr_director_mode';
 const DIR_MODES = {
   auto: { icon: '', label: 'Auto', desc: 'isibi.ai writes the prompt and generates right away' },
@@ -761,6 +765,25 @@ const DIR_MODES = {
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
 let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
+// The last Auto/Plan choice, so flipping the switch back on restores it.
+let lastOrchMode = directorMode === 'off' ? 'auto' : directorMode;
+function orchestratorOn() { return directorMode !== 'off'; }
+function renderOrchSwitch() {
+  const sw = document.getElementById('orchSwitch');
+  if (sw) {
+    const on = orchestratorOn();
+    sw.classList.toggle('on', on);
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    const ctl = sw.closest('.orch-ctl');
+    if (ctl) ctl.classList.toggle('on', on);
+  }
+  const chip = document.getElementById('dirModeChip');
+  if (chip) chip.style.display = orchestratorOn() ? '' : 'none'; // Auto/Plan only matters when on
+}
+function toggleOrchestrator() {
+  if (orchestratorOn()) { lastOrchMode = directorMode; setDirectorMode('off'); }
+  else setDirectorMode(lastOrchMode || 'auto');
+}
 function renderDirChip() {
   const el = document.getElementById('dirModeChip');
   if (!el) return;
@@ -772,14 +795,17 @@ function renderDirChip() {
 }
 function setDirectorMode(m) {
   directorMode = m;
+  if (m !== 'off') lastOrchMode = m; // remember the Auto/Plan choice
   localStorage.setItem(DIR_MODE_KEY, m);
   renderDirChip();
+  renderOrchSwitch();
   renderEffortLock();
   document.getElementById('dirMenu').classList.remove('open');
   updateSendPrice(); // raw mode drops the director surcharge from the tag
 }
 function toggleDirMenu(e) {
   e.stopPropagation();
+  if (!orchestratorOn()) return; // chip is hidden while the orchestrator is off
   const menu = document.getElementById('dirMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
@@ -787,7 +813,7 @@ function toggleDirMenu(e) {
 (function buildDirMenu() {
   const menu = document.getElementById('dirMenu');
   if (!menu) return;
-  for (const key of ['auto', 'plan', 'off']) {
+  for (const key of ['auto', 'plan']) { // off is the switch now, not a menu item
     const m = DIR_MODES[key];
     const it = document.createElement('div');
     it.className = 'model-item dir-item';
@@ -797,6 +823,7 @@ function toggleDirMenu(e) {
     menu.appendChild(it);
   }
   renderDirChip();
+  renderOrchSwitch();
   renderEffortLock();
 })();
 
@@ -4398,6 +4425,7 @@ const CLICK_ACTIONS = {
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
   'dir-menu': (e) => toggleDirMenu(e),
+  'orch-toggle': () => toggleOrchestrator(),
   'set-mode': (e, el) => setMode(el.dataset.mode),
   'model-menu': (e) => toggleModelMenu(e),
   'opt-settings': (e) => toggleOpt(e, 'settings'),

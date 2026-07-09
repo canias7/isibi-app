@@ -468,7 +468,12 @@
 .model-menu.drop-up.model-drop { min-width: 250px; background: #16161b; }
 
 /* ── Prompt-help mode chip (top-right beside the textarea) ── */
-.dir-wrap { flex-shrink: 0; }
+.dir-wrap { flex-shrink: 0; display: flex; align-items: center; gap: .55rem; }
+/* Orchestrator master switch — turns the Sonnet layer on/off; the Auto/Plan
+   chip sits beside it and only shows while it's on. */
+.orch-ctl { display: inline-flex; align-items: center; gap: .45rem; margin-top: .15rem; }
+.orch-name { font-size: .82rem; font-weight: 600; color: var(--muted); white-space: nowrap; transition: color .16s ease; }
+.orch-ctl.on .orch-name { color: var(--text); }
 .model-menu.drop-up.dir-menu { min-width: 300px; background: #16161b; left: auto; right: 0; }
 .dir-item { padding: .6rem .8rem; }
 .dir-item .txt small { display: block; color: var(--muted); font-size: .78rem; margin-top: .15rem; line-height: 1.35; }
