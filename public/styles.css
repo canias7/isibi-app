@@ -1672,10 +1672,21 @@
 /* iMovie audio clip: solid coloured body, darker waveform layer on top. */
 .tl-aclip {
   position: absolute; left: 0; top: 0; bottom: 0; min-width: 30px; border-radius: 5px; overflow: hidden;
-  border: 1px solid rgba(0, 0, 0, .3); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
+  border: 1px solid rgba(0, 0, 0, .3); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18); cursor: grab; touch-action: none;
 }
+.tl-aclip.dragging { cursor: grabbing; z-index: 5; }
 .tl-music .tl-aclip, .tl-voice .tl-aclip { background: linear-gradient(180deg, #46c568, #38a657); }
 .tl-wave { position: absolute; inset: 0; z-index: 1; background-size: 100% 100%; background-repeat: no-repeat; pointer-events: none; }
+/* Audio clip trim edges */
+.tl-atrim { position: absolute; top: 0; bottom: 0; width: 10px; z-index: 4; cursor: ew-resize; touch-action: none; }
+.tl-atrim.l { left: 0; } .tl-atrim.r { right: 0; }
+.tl-audio:hover .tl-atrim::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 3px; height: 46%; border-radius: 2px; background: rgba(255, 255, 255, .9); }
+/* Fade fills (triangular gradient) + draggable corner dots */
+.tl-fadefill { position: absolute; top: 0; bottom: 0; z-index: 2; pointer-events: none; }
+.tl-fadefill.l { left: 0; background: linear-gradient(90deg, rgba(0, 0, 0, .55), transparent); }
+.tl-fadefill.r { right: 0; background: linear-gradient(270deg, rgba(0, 0, 0, .55), transparent); }
+.tl-fadedot { position: absolute; top: -3px; width: 11px; height: 11px; margin-left: -5px; margin-right: -5px; border-radius: 50%; background: #fff; border: 1px solid rgba(0, 0, 0, .5); z-index: 5; cursor: ew-resize; opacity: 0; transition: opacity .12s; touch-action: none; box-shadow: 0 1px 3px rgba(0, 0, 0, .5); }
+.tl-audio:hover .tl-fadedot { opacity: 1; }
 .tl-alabel { position: absolute; left: .45rem; top: .28rem; z-index: 2; font-size: .68rem; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); white-space: nowrap; pointer-events: none; }
 .tl-actrl { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; align-items: center; gap: .3rem; opacity: 0; transition: opacity .12s; }
 .tl-audio:hover .tl-actrl { opacity: 1; }
