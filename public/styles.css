@@ -1550,6 +1550,9 @@
 .mb-tr-cut { background: linear-gradient(90deg, #b57cf0 0 50%, #8ec5ff 50% 100%); }
 .mb-tr-xfade { background: linear-gradient(90deg, #b57cf0 0 30%, #a9a2ea 50%, #8ec5ff 70% 100%); }
 .mb-tr-dip { background: linear-gradient(90deg, #b57cf0 0 28%, #0b0b10 50%, #8ec5ff 72% 100%); }
+.mb-tr-fade { background: linear-gradient(90deg, #0b0b10, #b57cf0 34%, #8ec5ff 66%, #0b0b10); }
+.mb-item[draggable="true"] { cursor: grab; }
+.mb-item.dragging { opacity: .5; }
 .sb-btn { width: 100%; background: none; border: 1px dashed var(--line-2); color: var(--muted); border-radius: 10px; padding: .55rem; cursor: pointer; font-size: .85rem; }
 .sb-btn:hover { color: var(--text); border-color: #4a4a52; }
 .sb-toast {

@@ -263,6 +263,12 @@ function sbRender() {
     track.ondragleave = () => track.classList.remove('drop-here');
     track.ondrop = (e) => {
       e.preventDefault(); track.classList.remove('drop-here');
+      // A title/background dragged in from the browser tabs.
+      const asset = e.dataTransfer.getData('text/sb-asset');
+      if (asset) {
+        try { const a = JSON.parse(asset); if (a.kind === 'title') sbAddTitlePreset(a); else if (a.kind === 'bg') sbAddBackground(a); } catch (_) {}
+        return;
+      }
       const id = e.dataTransfer.getData('text/sb');
       if (id) sbAddToTimeline(id);
     };
@@ -941,20 +947,34 @@ function sbRenderBrowser() {
       };
       grid.appendChild(item);
     });
-  } else if (sbTab === 'titles') {
-    SB_TITLE_PRESETS.forEach((p) => {
+    // Whole-film fade in/out is an independent toggle, stackable on any transition.
+    const fadeItem = document.createElement('button');
+    fadeItem.type = 'button';
+    fadeItem.className = 'mb-item' + (proj.fade ? ' active' : '');
+    fadeItem.innerHTML = '<span class="mb-prev mb-tr mb-tr-fade"></span><span class="mb-label">Fade in / out</span>';
+    fadeItem.onclick = () => {
+      sbToggleFade(); sbRenderBrowser();
+      sbStudioNote(sbProject().fade ? 'The film now fades in from black and out to black.' : 'Film-wide fade off.');
+    };
+    grid.appendChild(fadeItem);
+  } else if (sbTab === 'titles' || sbTab === 'backgrounds') {
+    const isTitles = sbTab === 'titles';
+    const note = document.createElement('div');
+    note.className = 'mb-note'; note.textContent = 'Click or drag onto the timeline.';
+    browser.appendChild(note);
+    (isTitles ? SB_TITLE_PRESETS : SB_BG_PRESETS).forEach((p) => {
       const item = document.createElement('button');
-      item.type = 'button'; item.className = 'mb-item';
-      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '"><b style="color:' + sbTitleInk(p) + '">Title</b></span><span class="mb-label">' + p.label + '</span>';
-      item.onclick = () => sbAddTitlePreset(p);
-      grid.appendChild(item);
-    });
-  } else if (sbTab === 'backgrounds') {
-    SB_BG_PRESETS.forEach((p) => {
-      const item = document.createElement('button');
-      item.type = 'button'; item.className = 'mb-item';
-      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '"></span><span class="mb-label">' + p.label + '</span>';
-      item.onclick = () => sbAddBackground(p);
+      item.type = 'button'; item.className = 'mb-item'; item.draggable = true;
+      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(p.g0, p.g1) + '">'
+        + (isTitles ? '<b style="color:' + sbTitleInk(p) + '">Title</b>' : '') + '</span>'
+        + '<span class="mb-label">' + p.label + '</span>';
+      item.onclick = () => isTitles ? sbAddTitlePreset(p) : sbAddBackground(p);
+      item.ondragstart = (e) => {
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'copy';
+        e.dataTransfer.setData('text/sb-asset', JSON.stringify({ kind: isTitles ? 'title' : 'bg', k: p.k, label: p.label, g0: p.g0, g1: p.g1 }));
+      };
+      item.ondragend = () => item.classList.remove('dragging');
       grid.appendChild(item);
     });
   }
@@ -1618,12 +1638,6 @@ async function sbExport(deliver) {
         console.warn('on-device stitch failed, using the realtime exporter:', e);
       }
     }
-    // Titles / backgrounds / voiceover force the realtime canvas exporter, which
-    // can't render clip transitions or the film-wide fade. Say so plainly rather
-    // than silently dropping a crossfade/dip the user picked in the browser.
-    if ((proj0.transition && proj0.transition !== 'none') || proj0.fade) {
-      sbStudioNote('Heads-up: your film has a title, background or voiceover, so it exports as clean cuts — the crossfade/dip and film-wide fade aren’t applied on this path. Every clip, title and the music are still included.');
-    }
     await sbExportCanvas(shots, send, !!deliver);
   } catch (e) {
     console.error('export failed:', e);
@@ -1772,13 +1786,25 @@ async function sbExportCanvas(shots, deliver, quiet) {
     const done = new Promise((ok) => { rec.onstop = ok; });
     rec.start(250);
 
-    let ok = 0, skipped = 0;
+    // Transitions + film-wide fade are painted as overlays here (the ffmpeg path
+    // does them natively; this realtime path must draw them itself).
+    const proj0c = sbProject();
+    const transition = proj0c.transition || 'none';
+    const fade = !!proj0c.fade;
+    let ok = 0, skipped = 0, filmStart = 0, prevFrame = null;
     for (let i = 0; i < shots.length; i++) {
+      const sdur = sbShotDur(shots[i]) || 0;
       sbStudioProgress('Exporting shot ' + (i + 1) + '/' + shots.length + '…');
       // One unreadable/stalled shot must not abort the whole export — skip it
       // and keep the shots that worked.
-      try { await sbExportShot(shots[i], ctx, W, H, ac, dest); ok++; }
-      catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; }
+      try {
+        prevFrame = await sbExportShot(shots[i], {
+          ctx, W, H, ac, dest, filmStart, filmTotal: filmDur, transition, fade,
+          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame,
+        });
+        ok++;
+      } catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; prevFrame = null; }
+      filmStart += sdur;
     }
     rec.stop();
     await done;
@@ -1796,15 +1822,52 @@ async function sbExportCanvas(shots, deliver, quiet) {
   }
 }
 
-function sbExportShot(s, ctx, W, H, ac, dest) {
-  // Title cards have no video — paint the text card for the clip's duration.
+// Snapshot the current export canvas into a detached canvas — the outgoing
+// clip's last frame, dissolved out over the next clip for a cross dissolve.
+function sbSnapshot(ctx, W, H) {
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  try { c.getContext('2d').drawImage(ctx.canvas, 0, 0); } catch (e) {}
+  return c;
+}
+// Paint transition / film-wide-fade overlays over the just-drawn base frame.
+// st = seconds into this clip, dur = clip length. Cosmetic; callers wrap it.
+function sbFrameOverlays(ctx, W, H, o, st, dur) {
+  const T = Math.min(0.6, (dur || 4) * 0.4);          // per-seam transition length
+  const FF = Math.min(0.5, (o.filmTotal || 1) * 0.1); // film fade length
+  const ft = o.filmStart + Math.max(0, st);
+  // Cross dissolve: fade the previous clip's frozen last frame out over our first T.
+  if (o.transition === 'crossfade' && !o.isFirst && o.prevFrame && st < T) {
+    ctx.globalAlpha = Math.max(0, 1 - st / T);
+    ctx.drawImage(o.prevFrame, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
+  let black = 0;
+  if (o.fade && o.filmTotal) {
+    if (ft < FF) black = Math.max(black, 1 - ft / FF);
+    if (ft > o.filmTotal - FF) black = Math.max(black, (ft - (o.filmTotal - FF)) / FF);
+  }
+  if (o.transition === 'dip') {
+    const t2 = T / 2;
+    if (!o.isFirst && st < t2) black = Math.max(black, 1 - st / t2);
+    if (!o.isLast && st > dur - t2) black = Math.max(black, (st - (dur - t2)) / t2);
+  }
+  black = Math.max(0, Math.min(1, black));
+  if (black > 0) { ctx.globalAlpha = black; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+// Play one clip onto the shared export canvas; resolves with its last frame.
+function sbExportShot(s, o) {
+  const { ctx, W, H, ac, dest } = o;
+  const shotDur = sbShotDur(s) || (s.src === 'title' ? 3 : 4);
+  // Title / background cards have no video — paint the card for the clip length.
   if (s.src === 'title') {
     return new Promise((resolve) => {
-      const dur = (sbShotDur(s) || 3) * 1000;
+      const durMs = shotDur * 1000;
       const t0 = performance.now();
       const draw = () => {
         sbPaintTitle(ctx, W, H, s);
-        if (performance.now() - t0 >= dur) { resolve(); return; }
+        try { sbFrameOverlays(ctx, W, H, o, (performance.now() - t0) / 1000, shotDur); } catch (e) {}
+        if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
         requestAnimationFrame(draw);
       };
       draw();
@@ -1827,7 +1890,7 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
     const finish = (fn, arg) => { if (settled) return; settled = true; cleanup(); fn(arg); };
     // Hard stop: a shot that never loads or a remote stream that stalls (no
     // error event) can't hang the whole export. Bound to the clip length + 20s.
-    const budget = ((sbShotDur(s) || 10) + 20) * 1000;
+    const budget = (shotDur + 20) * 1000;
     const guard = setTimeout(() => finish(reject, new Error('shot timed out')), Math.min(budget, 180000));
     v.onerror = () => finish(reject, new Error('could not read a shot (CORS or codec)'));
     v.onloadedmetadata = () => {
@@ -1842,7 +1905,8 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
           if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
           ctx.drawImage(v, dx, dy, dw, dh);
-          if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve); return; }
+          try { sbFrameOverlays(ctx, W, H, o, v.currentTime - start, shotDur); } catch (e) {}
+          if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
           raf = requestAnimationFrame(draw);
         };
         draw();
