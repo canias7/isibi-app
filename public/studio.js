@@ -10,6 +10,9 @@ let sb = { active: null, projects: [] };
 let sbSelected = null;      // selected shot id
 let sbPlaying = null;       // {ids, idx} while playing the whole film
 let sbBusy = false;         // an export or generation batch is running
+let sbZoomLevel = 1;        // timeline zoom (1 = fit; >1 scrolls)
+let sbTitleState = null;    // {id, elapsed} while a title card is "playing"
+let sbTitleRAF = 0;
 
 // Account switched on this browser (expired session → different login without
 // a reload): drop the previous user's projects from memory and rebuild from
@@ -54,8 +57,9 @@ function sbLoad() {
       // know so existing shots can be trimmed before they're ever played.
       if (s.srcDur === undefined) s.srcDur = (s.out != null ? s.out : s.dur) || 0;
     }
-    // A background music track survives a reload the same way imports do.
+    // A background music/voice track survives a reload the same way imports do.
     if (p.music && p.music.stored && p.music.url && p.music.url.startsWith('blob:')) p.music.url = null;
+    if (p.voice && p.voice.stored && p.voice.url && p.voice.url.startsWith('blob:')) p.voice.url = null;
   }
 }
 // A short, collision-resistant id (timestamp alone collides within a ms).
@@ -172,8 +176,14 @@ async function sbRehydrateImports() {
       else { p.music = null; } // the stored file is gone — drop the dead track
       changed = true;
     }
+    if (p.voice && p.voice.stored && !p.voice.url) {
+      const blob = await sbMediaGet('voice-' + p.id);
+      if (blob) { p.voice.url = URL.createObjectURL(blob); }
+      else { p.voice = null; }
+      changed = true;
+    }
   }
-  if (changed) { sbSave(); sbRender(); }
+  if (changed) { sbSave(); sbRender(); sbMusicLoad(); sbVoiceLoad(); }
 }
 
 // ── Rendering ──────────────────────────────────────────────────────────────
@@ -259,36 +269,54 @@ function sbRender() {
       empty.textContent = 'Drag a clip here — or tap ＋ on a clip in the list — to build your film.';
       track.appendChild(empty);
     }
+    // Zoomable content lane: the track is the scroll viewport, tlInner holds the
+    // proportional blocks + playhead and grows past 100% when zoomed in.
+    const inner = document.createElement('div');
+    inner.className = 'tl-inner';
+    inner.style.minWidth = (sbZoomLevel * 100) + '%';
+    track.appendChild(inner);
     const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
     tl.forEach((s) => {
       const n = proj.shots.indexOf(s) + 1;
+      const isTitle = s.src === 'title';
       const block = document.createElement('div');
-      block.className = 'clip-block sb-block' + (s.id === sbSelected ? ' sel' : '') + ' st-' + s.status;
+      block.className = 'clip-block sb-block' + (s.id === sbSelected ? ' sel' : '') + ' st-' + s.status + (isTitle ? ' sb-title' : '');
       block.style.width = Math.max(6, ((sbShotDur(s) || 4) / total) * 100) + '%';
-      // iMovie-style filmstrip: a row of frames sampled across the clip fills the
-      // block edge-to-edge. Falls back to the single poster frame if no strip yet.
-      let inner = '';
-      if (Array.isArray(s.strip) && s.strip.length) {
-        inner = '<div class="sb-strip">' +
+      // Title cards paint a solid gradient with their text; video clips paint an
+      // iMovie-style filmstrip (or the single poster frame until it's built).
+      let body = '';
+      if (isTitle) {
+        block.style.background = s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)';
+        body = '<span class="sb-titletext"></span>';
+      } else if (Array.isArray(s.strip) && s.strip.length) {
+        body = '<div class="sb-strip">' +
           s.strip.map((src) => '<i class="sb-frame" style="background-image:url(' + src + ')"></i>').join('') +
           '</div>';
       } else if (s.thumb) {
         block.style.backgroundImage = 'url(' + s.thumb + ')';
       }
-      block.innerHTML = inner + '<span class="sb-blocknum">' + n + '</span>' +
+      block.innerHTML = body + '<span class="sb-blocknum">' + n + '</span>' +
+        (isTitle ? '' : '<button class="sb-cmute" title="Mute this clip">' + (s.muted ? '🔇' : '🔊') + '</button>') +
         '<span class="sb-trim l" title="Trim the start"></span>' +
         '<span class="sb-trim r" title="Trim the end"></span>';
+      if (isTitle) block.querySelector('.sb-titletext').textContent = s.text || 'Title';
       // Trim handles: drag an edge to change this clip's in/out. Click/scrub on
       // the block body (below) is handled at the track level for seeking.
       block.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
       block.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
-      track.appendChild(block);
+      const mute = block.querySelector('.sb-cmute');
+      if (mute) {
+        mute.addEventListener('pointerdown', (e) => e.stopPropagation());
+        mute.addEventListener('click', (e) => { e.stopPropagation(); sbToggleClipMute(s.id); });
+      }
+      if (isTitle) block.addEventListener('dblclick', (e) => { e.stopPropagation(); sbEditTitle(s.id); });
+      inner.appendChild(block);
     });
     // Playhead line that sweeps across the film during playback.
     const ph = document.createElement('div');
     ph.className = 'playhead';
     ph.style.display = 'none';
-    track.appendChild(ph);
+    inner.appendChild(ph);
     // Click / drag anywhere on the film to move the playhead there and seek.
     track.onpointerdown = (e) => {
       if (e.target.closest('.sb-trim')) return;   // trim handles run their own drag
@@ -318,6 +346,8 @@ function sbRender() {
       : '';
   }
   sbRenderMusicBar();
+  sbRenderVoiceBar();
+  sbRenderStyleControls();
 }
 
 // Add/remove a clip to the film (the bottom timeline). The clip stays in the
@@ -335,6 +365,40 @@ function sbToggleTimeline(id) {
   s.onTimeline = !s.onTimeline;
   sbSave(); sbRender();
 }
+function sbToggleClipMute(id) {
+  const s = sbShot(id);
+  if (!s) return;
+  s.muted = !s.muted;
+  const v = document.querySelector('#previewStage video');
+  if (v && sbSelected === id) v.volume = s.muted ? 0 : 1;
+  sbSave(); sbRender();
+}
+function sbSetZoom(level) {
+  sbZoomLevel = Math.max(1, Math.min(6, level || 1));
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (inner) inner.style.minWidth = (sbZoomLevel * 100) + '%';
+}
+// Film-wide export style (both already honored by the exporters).
+function sbSetTransition(v) {
+  const proj = sbProject();
+  proj.transition = ['crossfade', 'dip', 'none'].indexOf(v) >= 0 ? v : 'none';
+  sbSave();
+}
+function sbToggleFade() {
+  const proj = sbProject();
+  proj.fade = !proj.fade;
+  sbSave();
+  sbRenderStyleControls();
+}
+function sbRenderStyleControls() {
+  const proj = sbProject();
+  const sel = document.getElementById('sbTransition');
+  if (sel) sel.value = proj.transition || 'none';
+  const fb = document.getElementById('sbFadeBtn');
+  if (fb) { fb.textContent = 'Fade ' + (proj.fade ? '●' : '○'); fb.classList.toggle('on', !!proj.fade); }
+  const zoom = document.getElementById('sbZoom');
+  if (zoom) zoom.value = sbZoomLevel;
+}
 
 // Map the currently-playing clip + its progress onto a left-offset across the
 // timeline, so a single line tracks the film position.
@@ -344,13 +408,15 @@ function sbUpdatePlayhead(v) {
   if (!ph) return;
   const tl = sbProject().shots.filter((s) => s.onTimeline);
   const idx = tl.findIndex((s) => s.id === sbSelected);
-  if (!v || idx < 0) { ph.style.display = 'none'; return; }
+  if (idx < 0) { ph.style.display = 'none'; return; }
   const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
   let before = 0;
   for (let k = 0; k < idx; k++) before += (sbShotDur(tl[k]) || 4);
   const s = tl[idx];
   const dur = sbShotDur(s) || 4;
-  const within = Math.min(dur, Math.max(0, v.currentTime - (s.in || 0)));
+  let within;
+  if (s.src === 'title') within = (sbTitleState && sbTitleState.id === s.id) ? Math.min(dur, sbTitleState.elapsed) : 0;
+  else { if (!v) { ph.style.display = 'none'; return; } within = Math.min(dur, Math.max(0, v.currentTime - (s.in || 0))); }
   ph.style.left = ((before + within) / total * 100).toFixed(2) + '%';
   ph.style.display = '';
 }
@@ -359,9 +425,9 @@ function sbUpdatePlayhead(v) {
 let sbScrubbing = false;
 // Map a pixel x on the track to a fraction of the film, then seek there.
 function sbScrubToClientX(clientX) {
-  const track = document.getElementById('timelineTrack');
-  if (!track) return;
-  const rect = track.getBoundingClientRect();
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (!inner) return;
+  const rect = inner.getBoundingClientRect();
   const frac = Math.min(1, Math.max(0, (clientX - rect.left) / (rect.width || 1)));
   sbSeekFilmFraction(frac);
 }
@@ -380,15 +446,26 @@ function sbSeekFilmFraction(frac) {
 }
 // Load (if needed) a clip and seek to `off` seconds into it, keeping play state.
 function sbSeekClip(s, off) {
+  if (s.src === 'title') {
+    if (sbSelected !== s.id) { sbSelected = s.id; sbPlaying = null; sbRender(); }
+    sbStopTitle();
+    sbTitleState = { id: s.id, elapsed: off || 0, playing: false };
+    sbShowTitleCard(s);
+    sbUpdatePlayhead(null);
+    sbMusicSync(null);
+    return;
+  }
   const v = sbVideoEl();
   const wasPlaying = v && !v.paused && !v.ended;
   if (sbSelected !== s.id) { sbSelected = s.id; sbPlaying = null; sbRender(); }
+  sbStopTitle();
   if (!v) return;
   if (!s.url) { sbUpdatePlayhead(v); return; }
   sbSegment = { out: s.out != null ? s.out : null, next: null };
   const target = (s.in || 0) + off;
   const doSeek = () => {
     sbNoteSrcDur(s, v);
+    v.volume = s.muted ? 0 : 1;
     try { v.currentTime = target; } catch (_) {}
     if (wasPlaying) v.play().catch(() => {});
     sbUpdatePlayhead(v);
@@ -405,11 +482,11 @@ function sbSeekClip(s, off) {
 // seconds (the track spans the whole film), which is the same as source seconds.
 function sbTrimStart(e, s, side) {
   e.stopPropagation(); e.preventDefault();
-  const track = document.getElementById('timelineTrack');
-  if (!track) return;
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (!inner) return;
   const handle = e.currentTarget;
   try { handle.setPointerCapture(e.pointerId); } catch (_) {}
-  const rect = track.getBoundingClientRect();
+  const rect = inner.getBoundingClientRect();
   const tl = sbProject().shots.filter((x) => x.onTimeline);
   const total = tl.reduce((a, x) => a + (sbShotDur(x) || 4), 0) || 1;
   const startX = e.clientX;
@@ -418,10 +495,11 @@ function sbTrimStart(e, s, side) {
   const cap = s.srcDur || out0 || sbShotDur(s) || 0;
   const MINLEN = 0.3;
   const block = handle.closest('.clip-block');
+  const snap = (val) => { const r = Math.round(val * 2) / 2; return Math.abs(r - val) < 0.12 ? r : val; }; // gentle 0.5s snap
   const move = (ev) => {
     const dSec = ((ev.clientX - startX) / (rect.width || 1)) * total;
-    if (side === 'l') s.in = Math.max(0, Math.min(in0 + dSec, out0 - MINLEN));
-    else s.out = Math.min(cap || (out0 + dSec), Math.max(in0 + MINLEN, out0 + dSec));
+    if (side === 'l') s.in = Math.max(0, Math.min(snap(in0 + dSec), out0 - MINLEN));
+    else s.out = Math.min(cap || (out0 + dSec), Math.max(in0 + MINLEN, snap(out0 + dSec)));
     // Live width feedback against the pre-drag total (re-rendered exactly on drop).
     if (block) block.style.width = Math.max(6, ((sbShotDur(s) || 4) / total) * 100) + '%';
     const tc = document.getElementById('studioTimecode');
@@ -505,14 +583,29 @@ function sbMusicLoad() {
   a.volume = m.volume != null ? m.volume : 0.6;
 }
 // Cumulative film position (seconds) of the current clip + offset.
-function sbFilmTime(v) {
+function sbFilmTime() {
   const tl = sbProject().shots.filter((s) => s.onTimeline);
   const idx = tl.findIndex((s) => s.id === sbSelected);
-  if (idx < 0 || !v) return 0;
+  if (idx < 0) return 0;
   let before = 0;
   for (let k = 0; k < idx; k++) before += (sbShotDur(tl[k]) || 4);
   const s = tl[idx];
-  return before + Math.min(sbShotDur(s) || 4, Math.max(0, v.currentTime - (s.in || 0)));
+  let within = 0;
+  if (s.src === 'title') within = (sbTitleState && sbTitleState.id === s.id) ? sbTitleState.elapsed : 0;
+  else { const v = document.querySelector('#previewStage video'); within = v ? Math.min(sbShotDur(s) || 4, Math.max(0, v.currentTime - (s.in || 0))) : 0; }
+  return before + Math.min(sbShotDur(s) || 4, within);
+}
+// Effective music volume — base, dipped when ducking under a clip with audio.
+function sbMusicVol() {
+  const m = sbProject().music;
+  if (!m) return 0;
+  let vol = m.volume != null ? m.volume : 0.6;
+  if (m.duck) {
+    const s = sbShot(sbSelected);
+    const overAudio = s && s.src !== 'title' && !s.muted; // a talking clip is playing
+    if (overAudio) vol *= 0.4;
+  }
+  return vol;
 }
 // Keep the music element aligned to the film position + play/pause state.
 function sbMusicSync(v, opts) {
@@ -521,13 +614,42 @@ function sbMusicSync(v, opts) {
   if (!m || !m.url) { if (a && !a.paused) a.pause(); return; }
   sbMusicLoad();
   const am = sbMusicEl();
-  const ft = sbFilmTime(v);
+  am.volume = sbMusicVol();
+  const ft = sbFilmTime();
   const target = (m.dur && m.dur > 0.1) ? (ft % m.dur) : ft; // loop if film outlasts the track
   if ((opts && opts.hard) || Math.abs((am.currentTime || 0) - target) > 0.35) {
     try { am.currentTime = target; } catch (_) {}
   }
-  if (v && !v.paused && !v.ended) { if (am.paused) am.play().catch(() => {}); }
+  const playing = (sbTitleState && sbTitleState.playing) || (v && !v.paused && !v.ended);
+  if (playing) { if (am.paused) am.play().catch(() => {}); }
   else if (!am.paused) am.pause();
+  sbVoiceSync(v, opts);
+}
+// The voiceover plays from the start of the film (film time 0), no loop.
+function sbVoiceEl() {
+  let a = document.getElementById('sbVoiceAudio');
+  if (!a) { a = document.createElement('audio'); a.id = 'sbVoiceAudio'; a.preload = 'auto'; document.body.appendChild(a); }
+  return a;
+}
+function sbVoiceLoad() {
+  const vo = sbProject().voice;
+  const a = sbVoiceEl();
+  if (!vo || !vo.url) { a.pause(); if (a.dataset.src) { a.removeAttribute('src'); a.dataset.src = ''; } return; }
+  if (a.dataset.src !== vo.url) { a.dataset.src = vo.url; a.src = vo.url; }
+  a.volume = vo.volume != null ? vo.volume : 1;
+}
+function sbVoiceSync(v, opts) {
+  const vo = sbProject().voice;
+  const a = document.getElementById('sbVoiceAudio');
+  if (!vo || !vo.url) { if (a && !a.paused) a.pause(); return; }
+  sbVoiceLoad();
+  const av = sbVoiceEl();
+  const ft = sbFilmTime();
+  if (vo.dur && ft > vo.dur + 0.2) { if (!av.paused) av.pause(); return; } // voice ran out
+  if ((opts && opts.hard) || Math.abs((av.currentTime || 0) - ft) > 0.35) { try { av.currentTime = ft; } catch (_) {} }
+  const playing = (sbTitleState && sbTitleState.playing) || (v && !v.paused && !v.ended);
+  if (playing) { if (av.paused) av.play().catch(() => {}); }
+  else if (!av.paused) av.pause();
 }
 async function sbSetMusic(f) {
   const proj = sbProject();
@@ -572,13 +694,158 @@ function sbRenderMusicBar() {
     '<span class="tm-ico">♪</span>' +
     '<span class="tm-name"></span>' +
     '<input class="tm-vol" type="range" min="0" max="1" step="0.05" aria-label="Music volume" />' +
+    '<button class="tm-chip tm-fade" title="Fade the music in and out">Fade</button>' +
+    '<button class="tm-chip tm-duck" title="Duck the music under clips with sound">Duck</button>' +
     '<button class="tm-x" title="Remove music" aria-label="Remove music">×</button>';
   bar.querySelector('.tm-name').textContent = m.name || 'Music';
   const vol = bar.querySelector('.tm-vol');
   vol.value = m.volume != null ? m.volume : 0.6;
   vol.oninput = () => sbSetMusicVolume(parseFloat(vol.value));
+  bar.querySelector('.tm-fade').classList.toggle('on', !!m.fade);
+  bar.querySelector('.tm-fade').onclick = () => { m.fade = !m.fade; sbSave(); sbRenderMusicBar(); };
+  bar.querySelector('.tm-duck').classList.toggle('on', !!m.duck);
+  bar.querySelector('.tm-duck').onclick = () => { m.duck = !m.duck; sbSave(); sbRenderMusicBar(); };
   bar.querySelector('.tm-x').onclick = () => sbRemoveMusic();
   sbMusicLoad();
+}
+
+// ── Title / text cards ──────────────────────────────────────────────────────
+function sbAddTitle() {
+  const text = prompt('Title text:', 'Title');
+  if (text == null) return;
+  const proj = sbProject();
+  const t = {
+    id: sbUid('s'), title: 'Title', text: String(text).slice(0, 120) || 'Title',
+    prompt: '', status: 'ready', src: 'title', onTimeline: true,
+    dur: 3, in: 0, out: 3, srcDur: 3, bg: 'linear-gradient(135deg,#ff79c6,#ffb84d)',
+  };
+  proj.shots.push(t);
+  sbSave(); sbRender(); sbSelect(t.id);
+  sbStudioNote('Added a title card. Drag its edges to change how long it holds; double-click it on the timeline to edit the text.');
+}
+function sbEditTitle(id) {
+  const s = sbShot(id);
+  if (!s || s.src !== 'title') return;
+  const text = prompt('Title text:', s.text || 'Title');
+  if (text == null) return;
+  s.text = String(text).slice(0, 120) || 'Title';
+  sbSave(); sbRender();
+  if (sbSelected === id) sbShowTitleCard(s);
+}
+function sbShowTitleCard(s) {
+  const stage = document.getElementById('previewStage');
+  if (!stage) return;
+  stage.innerHTML = '<div class="preview-title" style="background:' + (s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)') + '"><span></span></div>';
+  stage.querySelector('.preview-title span').textContent = s.text || 'Title';
+}
+// Draw a title card onto the export canvas (word-wrapped, centered).
+function sbPaintTitle(ctx, W, H, s) {
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#ff79c6'); g.addColorStop(1, '#ffb84d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#0b0b10';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const fs = Math.round(H * 0.12);
+  ctx.font = '700 ' + fs + "px 'Space Grotesk', Inter, sans-serif";
+  const words = String(s.text || 'Title').split(/\s+/);
+  const lines = []; let line = '';
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx.measureText(test).width > W * 0.86 && line) { lines.push(line); line = w; }
+    else line = test;
+  }
+  if (line) lines.push(line);
+  const lh = fs * 1.2, y0 = H / 2 - (lines.length - 1) * lh / 2;
+  lines.forEach((ln, i) => ctx.fillText(ln, W / 2, y0 + i * lh));
+}
+function sbStopTitle() {
+  if (sbTitleRAF) { cancelAnimationFrame(sbTitleRAF); sbTitleRAF = 0; }
+  sbTitleState = null;
+}
+function sbPlayTitle(s, next) {
+  sbShowTitleCard(s);
+  const dur = sbShotDur(s) || 3;
+  sbStopTitle();
+  sbTitleState = { id: s.id, elapsed: 0, playing: true };
+  const t0 = performance.now();
+  sbMusicSync(null, { hard: true });
+  const step = () => {
+    if (!sbTitleState || sbTitleState.id !== s.id) return;
+    sbTitleState.elapsed = (performance.now() - t0) / 1000;
+    sbUpdatePlayhead(null);
+    sbMusicSync(null);
+    if (sbTitleState.elapsed >= dur) { sbStopTitle(); if (next) next(); else sbMusicSync(null); return; }
+    sbTitleRAF = requestAnimationFrame(step);
+  };
+  step();
+}
+
+// ── Voiceover: record a mic track straight into the timeline ─────────────────
+let sbVoiceRec = null; // active MediaRecorder while recording
+async function sbToggleVoiceRecord() {
+  if (sbVoiceRec) { try { sbVoiceRec.stop(); } catch (e) {} return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    sbStudioNote('This browser can’t record audio.'); return;
+  }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch (e) { sbStudioNote('I need microphone permission to record a voiceover.'); return; }
+  const rec = new MediaRecorder(stream);
+  const parts = [];
+  rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
+  rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop());
+    sbVoiceRec = null;
+    const btn = document.getElementById('sbVoiceBtn');
+    if (btn) { btn.textContent = '● Voiceover'; btn.classList.remove('recording'); }
+    const blob = new Blob(parts, { type: rec.mimeType || 'audio/webm' });
+    await sbSetVoice(blob);
+  };
+  sbVoiceRec = rec;
+  rec.start();
+  const btn = document.getElementById('sbVoiceBtn');
+  if (btn) { btn.textContent = '■ Stop'; btn.classList.add('recording'); }
+  sbStudioNote('Recording a voiceover — click ■ Stop when you’re done.');
+}
+async function sbSetVoice(blob) {
+  const proj = sbProject();
+  const url = URL.createObjectURL(blob);
+  proj.voice = { name: 'Voiceover', mime: blob.type || 'audio/webm', url, stored: false, dur: 0, volume: 1 };
+  sbSave(); sbRenderVoiceBar();
+  try { await sbMediaPut('voice-' + proj.id, blob); proj.voice.stored = true; }
+  catch (e) { console.warn('could not persist voiceover:', e); }
+  try {
+    const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
+    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
+    proj.voice.dur = a.duration || 0;
+  } catch (e) {}
+  sbSave(); sbRenderVoiceBar();
+  sbStudioNote('Voiceover added — it plays from the start of your film and mixes into the export.');
+}
+function sbRemoveVoice() {
+  const proj = sbProject();
+  if (!proj.voice) return;
+  const a = document.getElementById('sbVoiceAudio');
+  if (a) { a.pause(); a.removeAttribute('src'); }
+  if (proj.voice.stored) sbMediaDel('voice-' + proj.id);
+  proj.voice = null;
+  sbSave(); sbRenderVoiceBar();
+}
+function sbRenderVoiceBar() {
+  const bar = document.getElementById('sbVoiceBar');
+  if (!bar) return;
+  const vo = sbProject().voice;
+  if (!vo) { bar.className = 'timeline-voice'; bar.innerHTML = ''; bar.style.display = 'none'; return; }
+  bar.style.display = ''; bar.className = 'timeline-voice has-voice';
+  bar.innerHTML =
+    '<span class="tm-ico">🎙</span><span class="tm-name"></span>' +
+    '<input class="tm-vol" type="range" min="0" max="1" step="0.05" aria-label="Voiceover volume" />' +
+    '<button class="tm-x" title="Remove voiceover">×</button>';
+  bar.querySelector('.tm-name').textContent = vo.name + (vo.dur ? ' · ' + sbFmt(vo.dur) : '');
+  const vol = bar.querySelector('.tm-vol');
+  vol.value = vo.volume != null ? vo.volume : 1;
+  vol.oninput = () => { vo.volume = Math.max(0, Math.min(1, parseFloat(vol.value))); const a = document.getElementById('sbVoiceAudio'); if (a) a.volume = vo.volume; sbSave(); };
+  bar.querySelector('.tm-x').onclick = () => sbRemoveVoice();
 }
 
 function sbSwitchProject(v) {
@@ -668,11 +935,13 @@ function sbNoteSrcDur(s, v) {
   if (changed) sbSave();
 }
 function sbPlayShot(s, next) {
+  if (s.src === 'title') return sbPlayTitle(s, next);
+  sbStopTitle();
   const v = sbVideoEl();
   if (!v || !s.url) return;
   const start = s.in || 0;
   sbSegment = { out: s.out != null ? s.out : null, next: next || null };
-  const go = () => { sbNoteSrcDur(s, v); v.currentTime = start; v.play().catch(() => {}); };
+  const go = () => { sbNoteSrcDur(s, v); v.volume = s.muted ? 0 : 1; v.currentTime = start; v.play().catch(() => {}); };
   if (v.dataset.src !== s.url) {
     v.dataset.src = s.url;
     v.src = s.url;
@@ -724,6 +993,8 @@ function sbSelect(id) {
   sbPlaying = null;
   const s = sbShot(id);
   sbRender();
+  if (s && s.src === 'title') { sbStopTitle(); sbShowTitleCard(s); sbUpdatePlayhead(null); return; }
+  sbStopTitle();
   if (s && s.url) sbPlayShot(s);
   else if (s && s.status === 'restoring') sbStudioNote('Restoring your imported clip — one sec…');
   else if (s) sbStudioNote(s.status === 'draft'
@@ -732,7 +1003,7 @@ function sbSelect(id) {
 }
 
 function sbPlayAll() {
-  const shots = sbProject().shots.filter((s) => s.onTimeline && s.url && s.status === 'ready');
+  const shots = sbProject().shots.filter((s) => s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready')));
   if (!shots.length) { sbStudioNote('Nothing on the timeline yet — add clips to your film first (drag them onto the timeline or tap ＋).'); return; }
   let i = 0;
   const playNext = () => {
@@ -1091,20 +1362,33 @@ function sbDownloadBlob(blob, ext) {
 // Prefer the on-device ffmpeg stitch (fast, higher quality, orientation-aware);
 // fall back to the realtime canvas + MediaRecorder path if the editor can't run
 // or the stitch fails.
-async function sbExport() {
+// A clip is exportable if it's a title card (no source needed) or a ready video.
+function sbExportable(s) {
+  return s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready'));
+}
+async function sbExport(deliver) {
   if (sbBusy) return;
-  const shots = sbProject().shots.filter((s) => s.onTimeline && s.url && s.status === 'ready');
+  const shots = sbProject().shots.filter(sbExportable);
   if (!shots.length) { sbStudioNote('Nothing on the timeline to export — add clips to your film first.'); return; }
   sbBusy = true;
+  // deliver(blob, ext) decides what happens with the finished film — download by
+  // default, or upload when saving to the gallery.
+  const send = deliver || ((blob, ext) => sbDownloadBlob(blob, ext));
   const btn = document.getElementById('sbExportBtn');
-  if (btn) btn.textContent = 'Exporting…';
+  if (btn && !deliver) btn.textContent = 'Exporting…';
+  // Title cards (synthesized frame-by-frame) and a voiceover track (a second
+  // mixed source) can't go through the ffmpeg stitch — route those films through
+  // the realtime canvas exporter, which handles both. Music-only stays on ffmpeg.
+  const proj0 = sbProject();
+  const hasTitle = shots.some((s) => s.src === 'title');
+  const hasVoice = !!(proj0.voice && proj0.voice.url);
   try {
-    if (window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+    if (!hasTitle && !hasVoice && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
       try {
         const proj = sbProject();
-        const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0 }));
+        const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0, muted: !!s.muted }));
         const music = (proj.music && proj.music.url)
-          ? { src: proj.music.url, mime: proj.music.mime || '', volume: proj.music.volume != null ? proj.music.volume : 0.6 }
+          ? { src: proj.music.url, mime: proj.music.mime || '', volume: (proj.music.volume != null ? proj.music.volume : 0.6) * (proj.music.duck ? 0.4 : 1), fade: !!proj.music.fade }
           : null;
         const r = await window.sbFFExport(descriptors, {
           transition: proj.transition || 'none',
@@ -1112,18 +1396,20 @@ async function sbExport() {
           music,
           onProgress: (p) => sbStudioProgress('Stitching your film… ' + Math.round(p * 100) + '%'),
         });
-        sbDownloadBlob(r.blob, 'mp4');
-        const styleNote = (proj.transition && proj.transition !== 'none')
-          ? ', ' + (proj.transition === 'dip' ? 'dip-to-black' : 'crossfade') + ' transitions' : '';
-        sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
-          (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + styleNote +
-          (proj.fade ? ', fades' : '') + ') — check your downloads ✦');
+        await send(r.blob, 'mp4');
+        if (!deliver) {
+          const styleNote = (proj.transition && proj.transition !== 'none')
+            ? ', ' + (proj.transition === 'dip' ? 'dip-to-black' : 'crossfade') + ' transitions' : '';
+          sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
+            (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + styleNote +
+            (proj.fade ? ', fades' : '') + ') — check your downloads ✦');
+        }
         return;
       } catch (e) {
         console.warn('on-device stitch failed, using the realtime exporter:', e);
       }
     }
-    await sbExportCanvas(shots);
+    await sbExportCanvas(shots, send, !!deliver);
   } catch (e) {
     console.error('export failed:', e);
     sbStudioNote('Export hit a snag — ' + String(e.message || e).slice(0, 120));
@@ -1133,10 +1419,86 @@ async function sbExport() {
   }
 }
 
+// ── Save to gallery ─────────────────────────────────────────────────────────
+// Stitch the film, then upload it (base64 → /api/save, behind the paid storage
+// gate) and add it to the cloud gallery. Falls back to a download if the account
+// can't save or the film is too big.
+function sbBlobToB64(blob) {
+  return new Promise((ok, err) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); ok(s.slice(s.indexOf(',') + 1)); };
+    r.onerror = () => err(new Error('read failed'));
+    r.readAsDataURL(blob);
+  });
+}
+// The current preview frame → a poster data URI for the saved film.
+function sbCaptureFrame() {
+  try {
+    const v = document.querySelector('#previewStage video');
+    if (v && v.videoWidth) {
+      const c = document.createElement('canvas');
+      c.width = Math.min(640, v.videoWidth); c.height = Math.round(c.width * v.videoHeight / v.videoWidth);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.7);
+    }
+  } catch (e) {}
+  // Fall back to the first timeline clip's poster frame.
+  const first = sbProject().shots.find((s) => s.onTimeline && s.thumb);
+  return first ? first.thumb : null;
+}
+function sbAddFilmToGallery(url, poster) {
+  if (typeof chatStore === 'undefined' || !chatStore) return;
+  let chat = chatStore.chats.find((c) => c.studioFilms);
+  if (!chat) {
+    chat = (typeof newChatEntry === 'function') ? newChatEntry() : { id: 'films', title: '🎬 Films', msgs: [], updatedAt: Date.now() };
+    chat.title = '🎬 Films'; chat.studioFilms = true;
+    chatStore.chats.unshift(chat);
+  }
+  chat.msgs.push({ t: 'media', kind: 'video', url, prompt: sbProject().title || 'Film', poster: poster || undefined, at: Date.now() });
+  chat.updatedAt = Date.now();
+  if (typeof persistStore === 'function') persistStore();
+  if (typeof touchSync === 'function') touchSync(chat.id);
+  if (typeof pushChats === 'function') { try { pushChats(); } catch (e) {} }
+  if (typeof renderGallery === 'function') renderGallery();
+}
+async function sbSaveToGallery() {
+  if (sbBusy) return;
+  const shots = sbProject().shots.filter(sbExportable);
+  if (!shots.length) { sbStudioNote('Nothing to save yet — add clips to your film first.'); return; }
+  const btn = document.getElementById('sbSaveBtn');
+  if (btn) btn.textContent = 'Saving…';
+  const poster = sbCaptureFrame();
+  try {
+    await sbExport(async (blob, ext) => {
+      // WebM films (Chrome canvas fallback) aren't accepted by every gallery
+      // surface as reliably as MP4, but the worker takes both.
+      if (blob.size > 38_000_000) { sbStudioNote('This film is a bit large to save to the gallery — downloading it instead.'); sbDownloadBlob(blob, ext); return; }
+      let b64;
+      try { b64 = await sbBlobToB64(blob); } catch (e) { sbDownloadBlob(blob, ext); return; }
+      if (typeof trySave !== 'function') { sbDownloadBlob(blob, ext); return; }
+      sbStudioProgress('Saving your film to the gallery…');
+      const res = await trySave(null, 'video', 3, { kind: 'video', data: b64 });
+      if (res && res.url) {
+        sbAddFilmToGallery(res.url, poster);
+        sbStudioNote('Saved “' + (sbProject().title || 'your film') + '” to your gallery ✦ — find it under Gallery.');
+      } else if (res && res.block === 'free') {
+        sbStudioNote('Saving to the gallery is a paid feature. Downloading your film instead.'); sbDownloadBlob(blob, ext);
+      } else if (res && res.block === 'full') {
+        sbStudioNote('Your gallery storage is full. Downloading your film instead.'); sbDownloadBlob(blob, ext);
+      } else {
+        sbStudioNote('Couldn’t save to the gallery just now — downloading your film instead.'); sbDownloadBlob(blob, ext);
+      }
+    });
+  } finally {
+    if (btn) btn.textContent = '⬆ Save to gallery';
+  }
+}
+
 // Realtime fallback: canvas + MediaRecorder, universally supported. Audio comes
 // along via an AudioContext tap. Letterboxes every shot into a 1280x720 frame.
-async function sbExportCanvas(shots) {
+async function sbExportCanvas(shots, deliver, quiet) {
   {
+    const send = deliver || ((blob, ext) => sbDownloadBlob(blob, ext));
     const W = 1280, H = 720;
     const canvas = document.createElement('canvas');
     canvas.width = W; canvas.height = H;
@@ -1147,16 +1509,39 @@ async function sbExportCanvas(shots) {
     if (dest.stream.getAudioTracks().length) stream.addTrack(dest.stream.getAudioTracks()[0]);
     // Feed the background music into the recorded audio (only to dest, so it's
     // captured but not audible during export). Loops to cover the whole film.
+    const filmDur = shots.reduce((a, s) => a + (sbShotDur(s) || 0), 0);
     let musicAudio = null;
     const mus = sbProject().music;
     if (mus && mus.url) {
       try {
         musicAudio = new Audio(); musicAudio.src = mus.url; musicAudio.loop = true; musicAudio.crossOrigin = 'anonymous';
         const mnode = ac.createMediaElementSource(musicAudio);
-        const g = ac.createGain(); g.gain.value = mus.volume != null ? mus.volume : 0.6;
+        const g = ac.createGain();
+        const base = (mus.volume != null ? mus.volume : 0.6) * (mus.duck ? 0.4 : 1);
+        g.gain.value = base;
+        if (mus.fade && filmDur > 1) {
+          const fd = Math.max(0.3, Math.min(2, filmDur * 0.12));
+          const now = ac.currentTime;
+          g.gain.setValueAtTime(0.0001, now);
+          g.gain.linearRampToValueAtTime(base, now + fd);
+          g.gain.setValueAtTime(base, now + Math.max(fd, filmDur - fd));
+          g.gain.linearRampToValueAtTime(0.0001, now + filmDur);
+        }
         mnode.connect(g).connect(dest);
         await musicAudio.play().catch(() => {});
       } catch (e) { console.warn('music tap failed (exporting without it):', e); musicAudio = null; }
+    }
+    // Voiceover tap — plays once from the film's start (no loop).
+    let voiceAudio = null;
+    const vo = sbProject().voice;
+    if (vo && vo.url) {
+      try {
+        voiceAudio = new Audio(); voiceAudio.src = vo.url; voiceAudio.crossOrigin = 'anonymous';
+        const vnode = ac.createMediaElementSource(voiceAudio);
+        const vg = ac.createGain(); vg.gain.value = vo.volume != null ? vo.volume : 1;
+        vnode.connect(vg).connect(dest);
+        await voiceAudio.play().catch(() => {});
+      } catch (e) { console.warn('voice tap failed (exporting without it):', e); voiceAudio = null; }
     }
     // Pick a container the browser can actually record. Chrome keeps webm/vp9;
     // Safari has no webm MediaRecorder, so fall through to mp4 (else its
@@ -1183,19 +1568,33 @@ async function sbExportCanvas(shots) {
     rec.stop();
     await done;
     if (musicAudio) { try { musicAudio.pause(); } catch (e) {} }
+    if (voiceAudio) { try { voiceAudio.pause(); } catch (e) {} }
     ac.close().catch(() => {});
     if (!ok) { sbStudioNote('Export failed — none of the shots could be read (they may still be uploading, or blocked by the browser).'); return; }
     // Match the file to what the recorder actually produced (webm on Chrome,
     // mp4 on Safari) so the download opens cleanly.
     const outType = ((rec.mimeType || mime || 'video/webm').split(';')[0]) || 'video/webm';
     const ext = outType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
-    sbDownloadBlob(new Blob(parts, { type: outType }), ext);
-    sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
+    await send(new Blob(parts, { type: outType }), ext);
+    if (!quiet) sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
       (skipped ? ', ' + skipped + ' skipped' : '') + ') — check your downloads ✦');
   }
 }
 
 function sbExportShot(s, ctx, W, H, ac, dest) {
+  // Title cards have no video — paint the text card for the clip's duration.
+  if (s.src === 'title') {
+    return new Promise((resolve) => {
+      const dur = (sbShotDur(s) || 3) * 1000;
+      const t0 = performance.now();
+      const draw = () => {
+        sbPaintTitle(ctx, W, H, s);
+        if (performance.now() - t0 >= dur) { resolve(); return; }
+        requestAnimationFrame(draw);
+      };
+      draw();
+    });
+  }
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
     v.crossOrigin = 'anonymous';
@@ -1217,7 +1616,8 @@ function sbExportShot(s, ctx, W, H, ac, dest) {
     const guard = setTimeout(() => finish(reject, new Error('shot timed out')), Math.min(budget, 180000));
     v.onerror = () => finish(reject, new Error('could not read a shot (CORS or codec)'));
     v.onloadedmetadata = () => {
-      try { node = ac.createMediaElementSource(v); node.connect(dest); } catch {}
+      // A muted clip is drawn but not routed to the recorded audio.
+      try { node = ac.createMediaElementSource(v); if (!s.muted) node.connect(dest); } catch {}
       v.currentTime = start;
       v.play().then(() => {
         const draw = () => {
@@ -1395,9 +1795,24 @@ function initStudio() {
       if (f) sbSetMusic(f);
     });
   }
+  // Editor keyboard shortcuts — only when Studio is the visible view and the
+  // user isn't typing into a field.
+  document.addEventListener('keydown', (e) => {
+    const view = document.getElementById('viewStudio');
+    if (!view || !view.classList.contains('active')) return;
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const v = document.querySelector('#previewStage video');
+    if (e.code === 'Space') { e.preventDefault(); sbTogglePlay(); }
+    else if (e.key === 's' || e.key === 'S') { e.preventDefault(); sbSplitAtPlayhead(); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); if (v) { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + (e.shiftKey ? 1 : 0.1)); } }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); if (v) { v.currentTime = Math.max(0, v.currentTime - (e.shiftKey ? 1 : 0.1)); } }
+    else if (e.key === 'Delete' || e.key === 'Backspace') { if (sbSelected) { e.preventDefault(); sbRemoveShot(sbSelected); } }
+  });
   sbLoad();
   sbRender();
   sbMusicLoad();          // point the audio element at this project's track
-  sbRehydrateImports();   // bring persisted imported clips (and music) back after a reload
+  sbVoiceLoad();
+  sbRehydrateImports();   // bring persisted imported clips (and music/voice) back after a reload
 }
 initStudio();

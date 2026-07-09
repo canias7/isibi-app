@@ -2088,7 +2088,24 @@ Context: ${ctxLine}`
       if (store && store.cap === 0) {
         return Response.json({ error: "saving is a paid feature", reason: "free" }, { status: 402 });
       }
-      if (b64) {
+      if (b64 && body.kind === "video") {
+        // Studio films are stitched client-side into a local blob, so they can't
+        // be handed over as a fal URL — they arrive as base64. Same paid gate;
+        // ~40MB base64 (~30MB video) cap. Validated by magic bytes so the bucket
+        // stays media-only. MP4 (…ftyp…) / WebM (EBML) only.
+        if (b64.length > 40_000_000) return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
+        try {
+          const bin = atob(b64);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        } catch {
+          return Response.json({ error: "invalid data" }, { status: 400 });
+        }
+        const isMp4 = bytes.length > 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+        const isWebm = bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+        if (!isMp4 && !isWebm) return Response.json({ error: "not a video" }, { status: 400 });
+        ct = isMp4 ? "video/mp4" : "video/webm";
+      } else if (b64) {
         // Client-watermarked image bytes (free accounts burn the mark in
         // before saving). Images only; ~12MB base64 cap.
         if (b64.length > 12_000_000) return Response.json({ error: "too large" }, { status: 400 });

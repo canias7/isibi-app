@@ -318,7 +318,9 @@ async function sbFFExport(shots, opts = {}) {
         const { inName, info, sh } = metas[i];
         const win = sbFFWindow(sh);
         const seg = 'seg' + i + '.mp4';
-        const args = info.hasAudio
+        // A muted clip (or one with no audio) gets a silent track so every
+        // segment has a uniform stream for the join.
+        const args = (info.hasAudio && !sh.muted)
           ? [...win.pre, '-i', inName, ...win.post, '-map', '0:v:0', '-map', '0:a:0',
              '-vf', vf, ...SB_VENC, ...SB_AENC, '-movflags', '+faststart', seg]
           : [...win.pre, '-i', inName, ...win.post, ...anull, '-map', '0:v:0', '-map', '1:a:0',
@@ -384,11 +386,19 @@ async function sbFFExport(shots, opts = {}) {
       let outName = 'out.mp4';
       if (opts.music && opts.music.src) {
         try {
+          const filmDur = shots.reduce((a, s) => a + (s.dur || 0), 0);
           const mName = track('music.' + sbFFExt(opts.music.src, opts.music.mime));
           await ff.writeFile(mName, await sbFFBytes(opts.music.src));
           const vol = Math.max(0, Math.min(1, opts.music.volume != null ? opts.music.volume : 0.6));
-          const fc = '[0:a]volume=2.0[va];[1:a]volume=' + (2 * vol).toFixed(3) + ',apad[ma];' +
-                     '[va][ma]amix=inputs=2:duration=first[a]';
+          // Optional fade in/out on the music, scaled to the film length.
+          let mchain = '[1:a]volume=' + (2 * vol).toFixed(3);
+          if (opts.music.fade) {
+            const fdur = Math.max(0.3, Math.min(2, (filmDur || 8) * 0.12));
+            const outAt = Math.max(0, (filmDur || 0) - fdur).toFixed(3);
+            mchain += ',afade=t=in:st=0:d=' + fdur.toFixed(2) + ',afade=t=out:st=' + outAt + ':d=' + fdur.toFixed(2);
+          }
+          mchain += ',apad[ma]';
+          const fc = '[0:a]volume=2.0[va];' + mchain + ';[va][ma]amix=inputs=2:duration=first[a]';
           try { await ff.deleteFile('final.mp4'); } catch (e) {}
           await ff.exec(['-i', 'out.mp4', '-i', mName, '-filter_complex', fc,
             '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', ...SB_AENC, '-movflags', '+faststart', 'final.mp4']);

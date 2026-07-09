@@ -1383,9 +1383,9 @@
 .pc-spacer { flex: 1; }
 
 /* timeline */
-.editor-timeline { height: 200px; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
-.timeline-bar { display: flex; align-items: center; justify-content: space-between; padding: .55rem .9rem; border-bottom: 1px solid var(--line); }
-.timeline-tools { display: flex; gap: .4rem; }
+.editor-timeline { height: auto; min-height: 210px; max-height: 46vh; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
+.timeline-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .55rem .9rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.timeline-tools { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
 .tl-tool { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 9px; padding: .4rem .75rem; font-size: .82rem; cursor: pointer; font-family: inherit; }
 .tl-tool:hover { color: var(--text); border-color: #4a4a52; }
 .tl-export { border-color: rgba(255, 214, 10, .4); color: var(--neon); }
@@ -1393,7 +1393,7 @@
 .tl-zoom { width: 110px; accent-color: var(--neon); }
 .tl-settings { font-size: .82rem; color: var(--muted); }
 .timeline-track {
-  position: relative; flex: 1; margin: .7rem .9rem 1rem; border-radius: 10px; border: 1px dashed var(--line-2);
+  position: relative; flex: 1; min-height: 96px; margin: .7rem .9rem 1rem; border-radius: 10px; border: 1px dashed var(--line-2);
   background:
     repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(255, 255, 255, .04) 79px, rgba(255, 255, 255, .04) 80px);
   display: grid; place-items: center; overflow: hidden;
@@ -1426,6 +1426,28 @@
 .tm-vol { flex: 1; max-width: 220px; accent-color: var(--neon); cursor: pointer; }
 .tm-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0 .2rem; }
 .tm-x:hover { color: #f43f5e; }
+.tm-chip { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 7px; font-size: .72rem; padding: .2rem .45rem; cursor: pointer; font-family: inherit; }
+.tm-chip:hover { color: var(--text); border-color: #4a4a52; }
+.tm-chip.on { color: var(--neon); border-color: rgba(255, 214, 10, .45); background: rgba(255, 214, 10, .08); }
+/* Voiceover bar */
+.timeline-voice { display: none; align-items: center; gap: .6rem; padding: .1rem .9rem .45rem; }
+.timeline-voice.has-voice { display: flex; }
+/* Extra timeline-bar controls */
+.tl-sel { background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); color: var(--text); border-radius: 9px; padding: .38rem .5rem; font-size: .8rem; font-family: inherit; cursor: pointer; }
+.tl-tool.on { color: var(--neon); border-color: rgba(255, 214, 10, .45); }
+.tl-tool.recording { color: #f43f5e; border-color: rgba(244, 63, 94, .5); }
+.tl-save { border-color: rgba(52, 211, 153, .4); color: #34d399; }
+/* Zoomable content lane inside the scrolling track */
+.timeline-track.has-shots { display: block; overflow-x: auto; overflow-y: hidden; padding: 0; place-items: unset; }
+.tl-inner { position: relative; display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; height: 100%; box-sizing: border-box; }
+/* Per-clip mute toggle */
+.sb-cmute { position: absolute; top: .28rem; right: .3rem; z-index: 3; background: rgba(0, 0, 0, .5); border: none; border-radius: 6px; font-size: .7rem; line-height: 1; padding: .15rem .28rem; cursor: pointer; opacity: 0; transition: opacity .12s; }
+.sb-block:hover .sb-cmute, .sb-block.sel .sb-cmute { opacity: 1; }
+/* Title cards */
+.sb-title { display: flex; align-items: center; justify-content: center; }
+.sb-titletext { color: #0b0b10; font-weight: 700; font-size: .78rem; padding: 0 .5rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; z-index: 2; }
+.preview-title { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.preview-title span { color: #0b0b10; font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 2.2rem; text-align: center; padding: 0 8%; line-height: 1.15; }
 
 @media (max-width: 900px) {
   .view-studio.active { flex-direction: column; }
