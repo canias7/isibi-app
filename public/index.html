@@ -402,18 +402,18 @@
           <div class="editor-timeline">
             <div class="timeline-bar">
               <div class="timeline-tools">
-                <button class="tl-tool" data-act="sb-playall">▶ Play film</button>
+                <button class="tl-tool" data-act="sb-playall" title="Play the whole film">▶ Play</button>
                 <button class="tl-tool" data-act="sb-split" title="Split the selected clip at the playhead">✂ Split</button>
                 <button class="tl-tool" data-act="sb-add-title" title="Add a title / text card">T Title</button>
                 <button class="tl-tool" data-act="file" data-file="studioMusic" title="Add a background music track">♪ Music</button>
-                <button class="tl-tool" id="sbVoiceBtn" data-act="sb-voice" title="Record a voiceover">● Voiceover</button>
+                <button class="tl-tool" id="sbVoiceBtn" data-act="sb-voice" title="Record a voiceover">● Voice</button>
                 <select id="sbTransition" class="tl-sel" data-change="sb-transition" title="Transition between clips">
                   <option value="none">No transition</option>
                   <option value="crossfade">Crossfade</option>
                   <option value="dip">Dip to black</option>
                 </select>
                 <button class="tl-tool" id="sbFadeBtn" data-act="sb-fade" title="Fade the film in and out">Fade ○</button>
-                <button class="tl-tool tl-save" id="sbSaveBtn" data-act="sb-save" title="Save the film to your gallery">⬆ Save to gallery</button>
+                <button class="tl-tool tl-save" id="sbSaveBtn" data-act="sb-save" title="Save the film to your gallery">⬆ Save</button>
                 <button class="tl-tool tl-export" id="sbExportBtn" data-act="sb-export">Export</button>
                 <input type="file" id="studioMusic" accept="audio/*" hidden />
               </div>
@@ -425,8 +425,6 @@
             <div class="timeline-track" id="timelineTrack">
               <div class="timeline-empty">Describe your film to isibi.ai — or import a video — and its shots land here.</div>
             </div>
-            <div class="timeline-music" id="sbMusicBar"></div>
-            <div class="timeline-voice" id="sbVoiceBar"></div>
           </div>
         </section>
       </div>

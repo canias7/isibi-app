@@ -269,21 +269,29 @@ function sbRender() {
       empty.textContent = 'Drag a clip here — or tap ＋ on a clip in the list — to build your film.';
       track.appendChild(empty);
     }
-    // Zoomable content lane: the track is the scroll viewport, tlInner holds the
-    // proportional blocks + playhead and grows past 100% when zoomed in.
+    // iMovie-style stacked lanes, all sharing one time axis + one playhead. The
+    // track is the scroll viewport; tlInner grows past 100% when zoomed in.
     const inner = document.createElement('div');
     inner.className = 'tl-inner';
     inner.style.minWidth = (sbZoomLevel * 100) + '%';
     track.appendChild(inner);
     const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
+
+    // Video lane: clips butt together, positioned by time so they line up with
+    // the audio lanes below.
+    const vlane = document.createElement('div');
+    vlane.className = 'tl-lane tl-video';
+    inner.appendChild(vlane);
+    let cum = 0;
     tl.forEach((s) => {
       const n = proj.shots.indexOf(s) + 1;
       const isTitle = s.src === 'title';
+      const dur = sbShotDur(s) || 4;
       const block = document.createElement('div');
       block.className = 'clip-block sb-block' + (s.id === sbSelected ? ' sel' : '') + ' st-' + s.status + (isTitle ? ' sb-title' : '');
-      block.style.width = Math.max(6, ((sbShotDur(s) || 4) / total) * 100) + '%';
-      // Title cards paint a solid gradient with their text; video clips paint an
-      // iMovie-style filmstrip (or the single poster frame until it's built).
+      block.style.left = (cum / total * 100) + '%';
+      block.style.width = (dur / total * 100) + '%';
+      cum += dur;
       let body = '';
       if (isTitle) {
         block.style.background = s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)';
@@ -300,8 +308,6 @@ function sbRender() {
         '<span class="sb-trim l" title="Trim the start"></span>' +
         '<span class="sb-trim r" title="Trim the end"></span>';
       if (isTitle) block.querySelector('.sb-titletext').textContent = s.text || 'Title';
-      // Trim handles: drag an edge to change this clip's in/out. Click/scrub on
-      // the block body (below) is handled at the track level for seeking.
       block.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
       block.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
       const mute = block.querySelector('.sb-cmute');
@@ -310,17 +316,22 @@ function sbRender() {
         mute.addEventListener('click', (e) => { e.stopPropagation(); sbToggleClipMute(s.id); });
       }
       if (isTitle) block.addEventListener('dblclick', (e) => { e.stopPropagation(); sbEditTitle(s.id); });
-      inner.appendChild(block);
+      vlane.appendChild(block);
     });
-    // Playhead line that sweeps across the film during playback.
+
+    // Audio lanes (music, then voice) as waveform clips from the film's start.
+    if (proj.music && proj.music.url) sbAudioLane(inner, proj.music, 'music', total);
+    if (proj.voice && proj.voice.url) sbAudioLane(inner, proj.voice, 'voice', total);
+
+    // One playhead spanning every lane.
     const ph = document.createElement('div');
     ph.className = 'playhead';
     ph.style.display = 'none';
     inner.appendChild(ph);
-    // Click / drag anywhere on the film to move the playhead there and seek.
+    // Click / drag anywhere on the lanes to move the playhead there and seek.
     track.onpointerdown = (e) => {
-      if (e.target.closest('.sb-trim')) return;   // trim handles run their own drag
-      if (!proj.shots.some((s) => s.onTimeline)) return;
+      if (e.target.closest('.sb-trim') || e.target.closest('.tl-actrl')) return;
+      if (!tl.length) return;
       try { track.setPointerCapture(e.pointerId); } catch (_) {}
       sbScrubbing = true;
       sbScrubToClientX(e.clientX);
@@ -345,9 +356,82 @@ function sbRender() {
       ? sbFmt(tl.reduce((a, s) => a + sbShotDur(s), 0)) + ' · ' + ready + '/' + tl.length + ' shots ready'
       : '';
   }
-  sbRenderMusicBar();
-  sbRenderVoiceBar();
+  sbMusicLoad();
+  sbVoiceLoad();
   sbRenderStyleControls();
+}
+
+// One audio lane (music or voice) drawn as a waveform clip from the film start,
+// with hover controls (volume, and for music fade/duck, plus remove).
+function sbAudioLane(inner, tr, kind, total) {
+  const dur = tr.dur || total;
+  const lane = document.createElement('div');
+  lane.className = 'tl-lane tl-audio tl-' + kind;
+  const clip = document.createElement('div');
+  clip.className = 'tl-aclip';
+  clip.style.width = Math.min(100, (dur / total) * 100) + '%';
+  if (tr.wave) clip.style.backgroundImage = 'url(' + tr.wave + ')';
+  const esc2 = (typeof esc === 'function') ? esc : (x) => x;
+  const nm = (kind === 'music' ? '♪ ' : '🎙 ') + (tr.name || kind);
+  const vol = tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1);
+  clip.innerHTML =
+    '<span class="tl-alabel">' + esc2(nm) + '</span>' +
+    '<span class="tl-actrl">' +
+      '<input class="tl-avol" type="range" min="0" max="1" step="0.05" value="' + vol + '" title="Volume" />' +
+      (kind === 'music'
+        ? '<button class="tl-achip tl-fade' + (tr.fade ? ' on' : '') + '" title="Fade in/out">Fade</button>' +
+          '<button class="tl-achip tl-duck' + (tr.duck ? ' on' : '') + '" title="Duck under clips with sound">Duck</button>'
+        : '') +
+      '<button class="tl-ax" title="Remove ' + kind + '">×</button>' +
+    '</span>';
+  const av = clip.querySelector('.tl-avol');
+  av.addEventListener('pointerdown', (e) => e.stopPropagation());
+  av.addEventListener('input', () => {
+    tr.volume = Math.max(0, Math.min(1, parseFloat(av.value)));
+    const a = document.getElementById(kind === 'music' ? 'sbMusicAudio' : 'sbVoiceAudio');
+    if (a) a.volume = tr.volume;
+    sbSave();
+  });
+  const ax = clip.querySelector('.tl-ax');
+  ax.addEventListener('pointerdown', (e) => e.stopPropagation());
+  ax.addEventListener('click', (e) => { e.stopPropagation(); if (kind === 'music') sbRemoveMusic(); else sbRemoveVoice(); });
+  if (kind === 'music') {
+    const fd = clip.querySelector('.tl-fade'), dk = clip.querySelector('.tl-duck');
+    fd.addEventListener('pointerdown', (e) => e.stopPropagation());
+    fd.addEventListener('click', (e) => { e.stopPropagation(); tr.fade = !tr.fade; sbSave(); sbRender(); });
+    dk.addEventListener('pointerdown', (e) => e.stopPropagation());
+    dk.addEventListener('click', (e) => { e.stopPropagation(); tr.duck = !tr.duck; sbSave(); sbRender(); });
+  }
+  lane.appendChild(clip);
+  inner.appendChild(lane);
+  if (!tr.wave && !tr._waving && !tr._waveFailed) sbBuildWave(tr, kind);
+}
+// Decode an audio track to a peaks image used as the lane's waveform background.
+async function sbBuildWave(tr, kind) {
+  if (!tr || !tr.url || tr._waving) return;
+  tr._waving = true;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    const bytes = await fetch(tr.url).then((r) => r.arrayBuffer());
+    const audio = await ac.decodeAudioData(bytes);
+    const ch = audio.getChannelData(0);
+    const W = 1400, H = 90, peaks = 260;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const cx = c.getContext('2d');
+    const step = Math.max(1, Math.floor(ch.length / peaks));
+    cx.fillStyle = kind === 'music' ? 'rgba(52,211,153,.9)' : 'rgba(255,184,77,.92)';
+    const bw = W / peaks;
+    for (let i = 0; i < peaks; i++) {
+      let max = 0;
+      for (let j = 0; j < step; j++) { const v = Math.abs(ch[i * step + j] || 0); if (v > max) max = v; }
+      const bh = Math.max(2, max * (H - 6));
+      cx.fillRect(i * bw, (H - bh) / 2, Math.max(1, bw * 0.66), bh);
+    }
+    tr.wave = c.toDataURL('image/png');
+    ac.close().catch(() => {});
+  } catch (e) { tr._waveFailed = true; /* keep the flat gradient fallback, don't retry */ }
+  finally { tr._waving = false; sbRender(); }
 }
 
 // Add/remove a clip to the film (the bottom timeline). The clip stays in the
@@ -683,31 +767,8 @@ function sbSetMusicVolume(val) {
   if (a) a.volume = proj.music.volume;
   sbSave();
 }
-function sbRenderMusicBar() {
-  const bar = document.getElementById('sbMusicBar');
-  if (!bar) return;
-  const m = sbProject().music;
-  if (!m) { bar.className = 'timeline-music'; bar.innerHTML = ''; bar.style.display = 'none'; sbMusicLoad(); return; }
-  bar.style.display = '';
-  bar.className = 'timeline-music has-music';
-  bar.innerHTML =
-    '<span class="tm-ico">♪</span>' +
-    '<span class="tm-name"></span>' +
-    '<input class="tm-vol" type="range" min="0" max="1" step="0.05" aria-label="Music volume" />' +
-    '<button class="tm-chip tm-fade" title="Fade the music in and out">Fade</button>' +
-    '<button class="tm-chip tm-duck" title="Duck the music under clips with sound">Duck</button>' +
-    '<button class="tm-x" title="Remove music" aria-label="Remove music">×</button>';
-  bar.querySelector('.tm-name').textContent = m.name || 'Music';
-  const vol = bar.querySelector('.tm-vol');
-  vol.value = m.volume != null ? m.volume : 0.6;
-  vol.oninput = () => sbSetMusicVolume(parseFloat(vol.value));
-  bar.querySelector('.tm-fade').classList.toggle('on', !!m.fade);
-  bar.querySelector('.tm-fade').onclick = () => { m.fade = !m.fade; sbSave(); sbRenderMusicBar(); };
-  bar.querySelector('.tm-duck').classList.toggle('on', !!m.duck);
-  bar.querySelector('.tm-duck').onclick = () => { m.duck = !m.duck; sbSave(); sbRenderMusicBar(); };
-  bar.querySelector('.tm-x').onclick = () => sbRemoveMusic();
-  sbMusicLoad();
-}
+// Music/voice now live as waveform lanes in the timeline; these just refresh it.
+function sbRenderMusicBar() { sbMusicLoad(); sbRender(); }
 
 // ── Title / text cards ──────────────────────────────────────────────────────
 function sbAddTitle() {
@@ -831,22 +892,7 @@ function sbRemoveVoice() {
   proj.voice = null;
   sbSave(); sbRenderVoiceBar();
 }
-function sbRenderVoiceBar() {
-  const bar = document.getElementById('sbVoiceBar');
-  if (!bar) return;
-  const vo = sbProject().voice;
-  if (!vo) { bar.className = 'timeline-voice'; bar.innerHTML = ''; bar.style.display = 'none'; return; }
-  bar.style.display = ''; bar.className = 'timeline-voice has-voice';
-  bar.innerHTML =
-    '<span class="tm-ico">🎙</span><span class="tm-name"></span>' +
-    '<input class="tm-vol" type="range" min="0" max="1" step="0.05" aria-label="Voiceover volume" />' +
-    '<button class="tm-x" title="Remove voiceover">×</button>';
-  bar.querySelector('.tm-name').textContent = vo.name + (vo.dur ? ' · ' + sbFmt(vo.dur) : '');
-  const vol = bar.querySelector('.tm-vol');
-  vol.value = vo.volume != null ? vo.volume : 1;
-  vol.oninput = () => { vo.volume = Math.max(0, Math.min(1, parseFloat(vol.value))); const a = document.getElementById('sbVoiceAudio'); if (a) a.volume = vo.volume; sbSave(); };
-  bar.querySelector('.tm-x').onclick = () => sbRemoveVoice();
-}
+function sbRenderVoiceBar() { sbVoiceLoad(); sbRender(); }
 
 function sbSwitchProject(v) {
   if (v === '__new__') {

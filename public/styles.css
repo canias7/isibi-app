@@ -1383,7 +1383,7 @@
 .pc-spacer { flex: 1; }
 
 /* timeline */
-.editor-timeline { height: auto; min-height: 210px; max-height: 46vh; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
+.editor-timeline { height: auto; min-height: 220px; max-height: 50vh; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
 .timeline-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .55rem .9rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .timeline-tools { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
 .tl-tool { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 9px; padding: .4rem .75rem; font-size: .82rem; cursor: pointer; font-family: inherit; }
@@ -1393,7 +1393,7 @@
 .tl-zoom { width: 110px; accent-color: var(--neon); }
 .tl-settings { font-size: .82rem; color: var(--muted); }
 .timeline-track {
-  position: relative; flex: 1; min-height: 96px; margin: .7rem .9rem 1rem; border-radius: 10px; border: 1px dashed var(--line-2);
+  position: relative; flex: 1; min-height: 150px; margin: .7rem .9rem 1rem; border-radius: 10px; border: 1px dashed var(--line-2);
   background:
     repeating-linear-gradient(90deg, transparent, transparent 79px, rgba(255, 255, 255, .04) 79px, rgba(255, 255, 255, .04) 80px);
   display: grid; place-items: center; overflow: hidden;
@@ -1437,9 +1437,6 @@
 .tl-tool.on { color: var(--neon); border-color: rgba(255, 214, 10, .45); }
 .tl-tool.recording { color: #f43f5e; border-color: rgba(244, 63, 94, .5); }
 .tl-save { border-color: rgba(52, 211, 153, .4); color: #34d399; }
-/* Zoomable content lane inside the scrolling track */
-.timeline-track.has-shots { display: block; overflow-x: auto; overflow-y: hidden; padding: 0; place-items: unset; }
-.tl-inner { position: relative; display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; height: 100%; box-sizing: border-box; }
 /* Per-clip mute toggle */
 .sb-cmute { position: absolute; top: .28rem; right: .3rem; z-index: 3; background: rgba(0, 0, 0, .5); border: none; border-radius: 6px; font-size: .7rem; line-height: 1; padding: .15rem .28rem; cursor: pointer; opacity: 0; transition: opacity .12s; }
 .sb-block:hover .sb-cmute, .sb-block.sel .sb-cmute { opacity: 1; }
@@ -1566,12 +1563,30 @@
 .sb-strip { position: absolute; inset: 0; display: flex; z-index: 1; }
 .sb-frame { flex: 1 1 0; min-width: 0; background-size: cover; background-position: center; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .35); }
 .sb-frame:last-child { box-shadow: none; }
-.sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); }
+.sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); outline-offset: -1px; z-index: 4; }
 .sb-block.st-draft { opacity: .45; }
 .sb-block.st-generating { animation: sbpulse .9s infinite alternate; }
-/* shot-strip mode: the track becomes a flex row of proportional blocks */
-.timeline-track.has-shots { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px; place-items: unset; }
-.clip-block.sb-block { position: relative; inset: auto; width: auto; height: auto; padding: 0; }
+/* Stacked lanes: video row on top, audio waveform lanes beneath, one playhead. */
+.timeline-track.has-shots { display: block; overflow-x: auto; overflow-y: auto; padding: 0; place-items: unset; }
+.tl-inner { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; min-height: 100%; box-sizing: border-box; }
+.tl-lane { position: relative; width: 100%; flex: none; }
+.tl-video { height: 62px; }
+.tl-video .clip-block.sb-block { position: absolute; top: 0; bottom: 0; inset-inline: auto; height: auto; padding: 0; min-width: 8px; }
+.tl-audio { height: 40px; }
+.tl-aclip {
+  position: absolute; left: 0; top: 0; bottom: 0; min-width: 30px; border-radius: 8px; overflow: hidden;
+  background-size: 100% 100%; background-repeat: no-repeat; border: 1px solid var(--line-2);
+}
+.tl-music .tl-aclip { background-color: rgba(52, 211, 153, .16); }
+.tl-voice .tl-aclip { background-color: rgba(255, 184, 77, .16); }
+.tl-alabel { position: absolute; left: .45rem; top: .3rem; z-index: 2; font-size: .68rem; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); white-space: nowrap; pointer-events: none; }
+.tl-actrl { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; align-items: center; gap: .3rem; opacity: 0; transition: opacity .12s; }
+.tl-audio:hover .tl-actrl { opacity: 1; }
+.tl-avol { width: 76px; accent-color: var(--neon); cursor: pointer; }
+.tl-achip { background: rgba(0, 0, 0, .5); border: 1px solid var(--line-2); color: #cfcfd6; border-radius: 6px; font-size: .66rem; padding: .12rem .32rem; cursor: pointer; }
+.tl-achip.on { color: var(--neon); border-color: rgba(255, 214, 10, .5); }
+.tl-ax { background: rgba(0, 0, 0, .5); border: none; color: #ddd; border-radius: 6px; font-size: .85rem; line-height: 1; padding: .05rem .3rem; cursor: pointer; }
+.tl-ax:hover { color: #f43f5e; }
 
 /* ── Effort chip: floats just right of the attach panel ── */
 .effort-pick { position: absolute; top: 72px; left: 298px; z-index: 3; }
