@@ -403,7 +403,10 @@
             <div class="timeline-bar">
               <div class="timeline-tools">
                 <button class="tl-tool" data-act="sb-playall">▶ Play film</button>
+                <button class="tl-tool" data-act="sb-split" title="Split the selected clip at the playhead">✂ Split</button>
+                <button class="tl-tool" data-act="file" data-file="studioMusic" title="Add a background music track">♪ Music</button>
                 <button class="tl-tool tl-export" id="sbExportBtn" data-act="sb-export">Export</button>
+                <input type="file" id="studioMusic" accept="audio/*" hidden />
               </div>
               <div class="tl-right">
                 <span class="tl-settings" id="sbTotalDur"></span>
@@ -412,6 +415,7 @@
             <div class="timeline-track" id="timelineTrack">
               <div class="timeline-empty">Describe your film to isibi.ai — or import a video — and its shots land here.</div>
             </div>
+            <div class="timeline-music" id="sbMusicBar"></div>
           </div>
         </section>
       </div>

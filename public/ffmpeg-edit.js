@@ -376,7 +376,27 @@ async function sbFFExport(shots, opts = {}) {
         await ff.exec([...inputs, '-filter_complex', fc.join(';'), '-map', vlab, '-map', alab,
           ...SB_VENC, ...SB_AENC, '-movflags', '+faststart', 'out.mp4']);
       }
-      let data; try { data = await ff.readFile('out.mp4'); } catch (e) { data = null; }
+      // 5. Optional background music: mix it under the film's own audio, matched
+      //    to the film length. Pre-boost the film audio 2× to counter amix's
+      //    2-input normalization, so dialogue stays at full and the music sits
+      //    at `volume`. apad keeps the music covering the whole film (silence if
+      //    shorter); amix duration=first trims it if longer.
+      let outName = 'out.mp4';
+      if (opts.music && opts.music.src) {
+        try {
+          const mName = track('music.' + sbFFExt(opts.music.src, opts.music.mime));
+          await ff.writeFile(mName, await sbFFBytes(opts.music.src));
+          const vol = Math.max(0, Math.min(1, opts.music.volume != null ? opts.music.volume : 0.6));
+          const fc = '[0:a]volume=2.0[va];[1:a]volume=' + (2 * vol).toFixed(3) + ',apad[ma];' +
+                     '[va][ma]amix=inputs=2:duration=first[a]';
+          try { await ff.deleteFile('final.mp4'); } catch (e) {}
+          await ff.exec(['-i', 'out.mp4', '-i', mName, '-filter_complex', fc,
+            '-map', '0:v:0', '-map', '[a]', '-c:v', 'copy', ...SB_AENC, '-movflags', '+faststart', 'final.mp4']);
+          const fd = await ff.readFile('final.mp4').catch(() => null);
+          if (fd && fd.length) { outName = 'final.mp4'; track('final.mp4'); }
+        } catch (e) { logbuf.push('music mux failed, exporting without music: ' + e); }
+      }
+      let data; try { data = await ff.readFile(outName); } catch (e) { data = null; }
       if (!data || !data.length) throw new Error('export produced no output');
       if (opts.onProgress) opts.onProgress(1);
       return { blob: new Blob([data.buffer], { type: 'video/mp4' }), used: segs.length, total: shots.length, w: W, h: H };
@@ -384,6 +404,7 @@ async function sbFFExport(shots, opts = {}) {
       ff.off('log', onLog);
       for (const n of tmp) { try { await ff.deleteFile(n); } catch (e) {} }
       try { await ff.deleteFile('out.mp4'); } catch (e) {}
+      try { await ff.deleteFile('final.mp4'); } catch (e) {}
     }
   }, opts.onProgress);
 }

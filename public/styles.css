@@ -1409,6 +1409,23 @@
 .playhead { position: absolute; top: 0; bottom: 0; left: 18px; width: 2px; background: var(--neon); box-shadow: 0 0 8px rgba(255, 214, 10, .6); pointer-events: none; z-index: 5; }
 .playhead::before { content: ''; position: absolute; top: -1px; left: -4px; width: 10px; height: 6px; border-radius: 2px; background: var(--neon); box-shadow: 0 0 6px rgba(255, 214, 10, .7); }
 .timeline-track.drop-here { border-color: rgba(255, 214, 10, .7); border-style: solid; background-color: rgba(255, 214, 10, .06); }
+.timeline-track.has-shots { cursor: pointer; user-select: none; touch-action: none; }
+/* Trim handles on each timeline clip */
+.sb-trim { position: absolute; top: 0; bottom: 0; width: 12px; z-index: 3; cursor: ew-resize; opacity: 0; transition: opacity .12s; touch-action: none; }
+.sb-trim.l { left: 0; }
+.sb-trim.r { right: 0; }
+.sb-trim::before { content: ''; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 3px; height: 44%; border-radius: 2px; background: #fff; box-shadow: 0 0 4px rgba(0, 0, 0, .6); }
+.sb-trim.l { background: linear-gradient(90deg, rgba(255, 214, 10, .55), transparent); }
+.sb-trim.r { background: linear-gradient(270deg, rgba(255, 214, 10, .55), transparent); }
+.sb-block:hover .sb-trim, .sb-block.sel .sb-trim { opacity: 1; }
+/* Music track bar under the timeline */
+.timeline-music { display: none; align-items: center; gap: .6rem; padding: .35rem .9rem .5rem; }
+.timeline-music.has-music { display: flex; }
+.tm-ico { color: var(--neon); font-size: .95rem; }
+.tm-name { font-size: .82rem; color: var(--text); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tm-vol { flex: 1; max-width: 220px; accent-color: var(--neon); cursor: pointer; }
+.tm-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 1.05rem; line-height: 1; padding: 0 .2rem; }
+.tm-x:hover { color: #f43f5e; }
 
 @media (max-width: 900px) {
   .view-studio.active { flex-direction: column; }

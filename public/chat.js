@@ -4601,6 +4601,8 @@ const CLICK_ACTIONS = {
   'sb-next': () => sbNextShot(),
   'sb-fs': () => sbFullscreenPreview(),
   'sb-playall': () => sbPlayAll(),
+  'sb-split': () => sbSplitAtPlayhead(),
+  'sb-music-remove': () => sbRemoveMusic(),
   'sb-export': () => sbExport(),
 };
 const CHANGE_ACTIONS = {
