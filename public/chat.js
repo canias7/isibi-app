@@ -2480,24 +2480,20 @@ function openCredits(topupsOnly) {
       '</div>' +
       '<div class="up-grid">' + cards + '</div>' +
       '<div class="addon-eyebrow">Membership add-ons</div>' +
-      '<div class="addon-pair">' +
-        '<div class="addon-pair-hero">' +
-          '<img class="apb apb-l" src="/img/badge-orchestrator.webp" alt="isibi.ai orchestrator" loading="lazy" />' +
-          '<img class="apb apb-r" src="/img/badge-video-editor.webp" alt="isibi.ai video editor" loading="lazy" />' +
+      '<div class="addon-env-row">' +
+        '<div class="addon-env">' +
+          '<div class="addon-env-badge"><img class="apb" src="/img/badge-orchestrator.webp" alt="isibi.ai orchestrator" loading="lazy" /></div>' +
+          '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
+          '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
+          '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
+          '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
         '</div>' +
-        '<div class="addon-pair-cols">' +
-          '<div class="addon-col">' +
-            '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
-            '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
-            '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
-            '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
-          '</div>' +
-          '<div class="addon-col">' +
-            '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
-            '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
-            '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
-            '<button type="button" class="addon-badge-buy" data-addon="ve">Add →</button></div>' +
-          '</div>' +
+        '<div class="addon-env">' +
+          '<div class="addon-env-badge"><img class="apb" src="/img/badge-video-editor.webp" alt="isibi.ai video editor" loading="lazy" /></div>' +
+          '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
+          '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
+          '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
+          '<button type="button" class="addon-badge-buy" data-addon="ve">Add →</button></div>' +
         '</div>' +
       '</div>' +
       '<div class="cp-note up-note" id="cpNote"></div>' +
