@@ -1652,6 +1652,9 @@
 .tl-inner { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; min-height: 100%; box-sizing: border-box; }
 .tl-lane { position: relative; width: 100%; flex: none; }
 .tl-video { height: 80px; }
+.tl-ruler { position: relative; height: 15px; flex: none; margin-bottom: 1px; }
+.tl-tick { position: absolute; top: 0; font-size: .58rem; color: var(--muted); line-height: 15px; white-space: nowrap; border-left: 1px solid var(--line-2); padding-left: 3px; }
+.tl-tick:first-child { border-left: none; padding-left: 0; }
 /* iMovie-style per-clip label bar: amber duration + name over a soft top scrim. */
 .sb-cliplabel {
   position: absolute; z-index: 3; top: 0; left: 0; right: 0;
