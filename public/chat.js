@@ -4593,23 +4593,7 @@ loadMemory();
 renderChatList();
 renderThread();
 
-// Hero ambience drifts gently toward the cursor (rAF-throttled).
-(function initHeroParallax() {
-  const amb = document.getElementById('hhAmb');
-  const area = document.querySelector('.view-home .thread');
-  if (!amb || !area) return;
-  let raf = 0;
-  area.addEventListener('mousemove', (e) => {
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
-      const r = area.getBoundingClientRect();
-      const dx = (e.clientX - r.left) / r.width - .5;
-      const dy = (e.clientY - r.top) / r.height - .5;
-      amb.style.transform = 'translate(' + (dx * 28).toFixed(1) + 'px, ' + (dy * 20).toFixed(1) + 'px)';
-    });
-  });
-})();
+// Hero ambience stays static (no cursor drift) — the greeting screen holds still.
 
 initAuthGate();
 
