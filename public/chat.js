@@ -3604,6 +3604,7 @@ async function doSignOut(everywhere) {
     [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
+  if (typeof sbMediaClear === 'function') { try { await sbMediaClear(); } catch {} } // drop stored imports
   if (everywhere) await Auth.signOutEverywhere();
   else await Auth.signOut();
   location.reload();
@@ -3753,6 +3754,7 @@ function renderSettings() {
         .filter((k) => k.startsWith('zephyr_'))
         .forEach((k) => localStorage.removeItem(k));
     } catch {}
+    if (typeof sbMediaClear === 'function') { try { await sbMediaClear(); } catch {} } // stored imports too
     location.reload();
   };
 }

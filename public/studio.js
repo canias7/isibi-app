@@ -18,6 +18,7 @@ function sbResetForAccountSwitch() {
   sb = { active: null, projects: [] };
   sbSelected = null; sbPlaying = null; sbBusy = false; sbSegment = null;
   if (typeof sbPreviewClear === 'function') sbPreviewClear(); // wipe the old user's video from the stage
+  if (typeof sbMediaClear === 'function') sbMediaClear();      // drop the old user's stored imports
   sbLoad();   // storage was just cleared → creates a fresh default project
   sbRender();
 }
@@ -33,8 +34,13 @@ function sbLoad() {
   if (!sb.projects.some((p) => p.id === sb.active)) sb.active = sb.projects[0].id;
   for (const p of sb.projects) {
     for (const s of p.shots) {
-      // Imported shots reference blob: URLs that die with the page — mark them.
-      if (s.url && s.url.startsWith('blob:')) { s.url = null; if (s.status === 'ready') s.status = 'missing'; }
+      // Imported shots reference blob: URLs that die with the page. Persisted
+      // ones (stored in IndexedDB) get rehydrated after load → 'restoring';
+      // only truly-gone clips become 'missing'.
+      if (s.url && s.url.startsWith('blob:')) {
+        s.url = null;
+        if (s.status === 'ready') s.status = (s.src === 'import' && s.stored) ? 'restoring' : 'missing';
+      }
       // A shot left mid-render when the tab closed (Studio has no boot-resume)
       // would be a permanent ⏳ that no button restarts — reset it so it can run
       // again (or shows its result if the URL survived).
@@ -85,6 +91,75 @@ function sbShotDur(s) {
   return s.dur || 0;
 }
 
+// ── Persistent import store (IndexedDB) ─────────────────────────────────────
+// Imported clips live as blob: URLs that die on reload. To make an import "just
+// stay there", we also stash the actual file blob in IndexedDB keyed by shot id
+// and rehydrate a fresh object URL on load. localStorage (the project JSON) is
+// too small for video; IndexedDB holds blobs with a much larger quota.
+const SB_DB = 'zephyr_studio_media', SB_STORE = 'clips';
+function sbIDB() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) return reject(new Error('no indexedDB'));
+    const req = indexedDB.open(SB_DB, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(SB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function sbMediaPut(id, blob) {
+  const db = await sbIDB();
+  await new Promise((ok, err) => {
+    const tx = db.transaction(SB_STORE, 'readwrite');
+    tx.objectStore(SB_STORE).put(blob, id);
+    tx.oncomplete = ok; tx.onerror = () => err(tx.error); tx.onabort = () => err(tx.error);
+  });
+}
+async function sbMediaGet(id) {
+  try {
+    const db = await sbIDB();
+    return await new Promise((ok, err) => {
+      const tx = db.transaction(SB_STORE, 'readonly');
+      const r = tx.objectStore(SB_STORE).get(id);
+      r.onsuccess = () => ok(r.result || null); r.onerror = () => err(r.error);
+    });
+  } catch (e) { return null; }
+}
+async function sbMediaDel(id) {
+  try {
+    const db = await sbIDB();
+    await new Promise((ok) => {
+      const tx = db.transaction(SB_STORE, 'readwrite');
+      tx.objectStore(SB_STORE).delete(id);
+      tx.oncomplete = ok; tx.onerror = ok; tx.onabort = ok;
+    });
+  } catch (e) {}
+}
+async function sbMediaClear() {
+  try {
+    const db = await sbIDB();
+    await new Promise((ok) => {
+      const tx = db.transaction(SB_STORE, 'readwrite');
+      tx.objectStore(SB_STORE).clear();
+      tx.oncomplete = ok; tx.onerror = ok; tx.onabort = ok;
+    });
+  } catch (e) {}
+}
+// Rebuild object URLs for persisted imports after a reload, then re-render.
+async function sbRehydrateImports() {
+  let changed = false;
+  for (const p of sb.projects) {
+    for (const s of p.shots) {
+      if (s.src === 'import' && s.stored && !s.url) {
+        const blob = await sbMediaGet(s.id);
+        if (blob) { s.url = URL.createObjectURL(blob); s.status = 'ready'; }
+        else { s.status = 'missing'; }
+        changed = true;
+      }
+    }
+  }
+  if (changed) { sbSave(); sbRender(); }
+}
+
 // ── Rendering ──────────────────────────────────────────────────────────────
 function sbRender() {
   const proj = sbProject();
@@ -125,7 +200,8 @@ function sbRender() {
         '<span class="sb-meta"><b></b><small></small></span>' +
         '<span class="sb-dot" title="' + s.status + '"></span>' +
         '<button class="sb-x" title="Remove shot">×</button>';
-      card.querySelector('b').textContent = s.title || 'Shot ' + (i + 1);
+      // Imported clips carry no title label — the user just wants the frame.
+      card.querySelector('b').textContent = s.src === 'import' ? '' : (s.title || 'Shot ' + (i + 1));
       card.querySelector('small').textContent =
         sbFmt(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status);
       card.onclick = (e) => { if (e.target.className !== 'sb-x') sbSelect(s.id); };
@@ -196,7 +272,10 @@ function sbMoveShot(fromId, toId) {
 function sbRemoveShot(id) {
   const shots = sbProject().shots;
   const i = shots.findIndex((s) => s.id === id);
-  if (i >= 0) shots.splice(i, 1);
+  if (i >= 0) {
+    if (shots[i].src === 'import' && shots[i].stored) sbMediaDel(id); // free the stored file
+    shots.splice(i, 1);
+  }
   if (sbSelected === id) { sbSelected = null; sbPreviewClear(); }
   sbSave(); sbRender();
 }
@@ -294,6 +373,7 @@ function sbSelect(id) {
   const s = sbShot(id);
   sbRender();
   if (s && s.url) sbPlayShot(s);
+  else if (s && s.status === 'restoring') sbStudioNote('Restoring your imported clip — one sec…');
   else if (s) sbStudioNote(s.status === 'draft'
     ? 'Shot ' + (sbProject().shots.indexOf(s) + 1) + ' isn’t generated yet — say "generate shot ' + (sbProject().shots.indexOf(s) + 1) + '" and I’ll run it.'
     : 'That shot’s clip is gone (imported clips don’t survive a reload) — re-import the video to bring it back.');
@@ -316,31 +396,28 @@ function sbPlayAll() {
 // Sample the video on a small canvas and cut where consecutive frames differ
 // sharply. Virtual shots: same blob URL, in/out ranges. All on-device.
 async function sbImportFile(f) {
+  // Just drop the clip in as one shot — no scene detection, no director, no
+  // chat chatter. The user imported it because they want it sitting here.
   const url = URL.createObjectURL(f);
-  sbStudioNote('Reading “' + f.name + '” and looking for cuts…');
-  try {
-    const shots = await sbDetectShots(url, (pct) => sbStudioProgress('Scanning for cuts… ' + pct + '%'));
-    const proj = sbProject();
-    const base = proj.shots.length;
-    shots.forEach((sh, i) => {
-      proj.shots.push({
-        id: sbUid('s'),
-        title: f.name.replace(/\.[^.]+$/, '') + ' · ' + (i + 1),
-        prompt: '',
-        status: 'ready',
-        src: 'import',
-        url, in: sh.in, out: sh.out, dur: sh.out - sh.in,
-        thumb: sh.thumb,
-      });
-    });
-    sbSave(); sbRender();
-    sbStudioNote(shots.length > 1
-      ? 'Found ' + shots.length + ' shots in “' + f.name + '” — they’re on your storyboard (shots ' + (base + 1) + '–' + (base + shots.length) + '). Note: imported clips live in this tab; re-import after a reload.'
-      : 'No hard cuts found — imported “' + f.name + '” as one shot. Ask me to split it if you want.');
-  } catch (e) {
-    console.error('shot detection failed:', e);
-    sbStudioNote('I couldn’t read that video — try an MP4/WebM the browser can play.');
-  }
+  const proj = sbProject();
+  const shot = {
+    id: sbUid('s'),
+    title: '',            // no filename label on imported cards
+    prompt: '',
+    status: 'ready',
+    src: 'import',
+    url, in: null, out: null, dur: 0,
+    thumb: null,
+    stored: false,        // flipped true once the blob lands in IndexedDB
+  };
+  proj.shots.push(shot);
+  sbSave(); sbRender();
+  // Persist the actual file so the clip survives a reload ("just leave it there").
+  try { await sbMediaPut(shot.id, f); shot.stored = true; }
+  catch (e) { console.warn('could not persist import (kept for this tab only):', e); }
+  // Fill in the real duration + a crisp poster frame from the file itself.
+  try { await sbThumb(shot); } catch (e) { console.error('poster grab failed:', e); }
+  sbSave(); sbRender();
 }
 
 function sbGrabFrame(v, w) {
@@ -626,7 +703,7 @@ async function sbThumb(s) {
   await sbMeta(v);
   s.dur = s.dur || v.duration;
   await sbSeek(v, Math.min(0.1, v.duration / 2));
-  s.thumb = sbGrabFrame(v, 160).toDataURL('image/jpeg', 0.6);
+  s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
 }
 
 // Trigger a browser download for a produced Blob, named after the project.
@@ -776,6 +853,12 @@ function sbStudioNote(text) {
   sbProgressEl = null;
   const box = document.getElementById('studioMessages');
   if (!box) return;
+  // Don't stack the same message over and over (e.g. clicking a missing shot).
+  const last = box.lastElementChild;
+  if (last && last.classList.contains('agent') && last.textContent === text) {
+    box.scrollTop = box.scrollHeight;
+    return;
+  }
   const div = document.createElement('div');
   div.className = 'msg agent';
   div.textContent = text;
@@ -909,5 +992,6 @@ function initStudio() {
   }
   sbLoad();
   sbRender();
+  sbRehydrateImports();   // bring persisted imported clips back after a reload
 }
 initStudio();
