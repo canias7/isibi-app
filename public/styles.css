@@ -1753,12 +1753,25 @@
 .pt-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pt-prev-ph::after {
   content: ''; position: absolute; inset: 0;
-  background: radial-gradient(70% 60% at 28% 20%, rgba(255, 255, 255, .28), transparent 68%);
+  background: radial-gradient(75% 65% at 30% 18%, rgba(255, 255, 255, .34), transparent 66%);
 }
-.pt-ph0 { background: linear-gradient(135deg, #ff9ec4 0%, #b57cf0 50%, #ffb26b 100%); }
-.pt-ph1 { background: linear-gradient(135deg, #ffa8c9 0%, #c99cf2 46%, #ffc78f 100%); }
-.pt-ph2 { background: linear-gradient(135deg, #ff8fb8 0%, #b06ff0 52%, #ff936b 100%); }
-.pt-ph3 { background: linear-gradient(135deg, #ffa0c2 0%, #a86cf0 50%, #ffb56b 100%); }
+/* Soft milky pastel mesh — three light blobs (rose · periwinkle · apricot). */
+.pt-ph0 { background:
+  radial-gradient(100% 100% at 12% 10%, #ffc0da, transparent 55%),
+  radial-gradient(110% 110% at 88% 28%, #c4b6f2, transparent 58%),
+  radial-gradient(120% 120% at 75% 92%, #ffd3a2, transparent 55%), #d7c3ec; }
+.pt-ph1 { background:
+  radial-gradient(100% 100% at 15% 12%, #ffcfe2, transparent 58%),
+  radial-gradient(110% 110% at 85% 25%, #d3c6f5, transparent 60%),
+  radial-gradient(120% 120% at 72% 90%, #ffdcb6, transparent 58%), #e2d3f0; }
+.pt-ph2 { background:
+  radial-gradient(100% 100% at 12% 12%, #ffb6d4, transparent 54%),
+  radial-gradient(110% 110% at 86% 30%, #bfa9f0, transparent 56%),
+  radial-gradient(120% 120% at 74% 90%, #ffc79a, transparent 55%), #d6bce9; }
+.pt-ph3 { background:
+  radial-gradient(100% 100% at 14% 10%, #ffc2dd, transparent 55%),
+  radial-gradient(110% 110% at 84% 26%, #c8b4f3, transparent 58%),
+  radial-gradient(120% 120% at 76% 92%, #ffd0a0, transparent 55%), #dcc4ee; }
 .pt-foot { display: flex; align-items: center; gap: .6rem; padding: .75rem .55rem .4rem; }
 .pt-ico { flex: 0 0 auto; display: grid; place-items: center; color: var(--neon); }
 .pt-ico svg { width: 20px; height: 20px; }
@@ -1769,7 +1782,7 @@
   font-size: .78rem; color: var(--muted); overflow: hidden; line-height: 1.35; margin-top: .1rem;
 }
 .pt-try {
-  flex: 0 0 auto; align-self: flex-start; background: rgba(255, 255, 255, .04);
+  flex: 0 0 auto; background: rgba(255, 255, 255, .04);
   border: 1px solid var(--line-2); color: var(--text); font-weight: 700; font-size: .82rem;
   padding: .4rem .95rem; border-radius: 10px; transition: background .13s ease, color .13s ease, border-color .13s ease;
 }
