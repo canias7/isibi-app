@@ -1732,14 +1732,23 @@ function buildMedia(kind, url, prompt) {
 // the gallery bucket too — RLS only lets users delete their own files.
 async function deleteMedia(el, url) {
   if (!confirm('Delete this from your chat and gallery?')) return;
+  // Delete the stored file FIRST — only clear it from the chat/UI once we know
+  // it's actually gone. Otherwise a failed storage delete leaves the file in the
+  // bucket (still counting against the storage cap) while the UI says it's gone.
+  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+  if (m && window.Auth) {
+    try { await Auth.storageDelete(m[1]); }
+    catch {
+      alert('Couldn’t remove this from your gallery just now — it’s still there. Check your connection and try again.');
+      return;
+    }
+  }
   el.remove();
   const chat = activeChat();
   if (chat) {
-    const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
+    const i = chat.msgs.findIndex((mm) => mm.t === 'media' && mm.url === url);
     if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
   }
-  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-  if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
 }
 
 async function downloadMedia(url, kind) {
@@ -2745,7 +2754,23 @@ async function generateMedia(text, opts = {}) {
       return;
     }
     const job = await res.json().catch(() => ({})); // a non-JSON error body must not throw past the status checks
-    if (!alive()) return; // cancelled while submitting
+    if (!alive()) {
+      // Cancelled while we were still submitting. If fal accepted the job the
+      // Worker has already charged us (charge-after-fal-accepts) and the
+      // status_url only reaches us now — so cancel the job and reclaim the
+      // credits here, or the render is paid for but orphaned with no refund.
+      if (job && job.status_url) {
+        try {
+          await apiFetch('/api/cancel', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: job.status_url.replace(/\/status\b.*$/, '/cancel') }),
+          });
+        } catch {}
+        const refunded = await requestRefund(job.status_url); // re-checks fal status; only refunds a job that never ran
+        if (refunded > 0) deliverAgent(origin, '↩ ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.');
+      }
+      return;
+    }
     if (res.status === 402) { // out of credits — nothing was spent
       endGen(origin);
       deliverAgent(origin, '⚡ Not enough credits — this run needs ' + (job.cost ? job.cost + ' credits' : 'more than you have') + '. Tap your ✦ balance up top to get more.');

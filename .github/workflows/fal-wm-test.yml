@@ -6,6 +6,8 @@ on:
   push:
     branches: [claude/chat-session-q1hla6]
     paths: ['.github/scripts/fal-wm-test.mjs', '.github/workflows/fal-wm-test.yml']
+permissions:
+  contents: read
 jobs:
   wm-test:
     runs-on: ubuntu-latest

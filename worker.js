@@ -302,9 +302,13 @@ async function readCredits(authHeader) {
 
 // Per-user daily quota, enforced by the Postgres side (use_quota is
 // SECURITY DEFINER over a client-locked table). Fails open if the quota
-// service itself is unreachable so an outage can't take the feature down.
+// service itself is unreachable so an outage can't take the feature down —
+// EXCEPT the 'research' kind, which spends real money per call and so fails
+// CLOSED (an outage blocks it and the frontend degrades to no web facts,
+// rather than leaving an uncapped money-spender wide open).
 async function useQuota(request, kind, limit) {
   const token = (request.headers.get("Authorization") || "").slice(7).trim();
+  const onError = kind !== "research"; // fail open, except research → fail closed
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_quota`, {
       method: "POST",
@@ -316,10 +320,10 @@ async function useQuota(request, kind, limit) {
       body: JSON.stringify({ p_kind: kind, p_limit: limit }),
       signal: AbortSignal.timeout(10000),
     });
-    if (!r.ok) return true;
+    if (!r.ok) return onError;
     return (await r.json()) === true;
   } catch {
-    return true;
+    return onError;
   }
 }
 const QUOTA_EXCEEDED = () => Response.json({ error: "daily limit reached" }, { status: 429 });
@@ -649,6 +653,41 @@ function b64FromBuffer(ab) {
 function tooLargeBody(request, maxBytes) {
   const len = Number(request.headers.get("content-length") || 0);
   return len > maxBytes ? Response.json({ error: "payload too large" }, { status: 413 }) : null;
+}
+
+// Read a response body up to maxBytes, stopping the moment the ceiling is crossed
+// so a hostile or oversized upstream can't OOM the isolate — r.arrayBuffer() would
+// buffer the entire body first. Returns a Uint8Array (at most maxBytes long).
+async function readCapped(resp, maxBytes) {
+  if (!resp || !resp.body || !resp.body.getReader) {
+    const ab = await resp.arrayBuffer();
+    return new Uint8Array(ab).subarray(0, maxBytes);
+  }
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value && value.length) {
+        chunks.push(value);
+        total += value.length;
+        if (total >= maxBytes) break; // ceiling hit — stop pulling more bytes
+      }
+    }
+  } finally {
+    try { await reader.cancel(); } catch {}
+  }
+  const out = new Uint8Array(Math.min(total, maxBytes));
+  let off = 0;
+  for (const c of chunks) {
+    if (off >= out.length) break;
+    const take = Math.min(c.length, out.length - off);
+    out.set(c.subarray(0, take), off);
+    off += take;
+  }
+  return out;
 }
 
 // ── Free-tier watermark, burned server-side ────────────────────────────────
@@ -1242,15 +1281,21 @@ async function handleRequest(request, env, ctx) {
       if (!env.STRIPE_WEBHOOK_SECRET || !env.CREDITS_MINT_SECRET || !env.SUPABASE_SERVICE_KEY) {
         return Response.json({ error: "not configured" }, { status: 501 });
       }
+      const tooBig = tooLargeBody(request, 262_144); // public+unauth endpoint — cap before buffering the body twice for HMAC
+      if (tooBig) return tooBig;
       const raw = await request.text();
-      // Stripe-Signature: t=<unix>,v1=<hmac-sha256 hex of "<t>.<raw body>">
-      const parts = {};
+      // Stripe-Signature: t=<unix>,v1=<hmac>,v1=<hmac>,... During a webhook-secret
+      // rotation Stripe signs with EVERY active secret, so collect all v1 values and
+      // accept if ANY matches — keeping only the last would 400 a legit paid invoice.
+      let t = 0; const v1s = [];
       for (const p of (request.headers.get("Stripe-Signature") || "").split(",")) {
         const i = p.indexOf("=");
-        if (i > 0) parts[p.slice(0, i).trim()] = p.slice(i + 1).trim();
+        if (i <= 0) continue;
+        const k = p.slice(0, i).trim(), v = p.slice(i + 1).trim();
+        if (k === "t") t = Number(v);
+        else if (k === "v1") v1s.push(v);
       }
-      const t = Number(parts.t);
-      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !parts.v1) {
+      if (!t || Math.abs(Date.now() / 1000 - t) > 300 || !v1s.length) {
         return Response.json({ error: "bad signature" }, { status: 400 });
       }
       const enc = new TextEncoder();
@@ -1260,11 +1305,15 @@ async function handleRequest(request, env, ctx) {
       );
       const mac = await crypto.subtle.sign("HMAC", key, enc.encode(`${t}.${raw}`));
       const hex = [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
-      // Constant-time compare so signature verification can't be timing-probed.
-      const sig = String(parts.v1 || "");
-      let mismatch = hex.length ^ sig.length;
-      for (let i = 0; i < hex.length; i++) mismatch |= hex.charCodeAt(i) ^ sig.charCodeAt(i);
-      if (mismatch !== 0) return Response.json({ error: "bad signature" }, { status: 400 });
+      // Constant-time compare against each candidate signature (can't be timing-probed).
+      const ctEq = (a, b) => {
+        let mismatch = a.length ^ b.length;
+        for (let i = 0; i < a.length; i++) mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+        return mismatch === 0;
+      };
+      if (!v1s.some((sig) => ctEq(hex, String(sig)))) {
+        return Response.json({ error: "bad signature" }, { status: 400 });
+      }
 
       let event;
       try { event = JSON.parse(raw); } catch {
@@ -2175,7 +2224,23 @@ Context: ${ctxLine}`
       // streaming path we trust the upstream Content-Length. Reject when the new
       // object would push the user past their GB cap.
       if (store && store.cap > 0) {
-        const newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
+        let newSize = bytes ? bytes.length : (Number(media && media.headers.get("content-length")) || 0);
+        // Streaming save whose upstream sent no Content-Length (chunked): the
+        // size reads as 0 and would skip the cap entirely. Measure it by
+        // buffering up to the remaining space (bounded by a hard ceiling so a
+        // length-less body can't OOM the isolate), then store the measured bytes
+        // instead of the already-consumed stream.
+        if (!bytes && media && newSize <= 0) {
+          const HARD_MAX = 314_572_800; // 300MB absolute per-file ceiling
+          const remaining = store.cap - store.used;
+          const buffered = await readCapped(media, Math.min(remaining, HARD_MAX) + 1);
+          media = null;
+          if (buffered.length > remaining || buffered.length > HARD_MAX) {
+            return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
+          }
+          bytes = buffered;
+          newSize = buffered.length;
+        }
         if (store.used + newSize > store.cap) {
           return Response.json({ error: "gallery storage full", reason: "full" }, { status: 402 });
         }
@@ -2254,8 +2319,8 @@ Context: ${ctxLine}`
           signal: AbortSignal.timeout(8000),
         });
         if (!r || !r.ok) return Response.json({ error: "fetch failed" }, { status: 502 });
-        const buf = await r.arrayBuffer();
-        html = new TextDecoder("utf-8").decode(new Uint8Array(buf).subarray(0, 1_500_000));
+        const buf = await readCapped(r, 1_500_000); // stream + hard ceiling; arrayBuffer() would buffer a hostile multi-GB body first
+        html = new TextDecoder("utf-8").decode(buf);
       } catch {
         return Response.json({ error: "fetch failed" }, { status: 502 });
       }
@@ -2269,8 +2334,8 @@ Context: ${ctxLine}`
           const ir = await safeFetch(info.image, { signal: AbortSignal.timeout(8000) });
           const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
           if (ir && ir.ok && ict.startsWith("image/")) {
-            const ab = await ir.arrayBuffer();
-            if (ab.byteLength && ab.byteLength <= 2_000_000) imageData = "data:" + ict + ";base64," + b64FromBuffer(ab);
+            const bytes = await readCapped(ir, 2_000_001); // one over the cap so an oversized image is rejected, not truncated into a corrupt data URI
+            if (bytes.length && bytes.length <= 2_000_000) imageData = "data:" + ict + ";base64," + b64FromBuffer(bytes);
           }
         } catch {}
       }
