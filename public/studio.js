@@ -103,9 +103,12 @@ function sbFmt(s) {
   const m = Math.floor(s / 60), ss = Math.floor(s % 60);
   return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
 }
+// Effective (timeline) length. A per-clip speed change scales it so the clip's
+// width, the film total, the playhead and the export duration all agree.
 function sbShotDur(s) {
-  if (s.out != null && s.in != null) return Math.max(0, s.out - s.in);
-  return s.dur || 0;
+  const raw = (s.out != null && s.in != null) ? Math.max(0, s.out - s.in) : (s.dur || 0);
+  const sp = s.speed && s.speed > 0 ? s.speed : 1;
+  return raw / sp;
 }
 
 // ── Persistent import store (IndexedDB) ─────────────────────────────────────
@@ -383,6 +386,7 @@ function sbRender() {
   sbVoiceLoad();
   sbRenderStyleControls();
   sbRenderBrowser();
+  sbRenderAdjust();
 }
 
 // One audio lane (music or voice) drawn as a waveform clip from the film start,
@@ -1170,7 +1174,13 @@ function sbPlayShot(s, next) {
   if (!v || !s.url) return;
   const start = s.in || 0;
   sbSegment = { out: s.out != null ? s.out : null, next: next || null };
-  const go = () => { sbNoteSrcDur(s, v); v.volume = s.muted ? 0 : 1; v.currentTime = start; v.play().catch(() => {}); };
+  const go = () => {
+    sbNoteSrcDur(s, v);
+    v.style.filter = sbFilterStr(s);
+    v.playbackRate = s.speed && s.speed > 0 ? s.speed : 1;
+    v.volume = sbClipVol(s);
+    v.currentTime = start; v.play().catch(() => {});
+  };
   if (v.dataset.src !== s.url) {
     v.dataset.src = s.url;
     v.src = s.url;
@@ -1199,23 +1209,102 @@ function sbFullscreenPreview() {
   const v = document.querySelector('#previewStage video');
   if (v && v.requestFullscreen) v.requestFullscreen().catch(() => {});
 }
-function sbToggleMute() {
+// ── Per-clip adjustments: filters · speed · volume (the preview adjust bar) ──
+const SB_FILTERS = [
+  { k: 'none', label: 'Original' }, { k: 'bw', label: 'B&W' }, { k: 'noir', label: 'Noir' },
+  { k: 'sepia', label: 'Sepia' }, { k: 'vintage', label: 'Vintage' },
+  { k: 'warm', label: 'Warm' }, { k: 'cool', label: 'Cool' }, { k: 'vivid', label: 'Vivid' },
+];
+// One string, valid for both CSS `filter` and canvas `ctx.filter`.
+const SB_FILTER_CSS = {
+  bw: 'grayscale(1)',
+  noir: 'grayscale(1) contrast(1.45) brightness(.92)',
+  sepia: 'sepia(.7)',
+  vintage: 'sepia(.4) contrast(.92) brightness(1.05) saturate(1.25)',
+  warm: 'sepia(.32) saturate(1.35) hue-rotate(-12deg)',
+  cool: 'saturate(1.12) hue-rotate(16deg) brightness(1.03)',
+  vivid: 'saturate(1.65) contrast(1.08)',
+};
+const SB_SPEED_OPTS = [0.25, 0.5, 1, 1.5, 2, 4];
+// Named look + color-correction combined into one string, valid for CSS and canvas.
+function sbFilterStr(s) {
+  const parts = [];
+  if (s && s.filter && SB_FILTER_CSS[s.filter]) parts.push(SB_FILTER_CSS[s.filter]);
+  const a = s && s.adj;
+  if (a) {
+    if (a.br != null && a.br !== 1) parts.push('brightness(' + a.br + ')');
+    if (a.con != null && a.con !== 1) parts.push('contrast(' + a.con + ')');
+    if (a.sat != null && a.sat !== 1) parts.push('saturate(' + a.sat + ')');
+  }
+  return parts.join(' ') || 'none';
+}
+function sbClipVol(s) { return s.muted ? 0 : (s.volume != null ? s.volume : 1); }
+function sbAdjOn(a) { return !!(a && ((a.br != null && a.br !== 1) || (a.con != null && a.con !== 1) || (a.sat != null && a.sat !== 1))); }
+function sbClipHasAdjust(s) {
+  return !!(s && ((s.filter && s.filter !== 'none') || (s.speed && s.speed !== 1) || (s.volume != null && s.volume !== 1) || sbAdjOn(s.adj)));
+}
+// Push the selected clip's look / speed / volume onto the live preview <video>.
+function sbApplyPreview(s) {
+  if (!s || sbSelected !== s.id) return;
   const v = document.querySelector('#previewStage video');
   if (!v) return;
-  v.muted = !v.muted;
-  const b = document.getElementById('sbVolBtn');
-  if (b) b.textContent = v.muted ? '🔇' : '🔊';
+  v.style.filter = sbFilterStr(s);
+  v.playbackRate = s.speed && s.speed > 0 ? s.speed : 1;
+  v.volume = sbClipVol(s);
 }
-const SB_SPEEDS = [1, 1.5, 2, 0.5];
-let sbSpeedIdx = 0;
-function sbCycleSpeed() {
-  sbSpeedIdx = (sbSpeedIdx + 1) % SB_SPEEDS.length;
-  const r = SB_SPEEDS[sbSpeedIdx];
-  const v = document.querySelector('#previewStage video');
-  if (v) v.playbackRate = r;
-  const b = document.getElementById('sbSpeedBtn');
-  if (b) { b.textContent = r + '×'; b.title = 'Speed: ' + r + '×'; }
+let sbAdjTool = null; // which adjust popover is open: filter | speed | volume
+function sbToggleAdjust(tool) {
+  const s = sbShot(sbSelected);
+  if (!s || s.src === 'title') { sbStudioNote('Select a video clip on the timeline first, then adjust it.'); return; }
+  sbAdjTool = (sbAdjTool === tool) ? null : tool;
+  sbRenderAdjust();
 }
+function sbRenderAdjust() {
+  const pop = document.getElementById('sbAdjustPanel');
+  const s = sbShot(sbSelected);
+  document.querySelectorAll('.preview-toolbar [data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === sbAdjTool));
+  if (!pop) return;
+  if (!sbAdjTool || !s || s.src === 'title') { pop.hidden = true; pop.innerHTML = ''; return; }
+  pop.hidden = false;
+  let html = '';
+  if (sbAdjTool === 'filter') {
+    html = '<div class="adj-title">Filter</div><div class="adj-filters">' +
+      SB_FILTERS.map((f) => '<button class="adj-f' + ((s.filter || 'none') === f.k ? ' on' : '') + '" data-f="' + f.k + '">' +
+        '<span class="adj-fp" style="filter:' + (SB_FILTER_CSS[f.k] || 'none') + '"></span><span>' + f.label + '</span></button>').join('') + '</div>';
+  } else if (sbAdjTool === 'speed') {
+    html = '<div class="adj-title">Speed</div><div class="adj-speeds">' +
+      SB_SPEED_OPTS.map((sp) => '<button class="adj-s' + ((s.speed || 1) === sp ? ' on' : '') + '" data-s="' + sp + '">' + sp + '×</button>').join('') + '</div>';
+  } else if (sbAdjTool === 'adjust') {
+    const a = s.adj || {};
+    const row = (key, label, val) => {
+      const v = Math.round((val != null ? val : 1) * 100);
+      return '<div class="adj-row"><label>' + label + ' · <b>' + v + '%</b></label>' +
+        '<input type="range" class="adj-r" data-adj="' + key + '" min="50" max="150" value="' + v + '" /></div>';
+    };
+    html = '<div class="adj-title">Color <button class="adj-reset" data-reset="1">Reset</button></div>' +
+      row('br', 'Brightness', a.br) + row('con', 'Contrast', a.con) + row('sat', 'Saturation', a.sat);
+  } else if (sbAdjTool === 'volume') {
+    const vol = Math.round(sbClipVol(s) * 100);
+    html = '<div class="adj-title">Volume · <b id="adjVolVal">' + vol + '%</b></div><input type="range" class="adj-vol" min="0" max="100" value="' + vol + '" />';
+  }
+  pop.innerHTML = html;
+  pop.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => sbSetClipFilter(b.dataset.f); });
+  pop.querySelectorAll('[data-s]').forEach((b) => { b.onclick = () => sbSetClipSpeed(parseFloat(b.dataset.s)); });
+  pop.querySelectorAll('[data-adj]').forEach((r) => { r.oninput = () => sbSetClipAdjust(r.dataset.adj, parseInt(r.value, 10) / 100, r); });
+  const rst = pop.querySelector('[data-reset]');
+  if (rst) rst.onclick = () => { const sh = sbShot(sbSelected); if (sh) { sh.adj = null; sbSave(); sbApplyPreview(sh); sbRenderAdjust(); } };
+  const vr = pop.querySelector('.adj-vol');
+  if (vr) vr.oninput = () => { const val = parseInt(vr.value, 10); const lab = document.getElementById('adjVolVal'); if (lab) lab.textContent = val + '%'; sbSetClipVolume(val / 100); };
+}
+function sbSetClipAdjust(key, val, rangeEl) {
+  const s = sbShot(sbSelected); if (!s) return;
+  s.adj = s.adj || {}; s.adj[key] = val;
+  sbSave(); sbApplyPreview(s);
+  if (rangeEl) { const lab = rangeEl.parentElement.querySelector('b'); if (lab) lab.textContent = Math.round(val * 100) + '%'; }
+}
+function sbSetClipFilter(k) { const s = sbShot(sbSelected); if (!s) return; s.filter = k === 'none' ? null : k; sbSave(); sbApplyPreview(s); sbRenderAdjust(); }
+function sbSetClipSpeed(sp) { const s = sbShot(sbSelected); if (!s) return; s.speed = sp === 1 ? null : sp; sbSave(); sbApplyPreview(s); sbRender(); }
+function sbSetClipVolume(vol) { const s = sbShot(sbSelected); if (!s) return; s.volume = vol; if (vol > 0) s.muted = false; sbSave(); sbApplyPreview(s); }
 
 function sbSelect(id) {
   sbSelected = id;
@@ -1611,8 +1700,12 @@ async function sbExport(deliver) {
   const proj0 = sbProject();
   const hasTitle = shots.some((s) => s.src === 'title');
   const hasVoice = !!(proj0.voice && proj0.voice.url);
+  // Per-clip filters/speed/volume are painted by the realtime canvas exporter
+  // (ffmpeg stream-copy/xfade doesn't apply them), so any adjusted clip routes
+  // there for a correct render.
+  const hasAdjust = shots.some(sbClipHasAdjust);
   try {
-    if (!hasTitle && !hasVoice && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+    if (!hasTitle && !hasVoice && !hasAdjust && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
       try {
         const proj = sbProject();
         const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0, muted: !!s.muted }));
@@ -1893,19 +1986,24 @@ function sbExportShot(s, o) {
     const budget = (shotDur + 20) * 1000;
     const guard = setTimeout(() => finish(reject, new Error('shot timed out')), Math.min(budget, 180000));
     v.onerror = () => finish(reject, new Error('could not read a shot (CORS or codec)'));
+    const sp = s.speed && s.speed > 0 ? s.speed : 1;
     v.onloadedmetadata = () => {
-      // A muted clip is drawn but not routed to the recorded audio.
-      try { node = ac.createMediaElementSource(v); if (!s.muted) node.connect(dest); } catch {}
+      // Route audio through a gain node for the per-clip volume (muted → 0).
+      try { node = ac.createMediaElementSource(v); const g = ac.createGain(); g.gain.value = sbClipVol(s); node.connect(g).connect(dest); } catch {}
+      v.playbackRate = sp;
       v.currentTime = start;
       v.play().then(() => {
+        const filt = sbFilterStr(s);
         const draw = () => {
           // letterbox into the export frame
           const vr = v.videoWidth / v.videoHeight, fr = W / H;
           let dw = W, dh = H, dx = 0, dy = 0;
           if (vr > fr) { dh = W / vr; dy = (H - dh) / 2; } else { dw = H * vr; dx = (W - dw) / 2; }
           ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+          if (filt !== 'none') ctx.filter = filt;
           ctx.drawImage(v, dx, dy, dw, dh);
-          try { sbFrameOverlays(ctx, W, H, o, v.currentTime - start, shotDur); } catch (e) {}
+          ctx.filter = 'none';
+          try { sbFrameOverlays(ctx, W, H, o, (v.currentTime - start) / sp, shotDur); } catch (e) {}
           if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
           raf = requestAnimationFrame(draw);
         };
