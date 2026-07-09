@@ -4344,7 +4344,7 @@ function galleryItems() {
   chatStore.chats.forEach((c) => (c.msgs || []).forEach((m) => {
     if (m.t === 'media' && m.url && !seen.has(m.url)) {
       seen.add(m.url);
-      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt, at: m.at || 0, seq: seq++ });
+      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt, poster: m.poster, at: m.at || 0, seq: seq++ });
     }
   }));
   const filtered = galFilter === 'all' ? out : out.filter((i) => i.kind === galFilter);
@@ -4453,6 +4453,7 @@ function renderGallery() {
     } else {
       media = document.createElement('video');
       media.src = it.url; media.preload = 'metadata'; media.muted = true;
+      if (it.poster) media.poster = it.poster;
       media.onmouseenter = () => { media.play().catch(() => {}); };
       media.onmouseleave = () => { media.pause(); media.currentTime = 0; };
       media.onclick = () => openLightbox('video', it.url);
@@ -4601,6 +4602,13 @@ const CLICK_ACTIONS = {
   'sb-next': () => sbNextShot(),
   'sb-fs': () => sbFullscreenPreview(),
   'sb-playall': () => sbPlayAll(),
+  'sb-split': () => sbSplitAtPlayhead(),
+  'sb-add-title': () => sbAddTitle(),
+  'sb-voice': () => sbToggleVoiceRecord(),
+  'sb-voice-remove': () => sbRemoveVoice(),
+  'sb-fade': () => sbToggleFade(),
+  'sb-save': () => sbSaveToGallery(),
+  'sb-music-remove': () => sbRemoveMusic(),
   'sb-export': () => sbExport(),
 };
 const CHANGE_ACTIONS = {
@@ -4608,10 +4616,12 @@ const CHANGE_ACTIONS = {
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
   'sb-project': (e, el) => sbSwitchProject(el.value),
+  'sb-transition': (e, el) => sbSetTransition(el.value),
 };
 const INPUT_ACTIONS = {
   'search': () => renderChatList(),
   'autogrow': (e, el) => autoGrow(el),
+  'sb-zoom': (e, el) => sbSetZoom(parseFloat(el.value)),
 };
 const KEYDOWN_ACTIONS = {
   'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },
