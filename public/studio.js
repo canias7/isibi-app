@@ -368,11 +368,15 @@ function sbRender() {
         (isTitle ? 'Title card' + (s.text ? ': ' + s.text : '') : (s.src === 'import' ? 'Clip ' + n : (s.title || 'Shot ' + n)))
         + ', ' + (Math.round(sbShotDur(s) * 10) / 10) + ' seconds' + (s.id === sbSelected ? ', selected' : ''));
       block.addEventListener('keydown', (e) => {
+        const isArrow = e.key === 'ArrowRight' || e.key === 'ArrowLeft';
+        const dir = e.key === 'ArrowRight' ? 1 : -1;
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); sbSelect(s.id); }
         else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); sbToggleTimeline(s.id); }
-        else if (e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+        else if (e.shiftKey && e.altKey && isArrow) { e.preventDefault(); sbKbdTrim(s, 'l', dir * 0.1); } // trim START
+        else if (e.shiftKey && isArrow) { e.preventDefault(); sbKbdTrim(s, 'r', dir * 0.1); }             // trim END
+        else if (e.altKey && isArrow) {                                                                   // reorder
           e.preventDefault();
-          const idx = tl.indexOf(s), nb = e.key === 'ArrowRight' ? tl[idx + 1] : tl[idx - 1];
+          const idx = tl.indexOf(s), nb = tl[idx + dir];
           if (nb) { sbMoveShot(s.id, nb.id); const el = document.querySelector('.sb-block[data-sid="' + s.id + '"]'); if (el) el.focus(); }
         }
       });
@@ -652,7 +656,7 @@ function sbSetZoom(level) {
 // Film-wide export style (both already honored by the exporters).
 function sbSetTransition(v) {
   const proj = sbProject();
-  proj.transition = ['crossfade', 'dip', 'none'].indexOf(v) >= 0 ? v : 'none';
+  proj.transition = SB_TRANSITION_KEYS.indexOf(v) >= 0 ? v : 'none';
   sbSave();
 }
 function sbToggleFade() {
@@ -788,6 +792,21 @@ function sbTrimStart(e, s, side) {
   handle.addEventListener('pointermove', move);
   handle.addEventListener('pointerup', up);
   handle.addEventListener('pointercancel', up);
+}
+
+// Keyboard trim: nudge a clip's start ('l') or end ('r') by delta seconds, with
+// the same clamps as the pointer trim. Keeps focus on the clip after re-render.
+function sbKbdTrim(s, edge, delta) {
+  const in0 = s.in || 0;
+  const out0 = s.out != null ? s.out : (s.srcDur || sbShotDur(s) || 0);
+  const cap = s.srcDur || out0 || sbShotDur(s) || 0;
+  const MINLEN = 0.3;
+  if (edge === 'r') s.out = Math.min(cap, Math.max(in0 + MINLEN, out0 + delta));
+  else s.in = Math.max(0, Math.min(in0 + delta, out0 - MINLEN));
+  sbSave(); sbRender();
+  if (sbSelected === s.id) sbSeekClip(s, 0);
+  const el = document.querySelector('.sb-block[data-sid="' + s.id + '"]');
+  if (el) el.focus();
 }
 
 // ── Split at playhead ───────────────────────────────────────────────────────
@@ -1044,7 +1063,11 @@ const SB_TRANSITIONS = [
   { k: 'none', label: 'None', kind: 'cut' },
   { k: 'crossfade', label: 'Cross Dissolve', kind: 'xfade' },
   { k: 'dip', label: 'Dip to Black', kind: 'dip' },
+  { k: 'dipwhite', label: 'Dip to White', kind: 'dip' },
+  { k: 'wipe', label: 'Wipe', kind: 'xfade' },
 ];
+// Keep every validator + exporter agreeing on the allowed set.
+const SB_TRANSITION_KEYS = SB_TRANSITIONS.map((t) => t.k);
 const SB_TITLE_PRESETS = [
   { k: 'sunset', label: 'Sunset', g0: '#ff79c6', g1: '#ffb84d' },
   { k: 'grape', label: 'Grape', g0: '#a06cff', g1: '#ff79c6' },
@@ -1990,8 +2013,9 @@ async function sbExport(deliver) {
         });
         await send(r.blob, 'mp4');
         if (!deliver) {
-          const styleNote = (proj.transition && proj.transition !== 'none')
-            ? ', ' + (proj.transition === 'dip' ? 'dip-to-black' : 'crossfade') + ' transitions' : '';
+          const trLabel = (SB_TRANSITIONS.find((t) => t.k === proj.transition) || {}).label;
+          const styleNote = (proj.transition && proj.transition !== 'none' && trLabel)
+            ? ', ' + trLabel.toLowerCase() + ' transitions' : '';
           sbStudioNote('Exported “' + sbProject().title + '” (' + r.used + ' shot' + (r.used === 1 ? '' : 's') +
             (r.used < r.total ? ', ' + (r.total - r.used) + ' skipped' : '') + ', ' + r.w + '×' + r.h + styleNote +
             (proj.fade ? ', fades' : '') + ') — check your downloads ✦');
@@ -2219,18 +2243,33 @@ function sbFrameOverlays(ctx, W, H, o, st, dur) {
     ctx.drawImage(o.prevFrame, 0, 0, W, H);
     ctx.globalAlpha = 1;
   }
-  let black = 0;
+  // Wipe: the previous clip's frozen frame is pushed off to the right, revealing
+  // this clip from the left over our first T.
+  if (o.transition === 'wipe' && !o.isFirst && o.prevFrame && st < T) {
+    const p = Math.max(0, Math.min(1, st / T));
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(p * W, 0, W - p * W, H);
+    ctx.clip();
+    ctx.drawImage(o.prevFrame, 0, 0, W, H);
+    ctx.restore();
+  }
+  let black = 0, white = 0;
   if (o.fade && o.filmTotal) {
     if (ft < FF) black = Math.max(black, 1 - ft / FF);
     if (ft > o.filmTotal - FF) black = Math.max(black, (ft - (o.filmTotal - FF)) / FF);
   }
-  if (o.transition === 'dip') {
+  if (o.transition === 'dip' || o.transition === 'dipwhite') {
     const t2 = T / 2;
-    if (!o.isFirst && st < t2) black = Math.max(black, 1 - st / t2);
-    if (!o.isLast && st > dur - t2) black = Math.max(black, (st - (dur - t2)) / t2);
+    let amt = 0;
+    if (!o.isFirst && st < t2) amt = Math.max(amt, 1 - st / t2);
+    if (!o.isLast && st > dur - t2) amt = Math.max(amt, (st - (dur - t2)) / t2);
+    if (o.transition === 'dipwhite') white = Math.max(white, amt); else black = Math.max(black, amt);
   }
   black = Math.max(0, Math.min(1, black));
+  white = Math.max(0, Math.min(1, white));
   if (black > 0) { ctx.globalAlpha = black; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  if (white > 0) { ctx.globalAlpha = white; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
 }
 
 // Play one clip onto the shared export canvas; resolves with its last frame.
@@ -2432,7 +2471,7 @@ async function studioSend() {
         // How the film is stitched at Export time (applies to all shots).
         if (a.transition != null) {
           const t = String(a.transition);
-          proj.transition = ['crossfade', 'dip', 'none'].indexOf(t) >= 0 ? t : 'none';
+          proj.transition = SB_TRANSITION_KEYS.indexOf(t) >= 0 ? t : 'none';
         }
         if (a.fade != null) proj.fade = !!a.fade;
       }
