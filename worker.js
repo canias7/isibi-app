@@ -1722,13 +1722,16 @@ Context: ${ctxLine}`
       });
 
       const wantStream = body.stream === true && step === "ask";
-      // Effort-routed model: Low/Medium prompt-writing is tight checklist
-      // work a small model does as well for a third of the price. High and
-      // up — and the judgment-heavy ask/error/studio steps — stay on Sonnet.
+      // Model split (A/B-verified): Sonnet earns its price ONLY on High/Ultra/Max
+      // creative prompt-writing (compose/revise). Everything else runs on Haiku —
+      // the routing/classification ask step (fires on every message), the
+      // low-stakes error/studio steps, and Low/Medium prompt-writing — where an
+      // A/B showed Haiku matches Sonnet on correctness at a fraction of the cost.
+      // (Research runs Sonnet on its own web-search path above.)
       const dirModel =
-        (step === "compose" || step === "revise") && (effort === "low" || effort === "medium")
-          ? "claude-haiku-4-5"
-          : "claude-sonnet-5";
+        (step === "compose" || step === "revise") && (effort === "high" || effort === "ultra" || effort === "max")
+          ? "claude-sonnet-5"
+          : "claude-haiku-4-5";
       let r;
       try {
         r = await fetch("https://api.anthropic.com/v1/messages", {
