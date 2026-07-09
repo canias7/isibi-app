@@ -337,7 +337,7 @@ async function sbFFExport(shots, opts = {}) {
       const anull = ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100'];
 
       // 3. Normalize each shot to a uniform segment.
-      const segs = [];
+      const segs = [], segDurs = [];
       for (let i = 0; i < metas.length; i++) {
         if (opts.onProgress) opts.onProgress(i / (metas.length + 1));
         const { inName, info, sh } = metas[i];
@@ -353,7 +353,7 @@ async function sbFFExport(shots, opts = {}) {
         try { await ff.deleteFile(seg); } catch (e) {}
         await ff.exec(args);
         let good = false; try { const d = await ff.readFile(seg); good = d && d.length > 0; } catch (e) {}
-        if (good) { segs.push(seg); track(seg); }
+        if (good) { segs.push(seg); segDurs.push(sh.dur > 0 ? sh.dur : (info.dur || 0)); track(seg); }
       }
       if (!segs.length) throw new Error('no shots could be prepared for export');
 
@@ -371,9 +371,12 @@ async function sbFFExport(shots, opts = {}) {
         await ff.writeFile(list, new TextEncoder().encode(segs.map((s) => "file '" + s + "'").join('\n') + '\n'));
         await ff.exec(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-movflags', '+faststart', 'out.mp4']);
       } else {
-        // Actual per-segment durations drive the crossfade offsets.
+        // Per-segment durations drive the crossfade offsets. Prefer the segment's
+        // own probe, but fall back to the known timeline duration when an input
+        // carried no duration metadata (e.g. a webm with no container duration) —
+        // otherwise the offsets collapse to 0 and every clip stacks at the start.
         const durs = [];
-        for (const s of segs) { let inf; try { inf = await sbFFProbe(ff, s, logbuf); } catch (e) { inf = {}; } durs.push(inf.dur || 0); }
+        for (let k = 0; k < segs.length; k++) { let inf; try { inf = await sbFFProbe(ff, segs[k], logbuf); } catch (e) { inf = {}; } durs.push(inf.dur > 0 ? inf.dur : (segDurs[k] || 0)); }
         const minDur = Math.min.apply(null, durs.filter((d) => d > 0).concat([999]));
         const T = useXfade ? Math.max(0.1, Math.min(Number(opts.transitionDur) || 0.6, minDur * 0.5)) : 0;
         const xt = XT[opts.transition] || 'fade';
