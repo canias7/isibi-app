@@ -370,11 +370,11 @@ function sbAudioLane(inner, tr, kind, total) {
   const clip = document.createElement('div');
   clip.className = 'tl-aclip';
   clip.style.width = Math.min(100, (dur / total) * 100) + '%';
-  if (tr.wave) clip.style.backgroundImage = 'url(' + tr.wave + ')';
   const esc2 = (typeof esc === 'function') ? esc : (x) => x;
   const nm = (kind === 'music' ? '♪ ' : '🎙 ') + (tr.name || kind);
   const vol = tr.volume != null ? tr.volume : (kind === 'music' ? 0.6 : 1);
   clip.innerHTML =
+    '<span class="tl-wave"' + (tr.wave ? ' style="background-image:url(' + tr.wave + ')"' : '') + '></span>' +
     '<span class="tl-alabel">' + esc2(nm) + '</span>' +
     '<span class="tl-actrl">' +
       '<input class="tl-avol" type="range" min="0" max="1" step="0.05" value="' + vol + '" title="Volume" />' +
@@ -406,7 +406,9 @@ function sbAudioLane(inner, tr, kind, total) {
   inner.appendChild(lane);
   if (!tr.wave && !tr._waving && !tr._waveFailed) sbBuildWave(tr, kind);
 }
-// Decode an audio track to a peaks image used as the lane's waveform background.
+// Decode an audio track to an iMovie-style waveform image: a darker filled shape
+// mirrored around the centre, drawn on transparent canvas so the solid clip body
+// (green for music, purple for voice) reads through it.
 async function sbBuildWave(tr, kind) {
   if (!tr || !tr.url || tr._waving) return;
   tr._waving = true;
@@ -416,21 +418,26 @@ async function sbBuildWave(tr, kind) {
     const bytes = await fetch(tr.url).then((r) => r.arrayBuffer());
     const audio = await ac.decodeAudioData(bytes);
     const ch = audio.getChannelData(0);
-    const W = 1400, H = 90, peaks = 260;
+    const W = 1600, H = 120, mid = H / 2, amp = mid - 2, peaks = 500;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const cx = c.getContext('2d');
-    const step = Math.max(1, Math.floor(ch.length / peaks));
-    cx.fillStyle = kind === 'music' ? 'rgba(52,211,153,.9)' : 'rgba(255,184,77,.92)';
-    const bw = W / peaks;
+    const bucket = Math.max(1, Math.floor(ch.length / peaks));
+    const stride = Math.max(1, Math.floor(bucket / 40));
+    const vals = new Array(peaks);
     for (let i = 0; i < peaks; i++) {
-      let max = 0;
-      for (let j = 0; j < step; j++) { const v = Math.abs(ch[i * step + j] || 0); if (v > max) max = v; }
-      const bh = Math.max(2, max * (H - 6));
-      cx.fillRect(i * bw, (H - bh) / 2, Math.max(1, bw * 0.66), bh);
+      let max = 0; const base = i * bucket;
+      for (let j = 0; j < bucket; j += stride) { const v = Math.abs(ch[base + j] || 0); if (v > max) max = v; }
+      vals[i] = Math.min(1, max);
     }
+    cx.fillStyle = kind === 'music' ? 'rgba(11,66,32,.5)' : 'rgba(50,24,92,.5)'; // darker shade of the body
+    cx.beginPath();
+    cx.moveTo(0, mid);
+    for (let i = 0; i < peaks; i++) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid - Math.max(1.2, vals[i] * amp)); }
+    for (let i = peaks - 1; i >= 0; i--) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid + Math.max(1.2, vals[i] * amp)); }
+    cx.closePath(); cx.fill();
     tr.wave = c.toDataURL('image/png');
     ac.close().catch(() => {});
-  } catch (e) { tr._waveFailed = true; /* keep the flat gradient fallback, don't retry */ }
+  } catch (e) { tr._waveFailed = true; /* keep the solid clip body, don't retry */ }
   finally { tr._waving = false; sbRender(); }
 }
 

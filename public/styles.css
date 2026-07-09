@@ -1572,14 +1572,16 @@
 .tl-lane { position: relative; width: 100%; flex: none; }
 .tl-video { height: 62px; }
 .tl-video .clip-block.sb-block { position: absolute; top: 0; bottom: 0; inset-inline: auto; height: auto; padding: 0; min-width: 8px; }
-.tl-audio { height: 40px; }
+.tl-audio { height: 42px; }
+/* iMovie audio clip: solid coloured body, darker waveform layer on top. */
 .tl-aclip {
-  position: absolute; left: 0; top: 0; bottom: 0; min-width: 30px; border-radius: 8px; overflow: hidden;
-  background-size: 100% 100%; background-repeat: no-repeat; border: 1px solid var(--line-2);
+  position: absolute; left: 0; top: 0; bottom: 0; min-width: 30px; border-radius: 5px; overflow: hidden;
+  border: 1px solid rgba(0, 0, 0, .3); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
 }
-.tl-music .tl-aclip { background-color: rgba(52, 211, 153, .16); }
-.tl-voice .tl-aclip { background-color: rgba(255, 184, 77, .16); }
-.tl-alabel { position: absolute; left: .45rem; top: .3rem; z-index: 2; font-size: .68rem; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .8); white-space: nowrap; pointer-events: none; }
+.tl-music .tl-aclip { background: linear-gradient(180deg, #46c568, #38a657); }
+.tl-voice .tl-aclip { background: linear-gradient(180deg, #9a6cf0, #7d4fd6); }
+.tl-wave { position: absolute; inset: 0; z-index: 1; background-size: 100% 100%; background-repeat: no-repeat; pointer-events: none; }
+.tl-alabel { position: absolute; left: .45rem; top: .28rem; z-index: 2; font-size: .68rem; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .55); white-space: nowrap; pointer-events: none; }
 .tl-actrl { position: absolute; right: .35rem; top: 50%; transform: translateY(-50%); z-index: 3; display: flex; align-items: center; gap: .3rem; opacity: 0; transition: opacity .12s; }
 .tl-audio:hover .tl-actrl { opacity: 1; }
 .tl-avol { width: 76px; accent-color: var(--neon); cursor: pointer; }
