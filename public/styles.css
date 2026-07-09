@@ -2318,6 +2318,26 @@
 .up-spark.s2 { top: 58%; right: 7%; font-size: .8rem; color: rgba(255, 121, 198, .45); animation: up-float 4.2s ease-in-out .8s infinite alternate-reverse; }
 @keyframes up-float { from { transform: translateY(-5px) rotate(-8deg); } to { transform: translateY(6px) rotate(10deg); } }
 
+/* Trimmed promo: just the launch-offer pill + a big segmented countdown. */
+.up-promo-timer { display: flex; flex-direction: column; align-items: center; gap: 1.15rem; text-align: center; }
+.up-segs { position: relative; z-index: 1; display: flex; align-items: flex-end; gap: .7rem; }
+.up-seg {
+  display: flex; flex-direction: column; align-items: center; gap: .4rem;
+  background: rgba(8, 7, 12, .55); border: 1px solid var(--line-2); border-radius: 14px;
+  padding: .75rem 1.05rem; min-width: 92px; box-shadow: 0 8px 26px rgba(0, 0, 0, .35);
+}
+.up-seg b {
+  font-family: 'Space Grotesk', Inter, sans-serif; font-variant-numeric: tabular-nums;
+  font-size: 2.9rem; font-weight: 700; line-height: 1; color: #fff;
+}
+.up-seg span { font-size: .6rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.up-colon { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 2.2rem; font-weight: 700; color: rgba(255, 184, 120, .55); padding-bottom: 1.4rem; }
+@media (max-width: 560px) {
+  .up-seg { min-width: 68px; padding: .6rem .5rem; }
+  .up-seg b { font-size: 2.1rem; }
+  .up-colon { font-size: 1.6rem; padding-bottom: 1.15rem; }
+}
+
 /* Heading block (centered) */
 .up-headwrap { text-align: center; margin-bottom: 1.7rem; }
 .up-eyebrow {

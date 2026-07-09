@@ -2507,16 +2507,17 @@ function openCredits(topupsOnly) {
       '<div class="cp-list">' + rows + '</div>' +
       '<div class="cp-note" id="cpNote"></div>'
     : '<button type="button" class="cp-close up-close">✕</button>' +
-      '<div class="up-promo">' +
+      '<div class="up-promo up-promo-timer">' +
         '<span class="up-spark s1">✦</span><span class="up-spark s2">✦</span>' +
-        '<div class="up-tagrow">' +
-          '<span class="up-tag">✦ Launch offer — up to 25% off</span>' +
-          '<span class="up-count"><i></i>Ends in <b id="upCountT">—</b></span>' +
+        '<div class="up-segs">' +
+          '<div class="up-seg"><b id="upcD">00</b><span>Days</span></div>' +
+          '<span class="up-colon">:</span>' +
+          '<div class="up-seg"><b id="upcH">00</b><span>Hours</span></div>' +
+          '<span class="up-colon">:</span>' +
+          '<div class="up-seg"><b id="upcM">00</b><span>Min</span></div>' +
+          '<span class="up-colon">:</span>' +
+          '<div class="up-seg"><b id="upcS">00</b><span>Sec</span></div>' +
         '</div>' +
-        '<h2 class="up-promo-h">Every model, <span class="up-grad">one balance.</span></h2>' +
-        '<p class="up-promo-p">Video, image and voice from a single credit balance — unused credits roll over every month.</p>' +
-        '<div class="up-models">' + ['Veo 3.1', 'Sora 2', 'Kling 3.0', 'Seedance 2.0', 'Nano Banana', 'ElevenLabs', '+ more'].map((m) => '<span class="up-mchip">' + m + '</span>').join('') + '</div>' +
-        '<button type="button" class="up-hero-cta">Start with Pro →</button>' +
       '</div>' +
       '<div class="up-headwrap">' +
         '<div class="up-eyebrow">Membership</div>' +
@@ -2574,11 +2575,11 @@ function openCredits(topupsOnly) {
       if (e.animationName === 'apb-kick') el.classList.remove('kick');
     });
   });
-  const heroCta = ov.querySelector('.up-hero-cta');
-  if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
-  // Live launch-offer countdown; the interval dies with the overlay.
-  const cEl = ov.querySelector('#upCountT');
-  if (cEl) {
+  // Live launch-offer countdown, painted into the four segment boxes; the
+  // interval dies with the overlay.
+  const segD = ov.querySelector('#upcD'), segH = ov.querySelector('#upcH'),
+        segM = ov.querySelector('#upcM'), segS = ov.querySelector('#upcS');
+  if (segD) {
     // Rolling per-browser window: anchor to a stored end date; if it's missing
     // or already elapsed, start a fresh N-day window. The clock always shows a
     // real, consistent countdown and never freezes into a broken "soon".
@@ -2591,11 +2592,10 @@ function openCredits(topupsOnly) {
     const two = (n) => String(n).padStart(2, '0');
     const tick = () => {
       const ms = Math.max(0, end - Date.now());
-      const d = Math.floor(ms / 86400000);
-      const h = Math.floor((ms % 86400000) / 3600000);
-      const m = Math.floor((ms % 3600000) / 60000);
-      const s = Math.floor((ms % 60000) / 1000);
-      cEl.textContent = (d ? d + 'd ' : '') + two(h) + ':' + two(m) + ':' + two(s);
+      segD.textContent = two(Math.floor(ms / 86400000));
+      segH.textContent = two(Math.floor((ms % 86400000) / 3600000));
+      segM.textContent = two(Math.floor((ms % 3600000) / 60000));
+      segS.textContent = two(Math.floor((ms % 60000) / 1000));
     };
     tick();
     const tid = setInterval(() => {
