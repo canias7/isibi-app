@@ -636,16 +636,19 @@ function renderRefList() {
 // `tint` is the provider's brand colour — used to give each row's icon tile and
 // accents a splash of life instead of one flat grey.
 function providerOf(id) {
-  if (/veo|gemini|nano-banana|^google\//.test(id)) return { logo: '/logos/google.svg', name: 'Google', tint: '#4285f4' };
-  if (/sora|gpt-image|^openai\//.test(id)) return { mono: 'O', name: 'OpenAI', tint: '#10a37f' };
+  if (/nano-banana/.test(id)) return { logo: '/logos/nanobanana.svg', name: 'Nano Banana', tint: '#f5b423' };
+  if (/gemini/.test(id)) return { logo: '/logos/gemini.svg', name: 'Gemini', tint: '#6c7cff' };
+  if (/sora/.test(id)) return { logo: '/logos/sora.svg', name: 'OpenAI', tint: '#10a37f' };
+  if (/gpt-image|^openai\//.test(id)) return { logo: '/logos/openai.svg', name: 'OpenAI', tint: '#10a37f' };
+  if (/veo|^google\//.test(id)) return { logo: '/logos/google.svg', name: 'Google', tint: '#4285f4' };
   if (/seedance|seedream|bytedance/.test(id)) return { logo: '/logos/bytedance.svg', name: 'ByteDance', tint: '#3c8cff' };
-  if (/kling/.test(id)) return { logo: '/logos/kuaishou.svg', name: 'Kling', tint: '#ff6a2b' };
-  if (/hailuo|minimax/.test(id)) return { logo: '/logos/minimax.svg', name: 'MiniMax', tint: '#6a5bff' };
-  if (/grok|^xai\//.test(id)) return { logo: '/logos/x.svg', name: 'xAI', tint: '#c9ccd4' };
+  if (/kling/.test(id)) return { logo: '/logos/kling.svg', name: 'Kling', tint: '#ff6a2b' };
+  if (/hailuo|minimax/.test(id)) return { logo: '/logos/hailuo.svg', name: 'MiniMax', tint: '#6a5bff' };
+  if (/grok|^xai\//.test(id)) return { logo: '/logos/grok.svg', name: 'xAI', tint: '#c9ccd4' };
   if (/elevenlabs/.test(id)) return { logo: '/logos/elevenlabs.svg', name: 'ElevenLabs', tint: '#a6b0c0' };
-  if (/flux/.test(id)) return { mono: 'F', name: 'Black Forest Labs', tint: '#f0585d' };
-  if (/recraft/.test(id)) return { mono: 'R', name: 'Recraft', tint: '#7b6bff' };
-  if (/krea/.test(id)) return { mono: 'K', name: 'Krea', tint: '#ff5c8a' };
+  if (/flux/.test(id)) return { logo: '/logos/flux.svg', name: 'Black Forest Labs', tint: '#f0585d' };
+  if (/recraft/.test(id)) return { logo: '/logos/recraft.svg', name: 'Recraft', tint: '#7b6bff' };
+  if (/krea/.test(id)) return { logo: '/logos/krea.svg', name: 'Krea', tint: '#ff5c8a' };
   return { mono: '·', name: '', tint: '#8a8a92' };
 }
 
@@ -703,7 +706,7 @@ function buildMenu() {
 
     d.style.setProperty('--prov', prov.tint || '#8a8a92');
     const icoInner = prov.logo
-      ? '<span class="m-logo" style="-webkit-mask-image:url(' + prov.logo + ');mask-image:url(' + prov.logo + ')"></span>'
+      ? '<img class="m-logo" src="' + prov.logo + '" alt="" draggable="false">'
       : '<b>' + (prov.mono || '·') + '</b>';
     d.innerHTML =
       '<span class="m-ico">' + icoInner + '</span>'
