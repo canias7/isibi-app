@@ -2483,19 +2483,7 @@ function openCredits(topupsOnly) {
       '<div class="addon-env-row">' +
         '<div class="addon-env">' +
           '<div class="addon-env-badge">' +
-            '<div class="idb"><span class="idb-strap"></span><span class="idb-clip"></span>' +
-              '<div class="idb-card"><span class="idb-slot"></span><div class="idb-sheen"></div>' +
-                '<div class="idb-label">isibi.ai orchestrator</div><div class="idb-glow"></div>' +
-                '<div class="idb-fig"><svg viewBox="0 0 140 168"><defs>' +
-                  '<radialGradient id="idbHdO" cx="43%" cy="33%" r="72%"><stop offset="0" stop-color="#ffffff"/><stop offset="52%" stop-color="#eef1ff" stop-opacity=".93"/><stop offset="100%" stop-color="#a9b0e6" stop-opacity=".5"/></radialGradient>' +
-                  '<linearGradient id="idbBdO" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".96"/><stop offset="42%" stop-color="#e6e9ff" stop-opacity=".82"/><stop offset="82%" stop-color="#cfd4ff" stop-opacity=".28"/><stop offset="100%" stop-color="#cfd4ff" stop-opacity="0"/></linearGradient>' +
-                  '<radialGradient id="idbRmO" cx="50%" cy="42%" r="60%"><stop offset="72%" stop-color="#fff" stop-opacity="0"/><stop offset="93%" stop-color="#ffd9f2" stop-opacity=".55"/><stop offset="100%" stop-color="#ffd9f2" stop-opacity="0"/></radialGradient></defs>' +
-                  '<path d="M26 168 C26 122 45 97 61 93 C61 87 61 81 61 76 C66 78 74 78 79 76 C79 81 79 87 79 93 C95 97 114 122 114 168 Z" fill="url(#idbBdO)"/>' +
-                  '<circle cx="70" cy="48" r="26" fill="url(#idbRmO)"/><circle cx="70" cy="48" r="24" fill="url(#idbHdO)"/>' +
-                  '<ellipse cx="60" cy="39" rx="7.5" ry="9.5" fill="#fff" opacity=".6"/>' +
-                '</svg></div>' +
-              '</div>' +
-            '</div>' +
+            '<img class="apb" src="/img/badge-orchestrator-cut.webp" alt="isibi.ai orchestrator" loading="lazy" />' +
           '</div>' +
           '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
           '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
@@ -2504,19 +2492,7 @@ function openCredits(topupsOnly) {
         '</div>' +
         '<div class="addon-env">' +
           '<div class="addon-env-badge">' +
-            '<div class="idb b"><span class="idb-strap"></span><span class="idb-clip"></span>' +
-              '<div class="idb-card"><span class="idb-slot"></span><div class="idb-sheen"></div>' +
-                '<div class="idb-label">isibi.ai video editor</div><div class="idb-glow"></div>' +
-                '<div class="idb-fig"><svg viewBox="0 0 140 168"><defs>' +
-                  '<radialGradient id="idbHdV" cx="43%" cy="33%" r="72%"><stop offset="0" stop-color="#ffffff"/><stop offset="52%" stop-color="#eef1ff" stop-opacity=".93"/><stop offset="100%" stop-color="#a9b0e6" stop-opacity=".5"/></radialGradient>' +
-                  '<linearGradient id="idbBdV" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".96"/><stop offset="42%" stop-color="#e6e9ff" stop-opacity=".82"/><stop offset="82%" stop-color="#cfd4ff" stop-opacity=".28"/><stop offset="100%" stop-color="#cfd4ff" stop-opacity="0"/></linearGradient>' +
-                  '<radialGradient id="idbRmV" cx="50%" cy="42%" r="60%"><stop offset="72%" stop-color="#fff" stop-opacity="0"/><stop offset="93%" stop-color="#ffd9f2" stop-opacity=".55"/><stop offset="100%" stop-color="#ffd9f2" stop-opacity="0"/></radialGradient></defs>' +
-                  '<path d="M26 168 C26 122 45 97 61 93 C61 87 61 81 61 76 C66 78 74 78 79 76 C79 81 79 87 79 93 C95 97 114 122 114 168 Z" fill="url(#idbBdV)"/>' +
-                  '<circle cx="70" cy="48" r="26" fill="url(#idbRmV)"/><circle cx="70" cy="48" r="24" fill="url(#idbHdV)"/>' +
-                  '<ellipse cx="60" cy="39" rx="7.5" ry="9.5" fill="#fff" opacity=".6"/>' +
-                '</svg></div>' +
-              '</div>' +
-            '</div>' +
+            '<img class="apb b" src="/img/badge-video-editor-cut.webp" alt="isibi.ai video editor" loading="lazy" />' +
           '</div>' +
           '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
           '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
