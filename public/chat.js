@@ -2419,6 +2419,48 @@ function openOrchestratorUpsell() {
   document.body.appendChild(ov);
 }
 
+// Video Editor add-on upsell ($19.99/mo). Powers the Studio's chat editor.
+function openVideoEditorUpsell() {
+  if (document.querySelector('.credits-overlay')) return;
+  document.getElementById('profilePop')?.classList.remove('open');
+  const ov = document.createElement('div');
+  ov.className = 'credits-overlay';
+  ov.innerHTML =
+    '<div class="cp-box cp-narrow orch-up">' +
+      '<button type="button" class="cp-close">✕</button>' +
+      '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">Video Editor</div>' +
+        '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
+      '<p class="orch-up-lead">Edit by chat in the Studio — just tell isibi what you want and it cuts, retimes, reframes, captions, adds transitions and exports for you. The editing runs on your device, so your files stay private and free.</p>' +
+      '<ul class="orch-up-feat">' +
+        '<li>Chat-driven trim, speed &amp; reframe</li>' +
+        '<li>Burn-in captions, crossfades &amp; fades</li>' +
+        '<li>Stitch &amp; export your film in-browser</li>' +
+        '<li>Cancel anytime</li>' +
+      '</ul>' +
+      '<button type="button" class="orch-up-buy">Add Video Editor →</button>' +
+      '<div class="cp-note" id="cpNote"></div>' +
+      '<p class="orch-up-fine">The on-device editing tools are always free — this add-on unlocks the chat that drives them.</p>' +
+    '</div>';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('.cp-close').onclick = () => ov.remove();
+  ov.querySelector('.orch-up-buy').onclick = async () => {
+    const note = document.getElementById('cpNote');
+    note.textContent = 'Opening secure checkout…';
+    try {
+      const r = await apiFetch('/api/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoEditor: true }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll add it.'; return; }
+      if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
+      note.textContent = 'Checkout hit a snag — try again in a moment.';
+    } catch { note.textContent = 'Checkout hit a snag — try again in a moment.'; }
+  };
+  document.body.appendChild(ov);
+}
+window.openVideoEditorUpsell = openVideoEditorUpsell;
+
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   document.getElementById('profilePop')?.classList.remove('open'); // don't leave the menu open behind the overlay
@@ -2518,7 +2560,7 @@ function openCredits(topupsOnly) {
               '</div>' +
             '</div>' +
           '</div>' +
-          '<div class="addon-badge-name">Video Editor <span class="addon-tag soon">soon</span></div>' +
+          '<div class="addon-badge-name">Video Editor</div>' +
           '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
           '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
           '<button type="button" class="addon-badge-buy" data-addon="ve">Add →</button></div>' +
@@ -2534,12 +2576,9 @@ function openCredits(topupsOnly) {
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
   ov.querySelectorAll('.addon-badge-buy').forEach((b) => {
     b.onclick = () => {
-      if (b.dataset.addon === 'orch') { ov.remove(); openOrchestratorUpsell(); }
-      else {
-        // Video Editor billing isn't wired yet — surface it honestly.
-        const n = ov.querySelector('#cpNote');
-        if (n) { n.textContent = 'The Video Editor membership is coming soon ✦'; n.classList.add('show'); }
-      }
+      ov.remove();
+      if (b.dataset.addon === 'orch') openOrchestratorUpsell();
+      else openVideoEditorUpsell();
     };
   });
   const heroCta = ov.querySelector('.up-hero-cta');
