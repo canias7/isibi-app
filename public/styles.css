@@ -1387,8 +1387,13 @@
 .nav-ico { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; color: var(--muted); transition: color .15s ease; }
 .nav-ico svg { width: 20px; height: 20px; }
 .side-item:hover .nav-ico { color: var(--text); }
-.side-item.active { background: rgba(255, 184, 77, .09); border-color: rgba(255, 184, 77, .22); color: var(--neon); }
-.side-item.active .nav-ico { color: var(--neon); }
+.side-item.active {
+  background: linear-gradient(100deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .05) 52%, rgba(255, 255, 255, 0) 88%);
+  border-color: rgba(255, 184, 77, .22);
+  color: var(--text);
+  box-shadow: 0 8px 24px -14px rgba(255, 121, 198, .5);
+}
+.side-item.active .nav-ico { color: var(--text); }
 
 /* Message timestamps — tight caption under each bubble. */
 .msg-time { font-size: .68rem; color: var(--muted); margin-top: -.35rem; padding: 0 .35rem; }
