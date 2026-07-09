@@ -137,9 +137,8 @@
       position: absolute; width: 500px; height: 500px; border-radius: 50%; pointer-events: none;
       background: radial-gradient(circle, rgba(255, 121, 198, .1), rgba(255, 184, 77, .05) 45%, transparent 70%);
       filter: blur(30px);
-      animation: hh-breathe 7s ease-in-out infinite alternate;
+      opacity: .9;
     }
-    @keyframes hh-breathe { from { transform: scale(.9); opacity: .75; } to { transform: scale(1.1); opacity: 1; } }
     .hh-spark { position: absolute; }
     /* Fresh generations land with a soft gradient pulse */
     .msg.landed { animation: media-land 1.5s cubic-bezier(.2, .8, .3, 1) both; }
@@ -149,9 +148,9 @@
       45% { transform: scale(1); box-shadow: 0 0 0 4px rgba(255, 121, 198, .26), 0 0 52px 10px rgba(255, 150, 140, .3); }
       100% { box-shadow: 0 0 0 0 rgba(255, 184, 77, 0), 0 0 0 0 rgba(255, 150, 140, 0); }
     }
-    .hh-spark.s1 { top: 22%; left: 26%; font-size: 1rem; color: rgba(255, 184, 77, .45); animation: up-float 6s ease-in-out infinite alternate; }
-    .hh-spark.s2 { top: 30%; right: 24%; font-size: .75rem; color: rgba(255, 121, 198, .4); animation: up-float 4.6s ease-in-out .9s infinite alternate-reverse; }
-    .hh-spark.s3 { bottom: 26%; left: 33%; font-size: .65rem; color: rgba(237, 234, 243, .3); animation: up-float 5.4s ease-in-out .4s infinite alternate; }
+    .hh-spark.s1 { top: 22%; left: 26%; font-size: 1rem; color: rgba(255, 184, 77, .45); }
+    .hh-spark.s2 { top: 30%; right: 24%; font-size: .75rem; color: rgba(255, 121, 198, .4); }
+    .hh-spark.s3 { bottom: 26%; left: 33%; font-size: .65rem; color: rgba(237, 234, 243, .3); }
     .hh-title {
       position: relative; font-family: 'Space Grotesk', Inter, sans-serif;
       font-size: 2.35rem; font-weight: 700; letter-spacing: -.02em; margin: 0 0 .65rem; line-height: 1.1;
