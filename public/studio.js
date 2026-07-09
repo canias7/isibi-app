@@ -1054,6 +1054,7 @@ function sbPaintTitle(ctx, W, H, s) {
 // storyboard; the other tabs are draggable-free click-to-add grids.
 const SB_BROWSER_TABS = [
   { k: 'shots', label: 'Shots' },
+  { k: 'themes', label: 'Themes' },
   { k: 'transitions', label: 'Transitions' },
   { k: 'titles', label: 'Titles' },
   { k: 'backgrounds', label: 'Backgrounds' },
@@ -1075,6 +1076,16 @@ const SB_TITLE_PRESETS = [
   { k: 'mint', label: 'Mint', g0: '#34d399', g1: '#3ec6ff' },
   { k: 'ember', label: 'Ember', g0: '#ff7a5b', g1: '#ff2d78' },
   { k: 'mono', label: 'Mono', g0: '#20202a', g1: '#0b0b10' },
+];
+// iMovie-style themes: one click sets the film transition + whole-film fade and
+// recolors every title/background card to a matching palette.
+const SB_THEMES = [
+  { k: 'none',   label: 'None',   transition: 'none',      fade: false, g0: '#0b0b10', g1: '#0b0b10' },
+  { k: 'modern', label: 'Modern', transition: 'crossfade', fade: true,  g0: '#20202a', g1: '#0b0b10' },
+  { k: 'bright', label: 'Bright', transition: 'dipwhite',  fade: true,  g0: '#3ec6ff', g1: '#8a7bff' },
+  { k: 'sunset', label: 'Sunset', transition: 'crossfade', fade: true,  g0: '#ff79c6', g1: '#ffb84d' },
+  { k: 'bold',   label: 'Bold',   transition: 'wipe',      fade: false, g0: '#ff7a5b', g1: '#ff2d78' },
+  { k: 'noir',   label: 'Noir',   transition: 'dip',       fade: true,  g0: '#26262e', g1: '#0b0b10' },
 ];
 const SB_BG_PRESETS = [
   { k: 'black', label: 'Black', g0: '#0b0b10', g1: '#0b0b10' },
@@ -1117,7 +1128,19 @@ function sbRenderBrowser() {
   browser.innerHTML = '';
   const grid = document.createElement('div');
   grid.className = 'mb-grid';
-  if (sbTab === 'transitions') {
+  if (sbTab === 'themes') {
+    const note = document.createElement('div');
+    note.className = 'mb-note'; note.textContent = 'One click sets the transition, fade, and title look for the whole film.';
+    browser.appendChild(note);
+    SB_THEMES.forEach((t) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'mb-item' + ((proj.theme || 'none') === t.k ? ' active' : '');
+      item.innerHTML = '<span class="mb-prev" style="background:' + sbGrad(t.g0, t.g1) + '"><b style="color:' + sbTitleInk(t) + '">' + t.label + '</b></span><span class="mb-label">' + t.label + '</span>';
+      item.onclick = () => { sbApplyTheme(t); sbRenderBrowser(); };
+      grid.appendChild(item);
+    });
+  } else if (sbTab === 'transitions') {
     const note = document.createElement('div');
     note.className = 'mb-note'; note.textContent = 'Applied between every clip in the film.';
     browser.appendChild(note);
@@ -1186,6 +1209,59 @@ function sbAddBackground(p) {
   proj.shots.push(bgc);
   sbSave(); sbRender(); sbSelect(bgc.id);
   sbStudioNote('Added the ' + p.label + ' background. Drag its edges to change its length.');
+}
+// Apply a theme: set the film transition + fade, and recolor every title card.
+function sbApplyTheme(t) {
+  const proj = sbProject();
+  proj.theme = t.k;
+  proj.transition = SB_TRANSITION_KEYS.indexOf(t.transition) >= 0 ? t.transition : 'none';
+  proj.fade = !!t.fade;
+  (proj.shots || []).forEach((s) => {
+    if (s.src === 'title') { s.g0 = t.g0; s.g1 = t.g1; s.bg = sbGrad(t.g0, t.g1); }
+  });
+  sbSave(); sbRender();
+  const trLabel = (SB_TRANSITIONS.find((x) => x.k === proj.transition) || {}).label;
+  sbStudioNote('Applied the ' + t.label + ' theme — ' +
+    (proj.transition === 'none' ? 'hard cuts' : (trLabel || '').toLowerCase() + ' transitions') +
+    (proj.fade ? ', film fade in/out' : '') + ', and matching title colors.');
+}
+// iMovie "detach audio": pull a video clip's audio into the audio lane (the
+// voice slot) as its own draggable/trimmable clip, and mute the source clip.
+async function sbDetachAudio(id) {
+  const s = sbShot(id);
+  if (!s || s.src === 'title') { sbStudioNote('Select a video clip first, then detach its audio.'); return; }
+  if (!s.url) { sbStudioNote('That clip isn’t loaded yet — try again once it’s ready.'); return; }
+  if (!window.sbFFExtractAudio || !window.sbFFSupported || !window.sbFFSupported()) {
+    sbStudioNote('This browser can’t run the on-device audio extractor.'); return;
+  }
+  const proj = sbProject();
+  if (proj.voice && proj.voice.url) { sbStudioNote('The audio lane is already in use — remove that track first, then detach.'); return; }
+  const idx = proj.shots.indexOf(s) + 1;
+  // Place the detached audio at the clip's position in the film.
+  let filmStart = 0;
+  for (const x of proj.shots.filter((x) => x.onTimeline)) { if (x.id === s.id) break; filmStart += sbShotDur(x) || 0; }
+  const prev = s.status;
+  s.status = 'editing'; sbSave(); sbRender();
+  try {
+    const blob = await window.sbFFExtractAudio(s.url, {
+      url: s.url, mime: s.mime, start: s.in || 0, dur: sbShotDur(s),
+      onProgress: (p) => sbStudioProgress('Detaching audio… ' + Math.round(p * 100) + '%'),
+    });
+    s.status = prev;
+    if (!blob) { sbSave(); sbRender(); sbStudioNote('Clip ' + idx + ' has no audio to detach.'); return; }
+    const dur = sbShotDur(s) || 0;
+    const url = URL.createObjectURL(blob);
+    proj.voice = { name: 'Clip ' + idx + ' audio', mime: 'audio/mp4', url, stored: false, dur, volume: 1, offset: filmStart, in: 0, out: dur, fadeIn: 0, fadeOut: 0 };
+    s.muted = true; // the audio now lives in the lane; mute the source clip
+    sbAudioInit(proj.voice);
+    try { await sbMediaPut('voice-' + proj.id, blob); proj.voice.stored = true; } catch (e) {}
+    sbSave(); sbRenderVoiceBar(); sbRender();
+    sbStudioNote('Detached clip ' + idx + '’s audio into its own lane — drag, trim, or fade it independently. The clip is now muted.');
+  } catch (e) {
+    console.error('detach audio failed:', e);
+    s.status = prev; sbSave(); sbRender();
+    sbStudioNote('Couldn’t detach that clip’s audio — try again in a moment.');
+  }
 }
 function sbStopTitle() {
   if (sbTitleRAF) { cancelAnimationFrame(sbTitleRAF); sbTitleRAF = 0; }
@@ -1529,7 +1605,8 @@ function sbRenderAdjust() {
       row('br', 'Brightness', a.br) + row('con', 'Contrast', a.con) + row('sat', 'Saturation', a.sat);
   } else if (sbAdjTool === 'volume') {
     const vol = Math.round(sbClipVol(s) * 100);
-    html = '<div class="adj-title">Volume · <b id="adjVolVal">' + vol + '%</b></div><input type="range" class="adj-vol" min="0" max="100" value="' + vol + '" />';
+    html = '<div class="adj-title">Volume · <b id="adjVolVal">' + vol + '%</b></div><input type="range" class="adj-vol" min="0" max="100" value="' + vol + '" />'
+      + '<button class="adj-fill adj-detach" data-detach="1">🎙 Detach audio to its own lane</button>';
   }
   pop.innerHTML = html;
   pop.querySelectorAll('[data-f]').forEach((b) => { b.onclick = () => sbSetClipFilter(b.dataset.f); });
@@ -1545,6 +1622,8 @@ function sbRenderAdjust() {
   if (rst) rst.onclick = () => { const sh = sbShot(sbSelected); if (sh) { sh.adj = null; sbSave(); sbApplyPreview(sh); sbRenderAdjust(); } };
   const vr = pop.querySelector('.adj-vol');
   if (vr) vr.oninput = () => { const val = parseInt(vr.value, 10); const lab = document.getElementById('adjVolVal'); if (lab) lab.textContent = val + '%'; sbSetClipVolume(val / 100); };
+  const detach = pop.querySelector('[data-detach]');
+  if (detach) detach.onclick = () => sbDetachAudio(sbSelected);
 }
 function sbSetClipAdjust(key, val, rangeEl) {
   const s = sbShot(sbSelected); if (!s) return;

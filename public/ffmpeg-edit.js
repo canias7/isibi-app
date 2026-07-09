@@ -176,6 +176,22 @@ async function sbFFTrim(src, startSec, durSec, opts = {}) {
   }, opts.onProgress);
 }
 
+// ── Detach audio ──────────────────────────────────────────────────────────────
+// Pull a clip's audio out to a standalone AAC/MP4 blob (iMovie "detach audio"),
+// honoring an optional source window (opts.start/dur). Returns null when the clip
+// carries no audio stream (sbFFRunRead reads back nothing).
+async function sbFFExtractAudio(src, opts = {}) {
+  const inName = 'ain.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    const win = sbFFWindow(opts);
+    const data = await sbFFRunRead(ff, [...win.pre, '-i', inName, ...win.post, '-vn', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', 'out.mp4']);
+    try { await ff.deleteFile(inName); await ff.deleteFile('out.mp4'); } catch (e) {}
+    return data ? new Blob([data.buffer], { type: 'audio/mp4' }) : null;
+  }, opts.onProgress);
+}
+
 // ── Speed ─────────────────────────────────────────────────────────────────────
 // Retime to `speed`× (2 = twice as fast, 0.5 = slow motion). Video via setpts,
 // audio via a chained atempo. New duration = old / speed.
@@ -437,6 +453,7 @@ async function sbFFExport(shots, opts = {}) {
 
 // expose for studio.js + tests
 window.sbFFTrim = sbFFTrim;
+window.sbFFExtractAudio = sbFFExtractAudio;
 window.sbFFSpeed = sbFFSpeed;
 window.sbFFReframe = sbFFReframe;
 window.sbFFText = sbFFText;
