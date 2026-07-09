@@ -281,6 +281,9 @@
   }
   /* Nudge the builder conversation column a touch right of centre. */
   .view-home .thread-inner, .view-home .composer { transform: translateX(22px); }
+  /* Nudge the empty-state greeting right by the same amount (more left padding
+     shifts the centred content ~half of it), so it lines up with the chat. */
+  .view-home .home-hero { padding-left: 70px; }
 }
 .mode-btn {
   background: none; border: none; color: var(--muted);
