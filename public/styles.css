@@ -16,7 +16,10 @@
     }
     * { box-sizing: border-box; margin: 0; }
     html, body { height: 100%; }
-    html { background: var(--bg); }
+    /* overflow:hidden clips the fixed `body::after` ambient glow (inset:-25%),
+       which otherwise spills past the viewport and shows window scrollbars —
+       body's own overflow:hidden can't clip a position:fixed pseudo-element. */
+    html { background: var(--bg); overflow: hidden; }
     body {
       font-family: Inter, system-ui, sans-serif;
       color: var(--text);
