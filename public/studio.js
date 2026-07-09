@@ -713,11 +713,14 @@ async function sbThumb(s) {
   s.dur = s.dur || v.duration;
   await sbSeek(v, Math.min(0.1, v.duration / 2));
   s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
-  // Filmstrip: sample a handful of frames across the clip so the timeline block
-  // fills like iMovie's (distinct frames edge-to-edge) instead of one image.
+  // Filmstrip: sample frames at a fixed time density (≈one every 0.5s, like
+  // iMovie) so a longer clip gets more frames and every frame is the same
+  // on-screen width. Capped so a very long clip doesn't trigger a huge number
+  // of seeks / bloat storage.
   try {
     const dur = s.dur || v.duration || 0;
-    const n = Math.max(3, Math.min(8, Math.round((dur || 4) / 1.5)));
+    const SEC_PER_FRAME = 0.5, MAX_FRAMES = 30;
+    const n = Math.max(2, Math.min(MAX_FRAMES, Math.ceil((dur || 2) / SEC_PER_FRAME)));
     const frames = [];
     for (let i = 0; i < n; i++) {
       await sbSeek(v, Math.min((dur * (i + 0.5)) / n, dur - 0.01));
