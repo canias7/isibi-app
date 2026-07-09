@@ -1192,7 +1192,13 @@
   transition: background .15s ease, color .15s ease;
 }
 .chat-item:hover { background: var(--panel); color: var(--text); }
-.chat-item.active { background: var(--panel-2); border-color: var(--line); color: var(--text); }
+/* Active chat matches the workspace nav's active pill (warm pink→amber glow). */
+.chat-item.active {
+  background: linear-gradient(100deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .05) 52%, rgba(255, 255, 255, 0) 88%);
+  border-color: rgba(255, 184, 77, .22);
+  color: var(--text);
+  box-shadow: 0 8px 24px -14px rgba(255, 121, 198, .5);
+}
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-del {
   background: none; border: none; color: var(--muted); cursor: pointer;
