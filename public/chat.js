@@ -2557,6 +2557,20 @@ function openCredits(topupsOnly) {
       else openVideoEditorUpsell();
     };
   });
+  // Playful click feedback: flick the hanging badge so it swings, then hand
+  // back to the idle sway once the kick finishes.
+  ov.querySelectorAll('.addon-env-badge').forEach((stage) => {
+    const el = stage.querySelector('.apb');
+    if (!el) return;
+    stage.addEventListener('click', () => {
+      el.classList.remove('kick');
+      void el.offsetWidth; // reflow so a rapid re-click replays it
+      el.classList.add('kick');
+    });
+    el.addEventListener('animationend', (e) => {
+      if (e.animationName === 'apb-kick') el.classList.remove('kick');
+    });
+  });
   const heroCta = ov.querySelector('.up-hero-cta');
   if (heroCta) heroCta.onclick = () => { const pro = ov.querySelector('.up-card.best'); if (pro) pro.click(); };
   // Live launch-offer countdown; the interval dies with the overlay.

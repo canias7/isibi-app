@@ -2484,7 +2484,7 @@
    lanyard and gently sways; the stage carries the pink→amber glow. */
 .addon-env-badge {
   position: relative; display: grid; place-items: start center; margin-bottom: .35rem;
-  padding: .1rem .5rem 1.2rem; border-radius: 16px; overflow: visible;
+  padding: .1rem .5rem 1.2rem; border-radius: 16px; overflow: visible; cursor: pointer;
   background: radial-gradient(54% 50% at 50% 48%, rgba(255, 121, 198, .22), rgba(255, 184, 77, .10) 52%, transparent 74%);
 }
 .apb {
@@ -2499,7 +2499,19 @@
    independently instead of in lockstep. */
 .apb.b { animation-delay: -2.7s; animation-duration: 5.8s; }
 @keyframes apb-sway { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
-@media (prefers-reduced-motion: reduce) { .apb { animation: none; } }
+/* Click feedback: a damped pendulum "kick" that overrides the idle sway, then
+   hands back to it on animationend. */
+.apb.kick { animation: apb-kick .9s cubic-bezier(.3, .5, .2, 1) !important; }
+@keyframes apb-kick {
+  0%   { transform: rotate(0deg); }
+  14%  { transform: rotate(-17deg); }
+  32%  { transform: rotate(12deg); }
+  50%  { transform: rotate(-8deg); }
+  68%  { transform: rotate(5deg); }
+  84%  { transform: rotate(-2deg); }
+  100% { transform: rotate(0deg); }
+}
+@media (prefers-reduced-motion: reduce) { .apb, .apb.kick { animation: none !important; } }
 .addon-badge-name {
   font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 700; font-size: 1.06rem;
   letter-spacing: -.01em; display: flex; align-items: center; gap: .5rem;
