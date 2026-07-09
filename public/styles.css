@@ -2482,7 +2482,7 @@
 .addon-env-badge {
   position: relative; display: grid; place-items: start center; margin-bottom: .35rem;
   padding: .1rem .5rem 1.2rem; border-radius: 16px; overflow: visible; cursor: pointer;
-  background: radial-gradient(54% 50% at 50% 48%, rgba(255, 121, 198, .22), rgba(255, 184, 77, .10) 52%, transparent 74%);
+  background: none;
 }
 .apb {
   max-height: 260px; width: auto; display: block;
