@@ -774,6 +774,12 @@ function sbSplitAtPlayhead() {
   const b = Object.assign({}, s, { id: sbUid('s'), in: cut, out: outP, thumb: null, strip: null });
   s.out = cut;
   proj.shots.splice(i + 1, 0, b);
+  // An imported clip's source blob lives in IndexedDB keyed by its shot id. The
+  // new half has a fresh id, so copy the blob across — otherwise it rehydrates as
+  // 'missing' on reload and the user loses the second half of every split.
+  if (s.src === 'import' && s.stored) {
+    sbMediaGet(s.id).then((blob) => { if (blob) return sbMediaPut(b.id, blob); }).catch(() => {});
+  }
   sbSave(); sbRender();
   if (s.url) { sbBuildStrip(s); sbBuildStrip(b); } // refresh both halves' frames
   sbStudioNote('Split into two clips at ' + sbFmt(cut) + '.');
