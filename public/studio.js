@@ -2296,8 +2296,15 @@ async function sbExportCanvas(shots, deliver, quiet) {
     // Match the file to what the recorder actually produced (webm on Chrome,
     // mp4 on Safari) so the download opens cleanly.
     const outType = ((rec.mimeType || mime || 'video/webm').split(';')[0]) || 'video/webm';
+    let outBlob = new Blob(parts, { type: outType });
+    // MediaRecorder writes no top-level duration, so players show Infinity / no
+    // seek bar until the file fully buffers. Repair it with a fast stream-copy
+    // remux (no re-encode) when the on-device editor is available.
+    if (outType.indexOf('webm') >= 0 && window.sbFFRemux) {
+      try { sbStudioProgress('Finalizing the film…'); outBlob = await window.sbFFRemux(outBlob); } catch (e) {}
+    }
     const ext = outType.indexOf('mp4') >= 0 ? 'mp4' : 'webm';
-    await send(new Blob(parts, { type: outType }), ext);
+    await send(outBlob, ext);
     if (!quiet) sbStudioNote('Exported “' + sbProject().title + '” (' + ok + ' shot' + (ok === 1 ? '' : 's') +
       (skipped ? ', ' + skipped + ' skipped' : '') + ') — check your downloads ✦');
   }
