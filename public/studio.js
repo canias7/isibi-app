@@ -909,6 +909,5 @@ function initStudio() {
   }
   sbLoad();
   sbRender();
-  sbStudioNote('Tell me the film you’re making and I’ll break it into shots — or import a video and I’ll split it for you.');
 }
 initStudio();
