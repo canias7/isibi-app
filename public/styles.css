@@ -1261,13 +1261,20 @@
 }
 .nav-dd-menu.open { display: block; animation: menu-pop .16s ease; }
 .nav-dd-item {
-  display: flex; align-items: center; gap: .65rem; width: 100%; background: none; border: none;
-  color: var(--text); font-family: inherit; font-size: .92rem; padding: .5rem .55rem;
-  border-radius: 10px; cursor: pointer; text-align: left; transition: background .15s ease;
+  display: flex; align-items: center; gap: .7rem; width: 100%; background: none;
+  border: 1px solid transparent;
+  color: var(--text); font-family: inherit; font-size: .95rem; font-weight: 500; padding: .5rem .55rem;
+  border-radius: 12px; cursor: pointer; text-align: left; transition: background .15s ease, color .15s ease;
 }
 .nav-dd-item:hover { background: var(--panel-2); }
-.nav-dd-item.active { background: var(--panel-2); }
-.nav-dd-item .tile { width: 30px; height: 30px; flex: none; font-size: .95rem; }
+.nav-dd-item:hover .nav-ico { color: var(--text); }
+.nav-dd-item.active {
+  background: linear-gradient(100deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .05) 52%, rgba(255, 255, 255, 0) 88%);
+  border-color: rgba(255, 184, 77, .22);
+  color: var(--text); font-weight: 700;
+  box-shadow: 0 8px 24px -14px rgba(255, 121, 198, .5);
+}
+.nav-dd-item.active .nav-ico { color: var(--text); }
 .nav-dd-sep { height: 1px; background: var(--line); margin: .4rem .25rem; }
 .nav-dd-account { padding: .35rem .3rem .1rem; }
 .nav-dd-account .side-email { padding: 0 .35rem .45rem; }
