@@ -3923,7 +3923,7 @@ const acOpen = {};  // key -> section expanded?
 // swap for the real sections/options later. opts.img adds a real photo tile.
 const AV_SECTIONS = [
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
-    opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }, { v: 'Trans man', ico: '⚧' }, { v: 'Trans woman', ico: '⚧' }, { v: 'Non-binary', ico: '◯' }] },
+    opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }] },
   { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
     opts: [{ v: 'Fair', c: '#f2e3d5' }, { v: 'Light', c: '#e6c8a8' }, { v: 'Medium', c: '#d0a06f' }, { v: 'Tan', c: '#a86f43' }, { v: 'Brown', c: '#7a4a26' }, { v: 'Deep', c: '#4a2c17' }] },
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
