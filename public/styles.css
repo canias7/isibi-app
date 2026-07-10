@@ -1073,11 +1073,19 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .ac-ph-ico { font-size: 2rem; opacity: .5; }
 .ac-ph-txt { color: var(--muted); font-size: .9rem; line-height: 1.5; max-width: 260px; }
 .ac-tag { position: absolute; left: 12px; bottom: 12px; font-size: .72rem; font-weight: 600; background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: .18rem .5rem; color: var(--text); }
+/* Generated avatar shown in-place (Generate renders here, not in the chat). */
+.ac-preview.ac-loading { padding: 1.5rem; }
+.ac-preview .ac-result { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 18px; }
+.ac-spin { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--line-2); border-top-color: #ff9ad4; animation: acspin .8s linear infinite; }
+@keyframes acspin { to { transform: rotate(360deg); } }
 .ac-actions { display: flex; gap: .7rem; align-items: center; width: 100%; max-width: 420px; }
 .ac-shuffle { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); font-size: 1.2rem; cursor: pointer; transition: border-color .12s ease; }
 .ac-shuffle:hover { border-color: rgba(255, 170, 110, .5); }
-.ac-gen { flex: 1; padding: .85rem; border-radius: 12px; background: var(--split); color: #0a0a0b; border: none; font: inherit; font-weight: 700; font-size: .98rem; cursor: pointer; transition: transform .12s ease; }
+.ac-gen { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: .55rem; padding: .85rem; border-radius: 12px; background: var(--split); color: #0a0a0b; border: none; font: inherit; font-weight: 700; font-size: .98rem; cursor: pointer; transition: transform .12s ease; }
 .ac-gen:hover { transform: translateY(-1px); }
+.ac-gen:disabled { opacity: .7; cursor: default; transform: none; }
+.ac-gen-cost { font-weight: 800; font-size: .82rem; background: rgba(0, 0, 0, .16); border-radius: 999px; padding: .12rem .5rem; }
+.ac-model-note { width: 100%; max-width: 420px; text-align: center; color: var(--muted); font-size: .76rem; margin-top: -.4rem; }
 /* Builder panel */
 .ac-builder { width: 380px; flex-shrink: 0; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; padding: .9rem 1rem 1.1rem; max-height: calc(100vh - 150px); overflow-y: auto; }
 .ab-top { display: flex; align-items: center; justify-content: space-between; padding: .2rem .2rem .7rem; }
