@@ -400,9 +400,10 @@ function sbRender() {
     ruler.className = 'tl-ruler';
     const step = total <= 12 ? 1 : total <= 45 ? 5 : total <= 120 ? 10 : 30;
     for (let t = 0; t <= total + 0.001; t += step) {
+      if (t > 0 && t / total > 0.965) break; // don't jam a label against the right edge
       const tick = document.createElement('span');
       tick.className = 'tl-tick';
-      tick.style.left = Math.min(100, t / total * 100) + '%';
+      tick.style.left = (t / total * 100) + '%';
       tick.textContent = sbFmt(t);
       ruler.appendChild(tick);
     }
@@ -444,6 +445,12 @@ function sbRender() {
             frames.map((src) => '<i class="sb-frame" style="background-image:url(\'' + src + '\')"></i>').join('') +
             '</div>';
         }
+      }
+      // iMovie-style audio band along the clip's bottom (real waveform, in memory).
+      if (!isTitle && !sbIsImage(s) && s.url) {
+        const wv = sbClipWave[s.id];
+        if (wv === undefined) sbBuildClipWave(s);
+        if (typeof wv === 'string') body += '<span class="sb-clipwave" style="background-image:url(' + wv + ')"></span>';
       }
       // Per-clip label bar: amber duration + name, iMovie-style ("4.0s Skyline dawn").
       block.innerHTML = body +
@@ -742,6 +749,49 @@ async function sbBuildWave(tr, kind) {
     tr.wave = c.toDataURL('image/png');
   } catch (e) { tr._waveFailed = true; /* keep the solid clip body, don't retry */ }
   finally { if (ac) ac.close().catch(() => {}); tr._waving = false; sbRender(); }
+}
+
+// Per-clip audio waveform (the iMovie "blue band" under a video clip). Decoded
+// from the clip's own audio, windowed to its [in,out], and cached IN MEMORY
+// (keyed by shot id) so it never bloats the saved project. undefined = not built,
+// 'pending' = decoding, false = no audio / failed, string = waveform PNG.
+const sbClipWave = {};
+function sbBuildClipWave(s) {
+  if (!s || !s.url || sbIsImage(s) || s.src === 'title') return;
+  if (sbClipWave[s.id] !== undefined) return;
+  sbClipWave[s.id] = 'pending';
+  (async () => {
+    let ac = null;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ac = new AC();
+      const bytes = await fetch(s.url).then((r) => r.arrayBuffer());
+      const audio = await ac.decodeAudioData(bytes);
+      const ch = audio.getChannelData(0), sr = audio.sampleRate;
+      const inT = s.in || 0, outT = (s.out != null ? s.out : audio.duration);
+      let a = Math.max(0, Math.floor(inT * sr)), b = Math.min(ch.length, Math.floor(outT * sr));
+      if (b <= a) { a = 0; b = ch.length; }
+      const span = b - a;
+      const W = 1200, H = 70, mid = H / 2, amp = mid - 1, peaks = 400;
+      const bucket = Math.max(1, Math.floor(span / peaks)), stride = Math.max(1, Math.floor(bucket / 30));
+      const vals = new Array(peaks); let any = false;
+      for (let i = 0; i < peaks; i++) {
+        let max = 0; const base = a + i * bucket;
+        for (let j = 0; j < bucket; j += stride) { const v = Math.abs(ch[base + j] || 0); if (v > max) max = v; }
+        vals[i] = Math.min(1, max); if (max > 0.012) any = true;
+      }
+      if (!any) { sbClipWave[s.id] = false; return; } // silent clip → no band
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const cx = c.getContext('2d');
+      cx.fillStyle = 'rgba(255,255,255,.85)';
+      cx.beginPath(); cx.moveTo(0, mid);
+      for (let i = 0; i < peaks; i++) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid - Math.max(1, vals[i] * amp)); }
+      for (let i = peaks - 1; i >= 0; i--) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid + Math.max(1, vals[i] * amp)); }
+      cx.closePath(); cx.fill();
+      sbClipWave[s.id] = c.toDataURL('image/png');
+    } catch (e) { sbClipWave[s.id] = false; }
+    finally { if (ac) ac.close().catch(() => {}); sbRender(); }
+  })();
 }
 
 // Add/remove a clip to the film (the bottom timeline). The clip stays in the
@@ -1073,6 +1123,7 @@ function sbTrimStart(e, s, side) {
     handle.removeEventListener('pointerup', up);
     handle.removeEventListener('pointercancel', up);
     try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+    delete sbClipWave[s.id]; // re-window the audio band for the new trim
     sbSave(); sbRender();
     // Re-seek to the (possibly new) in-point so the preview reflects the trim.
     if (sbSelected === s.id) sbSeekClip(s, 0);
@@ -1091,6 +1142,7 @@ function sbKbdTrim(s, edge, delta) {
   const MINLEN = 0.3;
   if (edge === 'r') s.out = Math.min(cap, Math.max(in0 + MINLEN, out0 + delta));
   else s.in = Math.max(0, Math.min(in0 + delta, out0 - MINLEN));
+  delete sbClipWave[s.id]; // re-window the audio band for the new trim
   sbSave(); sbRender();
   if (sbSelected === s.id) sbSeekClip(s, 0);
   const el = document.querySelector('.sb-block[data-sid="' + s.id + '"]');
@@ -1121,6 +1173,7 @@ function sbSplitAtPlayhead() {
   if (s.src === 'import' && s.stored) {
     sbMediaGet(s.id).then((blob) => { if (blob) return sbMediaPut(b.id, blob); }).catch(() => {});
   }
+  delete sbClipWave[s.id]; // both halves re-window their audio band
   sbSave(); sbRender();
   if (s.url) { sbBuildStrip(s); sbBuildStrip(b); } // refresh both halves' frames
   sbStudioNote('Split into two clips at ' + sbFmt(cut) + '.');
