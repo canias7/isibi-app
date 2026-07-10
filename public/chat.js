@@ -3955,7 +3955,7 @@ const acOpen = {};  // key -> section expanded?
 const AV_SECTIONS = [
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }] },
-  { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
+  { key: 'skin', label: 'Skin Color', icon: '', type: 'swatch',
     opts: [{ v: 'Porcelain', c: '#f4ddcf' }, { v: 'Fair', c: '#ebcaad' }, { v: 'Light', c: '#d8b48d' }, { v: 'Beige', c: '#ca9f74' }, { v: 'Tan', c: '#bd8a5a' }, { v: 'Golden', c: '#b0703c' }, { v: 'Caramel', c: '#8a5531' }, { v: 'Rich brown', c: '#683e22' }, { v: 'Deep brown', c: '#492a19' }, { v: 'Ebony', c: '#2b190f' }] },
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
     opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
@@ -4058,7 +4058,7 @@ function renderAvatarCreator(view) {
     }
     const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
     return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
-      '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
+      '<button type="button" class="ab-sec-h"><span class="ab-sec-t">' + (s.icon ? '<span class="ab-sec-ico">' + s.icon + '</span>' : '') + esc(s.label) +
         '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
       '<div class="ab-sec-body">' + body + '</div>' +
     '</div>';
