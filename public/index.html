@@ -373,7 +373,7 @@
               <div class="media-body mb-browser" id="sbBrowser" hidden></div>
               <div class="sb-actions" id="sbActions">
                 <button class="sb-btn" data-act="file" data-file="studioFile">⬇ Import</button>
-                <input type="file" id="studioFile" accept="video/*" hidden />
+                <input type="file" id="studioFile" accept="video/*,image/*,audio/*" hidden />
               </div>
             </div>
 
@@ -392,7 +392,7 @@
               <div class="adjust-panel" id="sbAdjustPanel" hidden></div>
               <div class="preview-stage" id="previewStage">
                 <div class="preview-empty">
-                  <div class="preview-empty-text">Import a video to preview it here</div>
+                  <div class="preview-empty-text">Import a video, photo or music track to preview it here</div>
                 </div>
               </div>
               <div class="preview-controls">
@@ -412,11 +412,8 @@
               <div class="timeline-tools">
                 <button class="tl-tool" data-act="sb-playall" title="Play the whole film">▶ Play</button>
                 <button class="tl-tool" data-act="sb-split" title="Split the selected clip at the playhead">✂ Split</button>
-                <button class="tl-tool" data-act="file" data-file="studioMusic" title="Add a background music track">♪ Music</button>
-                <button class="tl-tool" id="sbVoiceBtn" data-act="sb-voice" title="Record a voiceover">● Voice</button>
                 <button class="tl-tool tl-save" id="sbSaveBtn" data-act="sb-save" title="Save the film to your gallery">⬆ Save</button>
                 <button class="tl-tool tl-export" id="sbExportBtn" data-act="sb-export">Export</button>
-                <input type="file" id="studioMusic" accept="audio/*" hidden />
               </div>
               <div class="tl-right">
                 <span class="tl-settings" id="sbTotalDur"></span>

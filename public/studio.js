@@ -11,8 +11,15 @@ let sbSelected = null;      // selected shot id
 let sbPlaying = null;       // {ids, idx} while playing the whole film
 let sbBusy = false;         // an export or generation batch is running
 let sbZoomLevel = 1;        // timeline zoom (1 = fit; >1 scrolls)
-let sbTitleState = null;    // {id, elapsed} while a title card is "playing"
+let sbTitleState = null;    // {id, elapsed} while a static card (title OR photo) is "playing"
 let sbTitleRAF = 0;
+let sbAudioOnly = null;     // {playing, t0, raf} while previewing music/voice with no video on the timeline
+
+// A "static" clip has no moving source — a title card or an imported still photo.
+// Both are painted frame-by-frame off a RAF clock (sbTitleState) rather than a
+// <video> element, in the preview and the export alike.
+function sbIsImage(s) { return !!(s && s.kind === 'image'); }
+function sbIsStatic(s) { return !!(s && (s.src === 'title' || s.kind === 'image')); }
 let sbTab = 'shots';        // asset browser tab: shots | transitions | titles | backgrounds
 
 // Account switched on this browser (expired session → different login without
@@ -258,7 +265,11 @@ async function sbRehydrateImports() {
     for (const s of p.shots) {
       if (s.src === 'import' && s.stored && !s.url) {
         const blob = await sbMediaGet(s.id);
-        if (blob) { s.url = URL.createObjectURL(blob); s.status = 'ready'; }
+        if (blob) {
+          s.url = URL.createObjectURL(blob); s.status = 'ready';
+          // A photo's poster + filmstrip ARE its (now-fresh) object URL.
+          if (s.kind === 'image') { s.thumb = s.url; s.strip = [s.url]; }
+        }
         else { s.status = 'missing'; }
         changed = true;
       }
@@ -779,7 +790,7 @@ function sbUpdatePlayhead(v) {
   const s = tl[idx];
   const dur = sbShotDur(s) || 4;
   let within;
-  if (s.src === 'title') within = (sbTitleState && sbTitleState.id === s.id) ? Math.min(dur, sbTitleState.elapsed) : 0;
+  if (sbIsStatic(s)) within = (sbTitleState && sbTitleState.id === s.id) ? Math.min(dur, sbTitleState.elapsed) : 0;
   else { if (!v) { ph.style.display = 'none'; return; } within = Math.min(dur, Math.max(0, v.currentTime - (s.in || 0))); }
   ph.style.left = ((before + within) / total * 100).toFixed(2) + '%';
   ph.style.display = '';
@@ -810,11 +821,11 @@ function sbSeekFilmFraction(frac) {
 }
 // Load (if needed) a clip and seek to `off` seconds into it, keeping play state.
 function sbSeekClip(s, off) {
-  if (s.src === 'title') {
+  if (sbIsStatic(s)) {
     if (sbSelected !== s.id) { sbSelected = s.id; sbPlaying = null; sbRender(); }
     sbStopTitle();
     sbTitleState = { id: s.id, elapsed: off || 0, playing: false };
-    sbShowTitleCard(s);
+    sbShowStatic(s);
     sbUpdatePlayhead(null);
     sbMusicSync(null);
     return;
@@ -970,6 +981,9 @@ function sbMusicLoad() {
 }
 // Cumulative film position (seconds) of the current clip + offset.
 function sbFilmTime() {
+  // Previewing music/voice on their own (no video on the timeline): the film
+  // clock IS the elapsed audio time.
+  if (sbAudioOnly && sbAudioOnly.playing) return (performance.now() - sbAudioOnly.t0) / 1000;
   const tl = sbProject().shots.filter((s) => s.onTimeline);
   const idx = tl.findIndex((s) => s.id === sbSelected);
   if (idx < 0) return 0;
@@ -977,7 +991,7 @@ function sbFilmTime() {
   for (let k = 0; k < idx; k++) before += (sbShotDur(tl[k]) || 4);
   const s = tl[idx];
   let within = 0;
-  if (s.src === 'title') within = (sbTitleState && sbTitleState.id === s.id) ? sbTitleState.elapsed : 0;
+  if (sbIsStatic(s)) within = (sbTitleState && sbTitleState.id === s.id) ? sbTitleState.elapsed : 0;
   else { const v = document.querySelector('#previewStage video'); within = v ? Math.min(sbShotDur(s) || 4, Math.max(0, v.currentTime - (s.in || 0))) : 0; }
   return before + Math.min(sbShotDur(s) || 4, within);
 }
@@ -1007,7 +1021,7 @@ async function sbAudioDuration(url) {
 function sbSyncAudioTrack(tr, el, kind, v, opts) {
   if (!tr || !tr.url || !el) { if (el && !el.paused) el.pause(); return; }
   sbAudioInit(tr);
-  const playing = (sbTitleState && sbTitleState.playing) || (v && !v.paused && !v.ended);
+  const playing = (sbTitleState && sbTitleState.playing) || (sbAudioOnly && sbAudioOnly.playing) || (v && !v.paused && !v.ended);
   const ft = sbFilmTime();
   const off = tr.offset || 0;
   const clipDur = sbAClipDur(tr);
@@ -1329,7 +1343,7 @@ function sbApplyTheme(t) {
 // voice slot) as its own draggable/trimmable clip, and mute the source clip.
 async function sbDetachAudio(id) {
   const s = sbShot(id);
-  if (!s || s.src === 'title') { sbStudioNote('Select a video clip first, then detach its audio.'); return; }
+  if (!s || s.src === 'title' || sbIsImage(s)) { sbStudioNote('Select a video clip first, then detach its audio.'); return; }
   if (!s.url) { sbStudioNote('That clip isn’t loaded yet — try again once it’s ready.'); return; }
   if (!window.sbFFExtractAudio || !window.sbFFSupported || !window.sbFFSupported()) {
     sbStudioNote('This browser can’t run the on-device audio extractor.'); return;
@@ -1367,22 +1381,75 @@ function sbStopTitle() {
   if (sbTitleRAF) { cancelAnimationFrame(sbTitleRAF); sbTitleRAF = 0; }
   sbTitleState = null;
 }
-function sbPlayTitle(s, next) {
-  sbShowTitleCard(s);
+// Drop a still photo into the preview stage (letterboxed, with the clip's look).
+function sbShowStill(s) {
+  const stage = document.getElementById('previewStage');
+  if (!stage) return;
+  stage.innerHTML = '<img class="preview-still" alt="" style="width:100%;height:100%;object-fit:contain;display:block;background:#000;filter:'
+    + sbFilterStr(s) + '" />';
+  const img = stage.querySelector('.preview-still');
+  if (img && s.url) img.src = s.url;
+}
+// Show whichever static clip this is — a title card or a still photo.
+function sbShowStatic(s) { if (sbIsImage(s)) sbShowStill(s); else sbShowTitleCard(s); }
+// Play a static clip (title card or photo): paint it, run a RAF clock for its
+// length, keep the audio + play button + playhead in sync, then chain onward.
+function sbPlayStatic(s, next) {
+  sbShowStatic(s);
   const dur = sbShotDur(s) || 3;
   sbStopTitle();
+  sbStopAudioOnly();
   sbTitleState = { id: s.id, elapsed: 0, playing: true };
   const t0 = performance.now();
+  sbSyncPlayBtn();
   sbMusicSync(null, { hard: true });
   const step = () => {
     if (!sbTitleState || sbTitleState.id !== s.id) return;
     sbTitleState.elapsed = (performance.now() - t0) / 1000;
     sbUpdatePlayhead(null);
     sbMusicSync(null);
-    if (sbTitleState.elapsed >= dur) { sbStopTitle(); if (next) next(); else sbMusicSync(null); return; }
+    if (sbTitleState.elapsed >= dur) { sbStopTitle(); sbSyncPlayBtn(); if (next) next(); else sbMusicSync(null); return; }
     sbTitleRAF = requestAnimationFrame(step);
   };
   step();
+}
+// ── Audio-only preview ──────────────────────────────────────────────────────
+// When the timeline holds only a music / voiceover track (no video, no photos),
+// there's no <video> to drive playback — so run our own clock and let the audio
+// sync ride on it. This is what makes "press play with just music" actually play.
+function sbStopAudioOnly() {
+  if (sbAudioOnly && sbAudioOnly.raf) cancelAnimationFrame(sbAudioOnly.raf);
+  sbAudioOnly = null;
+}
+function sbAudioSpan(tr) { return (tr && tr.url) ? (tr.offset || 0) + sbAClipDur(tr) : 0; }
+function sbPlayAudioOnly() {
+  const proj = sbProject();
+  const dur = Math.max(sbAudioSpan(proj.music), sbAudioSpan(proj.voice));
+  if (dur <= 0) { sbStudioNote('Import a music track first — then press play to hear it.'); return; }
+  sbStopTitle();
+  sbStopAudioOnly();
+  const t0 = performance.now();
+  sbAudioOnly = { playing: true, t0, raf: 0 };
+  sbSyncPlayBtn();
+  sbMusicSync(null, { hard: true });
+  const step = () => {
+    if (!sbAudioOnly || !sbAudioOnly.playing) return;
+    const el = (performance.now() - t0) / 1000;
+    sbMusicSync(null);
+    if (el >= dur) { sbStopAudioOnly(); sbMusicSync(null); sbSyncPlayBtn(); return; }
+    sbAudioOnly.raf = requestAnimationFrame(step);
+  };
+  step();
+}
+// Keep the transport play button's glyph honest: ❚❚ while anything is actually
+// playing (video, static card, or audio-only), ▶ when stopped/paused.
+function sbSyncPlayBtn() {
+  const btn = document.querySelector('.pc-play');
+  if (!btn) return;
+  const v = document.querySelector('#previewStage video');
+  const playing = (sbTitleState && sbTitleState.playing) || (sbAudioOnly && sbAudioOnly.playing) || (v && !v.paused && !v.ended);
+  btn.textContent = playing ? '❚❚' : '▶';
+  btn.title = playing ? 'Pause' : 'Play';
 }
 
 // ── Voiceover: record a mic track straight into the timeline ─────────────────
@@ -1504,11 +1571,11 @@ function sbVideoEl() {
       sbUpdatePlayhead(v);
       sbMusicSync(v);
     });
-    // Keep the background music track locked to the film's play state.
-    v.addEventListener('play', () => sbMusicSync(v, { hard: true }));
-    v.addEventListener('pause', () => sbMusicSync(v));
+    // Keep the background music track + the play button locked to the film's state.
+    v.addEventListener('play', () => { sbMusicSync(v, { hard: true }); sbSyncPlayBtn(); });
+    v.addEventListener('pause', () => { sbMusicSync(v); sbSyncPlayBtn(); });
     v.addEventListener('seeking', () => sbMusicSync(v, { hard: true }));
-    v.addEventListener('ended', () => sbMusicSync(v));
+    v.addEventListener('ended', () => { sbMusicSync(v); sbSyncPlayBtn(); });
   }
   return v;
 }
@@ -1538,8 +1605,9 @@ function sbNoteSrcDur(s, v) {
   if (changed) sbSave();
 }
 function sbPlayShot(s, next) {
-  if (s.src === 'title') return sbPlayTitle(s, next);
+  if (sbIsStatic(s)) return sbPlayStatic(s, next);
   sbStopTitle();
+  sbStopAudioOnly();
   const v = sbVideoEl();
   if (!v || !s.url) return;
   const start = s.in || 0;
@@ -1570,8 +1638,36 @@ function sbPrevShot() { const { shots, i } = sbCurIndex(); const j = i > 0 ? i -
 function sbNextShot() { const { shots, i } = sbCurIndex(); const j = i < shots.length - 1 ? i + 1 : 0; if (shots[j]) sbSelect(shots[j].id); }
 function sbTogglePlay() {
   const v = document.querySelector('#previewStage video');
-  if (!v) { const { shots } = sbCurIndex(); const first = shots.find((s) => s.url); if (first) sbSelect(first.id); return; }
-  if (v.paused) v.play().catch(() => {}); else v.pause();
+  const playing = (sbTitleState && sbTitleState.playing) || (sbAudioOnly && sbAudioOnly.playing) || (v && !v.paused && !v.ended);
+  // Playing → stop everything (video, static card, or audio-only preview).
+  if (playing) {
+    if (v) v.pause();
+    sbStopTitle(); sbStopAudioOnly(); sbSegment = null;
+    sbMusicSync(v || null); sbSyncPlayBtn();
+    return;
+  }
+  // Not playing → play THROUGH the film from the selected clip to the end,
+  // chaining shot → shot (this is what makes it "keep on playing" instead of
+  // stopping at the current clip).
+  const tl = sbProject().shots.filter((s) => s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready')));
+  if (tl.length) {
+    let start = tl.findIndex((s) => s.id === sbSelected);
+    if (start < 0) start = 0;
+    let i = start;
+    const playNext = () => {
+      if (i >= tl.length) { sbSegment = null; sbSyncPlayBtn(); return; }
+      const s = tl[i++];
+      sbSelected = s.id; sbRender();
+      sbPlayShot(s, playNext);
+    };
+    playNext();
+    return;
+  }
+  // No clips on the timeline — but there may be a music / voiceover track to hear.
+  const proj = sbProject();
+  if ((proj.music && proj.music.url) || (proj.voice && proj.voice.url)) { sbPlayAudioOnly(); return; }
+  // Nothing on the timeline yet — preview the first clip sitting in the list.
+  const { shots } = sbCurIndex(); const first = shots.find((s) => s.url); if (first) sbSelect(first.id);
 }
 function sbFullscreenPreview() {
   const v = document.querySelector('#previewStage video');
@@ -1775,8 +1871,9 @@ function sbSelect(id) {
   sbPlaying = null;
   const s = sbShot(id);
   sbRender();
-  if (s && s.src === 'title') { sbStopTitle(); sbShowTitleCard(s); sbUpdatePlayhead(null); return; }
+  if (s && sbIsStatic(s)) { sbStopTitle(); sbStopAudioOnly(); sbShowStatic(s); sbUpdatePlayhead(null); sbSyncPlayBtn(); return; }
   sbStopTitle();
+  sbStopAudioOnly();
   if (s && s.url) sbPlayShot(s);
   else if (s && s.status === 'restoring') sbStudioNote('Restoring your imported clip — one sec…');
   else if (s) sbStudioNote(s.status === 'draft'
@@ -1801,6 +1898,12 @@ function sbPlayAll() {
 // Sample the video on a small canvas and cut where consecutive frames differ
 // sharply. Virtual shots: same blob URL, in/out ranges. All on-device.
 async function sbImportFile(f) {
+  // One import button for everything. Route by type: an audio file becomes the
+  // background music track, a photo becomes a still clip, and a video drops in
+  // as one clip. No scene detection, no splitting — the file lands as-is.
+  const type = f.type || '';
+  if (type.indexOf('audio/') === 0) { await sbSetMusic(f); return; }
+  if (type.indexOf('image/') === 0) { await sbImportImage(f); return; }
   // Just drop the clip in as one shot — no scene detection, no director, no
   // chat chatter. The user imported it because they want it sitting here.
   const url = URL.createObjectURL(f);
@@ -1824,6 +1927,28 @@ async function sbImportFile(f) {
   // Fill in the real duration + a crisp poster frame from the file itself.
   try { await sbThumb(shot); } catch (e) { console.error('poster grab failed:', e); }
   sbSave(); sbRender();
+}
+
+// A still photo becomes a fixed-length clip (default 4s, drag its edge to change
+// length up to 30s). It's the image itself, letterboxed — no video decode.
+async function sbImportImage(f) {
+  const url = URL.createObjectURL(f);
+  const proj = sbProject();
+  const shot = {
+    id: sbUid('s'),
+    title: '', prompt: '', status: 'ready',
+    src: 'import', kind: 'image',
+    onTimeline: false,
+    url, in: 0, out: 4, srcDur: 30, dur: 4, // trimmable between 0.3s and 30s
+    thumb: url, strip: [url],               // the image is its own poster + filmstrip
+    stored: false,
+  };
+  proj.shots.push(shot);
+  sbSave(); sbRender();
+  // Persist the file so the photo survives a reload, like an imported clip.
+  try { await sbMediaPut(shot.id, f); shot.stored = true; sbSave(); }
+  catch (e) { console.warn('could not persist photo (kept for this tab only):', e); }
+  sbStudioNote('Photo added — drag it onto the timeline. Trim its edge to change how long it shows.');
 }
 
 function sbGrabFrame(v, w) {
@@ -2179,13 +2304,14 @@ async function sbExport(deliver) {
   // the realtime canvas exporter, which handles both. Music-only stays on ffmpeg.
   const proj0 = sbProject();
   const hasTitle = shots.some((s) => s.src === 'title');
+  const hasImage = shots.some(sbIsImage);
   const hasVoice = !!(proj0.voice && proj0.voice.url);
   // Per-clip filters/speed/volume are painted by the realtime canvas exporter
   // (ffmpeg stream-copy/xfade doesn't apply them), so any adjusted clip routes
   // there for a correct render.
   const hasAdjust = shots.some(sbClipHasAdjust);
   try {
-    if (!hasTitle && !hasVoice && !hasAdjust && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+    if (!hasTitle && !hasImage && !hasVoice && !hasAdjust && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
       try {
         const proj = sbProject();
         const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0, muted: !!s.muted }));
@@ -2475,20 +2601,44 @@ function sbExportShot(s, o) {
   const { ctx, W, H, ac, dest } = o;
   const shotDur = sbShotDur(s) || (s.src === 'title' ? 3 : 4);
   if (o.clock) o.clock.film = o.filmStart; // hold the audio clock at this shot's start until it renders
-  // Title / background cards have no video — paint the card for the clip length.
-  if (s.src === 'title') {
+  // Static clips have no video: a title/background card is painted, a still
+  // photo is drawn (letterboxed). Either way we hold the frame for the clip length.
+  if (sbIsStatic(s)) {
     return new Promise((resolve) => {
       const durMs = shotDur * 1000;
-      const t0 = performance.now();
-      const draw = () => {
-        const within = (performance.now() - t0) / 1000;
-        if (o.clock) o.clock.film = o.filmStart + Math.min(shotDur, within);
-        sbPaintTitle(ctx, W, H, s);
-        try { sbFrameOverlays(ctx, W, H, o, within, shotDur); } catch (e) {}
-        if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
-        requestAnimationFrame(draw);
+      let img = null;
+      const filt = sbFilterStr(s);
+      const paint = () => {
+        if (img && img.naturalWidth) {
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+          if (filt !== 'none') ctx.filter = filt;
+          const ir = img.naturalWidth / img.naturalHeight, fr = W / H;
+          let dw = W, dh = H, dx = 0, dy = 0;
+          if (ir > fr) { dh = W / ir; dy = (H - dh) / 2; } else { dw = H * ir; dx = (W - dw) / 2; }
+          ctx.drawImage(img, dx, dy, dw, dh);
+          ctx.filter = 'none';
+          try { sbPaintCaption(ctx, W, H, s); } catch (e) {}
+        } else {
+          sbPaintTitle(ctx, W, H, s);
+        }
       };
-      draw();
+      const run = () => {
+        const t0 = performance.now();
+        const draw = () => {
+          const within = (performance.now() - t0) / 1000;
+          if (o.clock) o.clock.film = o.filmStart + Math.min(shotDur, within);
+          paint();
+          try { sbFrameOverlays(ctx, W, H, o, within, shotDur); } catch (e) {}
+          if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
+          requestAnimationFrame(draw);
+        };
+        draw();
+      };
+      if (sbIsImage(s) && s.url) {
+        img = new Image(); img.crossOrigin = 'anonymous';
+        img.onload = run; img.onerror = () => { img = null; run(); };
+        img.src = s.url;
+      } else { run(); }
     });
   }
   return new Promise((resolve, reject) => {
