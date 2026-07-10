@@ -371,7 +371,7 @@ function sbRender() {
         return;
       }
       const id = e.dataTransfer.getData('text/sb');
-      if (id) sbAddToTimeline(id);
+      if (id) sbDropOnTimeline(id, e.clientX);
     };
     if (!tl.length) {
       const empty = document.createElement('div');
@@ -733,10 +733,46 @@ async function sbBuildWave(tr, kind) {
 // Add/remove a clip to the film (the bottom timeline). The clip stays in the
 // left library either way — the timeline is just the ordered subset that plays
 // and exports.
+// Lane predicates — the main video sequence vs. floating PiP overlays.
+function sbOnMain(s) { return s.onTimeline && s.lane !== 'overlay'; }
+function sbIsOverlay(s) { return s.onTimeline && s.lane === 'overlay'; }
+
 function sbAddToTimeline(id) {
   const s = sbShot(id);
   if (!s || s.onTimeline) return;
-  s.onTimeline = true;
+  s.onTimeline = true; s.lane = 'main';
+  sbSave(); sbRender();
+}
+// Drop a clip onto the main lane AT the release position — insert it between the
+// existing clips where you dropped it, not always at the end. Works for a clip
+// dragged from the media list or an existing timeline clip being repositioned.
+function sbDropOnTimeline(id, clientX) {
+  const s = sbShot(id);
+  if (!s) return;
+  const proj = sbProject();
+  const arr = proj.shots;
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  // Which existing main clip does the drop-x land before? (null → append at end)
+  let insertBefore = null;
+  const main = arr.filter((x) => sbOnMain(x) && x.id !== id);
+  if (inner && main.length) {
+    const rect = inner.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / (rect.width || 1)));
+    const total = main.reduce((a, x) => a + (sbShotDur(x) || 4), 0) || 1;
+    const t = frac * total;
+    let acc = 0;
+    for (const x of main) {
+      const d = sbShotDur(x) || 4;
+      if (t < acc + d / 2) { insertBefore = x; break; }
+      acc += d;
+    }
+  }
+  s.onTimeline = true; s.lane = 'main';
+  const cur = arr.indexOf(s);
+  if (cur >= 0) arr.splice(cur, 1);
+  let target = insertBefore ? arr.indexOf(insertBefore) : arr.length;
+  if (target < 0) target = arr.length;
+  arr.splice(target, 0, s);
   sbSave(); sbRender();
 }
 function sbToggleTimeline(id) {
