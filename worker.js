@@ -1802,60 +1802,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP: schema dump + Instagram write lifecycle test, token-gated.
-    if (url.pathname === "/api/social/writetest" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      const wantSchema = url.searchParams.get("schema");
-      if (wantSchema) {
-        const out = {};
-        for (const slug of wantSchema.split(",").filter(Boolean)) {
-          const r = await composioFetch(env, `/tools/${encodeURIComponent(slug)}`);
-          const d = await r.json().catch(() => ({}));
-          const ip = d.input_parameters || {};
-          out[slug] = { required: ip.required || [], props: Object.keys(ip.properties || {}) };
-        }
-        return Response.json(out);
-      }
-      // Live Instagram write lifecycle: publish → comment → reply → read → insights → delete comment.
-      const q = new URLSearchParams({ toolkit_slugs: "instagram", statuses: "ACTIVE", limit: "5" });
-      const cr = await composioFetch(env, `/connected_accounts?${q}`);
-      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
-      if (!acc) return Response.json({ error: "no instagram account" }, { status: 404 });
-      const ident = { userId: acc.user_id };
-      const log = [];
-      const run = async (slug, args) => {
-        const ex = await composioExecute(env, slug, ident, args || {});
-        let sample = ""; try { sample = JSON.stringify(ex.data).slice(0, 300); } catch {}
-        log.push({ tool: slug, ok: ex.successful, error: composioErrText(ex.error), sample });
-        return ex.data;
-      };
-      const pickId = (d) => d && (d.id || (d.data && d.data.id) || (d.response_data && d.response_data.id));
-      const info = await run("INSTAGRAM_GET_USER_INFO", {});
-      const igId = info && info.id;
-      const image = "https://dummyimage.com/1080x1080/141018/ff79c6.jpg";
-      const cont = await run("INSTAGRAM_POST_IG_USER_MEDIA", { ig_user_id: igId, image_url: image, caption: "Zephyr Media Agent test post ✅ (safe to delete)" });
-      const creation = pickId(cont);
-      let mediaId = null, commentId = null;
-      if (creation) {
-        const pub = await run("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", { ig_user_id: igId, creation_id: String(creation) });
-        mediaId = pickId(pub);
-      }
-      if (mediaId) {
-        const c = await run("INSTAGRAM_POST_IG_MEDIA_COMMENTS", { ig_media_id: mediaId, message: "Automated test comment" });
-        commentId = pickId(c);
-        await run("INSTAGRAM_GET_IG_MEDIA_COMMENTS", { ig_media_id: mediaId });
-        if (commentId) {
-          await run("INSTAGRAM_POST_IG_COMMENT_REPLIES", { ig_comment_id: commentId, message: "Automated test reply" });
-          await run("INSTAGRAM_GET_IG_COMMENT_REPLIES", { ig_comment_id: commentId });
-          await run("INSTAGRAM_DELETE_COMMENT", { ig_comment_id: commentId });
-        }
-        await run("INSTAGRAM_GET_IG_MEDIA", { ig_media_id: mediaId });
-        await run("INSTAGRAM_GET_IG_MEDIA_INSIGHTS", { ig_media_id: mediaId, metric: "reach" });
-      }
-      return Response.json({ ig_user_id: igId, published_media_id: mediaId, comment_id: commentId, tests: log });
-    }
-
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
