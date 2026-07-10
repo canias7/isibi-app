@@ -4141,7 +4141,7 @@ function avTileSrc(s, o) {
 function renderAvatarCreator(view) {
   const secHtml = AV_SECTIONS.map((s) => {
     if (s.menOnly && avGender() !== 'men') return ''; // facial hair: men only
-    const open = acOpen[s.key] !== false; // default expanded
+    const open = acOpen[s.key] === true; // default collapsed until opened
     const sel = acSel[s.key];
     const sOpts = avOpts(s);
     let body = '';
@@ -4174,7 +4174,7 @@ function renderAvatarCreator(view) {
     }
     const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
     return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
-      '<button type="button" class="ab-sec-h"><span class="ab-sec-t">' + (s.icon ? '<span class="ab-sec-ico">' + s.icon + '</span>' : '') + esc(s.label) +
+      '<button type="button" class="ab-sec-h"><span class="ab-sec-t">' + esc(s.label) +
         '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
       '<div class="ab-sec-body">' + body + '</div>' +
     '</div>';
