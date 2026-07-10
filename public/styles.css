@@ -1073,19 +1073,20 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .ab-card-l { font-size: .78rem; font-weight: 600; }
 .ab-card-i { position: absolute; right: .5rem; bottom: .4rem; font-size: 1.05rem; opacity: .8; }
 /* image options (ethnicity) */
-.ab-imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-.ab-img { position: relative; aspect-ratio: 3 / 4; border-radius: 11px; overflow: hidden; border: 1px solid var(--line-2); background: #17161d; cursor: pointer; padding: 0; transition: border-color .12s ease; }
+.ab-imgs { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+.ab-img { flex: 0 0 calc((100% - 1rem) / 3); position: relative; aspect-ratio: 3 / 4; border-radius: 11px; overflow: hidden; border: 1px solid var(--line-2); background: #17161d; cursor: pointer; padding: 0; transition: border-color .12s ease; }
 .ab-img:hover { border-color: #4a4a52; }
 .ab-img.on { border-color: transparent; box-shadow: 0 0 0 2px #ff9ad4 inset; }
 .ab-img.on::after { content: '✓'; position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 50%; background: var(--split); color: #0a0a0b; font-size: .72rem; font-weight: 800; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0, 0, 0, .45); }
 .ab-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ab-img-ph { display: block; width: 100%; height: 100%; }
+.ab-img-ph { position: absolute; inset: 0; }
+.ab-img-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
 .ab-ph0 { background: linear-gradient(160deg, #ff79c6, #ffb84d); }
 .ab-ph1 { background: linear-gradient(160deg, #a06cff, #ff79c6); }
 .ab-ph2 { background: linear-gradient(160deg, #ffb84d, #ff7a5b); }
 .ab-img-l { position: absolute; left: 6px; bottom: 5px; font-size: .72rem; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .7); }
 /* swatch options (skin) */
-.ab-swatches { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ab-swatches { display: grid; grid-template-columns: repeat(5, 34px); gap: .5rem; justify-content: start; }
 .ab-swatch { width: 34px; height: 34px; border-radius: 9px; border: 2px solid var(--line-2); cursor: pointer; padding: 0; transition: transform .1s ease, border-color .1s ease; }
 .ab-swatch:hover { transform: scale(1.06); }
 .ab-swatch.on { border-color: #ff9ad4; box-shadow: 0 0 0 2px rgba(255, 154, 212, .3); }

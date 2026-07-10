@@ -4026,19 +4026,36 @@ const acOpen = {};  // key -> section expanded?
 const AV_SECTIONS = [
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }] },
-  { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
-    opts: [{ v: 'Fair', c: '#f2e3d5' }, { v: 'Light', c: '#e6c8a8' }, { v: 'Medium', c: '#d0a06f' }, { v: 'Tan', c: '#a86f43' }, { v: 'Brown', c: '#7a4a26' }, { v: 'Deep', c: '#4a2c17' }] },
-  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
-    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
+  { key: 'skin', label: 'Skin Color', icon: '', type: 'swatch',
+    opts: [{ v: 'Porcelain', c: '#f4ddcf' }, { v: 'Fair', c: '#ebcaad' }, { v: 'Light', c: '#d8b48d' }, { v: 'Beige', c: '#ca9f74' }, { v: 'Tan', c: '#bd8a5a' }, { v: 'Golden', c: '#b0703c' }, { v: 'Caramel', c: '#8a5531' }, { v: 'Rich brown', c: '#683e22' }, { v: 'Deep brown', c: '#492a19' }, { v: 'Ebony', c: '#2b190f' }] },
+  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images', gendered: true,
+    opts: [
+      { v: 'African heritage', f: 'african-heritage' },
+      { v: 'Indian / South Asian', f: 'indian-south-asian' },
+      { v: 'Latin American', f: 'latin-american' },
+      { v: 'East Asian', f: 'east-asian' },
+      { v: 'Southeast Asian', f: 'southeast-asian' },
+      { v: 'Middle Eastern / North African', f: 'middle-eastern-north-african' },
+      { v: 'European', f: 'european' },
+      { v: 'Indigenous American', f: 'indigenous-american' },
+      { v: 'Pacific Islander', f: 'pacific-islander' },
+      { v: 'Caribbean', f: 'caribbean' },
+    ] },
   { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
-  { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
-    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
-  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
-    opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
+  { key: 'hair', label: 'Hair', icon: '💇', type: 'images', optsByGender: {
+      men: [{ v: 'Buzz', f: 'buzz' }, { v: 'Textured crop', f: 'textured-crop' }, { v: 'Tousled', f: 'tousled' }, { v: 'Quiff', f: 'quiff' }, { v: 'Side part', f: 'side-part' }, { v: 'Curly', f: 'curly' }, { v: 'Wavy', f: 'wavy' }, { v: 'Afro', f: 'afro' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Long', f: 'long' }],
+      women: [{ v: 'Pixie', f: 'pixie' }, { v: 'Bob', f: 'bob' }, { v: 'Long straight', f: 'long-straight' }, { v: 'Wavy', f: 'wavy' }, { v: 'Curly', f: 'curly' }, { v: 'Afro', f: 'afro' }, { v: 'Box braids', f: 'box-braids' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Bun', f: 'bun' }, { v: 'Ponytail', f: 'ponytail' }],
+    } },
+  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'images', menOnly: true, gendered: true,
+    opts: [{ v: 'Stubble', f: 'stubble' }, { v: 'Short beard', f: 'short-beard' }, { v: 'Moustache', f: 'moustache' }, { v: 'Handlebar', f: 'handlebar' }, { v: 'Goatee', f: 'goatee' }, { v: 'Circle beard', f: 'circle-beard' }, { v: 'Extended goatee', f: 'extended-goatee' }, { v: 'Full beard', f: 'full-beard' }, { v: 'Chin strap', f: 'chin-strap' }, { v: 'Soul patch', f: 'soul-patch' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
-    opts: [{ v: 'Black', c: '#1a1a1a' }, { v: 'Dark brown', c: '#3b2417' }, { v: 'Brown', c: '#6b4226' }, { v: 'Light brown', c: '#b07b3e' }, { v: 'Blonde', c: '#d9b26a' }, { v: 'Auburn', c: '#a3502a' }, { v: 'Grey', c: '#9a9a9a' }, { v: 'Platinum', c: '#e8e3d3' }, { v: 'Pink', c: '#ff79c6' }, { v: 'Blue', c: '#4a7fd6' }] },
-  { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
-    opts: [{ v: 'Slim' }, { v: 'Lean' }, { v: 'Athletic' }, { v: 'Muscular' }, { v: 'Curvy' }, { v: 'Heavy' }, { v: 'Skinny' }] },
+    opts: [{ v: 'Black', c: '#0e0d0b' }, { v: 'Espresso', c: '#1f1915' }, { v: 'Dark brown', c: '#332218' }, { v: 'Brown', c: '#613c26' }, { v: 'Chestnut', c: '#91623b' }, { v: 'Auburn', c: '#763421' }, { v: 'Copper', c: '#aa562c' }, { v: 'Dark blonde', c: '#b78a50' }, { v: 'Blonde', c: '#debb70' }, { v: 'Silver', c: '#c1bfb6' }] },
+  { key: 'eyes', label: 'Eye Color', icon: '👁️', type: 'images', imgDir: '/avatars/eyes/',
+    opts: [{ v: 'Black', f: 'black' }, { v: 'Dark brown', f: 'dark-brown' }, { v: 'Brown', f: 'brown' }, { v: 'Amber', f: 'amber' }, { v: 'Hazel', f: 'hazel' }, { v: 'Green', f: 'green' }, { v: 'Blue', f: 'blue' }, { v: 'Light blue', f: 'light-blue' }, { v: 'Gray', f: 'gray' }, { v: 'Violet', f: 'violet' }] },
+  { key: 'body', label: 'Body Type', icon: '🧍', type: 'images', optsByGender: {
+      men: [{ v: 'Slim', f: 'slim' }, { v: 'Lean', f: 'lean' }, { v: 'Athletic', f: 'athletic' }, { v: 'Muscular', f: 'muscular' }, { v: 'Stocky', f: 'stocky' }, { v: 'Heavy', f: 'heavy' }, { v: 'Skinny', f: 'skinny' }, { v: 'Average', f: 'average' }, { v: 'Broad', f: 'broad' }, { v: 'Tall', f: 'tall' }],
+      women: [{ v: 'Petite', f: 'petite' }, { v: 'Slim', f: 'slim' }, { v: 'Lean', f: 'lean' }, { v: 'Athletic', f: 'athletic' }, { v: 'Muscular', f: 'muscular' }, { v: 'Curvy', f: 'curvy' }, { v: 'Pear', f: 'pear' }, { v: 'Full', f: 'full' }, { v: 'Broad', f: 'broad' }, { v: 'Tall', f: 'tall' }],
+    } },
 ];
 
 function renderAvatar() {
@@ -4097,28 +4114,56 @@ function importAvatar() {
   inp.click();
 }
 
+// Which gender folder a gendered tile pulls from. Gender is multi-select;
+// only a sole "Male" pick shows men — Female, both, or none default to women.
+function avGender() {
+  const g = Array.isArray(acSel.gender) ? acSel.gender : [];
+  return g.length === 1 && g[0] === 'Male' ? 'men' : 'women';
+}
+// A section's live option list. Sections with per-gender option sets
+// (hair — men vs women have different styles) resolve against the Gender pick;
+// the rest use their static `opts`.
+function avOpts(s) {
+  return s.optsByGender ? (s.optsByGender[avGender()] || []) : s.opts;
+}
+// Resolve a tile's photo URL. Gendered sections (ethnicity, hair) swap folder
+// with the Gender pick; a plain `img` on an option wins if set; otherwise no
+// photo (the colored placeholder shows through).
+function avTileSrc(s, o) {
+  if (o.f && (s.gendered || s.optsByGender)) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.jpg';
+  if (o.f && s.imgDir) return s.imgDir + o.f + '.jpg';
+  return o.img || '';
+}
+
 // The avatar generator screen: preview in the middle, a "Builder" panel of
 // body-part options on the right (Higgsfield-style). Generates with Nano
 // Banana Pro.
 function renderAvatarCreator(view) {
   const secHtml = AV_SECTIONS.map((s) => {
+    if (s.menOnly && avGender() !== 'men') return ''; // facial hair: men only
     const open = acOpen[s.key] !== false; // default expanded
     const sel = acSel[s.key];
+    const sOpts = avOpts(s);
     let body = '';
     const has = (v) => Array.isArray(sel) && sel.includes(v); // multi-select per category
     if (s.type === 'cards') {
-      body = '<div class="ab-cards">' + s.opts.map((o) =>
+      body = '<div class="ab-cards">' + sOpts.map((o) =>
         '<button type="button" class="ab-card' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
           '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
         '</button>').join('') + '</div>';
     } else if (s.type === 'images') {
-      body = '<div class="ab-imgs">' + s.opts.map((o, i) =>
-        '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
-          (o.img ? '<img src="' + esc(o.img) + '" alt="" />' : '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>') +
+      body = '<div class="ab-imgs">' + sOpts.map((o, i) => {
+        const src = avTileSrc(s, o);
+        // Colored placeholder always sits behind; the photo layers on top and
+        // hides itself (revealing the placeholder) if the file isn't there yet.
+        return '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>' +
+          (src ? '<img class="ab-img-photo" src="' + esc(src) + '" alt="" loading="lazy" onerror="this.remove()" />' : '') +
           '<span class="ab-img-l">' + esc(o.v) + '</span>' +
-        '</button>').join('') + '</div>';
+        '</button>';
+      }).join('') + '</div>';
     } else if (s.type === 'swatch') {
-      body = '<div class="ab-swatches">' + s.opts.map((o) =>
+      body = '<div class="ab-swatches">' + sOpts.map((o) =>
         '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
     } else if (s.type === 'slider') {
       const val = sel != null ? sel : s.def;
@@ -4129,7 +4174,7 @@ function renderAvatarCreator(view) {
     }
     const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
     return '<div class="ab-sec' + (open ? ' open' : '') + '" data-sec="' + s.key + '">' +
-      '<button type="button" class="ab-sec-h"><span class="ab-sec-t"><span class="ab-sec-ico">' + s.icon + '</span>' + esc(s.label) +
+      '<button type="button" class="ab-sec-h"><span class="ab-sec-t">' + (s.icon ? '<span class="ab-sec-ico">' + s.icon + '</span>' : '') + esc(s.label) +
         '<span class="ab-sec-cnt">' + cntStr + '</span></span><span class="ab-chev">⌄</span></button>' +
       '<div class="ab-sec-body">' + body + '</div>' +
     '</div>';
@@ -4173,6 +4218,16 @@ function renderAvatarCreator(view) {
   }; });
   view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
     const k = el.dataset.k, v = el.dataset.v;
+    // Gender is single-select (you're one): clicking sets it, clicking the
+    // active one clears it. It swaps the ethnicity photos AND the hair option
+    // set, so rebuild the panel and drop the now-invalid gendered hair pick.
+    if (k === 'gender') {
+      const cur = Array.isArray(acSel.gender) ? acSel.gender : [];
+      acSel.gender = (cur.length === 1 && cur[0] === v) ? undefined : [v];
+      delete acSel.hair; delete acSel.facial; delete acSel.body;
+      renderAvatarCreator(view);
+      return;
+    }
     const arr = Array.isArray(acSel[k]) ? acSel[k].slice() : [];
     const i = arr.indexOf(v);
     if (i >= 0) arr.splice(i, 1); else arr.push(v);
@@ -4182,26 +4237,18 @@ function renderAvatarCreator(view) {
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
-    view.querySelectorAll('.ac-builder .on').forEach((x) => x.classList.remove('on'));
-    view.querySelectorAll('.ab-range').forEach((r) => {
-      const def = (AV_SECTIONS.find((s) => s.key === r.dataset.k) || {}).def;
-      if (def != null) { r.value = def; const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = def; }
-    });
-    view.querySelectorAll('.ab-sec').forEach((sec) => setCount(sec));
+    renderAvatarCreator(view);
   };
   view.querySelector('#acShuffle').onclick = () => {
+    // Pick gender first so gendered option sets (hair) randomize from the
+    // right list, then rebuild.
     AV_SECTIONS.forEach((s) => {
-      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
-      if (s.type === 'slider') {
-        const v = s.min + Math.floor(Math.random() * (s.max - s.min + 1));
-        acSel[s.key] = v;
-        if (sec) { const r = sec.querySelector('.ab-range'); if (r) r.value = v; const lbl = sec.querySelector('[data-valfor="' + s.key + '"]'); if (lbl) lbl.textContent = v; setCount(sec); }
-        return;
-      }
-      const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
-      acSel[s.key] = [opt.v];
-      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', acSel[s.key].indexOf(x.dataset.v) >= 0)); setCount(sec); }
+      if (s.menOnly && avGender() !== 'men') { delete acSel[s.key]; return; } // skip hidden sections
+      if (s.type === 'slider') { acSel[s.key] = s.min + Math.floor(Math.random() * (s.max - s.min + 1)); return; }
+      const opts = avOpts(s); if (!opts || !opts.length) { delete acSel[s.key]; return; }
+      acSel[s.key] = [opts[Math.floor(Math.random() * opts.length)].v];
     });
+    renderAvatarCreator(view);
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
 }
@@ -4232,6 +4279,7 @@ function buildAvatarPrompt() {
   }
   const facial = arr('facial').filter((f) => f !== 'None');
   if (facial.length) b.push('with a ' + join(lc(facial)));
+  const eyes = arr('eyes'); if (eyes.length) b.push(join(lc(eyes)) + ' eyes');
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
