@@ -846,8 +846,9 @@ async function sbBuildStrip(s) {
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'metadata'; v.src = s.url;
   try {
     await sbMeta(v);
+    if (s.out == null && !isFinite(v.duration)) { try { await sbSeek(v, 1e9); } catch (e) {} } // resolve webm Infinity
     const inP = s.in || 0;
-    const outP = s.out != null ? s.out : v.duration;
+    const outP = s.out != null ? s.out : ((isFinite(v.duration) && v.duration > 0) ? v.duration : (v.currentTime || 0));
     const span = Math.max(0.1, outP - inP);
     await sbSeek(v, Math.min(inP + span / 2, outP - 0.01));
     s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
@@ -897,6 +898,20 @@ function sbFadeMul(tr, localT, clipDur) {
   if (tr.fadeIn > 0 && localT < tr.fadeIn) m *= Math.max(0, localT / tr.fadeIn);
   if (tr.fadeOut > 0 && localT > clipDur - tr.fadeOut) m *= Math.max(0, (clipDur - localT) / tr.fadeOut);
   return m;
+}
+// Read an audio file's real duration, resolving the MediaRecorder-webm quirk
+// where the duration reads Infinity until you seek past the end. Recorded
+// voiceovers are ALWAYS such a webm, so without this every voiceover (and any
+// duration-less music file) lands on the lane with infinite length.
+async function sbAudioDuration(url) {
+  const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
+  try {
+    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; setTimeout(ok, 6000); });
+    if (!isFinite(a.duration) || a.duration <= 0) {
+      await new Promise((ok) => { a.onseeked = ok; try { a.currentTime = 1e9; } catch (e) {} setTimeout(ok, 2500); });
+    }
+    return (isFinite(a.duration) && a.duration > 0) ? a.duration : (a.currentTime || 0);
+  } catch (e) { return 0; }
 }
 // Sync one audio track's element to the film position, honoring its offset,
 // trim (in/out), fades, volume, and (music) ducking. Silent outside its span.
@@ -950,11 +965,7 @@ async function sbSetMusic(f) {
   sbSave(); sbRenderMusicBar();
   try { await sbMediaPut('music-' + proj.id, f); proj.music.stored = true; }
   catch (e) { console.warn('could not persist music (kept for this tab only):', e); }
-  try {
-    const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
-    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
-    proj.music.dur = a.duration || 0;
-  } catch (e) {}
+  proj.music.dur = await sbAudioDuration(url);
   proj.music.out = proj.music.dur; sbAudioInit(proj.music);
   sbSave(); sbRenderMusicBar(); sbMusicLoad();
   sbStudioNote('Added music: “' + proj.music.name + '”. Drag it along the lane to reposition, trim its ends, or fade it with the corner dots.');
@@ -1323,11 +1334,7 @@ async function sbSetVoice(blob) {
   sbSave(); sbRenderVoiceBar();
   try { await sbMediaPut('voice-' + proj.id, blob); proj.voice.stored = true; }
   catch (e) { console.warn('could not persist voiceover:', e); }
-  try {
-    const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
-    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
-    proj.voice.dur = a.duration || 0;
-  } catch (e) {}
+  proj.voice.dur = await sbAudioDuration(url);
   proj.voice.out = proj.voice.dur; sbAudioInit(proj.voice);
   sbSave(); sbRenderVoiceBar();
   sbStudioNote('Voiceover added — drag it along the lane to place it, trim its ends, or fade it with the corner dots.');
@@ -1398,7 +1405,12 @@ function sbVideoEl() {
     stage.appendChild(v);
     v.addEventListener('timeupdate', () => {
       const tc = document.getElementById('studioTimecode');
-      if (tc) tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(v.duration || 0);
+      // A duration-less webm reports Infinity — show the selected clip's known
+      // length instead so the timecode never reads "Infinity"/blank.
+      if (tc) {
+        const total = isFinite(v.duration) ? v.duration : (sbShot(sbSelected) ? sbShotDur(sbShot(sbSelected)) : 0);
+        tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(total || 0);
+      }
       sbSegmentTick(v);
       sbUpdatePlayhead(v);
       sbMusicSync(v);
@@ -2003,7 +2015,9 @@ async function sbLastFrame(s) {
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'auto';
   v.src = s.url;
   await sbMeta(v);
-  const t = (s.out != null ? s.out : v.duration) - 0.08;
+  if (s.out == null && !isFinite(v.duration)) { try { await sbSeek(v, 1e9); } catch (e) {} } // resolve webm Infinity
+  const end = s.out != null ? s.out : ((isFinite(v.duration) && v.duration > 0) ? v.duration : (v.currentTime || 0));
+  const t = end - 0.08;
   await sbSeek(v, Math.max(0, t));
   return sbGrabFrame(v, 1024).toDataURL('image/jpeg', 0.85);
 }
