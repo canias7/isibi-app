@@ -1689,6 +1689,12 @@
 /* A photo clip: tile the WHOLE image across the strip at its real aspect ratio
    (height-fit, repeat across) so it reads as the actual picture, not a zoom-crop. */
 .sb-photostrip { display: block; background-repeat: repeat-x; background-position: center; background-size: auto 100%; background-color: #000; }
+/* Per-clip audio band (iMovie's blue strip): waveform PNG over a blue base. */
+.sb-clipwave {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 32%; min-height: 13px; z-index: 2;
+  background-color: rgba(46, 102, 168, .62); background-repeat: no-repeat; background-size: 100% 100%;
+  background-position: center; pointer-events: none; border-top: 1px solid rgba(255, 255, 255, .14);
+}
 .sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); outline-offset: -1px; z-index: 4; }
 .sb-block.st-draft { opacity: .45; }
 .sb-block.st-generating { animation: sbpulse .9s infinite alternate; }
@@ -1722,10 +1728,21 @@
 .tl-overlay.drop-here { border-color: var(--neon); border-style: solid; background: rgba(255, 214, 10, .1); }
 .tl-overlay-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: .66rem; color: var(--muted); opacity: .7; white-space: nowrap; pointer-events: none; }
 .tl-oclip {
-  position: absolute; top: 3px; bottom: 3px; border-radius: 7px; overflow: hidden; min-width: 24px;
+  position: absolute; top: 3px; bottom: 3px; border-radius: 7px; overflow: visible; min-width: 24px;
   border: 1px solid rgba(255, 214, 10, .5); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
   cursor: grab; touch-action: none; background: #000;
 }
+/* Connector cue: a little amber stalk + dot linking the overlay to its point on
+   the storyline above (iMovie's "attached clip" look). */
+.tl-oclip::before {
+  content: ''; position: absolute; top: -11px; left: 0; width: 2px; height: 11px;
+  background: rgba(255, 214, 10, .65); border-radius: 1px;
+}
+.tl-oclip::after {
+  content: ''; position: absolute; top: -13px; left: -2px; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--neon); box-shadow: 0 0 0 2px rgba(8, 7, 12, .8);
+}
+.tl-oclip > .sb-strip, .tl-oclip > .sb-photostrip { border-radius: 6px; overflow: hidden; }
 .tl-oclip.sel { outline: 2px solid rgba(255, 184, 77, .9); outline-offset: -1px; z-index: 4; }
 .sb-ocorner {
   position: absolute; right: 22px; top: 3px; z-index: 5; width: 20px; height: 18px; border-radius: 5px;
