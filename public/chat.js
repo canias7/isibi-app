@@ -3732,9 +3732,11 @@ async function doSignOut(everywhere) {
 
 // Settings page — a plain, conventional settings view (grouped list rows),
 // rebuilt each time it opens so account/credits/prefs are current.
-// ── Integrations: connect outbound publishing destinations. ──
-// The connections aren't wired to real OAuth yet — the cards render the
-// destinations and the Connect buttons surface a "coming soon" toast.
+// ── Integrations: connect the user's social accounts. ──
+// The real account-linking hub — Connect/Disconnect drive the same Composio
+// OAuth flow as the Media Agent (/api/social/{status,connect,disconnect}),
+// sharing socialStatus + connectSocial/disconnectSocial. Once linked, the
+// Media Agent page handles chat, DMs and publishing on top of these.
 const INTEGRATIONS = [
   {
     id: 'youtube',
@@ -3759,6 +3761,44 @@ const INTEGRATIONS = [
   },
 ];
 
+// One Integrations row — reflects live connection state and offers the right
+// action (Connect when linked-off, Disconnect when active). a.id matches the
+// socialStatus / SOCIAL_APPS key ('instagram' | 'youtube').
+function igItemHtml(app, slot) {
+  slot = slot || {};
+  const loading = slot.loading;
+  const connected = !!slot.connected;
+  const pending = !loading && !connected && slot.status && slot.status !== 'INACTIVE';
+  const pill = loading ? '<span class="ma-pill">Checking…</span>'
+    : connected ? '<span class="ma-pill on">● Connected</span>'
+    : pending ? '<span class="ma-pill wait">Pending…</span>'
+    : '';
+  const btn = connected
+    ? '<button type="button" class="ig-connect ig-dis" data-ig-dis="' + app.id + '">Disconnect</button>'
+    : '<button type="button" class="ig-connect" data-ig-con="' + app.id + '"' + (loading ? ' disabled' : '') + '>Connect</button>';
+  return '<div class="sp-item ig-item">' +
+      '<span class="sp-item-l">' +
+        '<span class="ig-ico">' + app.ico + '</span>' +
+        '<span class="ig-txt"><span class="sp-item-t">' + esc(app.name) + '</span>' +
+        '<span class="sp-item-s">' + esc(app.desc) + '</span></span>' +
+      '</span>' +
+      '<span class="sp-item-r">' + pill + btn + '</span>' +
+    '</div>';
+}
+
+// Repaint the Integrations list from socialStatus (no-op when not mounted).
+function paintIntegrations() {
+  const list = document.getElementById('igList');
+  if (!list) return;
+  if (socialStatus && socialStatus._off) {
+    list.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
+    return;
+  }
+  list.innerHTML = INTEGRATIONS.map((a) => igItemHtml(a, socialStatus ? socialStatus[a.id] : { loading: true })).join('');
+  list.querySelectorAll('[data-ig-con]').forEach((b) => { b.onclick = () => connectSocial(b.dataset.igCon); });
+  list.querySelectorAll('[data-ig-dis]').forEach((b) => { b.onclick = () => disconnectSocial(b.dataset.igDis); });
+}
+
 function renderIntegrations() {
   const view = document.getElementById('viewIntegrations');
   if (!view) return;
@@ -3766,32 +3806,19 @@ function renderIntegrations() {
   view.innerHTML =
     '<div class="settings-page">' +
       '<div class="sp-title">Integrations</div>' +
+      '<div class="sp-sub">Connect your accounts so Zephyr can manage and publish to them. ' +
+        'Chat, DMs and publishing live on the <b>Media Agent</b> page once linked.</div>' +
+      '<div class="ma-msg" id="igMsg" hidden></div>' +
       '<div class="sp-group">' +
-        '<div class="sp-glabel">Publish to</div>' +
-        '<div class="sp-list">' +
-          INTEGRATIONS.map((a) =>
-            '<div class="sp-item ig-item">' +
-              '<span class="sp-item-l">' +
-                '<span class="ig-ico">' + a.ico + '</span>' +
-                '<span class="ig-txt"><span class="sp-item-t">' + esc(a.name) + '</span>' +
-                '<span class="sp-item-s">' + esc(a.desc) + '</span></span>' +
-              '</span>' +
-              '<span class="sp-item-r">' +
-                '<button type="button" class="ig-connect" data-ig="' + a.id + '">Connect</button>' +
-              '</span>' +
-            '</div>'
-          ).join('') +
+        '<div class="sp-glabel">Accounts</div>' +
+        '<div class="sp-list" id="igList">' +
+          INTEGRATIONS.map((a) => igItemHtml(a, { loading: true })).join('') +
         '</div>' +
         '<div class="cp-note sp-note">More destinations coming soon.</div>' +
       '</div>' +
     '</div>';
 
-  view.querySelectorAll('.ig-connect').forEach((btn) => {
-    btn.onclick = () => {
-      const app = INTEGRATIONS.find((a) => a.id === btn.dataset.ig);
-      if (typeof sbToast === 'function') sbToast((app ? app.name : 'This') + ' connections are coming soon.');
-    };
-  });
+  loadSocialStatus();   // fetches status, then paints this list + Media Agent
 }
 
 function renderSettings() {
@@ -4402,9 +4429,9 @@ function saveProducts(list) {
 function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ── Media Agent ───────────────────────────────────────────────────────────
-// Connect Instagram / YouTube through Composio so the agent can act on them.
-// The account link is a server-driven OAuth popup; we poll status until the
-// connection goes ACTIVE. (Agent capabilities land on top of this later.)
+// Chat, DMs and publishing over the user's Instagram / YouTube. Linking the
+// accounts themselves happens ONLY on the Integrations page — here we just
+// reflect connection state (read-only) and link there to manage it.
 const SOCIAL_APPS = [
   { key: 'instagram', name: 'Instagram', tag: 'Business or Creator account',
     ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r="1.1" fill="currentColor" stroke="none"/></svg>' },
@@ -4421,12 +4448,10 @@ function renderMediaAgent() {
     '<div class="ma-page">' +
       '<div class="ma-head">' +
         '<h1>Media Agent</h1>' +
-        '<p>Connect your accounts, then chat with your agent or publish media below. It can read your Instagram &amp; YouTube — and post to them with your confirmation.</p>' +
+        '<p>Chat with your agent, manage your Instagram DMs, and publish media to your connected accounts. Connect or disconnect accounts in <b>Integrations</b>.</p>' +
       '</div>' +
       '<div class="ma-msg" id="maMsg" hidden></div>' +
-      '<div class="ma-conns" id="maConns">' +
-        SOCIAL_APPS.map((a) => socialCardHtml(a, { loading: true })).join('') +
-      '</div>' +
+      '<div class="ma-status" id="maStatus"></div>' +
       '<div class="ma-publish" id="maPublish"></div>' +
       '<div class="ma-dm" id="maDm">' +
         '<div class="ma-dm-head"><span>Instagram Direct Messages</span>' +
@@ -4698,45 +4723,53 @@ async function agentSend(text) {
   agentRenderThread();
 }
 
-function socialCardHtml(app, slot) {
-  slot = slot || {};
-  const loading = slot.loading;
-  const connected = !!slot.connected;
-  const pending = !loading && !connected && slot.status && slot.status !== 'INACTIVE';
-  const pill = loading ? '<span class="ma-pill">Checking…</span>'
-    : connected ? '<span class="ma-pill on">● Connected</span>'
-    : pending ? '<span class="ma-pill wait">Pending…</span>'
-    : '<span class="ma-pill">Not connected</span>';
-  const btn = connected
-    ? '<button class="ma-btn ma-btn-off" data-social-dis="' + app.key + '">Disconnect</button>'
-    : '<button class="ma-btn ma-btn-on" data-social-con="' + app.key + '"' + (loading ? ' disabled' : '') + '>Connect</button>';
-  return '<div class="ma-conn" data-app="' + app.key + '">' +
-      '<div class="ma-conn-ico ma-ico-' + app.key + '">' + app.ico + '</div>' +
-      '<div class="ma-conn-info"><div class="ma-conn-name">' + app.name + '</div>' +
-        '<div class="ma-conn-sub">' + app.tag + '</div></div>' +
-      pill + btn +
-    '</div>';
-}
-
-function paintSocial() {
-  const wrap = document.getElementById('maConns');
-  if (!wrap) return;
+// Read-only connection strip for the Media Agent page. Linking is managed on
+// Integrations, so this only reflects state (per platform) and links there —
+// no Connect/Disconnect controls here.
+function paintMaStatus() {
+  const el = document.getElementById('maStatus');
+  if (!el) return;
   if (socialStatus && socialStatus._off) {
-    wrap.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
+    el.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
     return;
   }
-  wrap.innerHTML = SOCIAL_APPS.map((a) => socialCardHtml(a, socialStatus ? socialStatus[a.key] : { loading: true })).join('');
-  wrap.querySelectorAll('[data-social-con]').forEach((b) => { b.onclick = () => connectSocial(b.dataset.socialCon); });
-  wrap.querySelectorAll('[data-social-dis]').forEach((b) => { b.onclick = () => disconnectSocial(b.dataset.socialDis); });
+  const chip = (app) => {
+    const slot = socialStatus ? socialStatus[app.key] : null;
+    const on = !!(slot && slot.connected);
+    const state = !socialStatus ? 'load' : on ? 'on' : 'off';
+    const label = !socialStatus ? 'Checking…' : on ? 'Connected' : 'Not connected';
+    return '<span class="ma-stat ma-stat-' + state + '">' +
+        '<span class="ma-stat-ico ma-ico-' + app.key + '">' + app.ico + '</span>' +
+        '<span class="ma-stat-name">' + app.name + '</span>' +
+        '<span class="ma-stat-dot"></span><span class="ma-stat-txt">' + label + '</span>' +
+      '</span>';
+  };
+  el.innerHTML =
+    '<div class="ma-status-chips">' + SOCIAL_APPS.map(chip).join('') + '</div>' +
+    '<button type="button" class="ma-manage" id="maManage">Manage in Integrations →</button>';
+  const mg = document.getElementById('maManage');
+  if (mg) mg.onclick = () => showView('integrations');
 }
 
+// Repaint every mounted surface that shows connection state. Media Agent
+// (#maStatus, read-only) and Integrations (#igList, the connect hub) share
+// socialStatus, so linking on Integrations refreshes both.
+function paintSocial() {
+  paintIntegrations();
+  paintMaStatus();
+}
+
+// Status line for the connect/disconnect flow — mirrored to whichever surface
+// is mounted (Media Agent's #maMsg and/or Integrations' #igMsg).
 function maMsg(text, kind) {
-  const el = document.getElementById('maMsg');
-  if (!el) return;
-  if (!text) { el.hidden = true; el.innerHTML = ''; return; }
-  el.hidden = false;
-  el.className = 'ma-msg' + (kind ? ' ma-msg-' + kind : '');
-  el.innerHTML = text;
+  ['maMsg', 'igMsg'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.className = 'ma-msg' + (kind ? ' ma-msg-' + kind : '');
+    el.innerHTML = text;
+  });
 }
 
 async function loadSocialStatus() {
@@ -4752,7 +4785,7 @@ async function loadSocialStatus() {
 async function connectSocial(key) {
   const app = SOCIAL_APPS.find((a) => a.key === key);
   maMsg('');
-  const btn = document.querySelector('[data-social-con="' + key + '"]');
+  const btn = document.querySelector('[data-social-con="' + key + '"], [data-ig-con="' + key + '"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Opening…'; }
   let data = {};
   try {
@@ -4810,7 +4843,7 @@ function pollSocial(key, popup) {
 async function disconnectSocial(key) {
   const app = SOCIAL_APPS.find((a) => a.key === key);
   if (!confirm('Disconnect ' + (app ? app.name : key) + '? The agent will lose access until you reconnect.')) return;
-  const btn = document.querySelector('[data-social-dis="' + key + '"]');
+  const btn = document.querySelector('[data-social-dis="' + key + '"], [data-ig-dis="' + key + '"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
   maMsg('');
   try {
