@@ -3957,8 +3957,19 @@ const AV_SECTIONS = [
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }] },
   { key: 'skin', label: 'Skin Color', icon: '', type: 'swatch',
     opts: [{ v: 'Porcelain', c: '#f4ddcf' }, { v: 'Fair', c: '#ebcaad' }, { v: 'Light', c: '#d8b48d' }, { v: 'Beige', c: '#ca9f74' }, { v: 'Tan', c: '#bd8a5a' }, { v: 'Golden', c: '#b0703c' }, { v: 'Caramel', c: '#8a5531' }, { v: 'Rich brown', c: '#683e22' }, { v: 'Deep brown', c: '#492a19' }, { v: 'Ebony', c: '#2b190f' }] },
-  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
-    opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
+  { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images', gendered: true,
+    opts: [
+      { v: 'African heritage', f: 'african-heritage' },
+      { v: 'Indian / South Asian', f: 'indian-south-asian' },
+      { v: 'Latin American', f: 'latin-american' },
+      { v: 'East Asian', f: 'east-asian' },
+      { v: 'Southeast Asian', f: 'southeast-asian' },
+      { v: 'Middle Eastern / North African', f: 'middle-eastern-north-african' },
+      { v: 'European', f: 'european' },
+      { v: 'Indigenous American', f: 'indigenous-american' },
+      { v: 'Pacific Islander', f: 'pacific-islander' },
+      { v: 'Caribbean', f: 'caribbean' },
+    ] },
   { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
   { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
     opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
@@ -4026,6 +4037,20 @@ function importAvatar() {
   inp.click();
 }
 
+// Which gender folder a gendered tile pulls from. Gender is multi-select;
+// only a sole "Male" pick shows men — Female, both, or none default to women.
+function avGender() {
+  const g = Array.isArray(acSel.gender) ? acSel.gender : [];
+  return g.length === 1 && g[0] === 'Male' ? 'men' : 'women';
+}
+// Resolve a tile's photo URL. Gendered sections (ethnicity) swap folder with
+// the Gender pick; a plain `img` on an option wins if set; otherwise no photo
+// (the colored placeholder shows through).
+function avTileSrc(s, o) {
+  if (s.gendered && o.f) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.png';
+  return o.img || '';
+}
+
 // The avatar generator screen: preview in the middle, a "Builder" panel of
 // body-part options on the right (Higgsfield-style). Generates with Nano
 // Banana Pro.
@@ -4041,11 +4066,16 @@ function renderAvatarCreator(view) {
           '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
         '</button>').join('') + '</div>';
     } else if (s.type === 'images') {
-      body = '<div class="ab-imgs">' + s.opts.map((o, i) =>
-        '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
-          (o.img ? '<img src="' + esc(o.img) + '" alt="" />' : '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>') +
+      body = '<div class="ab-imgs">' + s.opts.map((o, i) => {
+        const src = avTileSrc(s, o);
+        // Colored placeholder always sits behind; the photo layers on top and
+        // hides itself (revealing the placeholder) if the file isn't there yet.
+        return '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
+          '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>' +
+          (src ? '<img class="ab-img-photo" src="' + esc(src) + '" alt="" loading="lazy" onerror="this.remove()" />' : '') +
           '<span class="ab-img-l">' + esc(o.v) + '</span>' +
-        '</button>').join('') + '</div>';
+        '</button>';
+      }).join('') + '</div>';
     } else if (s.type === 'swatch') {
       body = '<div class="ab-swatches">' + s.opts.map((o) =>
         '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
@@ -4091,6 +4121,21 @@ function renderAvatarCreator(view) {
     const k = sec.dataset.sec, v = acSel[k], def = AV_SECTIONS.find((x) => x.key === k);
     c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (Array.isArray(v) && v.length ? ' · ' + v.length : '');
   };
+  // Re-point gendered tile photos (ethnicity) when the Gender pick changes.
+  const refreshGenderedTiles = () => {
+    AV_SECTIONS.filter((s) => s.gendered).forEach((s) => s.opts.forEach((o) => {
+      const btn = view.querySelector('.ab-img[data-k="' + s.key + '"][data-v="' + o.v.replace(/"/g, '\\"') + '"]');
+      if (!btn) return;
+      let img = btn.querySelector('.ab-img-photo');
+      if (!img) {
+        img = document.createElement('img');
+        img.className = 'ab-img-photo'; img.alt = ''; img.loading = 'lazy';
+        img.onerror = () => img.remove();
+        btn.insertBefore(img, btn.querySelector('.ab-img-l'));
+      }
+      img.src = avTileSrc(s, o);
+    }));
+  };
   view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
   view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
     acSel[r.dataset.k] = +r.value;
@@ -4108,6 +4153,7 @@ function renderAvatarCreator(view) {
     acSel[k] = arr.length ? arr : undefined;
     el.classList.toggle('on', arr.indexOf(v) >= 0);
     setCount(el.closest('.ab-sec'));
+    if (k === 'gender') refreshGenderedTiles();
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
@@ -4117,6 +4163,7 @@ function renderAvatarCreator(view) {
       if (def != null) { r.value = def; const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = def; }
     });
     view.querySelectorAll('.ab-sec').forEach((sec) => setCount(sec));
+    refreshGenderedTiles();
   };
   view.querySelector('#acShuffle').onclick = () => {
     AV_SECTIONS.forEach((s) => {
@@ -4131,6 +4178,7 @@ function renderAvatarCreator(view) {
       acSel[s.key] = [opt.v];
       if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', acSel[s.key].indexOf(x.dataset.v) >= 0)); setCount(sec); }
     });
+    refreshGenderedTiles();
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
 }

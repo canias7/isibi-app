@@ -990,7 +990,8 @@
 .ab-img.on { border-color: transparent; box-shadow: 0 0 0 2px #ff9ad4 inset; }
 .ab-img.on::after { content: '✓'; position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 50%; background: var(--split); color: #0a0a0b; font-size: .72rem; font-weight: 800; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0, 0, 0, .45); }
 .ab-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ab-img-ph { display: block; width: 100%; height: 100%; }
+.ab-img-ph { position: absolute; inset: 0; }
+.ab-img-photo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
 .ab-ph0 { background: linear-gradient(160deg, #ff79c6, #ffb84d); }
 .ab-ph1 { background: linear-gradient(160deg, #a06cff, #ff79c6); }
 .ab-ph2 { background: linear-gradient(160deg, #ffb84d, #ff7a5b); }
