@@ -1860,6 +1860,66 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: YouTube cleanup + retry the sweep's arg failures, token-gated.
+    if (url.pathname === "/api/social/sweep2" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const q = new URLSearchParams({ toolkit_slugs: "youtube", statuses: "ACTIVE", limit: "5" });
+      const cr = await composioFetch(env, `/connected_accounts?${q}`);
+      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
+      if (!acc) return Response.json({ error: "no youtube account" }, { status: 404 });
+      const uid = acc.user_id;
+      const R = [];
+      const pickId = (d) => d && (d.id || (d.data && d.data.id));
+      const run = async (slug, args) => {
+        try {
+          const ex = await composioExecute(env, slug, { userId: uid }, args || {});
+          R.push({ tool: slug, status: ex.successful ? "pass" : "fail", error: ex.successful ? undefined : String(composioErrText(ex.error) || "").slice(0, 100) });
+          return ex.data;
+        } catch (e) { R.push({ tool: slug, status: "error", error: String(e && e.message || e).slice(0, 100) }); return null; }
+      };
+      // Cleanup leftover "Zephyr" test videos.
+      const chans = await composioExecute(env, "YOUTUBE_LIST_CHANNELS", { userId: uid }, { mine: true });
+      const channelId = chans.data && (chans.data.items || [])[0] && chans.data.items[0].id;
+      const vids = await composioExecute(env, "YOUTUBE_LIST_CHANNEL_VIDEOS", { userId: uid }, { mine: true });
+      const items = (vids.data && vids.data.items) || [];
+      const deleted = [], zephyr = [];
+      let realPublicVid = null;
+      for (const it of items) {
+        const t = (it.snippet && it.snippet.title) || "";
+        const vid = it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
+        if (!vid) continue;
+        if (/zephyr/i.test(t)) zephyr.push(vid);
+        else if (!realPublicVid) realPublicVid = vid;
+      }
+      for (const vid of zephyr) {
+        const ex = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", { userId: uid }, { videoId: vid, confirmDelete: true });
+        deleted.push({ videoId: vid, ok: ex.successful, error: composioErrText(ex.error) });
+      }
+      // Retry read tools with valid args (public reference video).
+      const VID = "dQw4w9WgXcQ";
+      await run("YOUTUBE_GET_VIDEO_DETAILS_BATCH", { id: VID });
+      await run("YOUTUBE_LIST_CAPTION_TRACK", { video_id: VID });
+      const ct = await run("YOUTUBE_LIST_COMMENT_THREADS", { videoId: VID });
+      await run("YOUTUBE_LIST_COMMENT_THREADS2", { part: "snippet", videoId: VID });
+      const parentId = ct && (ct.items || [])[0] && ((ct.items[0].snippet && ct.items[0].snippet.topLevelComment && ct.items[0].snippet.topLevelComment.id) || ct.items[0].id);
+      if (parentId) await run("YOUTUBE_LIST_COMMENTS", { parentId });
+      const pls = await composioExecute(env, "YOUTUBE_LIST_USER_PLAYLISTS", { userId: uid }, {});
+      const plId = pls.data && (pls.data.items || [])[0] && pls.data.items[0].id;
+      if (plId) await run("YOUTUBE_LIST_PLAYLIST_IMAGES", { playlistId: plId });
+      // Comment write lifecycle on the user's own real public video.
+      if (realPublicVid && channelId) {
+        const pc = await run("YOUTUBE_POST_COMMENT", { videoId: realPublicVid, channelId, textOriginal: "Zephyr sweep test comment (auto-removed)" });
+        const cid = pickId(pc);
+        if (cid) {
+          await run("YOUTUBE_CREATE_COMMENT_REPLY", { parentId: cid, textOriginal: "sweep reply" });
+          await run("YOUTUBE_UPDATE_COMMENT", { id: cid, textOriginal: "sweep edited" });
+          await run("YOUTUBE_DELETE_COMMENT", { id: cid });
+        }
+      }
+      return Response.json({ deleted, retested: R, used_public_video: realPublicVid });
+    }
+
     // TEMP: exhaustive tool sweep, token-gated. ?part=ig | yt. Creates its own
     // throwaway artifacts, reverts reversible actions, cleans up after.
     if (url.pathname === "/api/social/sweep" && request.method === "GET") {
