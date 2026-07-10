@@ -849,15 +849,7 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
-// Arrow under the chatbox — slides the whole view down to the Presets screen
-// (and back up from its own arrow).
-function togglePresets(open) {
-  if (open) renderPresets();
-  document.getElementById('homeSlide').classList.toggle('show-presets', open);
-  document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
-}
-
-// Preset categories shown as top tabs on the Presets screen. Each card drops a
+// Preset categories shown as top tabs on the Home page. Each card drops a
 // ready-to-edit starter prompt into the composer (and sets the mode).
 const PRESET_CATS = [
   { key: 'marketing', label: 'Marketing', items: [
@@ -893,9 +885,6 @@ const PRESET_CATS = [
   ] },
 ];
 let presetCat = 'marketing';
-function renderPresets() {
-  renderPresetsInto(document.getElementById('presetsBody'), renderPresets);
-}
 // Builds the preset tabs + card grid into any container. `rerender` is called
 // when a category tab is clicked so the caller can repaint just its own host
 // (keeps surrounding chrome — e.g. the Home greeting — intact).
@@ -933,7 +922,7 @@ function renderPresetsInto(body, rerender) {
 function usePreset(it) {
   if (!it) return;
   if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
-  togglePresets(false);
+  if (typeof showView === 'function') showView('home'); // land in the Builder chatbox with the prompt loaded
   const input = document.getElementById('input');
   if (input) { input.value = it.prompt; if (typeof autoGrow === 'function') autoGrow(input); input.focus(); }
 }
@@ -4618,8 +4607,6 @@ const CLICK_ACTIONS = {
   'model-menu': (e) => toggleModelMenu(e),
   'opt-settings': (e) => toggleOpt(e, 'settings'),
   'send': () => send(true),
-  'presets-open': () => togglePresets(true),
-  'presets-close': () => togglePresets(false),
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
   'gal-upgrade': () => openCredits(),
