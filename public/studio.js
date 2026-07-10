@@ -495,6 +495,7 @@ function sbRender() {
           if (nb) { sbMoveShot(s.id, nb.id); const el = document.querySelector('.sb-block[data-sid="' + s.id + '"]'); if (el) el.focus(); }
         }
       });
+      block.addEventListener('pointerdown', (e) => sbClipDragStart(e, s)); // drag to reorder / click to seek
       vlane.appendChild(block);
     });
 
@@ -844,6 +845,37 @@ function sbDropOnTimeline(id, clientX) {
   if (target < 0) target = arr.length;
   arr.splice(target, 0, s);
   sbSave(); sbRender();
+}
+// Press-and-drag a timeline clip to REORDER it (iMovie-style). A plain click
+// (no drag past the threshold) falls through to seek/select at that point, so
+// clicking a clip still works exactly as before.
+function sbClipDragStart(e, s) {
+  if (e.button != null && e.button !== 0) return;
+  if (e.target.closest('.sb-trim, .sb-cmute')) return; // trim/mute own their gesture
+  e.stopPropagation(); // this pointer is ours, not the track's scrub
+  const block = e.currentTarget;
+  if (!document.querySelector('#timelineTrack .tl-inner')) return;
+  try { block.setPointerCapture(e.pointerId); } catch (_) {}
+  const startX = e.clientX;
+  let dragging = false;
+  const move = (ev) => {
+    const dx = ev.clientX - startX;
+    if (!dragging && Math.abs(dx) > 6) { dragging = true; block.classList.add('dragging'); }
+    if (dragging) block.style.transform = 'translateX(' + dx + 'px)';
+  };
+  const up = (ev) => {
+    block.removeEventListener('pointermove', move);
+    block.removeEventListener('pointerup', up);
+    block.removeEventListener('pointercancel', up);
+    try { block.releasePointerCapture(e.pointerId); } catch (_) {}
+    block.style.transform = '';
+    block.classList.remove('dragging');
+    if (dragging) sbDropOnTimeline(s.id, ev.clientX); // reorder to the release point
+    else sbScrubToClientX(ev.clientX);                // plain click → seek/select there
+  };
+  block.addEventListener('pointermove', move);
+  block.addEventListener('pointerup', up);
+  block.addEventListener('pointercancel', up);
 }
 
 // ── Overlay / picture-in-picture lane ───────────────────────────────────────
