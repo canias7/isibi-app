@@ -3806,7 +3806,16 @@ function renderSettings() {
             '<span class="sp-item-l"><span class="sp-item-t">Credits &amp; plan</span></span>' +
             '<span class="sp-item-r">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
           '</button>' +
+          // Members get a Stripe Billing Portal link: change plan, update card,
+          // or cancel anytime. Hidden for free accounts (nothing to manage).
+          (isPaid ?
+            '<button type="button" class="sp-item sp-tap" id="spManage">' +
+              '<span class="sp-item-l"><span class="sp-item-t">Manage membership</span>' +
+              '<span class="sp-item-s">Change plan, update payment, or cancel anytime.</span></span>' +
+              '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+            '</button>' : '') +
         '</div>' +
+        (isPaid ? '<div class="cp-note sp-note" id="spManageNote"></div>' : '') +
       '</div>' +
 
       '<div class="sp-group">' +
@@ -3866,6 +3875,33 @@ function renderSettings() {
     '</div>';
 
   view.querySelector('#spCredits').onclick = () => openCredits();
+
+  // Manage membership → Stripe Billing Portal (cancel / change plan / update card).
+  const manageBtn = view.querySelector('#spManage');
+  if (manageBtn) manageBtn.onclick = async () => {
+    const note = view.querySelector('#spManageNote');
+    if (manageBtn.dataset.busy) return;
+    manageBtn.dataset.busy = '1';
+    if (note) note.textContent = 'Opening your membership…';
+    try {
+      const r = await apiFetch('/api/billing/portal', { method: 'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.url) { if (note) note.textContent = 'Taking you to Stripe…'; location.href = d.url; return; }
+      if (r.status === 404) {
+        // Paid state comes from "has ever purchased" — a top-up-only buyer has
+        // no subscription in Stripe, so there's nothing to manage.
+        if (note) note.textContent = 'No active membership found. One-time top-ups have nothing to cancel.';
+      } else if (r.status === 501) {
+        if (note) note.textContent = 'Membership management is switching on very soon.';
+      } else {
+        if (note) note.textContent = 'Couldn’t open the membership page — email support@isibi.ai and we’ll sort it.';
+      }
+    } catch {
+      if (note) note.textContent = 'Couldn’t open the membership page — try again in a moment.';
+    } finally {
+      delete manageBtn.dataset.busy;
+    }
+  };
 
   // The password form stays folded behind its row — an always-open password
   // input on a settings page reads as a prompt to type into it.
