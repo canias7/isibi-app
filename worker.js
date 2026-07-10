@@ -1873,6 +1873,37 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: Instagram DM send test (post-reconnect), token-gated. ?send=1.
+    if (url.pathname === "/api/social/dmtest" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const qq = new URLSearchParams({ toolkit_slugs: "instagram", statuses: "ACTIVE", limit: "5" });
+      const cr = await composioFetch(env, `/connected_accounts?${qq}`);
+      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
+      const uid = acc.user_id;
+      const ex = (slug, args) => composioExecute(env, slug, { userId: uid }, args || {});
+      const R = [];
+      const call = async (slug, args) => { const e = await ex(slug, args); R.push({ tool: slug, ok: e.successful, error: composioErrText(e.error) }); return e.data; };
+      const info = await ex("INSTAGRAM_GET_USER_INFO", {});
+      const me = info.data && info.data.username;
+      const conv = await call("INSTAGRAM_LIST_ALL_CONVERSATIONS", {});
+      const convItems = (conv && (conv.data || conv.conversations || conv.items)) || [];
+      const conversationId = convItems[0] && (convItems[0].id || convItems[0].conversation_id);
+      let recipientId = url.searchParams.get("rid") || null, latestFrom = null;
+      let msgs = null;
+      if (conversationId) msgs = await call("INSTAGRAM_LIST_ALL_MESSAGES", { conversation_id: conversationId });
+      // Newest message from someone other than the connected account = recipient.
+      const mlist = (msgs && (msgs.data || msgs.messages && msgs.messages.data)) || [];
+      for (const m of mlist) { const f = m.from || {}; if (f.username && f.username !== me) { latestFrom = { id: f.id, username: f.username, at: m.created_time }; break; } }
+      if (!recipientId && latestFrom) recipientId = latestFrom.id;
+      if (recipientId) await call("INSTAGRAM_MARK_SEEN", { recipient_id: recipientId });
+      if (url.searchParams.get("send") === "1" && recipientId) {
+        await call("INSTAGRAM_SEND_TEXT_MESSAGE", { recipient_id: recipientId, text: "Automated test reply from the Zephyr Media Agent ✅" });
+        await call("INSTAGRAM_SEND_IMAGE", { recipient_id: recipientId, image_url: "https://dummyimage.com/600x600/141018/ff79c6.jpg" });
+      }
+      return Response.json({ me, conversation_id: conversationId, recipient: latestFrom || recipientId, results: R });
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
