@@ -881,6 +881,25 @@ function socialSlot(conns, toolkit) {
   return c ? { connected: c.status === "ACTIVE", status: c.status, id: c.id } : { connected: false, status: null, id: null };
 }
 
+// First ACTIVE connected account for a toolkit (project-wide lookup).
+async function composioActiveAccount(env, toolkit) {
+  const q = new URLSearchParams({ toolkit_slugs: toolkit, statuses: "ACTIVE", limit: "10" });
+  const r = await composioFetch(env, `/connected_accounts?${q}`);
+  if (!r.ok) return null;
+  const items = (await r.json().catch(() => ({}))).items || [];
+  return items[0] ? items[0].id : null;
+}
+
+// Run a Composio tool against a connected account. Returns the normalized result.
+async function composioExecute(env, slug, connectedAccountId, args) {
+  const r = await composioFetch(env, `/tools/execute/${encodeURIComponent(slug)}`, {
+    method: "POST",
+    body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args || {} }),
+  });
+  const d = await r.json().catch(() => ({}));
+  return { http: r.status, successful: d.successful === true, error: d.error || null, data: d.data };
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1610,6 +1629,39 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ error: "disconnect failed" }, { status: 502 });
       }
+    }
+
+    // TEMP diagnostics — read-only tool self-test, token-gated. Removed after use.
+    if (url.pathname === "/api/social/selftest" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "not configured" }, { status: 501 });
+      const battery = {
+        instagram: [
+          ["INSTAGRAM_GET_USER_INFO", {}],
+          ["INSTAGRAM_GET_IG_USER_MEDIA", {}],
+          ["INSTAGRAM_GET_IG_USER_CONTENT_PUBLISHING_LIMIT", {}],
+        ],
+        youtube: [
+          ["YOUTUBE_LIST_CHANNELS", { mine: true }],
+          ["YOUTUBE_GET_CHANNEL_STATISTICS", { mine: true }],
+          ["YOUTUBE_LIST_USER_PLAYLISTS", {}],
+          ["YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true }],
+        ],
+      };
+      const result = {};
+      for (const tk of Object.keys(battery)) {
+        const acc = await composioActiveAccount(env, tk);
+        result[tk] = { account: acc, tests: [] };
+        if (!acc) continue;
+        for (const [slug, args] of battery[tk]) {
+          const ex = await composioExecute(env, slug, acc, args);
+          let sample = "";
+          try { sample = JSON.stringify(ex.data).slice(0, 600); } catch {}
+          result[tk].tests.push({ tool: slug, ok: ex.successful, http: ex.http, error: ex.error, sample });
+        }
+      }
+      return Response.json(result);
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
