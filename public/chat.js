@@ -3978,7 +3978,7 @@ const AV_SECTIONS = [
   { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'images', menOnly: true, gendered: true,
     opts: [{ v: 'Stubble', f: 'stubble' }, { v: 'Short beard', f: 'short-beard' }, { v: 'Moustache', f: 'moustache' }, { v: 'Handlebar', f: 'handlebar' }, { v: 'Goatee', f: 'goatee' }, { v: 'Circle beard', f: 'circle-beard' }, { v: 'Extended goatee', f: 'extended-goatee' }, { v: 'Full beard', f: 'full-beard' }, { v: 'Chin strap', f: 'chin-strap' }, { v: 'Soul patch', f: 'soul-patch' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
-    opts: [{ v: 'Black', c: '#1a1a1a' }, { v: 'Dark brown', c: '#3b2417' }, { v: 'Brown', c: '#6b4226' }, { v: 'Light brown', c: '#b07b3e' }, { v: 'Blonde', c: '#d9b26a' }, { v: 'Auburn', c: '#a3502a' }, { v: 'Grey', c: '#9a9a9a' }, { v: 'Platinum', c: '#e8e3d3' }, { v: 'Pink', c: '#ff79c6' }, { v: 'Blue', c: '#4a7fd6' }] },
+    opts: [{ v: 'Black', c: '#0e0d0b' }, { v: 'Espresso', c: '#1f1915' }, { v: 'Dark brown', c: '#332218' }, { v: 'Brown', c: '#613c26' }, { v: 'Chestnut', c: '#91623b' }, { v: 'Auburn', c: '#763421' }, { v: 'Copper', c: '#aa562c' }, { v: 'Dark blonde', c: '#b78a50' }, { v: 'Blonde', c: '#debb70' }, { v: 'Silver', c: '#c1bfb6' }] },
   { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
     opts: [{ v: 'Slim' }, { v: 'Lean' }, { v: 'Athletic' }, { v: 'Muscular' }, { v: 'Curvy' }, { v: 'Heavy' }, { v: 'Skinny' }] },
 ];
