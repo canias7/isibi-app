@@ -1802,6 +1802,29 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: full catalog lister — every tool + its required args, token-gated.
+    if (url.pathname === "/api/social/catalog" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const tk = url.searchParams.get("toolkit") || "instagram";
+      const tools = [];
+      let cursor = "";
+      for (let page = 0; page < 10; page++) {
+        const q = new URLSearchParams({ toolkit_slug: tk, limit: "100" });
+        if (cursor) q.set("cursor", cursor);
+        const r = await composioFetch(env, `/tools?${q}`);
+        const d = await r.json().catch(() => ({}));
+        for (const it of (d.items || [])) {
+          const ip = it.input_parameters || {};
+          tools.push({ slug: it.slug, required: ip.required || [] });
+        }
+        cursor = d.next_cursor || "";
+        if (!cursor) break;
+      }
+      tools.sort((a, b) => a.slug.localeCompare(b.slug));
+      return Response.json({ toolkit: tk, count: tools.length, tools });
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
