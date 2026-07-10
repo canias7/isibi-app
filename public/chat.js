@@ -3975,8 +3975,8 @@ const AV_SECTIONS = [
       men: [{ v: 'Buzz', f: 'buzz' }, { v: 'Textured crop', f: 'textured-crop' }, { v: 'Tousled', f: 'tousled' }, { v: 'Quiff', f: 'quiff' }, { v: 'Side part', f: 'side-part' }, { v: 'Curly', f: 'curly' }, { v: 'Wavy', f: 'wavy' }, { v: 'Afro', f: 'afro' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Long', f: 'long' }],
       women: [{ v: 'Pixie', f: 'pixie' }, { v: 'Bob', f: 'bob' }, { v: 'Long straight', f: 'long-straight' }, { v: 'Wavy', f: 'wavy' }, { v: 'Curly', f: 'curly' }, { v: 'Afro', f: 'afro' }, { v: 'Box braids', f: 'box-braids' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Bun', f: 'bun' }, { v: 'Ponytail', f: 'ponytail' }],
     } },
-  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
-    opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
+  { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'images', menOnly: true, gendered: true,
+    opts: [{ v: 'Stubble', f: 'stubble' }, { v: 'Short beard', f: 'short-beard' }, { v: 'Moustache', f: 'moustache' }, { v: 'Handlebar', f: 'handlebar' }, { v: 'Goatee', f: 'goatee' }, { v: 'Circle beard', f: 'circle-beard' }, { v: 'Extended goatee', f: 'extended-goatee' }, { v: 'Full beard', f: 'full-beard' }, { v: 'Chin strap', f: 'chin-strap' }, { v: 'Soul patch', f: 'soul-patch' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
     opts: [{ v: 'Black', c: '#1a1a1a' }, { v: 'Dark brown', c: '#3b2417' }, { v: 'Brown', c: '#6b4226' }, { v: 'Light brown', c: '#b07b3e' }, { v: 'Blonde', c: '#d9b26a' }, { v: 'Auburn', c: '#a3502a' }, { v: 'Grey', c: '#9a9a9a' }, { v: 'Platinum', c: '#e8e3d3' }, { v: 'Pink', c: '#ff79c6' }, { v: 'Blue', c: '#4a7fd6' }] },
   { key: 'body', label: 'Body Type', icon: '🧍', type: 'images',
@@ -4064,6 +4064,7 @@ function avTileSrc(s, o) {
 // Banana Pro.
 function renderAvatarCreator(view) {
   const secHtml = AV_SECTIONS.map((s) => {
+    if (s.menOnly && avGender() !== 'men') return ''; // facial hair: men only
     const open = acOpen[s.key] !== false; // default expanded
     const sel = acSel[s.key];
     const sOpts = avOpts(s);
@@ -4147,7 +4148,7 @@ function renderAvatarCreator(view) {
     if (k === 'gender') {
       const cur = Array.isArray(acSel.gender) ? acSel.gender : [];
       acSel.gender = (cur.length === 1 && cur[0] === v) ? undefined : [v];
-      delete acSel.hair;
+      delete acSel.hair; delete acSel.facial;
       renderAvatarCreator(view);
       return;
     }
@@ -4166,6 +4167,7 @@ function renderAvatarCreator(view) {
     // Pick gender first so gendered option sets (hair) randomize from the
     // right list, then rebuild.
     AV_SECTIONS.forEach((s) => {
+      if (s.menOnly && avGender() !== 'men') { delete acSel[s.key]; return; } // skip hidden sections
       if (s.type === 'slider') { acSel[s.key] = s.min + Math.floor(Math.random() * (s.max - s.min + 1)); return; }
       const opts = avOpts(s); if (!opts || !opts.length) { delete acSel[s.key]; return; }
       acSel[s.key] = [opts[Math.floor(Math.random() * opts.length)].v];
