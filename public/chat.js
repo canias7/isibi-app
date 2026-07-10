@@ -4440,6 +4440,7 @@ const SOCIAL_APPS = [
 ];
 let socialStatus = null;   // { instagram:{connected,status,id}, youtube:{...} } | { _off:true } | null
 let socialPoll = null;
+let maApp = 'instagram';   // selected app in the switcher
 
 function renderMediaAgent() {
   const view = document.getElementById('viewMediaAgent');
@@ -4448,36 +4449,42 @@ function renderMediaAgent() {
     '<div class="ma-page">' +
       '<div class="ma-head">' +
         '<h1>Media Agent</h1>' +
-        '<p>Chat with your agent, manage your Instagram DMs, and publish media to your connected accounts. Connect or disconnect accounts in <b>Integrations</b>.</p>' +
+        '<p>Pick an app to manage. Connect or disconnect accounts in <b>Integrations</b>.</p>' +
       '</div>' +
-      '<div class="ma-msg" id="maMsg" hidden></div>' +
-      '<div class="ma-status" id="maStatus"></div>' +
-      '<div class="ma-publish" id="maPublish"></div>' +
-      '<div class="ma-dm" id="maDm">' +
-        '<div class="ma-dm-head"><span>Instagram Direct Messages</span>' +
-          '<button type="button" class="ma-dm-refresh" id="maDmRefresh" title="Refresh">↻</button></div>' +
-        '<div class="ma-dm-body">' +
-          '<div class="ma-dm-list" id="maDmList"></div>' +
-          '<div class="ma-dm-thread" id="maDmThread"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="ma-chat">' +
-        '<div class="ma-chat-head">Ask your agent</div>' +
-        '<div class="ma-thread" id="maThread"></div>' +
-        '<form class="ma-composer" id="maComposer" autocomplete="off">' +
-          '<input id="maInput" class="ma-input" placeholder="Ask about your Instagram or YouTube…" autocomplete="off" />' +
-          '<button type="submit" class="ma-send" aria-label="Send">↑</button>' +
-        '</form>' +
-      '</div>' +
+      '<div class="app-switch" id="appSwitch"></div>' +
+      // Per-app workspace — intentionally empty for now; redesigned next.
+      '<div class="app-main" id="appMain"></div>' +
     '</div>';
+  paintMaSwitch();
   loadSocialStatus();
-  agentRenderThread();
-  renderPublish();
-  loadDMs();
-  const form = document.getElementById('maComposer');
-  if (form) form.onsubmit = (e) => { e.preventDefault(); const i = document.getElementById('maInput'); const t = i.value.trim(); if (t) { i.value = ''; agentSend(t); } };
-  const dr = document.getElementById('maDmRefresh');
-  if (dr) dr.onclick = () => loadDMs();
+}
+
+// Top app switcher — logo-only square tiles with a connection dot. Selecting a
+// tile sets the active app; the panel below reacts to it (design in progress).
+function paintMaSwitch() {
+  const el = document.getElementById('appSwitch');
+  if (!el) return;
+  if (socialStatus && socialStatus._off) {
+    el.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
+    return;
+  }
+  el.innerHTML = SOCIAL_APPS.map((a) => {
+    const slot = socialStatus ? socialStatus[a.key] : null;
+    const on = !!(slot && slot.connected);
+    const loading = !socialStatus;
+    return '<button type="button" class="app-tile' + (maApp === a.key ? ' on' : '') + '" data-ma-app="' + a.key + '" title="' + a.name + '" aria-label="' + a.name + '">' +
+        '<span class="app-tile-ico ma-ico-' + a.key + '">' + a.ico + '</span>' +
+        (loading ? '' : '<span class="cdot' + (on ? ' on' : '') + '" title="' + (on ? 'Connected' : 'Not connected') + '"></span>') +
+      '</button>';
+  }).join('');
+  el.querySelectorAll('[data-ma-app]').forEach((b) => { b.onclick = () => selectMaApp(b.dataset.maApp); });
+}
+
+function selectMaApp(app) {
+  if (!SOCIAL_APPS.some((a) => a.key === app) || maApp === app) return;
+  maApp = app;
+  paintMaSwitch();
+  // Panel below will re-render here once its design is in.
 }
 
 // ── Media Agent · Instagram DM inbox ──
@@ -4726,37 +4733,12 @@ async function agentSend(text) {
 // Read-only connection strip for the Media Agent page. Linking is managed on
 // Integrations, so this only reflects state (per platform) and links there —
 // no Connect/Disconnect controls here.
-function paintMaStatus() {
-  const el = document.getElementById('maStatus');
-  if (!el) return;
-  if (socialStatus && socialStatus._off) {
-    el.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
-    return;
-  }
-  const chip = (app) => {
-    const slot = socialStatus ? socialStatus[app.key] : null;
-    const on = !!(slot && slot.connected);
-    const state = !socialStatus ? 'load' : on ? 'on' : 'off';
-    const label = !socialStatus ? 'Checking…' : on ? 'Connected' : 'Not connected';
-    return '<span class="ma-stat ma-stat-' + state + '">' +
-        '<span class="ma-stat-ico ma-ico-' + app.key + '">' + app.ico + '</span>' +
-        '<span class="ma-stat-name">' + app.name + '</span>' +
-        '<span class="ma-stat-dot"></span><span class="ma-stat-txt">' + label + '</span>' +
-      '</span>';
-  };
-  el.innerHTML =
-    '<div class="ma-status-chips">' + SOCIAL_APPS.map(chip).join('') + '</div>' +
-    '<button type="button" class="ma-manage" id="maManage">Manage in Integrations →</button>';
-  const mg = document.getElementById('maManage');
-  if (mg) mg.onclick = () => showView('integrations');
-}
-
-// Repaint every mounted surface that shows connection state. Media Agent
-// (#maStatus, read-only) and Integrations (#igList, the connect hub) share
-// socialStatus, so linking on Integrations refreshes both.
+// Repaint every mounted surface that reflects connection state: Media Agent's
+// app switcher (#appSwitch) and the Integrations hub (#igList). Both read the
+// shared socialStatus, so linking on Integrations refreshes the switcher dots.
 function paintSocial() {
   paintIntegrations();
-  paintMaStatus();
+  paintMaSwitch();
 }
 
 // Status line for the connect/disconnect flow — mirrored to whichever surface

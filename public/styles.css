@@ -967,27 +967,28 @@
 .ma-btn-on:hover:not([disabled]) { filter: brightness(1.06); }
 .ma-btn-off { color: var(--text); background: none; border-color: var(--line-2); }
 .ma-btn-off:hover:not([disabled]) { border-color: rgba(255, 120, 120, .6); color: #ff9a9a; }
-/* Media Agent read-only connection strip (linking lives in Integrations) */
-.ma-status { margin-top: 1.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1rem; }
-.ma-status-chips { display: flex; flex-wrap: wrap; gap: .6rem; }
-.ma-stat {
-  display: inline-flex; align-items: center; gap: .5rem;
-  padding: .4rem .7rem .4rem .45rem; border-radius: 999px;
-  border: 1px solid var(--line-2); background: var(--panel); font-size: .84rem; font-weight: 600;
+/* Media Agent app switcher — logo-only square tiles (linking lives in Integrations) */
+.app-switch { margin-top: 1.5rem; display: flex; gap: .7rem; flex-wrap: wrap; }
+.app-tile {
+  position: relative; width: 58px; height: 58px; border-radius: 16px;
+  border: 1px solid var(--line-2); background: var(--panel); cursor: pointer;
+  display: grid; place-items: center; transition: background .15s ease;
 }
-.ma-stat-ico { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; }
-.ma-stat-ico svg { width: 14px; height: 14px; }
-.ma-stat-name { color: var(--text); }
-.ma-stat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
-.ma-stat-txt { color: var(--muted); font-weight: 500; }
-.ma-stat-on .ma-stat-dot { background: #7ee0a0; }
-.ma-stat-on .ma-stat-txt { color: #7ee0a0; }
-.ma-stat-off .ma-stat-dot { background: rgba(237, 234, 243, .35); }
-.ma-manage {
-  margin-left: auto; background: none; border: none; color: var(--purple);
-  font: inherit; font-weight: 600; font-size: .84rem; cursor: pointer; padding: .3rem .1rem;
+.app-tile:hover { background: var(--panel-2); }
+.app-tile.on { background: var(--panel-2); }
+.app-tile.on::before {
+  content: ''; position: absolute; inset: -1px; border-radius: 16px; padding: 2px;
+  background: var(--split);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude; pointer-events: none;
 }
-.ma-manage:hover { color: var(--neon); }
+.app-tile-ico { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; color: #fff; }
+.app-tile-ico svg { width: 22px; height: 22px; }
+.app-tile .cdot {
+  position: absolute; top: 6px; right: 6px; width: 9px; height: 9px; border-radius: 50%;
+  background: rgba(237, 234, 243, .3); border: 2px solid var(--bg);
+}
+.app-tile .cdot.on { background: #7ee0a0; }
 /* Media Agent chat */
 .ma-chat { margin-top: 2rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
 .ma-chat-head {
