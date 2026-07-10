@@ -3806,13 +3806,12 @@ function renderSettings() {
             '<span class="sp-item-l"><span class="sp-item-t">Credits &amp; plan</span></span>' +
             '<span class="sp-item-r">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
           '</button>' +
-          // Stripe Billing Portal link: change plan, update card, or cancel
-          // anytime. Shown to everyone — a free / never-subscribed account that
-          // taps it gets a friendly "no active membership" note (the endpoint
-          // returns 404 no_customer), so there's nothing to hide.
+          // Cancel-only membership control. Shown to everyone — a free /
+          // never-subscribed account that taps it gets a friendly "no active
+          // membership" note, so there's nothing to hide.
           '<button type="button" class="sp-item sp-tap" id="spManage">' +
-            '<span class="sp-item-l"><span class="sp-item-t">Manage membership</span>' +
-            '<span class="sp-item-s">Change plan, update payment, or cancel anytime.</span></span>' +
+            '<span class="sp-item-l"><span class="sp-item-t">Cancel membership</span>' +
+            '<span class="sp-item-s">Cancel anytime — you keep access until your paid period ends.</span></span>' +
             '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
           '</button>' +
         '</div>' +
@@ -3877,28 +3876,45 @@ function renderSettings() {
 
   view.querySelector('#spCredits').onclick = () => openCredits();
 
-  // Manage membership → Stripe Billing Portal (cancel / change plan / update card).
+  // Cancel membership → focused in-app cancel (no Stripe portal / invoices).
+  // Probe status first, then confirm, then cancel at period end.
   const manageBtn = view.querySelector('#spManage');
   if (manageBtn) manageBtn.onclick = async () => {
     const note = view.querySelector('#spManageNote');
     if (manageBtn.dataset.busy) return;
     manageBtn.dataset.busy = '1';
-    if (note) note.textContent = 'Opening your membership…';
+    const fmt = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }); } catch { return null; } };
+    if (note) note.textContent = 'Checking your membership…';
     try {
-      const r = await apiFetch('/api/billing/portal', { method: 'POST' });
+      const r = await apiFetch('/api/billing/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      });
       const d = await r.json().catch(() => ({}));
-      if (r.ok && d.url) { if (note) note.textContent = 'Taking you to Stripe…'; location.href = d.url; return; }
-      if (r.status === 404) {
-        // Paid state comes from "has ever purchased" — a top-up-only buyer has
-        // no subscription in Stripe, so there's nothing to manage.
-        if (note) note.textContent = 'No active membership found. One-time top-ups have nothing to cancel.';
-      } else if (r.status === 501) {
-        if (note) note.textContent = 'Membership management is switching on very soon.';
+      if (r.status === 501) { if (note) note.textContent = 'Membership cancellation is switching on very soon.'; return; }
+      if (!r.ok) { if (note) note.textContent = 'Couldn’t reach billing — try again in a moment.'; return; }
+      if (!d.active) { if (note) note.textContent = 'You have no active membership to cancel.'; return; }
+      const until = d.until ? fmt(d.until) : null;
+      if (d.alreadyCanceling) {
+        if (note) note.textContent = until ? ('Your membership is already set to end on ' + until + '. You keep access until then.') : 'Your membership is already set to cancel at the end of your paid period.';
+        return;
+      }
+      const ask = until
+        ? ('Cancel your membership? You’ll keep full access until ' + until + ', then it drops to Free. No further charges.')
+        : 'Cancel your membership? You’ll keep access until the end of your paid period, then it drops to Free. No further charges.';
+      if (!confirm(ask)) { if (note) note.textContent = ''; return; }
+      if (note) note.textContent = 'Cancelling…';
+      const cr = await apiFetch('/api/billing/cancel', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }),
+      });
+      const cd = await cr.json().catch(() => ({}));
+      if (cr.ok && cd.cancelled) {
+        const u = cd.until ? fmt(cd.until) : null;
+        if (note) note.textContent = u ? ('Membership cancelled. You keep access until ' + u + '.') : 'Membership cancelled. You keep access until the end of your paid period.';
       } else {
-        if (note) note.textContent = 'Couldn’t open the membership page — email support@isibi.ai and we’ll sort it.';
+        if (note) note.textContent = 'Couldn’t cancel just now — email support@isibi.ai and we’ll sort it.';
       }
     } catch {
-      if (note) note.textContent = 'Couldn’t open the membership page — try again in a moment.';
+      if (note) note.textContent = 'Couldn’t reach billing — try again in a moment.';
     } finally {
       delete manageBtn.dataset.busy;
     }
