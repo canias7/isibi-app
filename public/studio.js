@@ -323,7 +323,7 @@ function sbRender() {
       card.draggable = true;
       card.dataset.id = s.id;
       const thumb = s.thumb
-        ? '<img class="sb-thumb" src="' + (typeof esc === 'function' ? esc(s.thumb) : s.thumb) + '" alt="" />'
+        ? '<img class="sb-thumb' + (sbIsImage(s) ? ' sb-thumb-photo' : '') + '" src="' + (typeof esc === 'function' ? esc(s.thumb) : s.thumb) + '" alt="" />'
         : '<span class="sb-thumb sb-thumb-empty">' + (s.status === 'generating' ? '⏳' : '🎬') + '</span>';
       card.innerHTML =
         '<span class="sb-num">' + (i + 1) + '</span>' + thumb +
@@ -419,6 +419,11 @@ function sbRender() {
       if (isTitle) {
         block.style.background = s.bg || 'linear-gradient(135deg,#ff79c6,#ffb84d)';
         body = '<span class="sb-titletext"></span>';
+      } else if (sbIsImage(s)) {
+        // A photo isn't a strip of different frames — it's one image. Tile the
+        // WHOLE image across the clip at its real aspect ratio (repeat-x, fit to
+        // lane height) so you see the actual picture, not a zoomed-in crop.
+        body = '<div class="sb-strip sb-photostrip" style="background-image:url(\'' + (s.url || s.thumb || '') + '\')"></div>';
       } else {
         // iMovie-style filmstrip: real sampled frames when we have them,
         // otherwise repeat the poster thumb across the clip (one tile per ~1.4s)
@@ -1167,7 +1172,7 @@ function sbPaintTitle(ctx, W, H, s) {
 // The middle column doubles as an iMovie-style browser. "Shots" is the
 // storyboard; the other tabs are draggable-free click-to-add grids.
 const SB_BROWSER_TABS = [
-  { k: 'shots', label: 'Shots' },
+  { k: 'shots', label: 'Media' },
   { k: 'themes', label: 'Themes' },
   { k: 'transitions', label: 'Transitions' },
   { k: 'titles', label: 'Titles' },
@@ -2699,24 +2704,63 @@ function sbExportShot(s, o) {
 }
 
 // ── isibi.ai chat panel ──────────────────────────────────────────────────────
-let sbProgressEl = null;
+// The chat thread is ONLY for the actual conversation (what you type + the
+// director's replies). Incidental hints from clicking around (import, save,
+// split, export progress…) show as transient toasts instead, so the thread
+// stays clean and only fills up when you talk to it.
+let sbProgressEl = null;      // updating "agent" bubble in the chat thread
+let sbProgToast = null;       // updating progress toast (export/stitch/save %)
+
+function sbToastBox() {
+  let b = document.getElementById('sbToasts');
+  if (!b) { b = document.createElement('div'); b.id = 'sbToasts'; document.body.appendChild(b); }
+  return b;
+}
+// A transient hint (auto-dismisses). This is what the old sbStudioNote calls
+// scattered through the click handlers now do.
 function sbStudioNote(text) {
+  if (sbProgToast) { try { sbProgToast.remove(); } catch (e) {} sbProgToast = null; }
+  const box = sbToastBox();
+  const last = box.lastElementChild;
+  if (last && !last.classList.contains('prog') && last.dataset.txt === text) return; // no dupes
+  const t = document.createElement('div');
+  t.className = 'sb-toast'; t.dataset.txt = text; t.textContent = text;
+  box.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('in'));
+  setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 320); }, 4000);
+  while (box.children.length > 4) box.firstChild.remove();
+}
+// A sticky, self-updating progress toast (export/stitch/save). Each call resets
+// its auto-hide, so it stays put while work is streaming updates.
+function sbStudioProgress(text) {
+  const box = sbToastBox();
+  if (!sbProgToast || !sbProgToast.isConnected) {
+    sbProgToast = document.createElement('div');
+    sbProgToast.className = 'sb-toast prog';
+    box.appendChild(sbProgToast);
+    requestAnimationFrame(() => sbProgToast && sbProgToast.classList.add('in'));
+  }
+  sbProgToast.textContent = text;
+  clearTimeout(sbProgToast._t);
+  sbProgToast._t = setTimeout(() => {
+    if (!sbProgToast) return;
+    const el = sbProgToast; sbProgToast = null;
+    el.classList.remove('in'); setTimeout(() => el.remove(), 320);
+  }, 8000);
+}
+// The conversation itself lives in the chat thread. sbChatSay = the director's
+// reply, sbChatProgress = the "thinking…" bubble it replaces.
+function sbChatSay(text) {
   sbProgressEl = null;
   const box = document.getElementById('studioMessages');
   if (!box) return;
-  // Don't stack the same message over and over (e.g. clicking a missing shot).
-  const last = box.lastElementChild;
-  if (last && last.classList.contains('agent') && last.textContent === text) {
-    box.scrollTop = box.scrollHeight;
-    return;
-  }
   const div = document.createElement('div');
   div.className = 'msg agent';
   div.textContent = text;
   box.appendChild(div);
   box.scrollTop = box.scrollHeight;
 }
-function sbStudioProgress(text) {
+function sbChatProgress(text) {
   const box = document.getElementById('studioMessages');
   if (!box) return;
   if (!sbProgressEl || !sbProgressEl.isConnected) {
@@ -2746,7 +2790,7 @@ async function studioSend() {
   inp.value = '';
   sbUserNote(t);
   const proj = sbProject();
-  sbStudioProgress('isibi.ai is thinking…');
+  sbChatProgress('isibi.ai is thinking…');
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2763,13 +2807,13 @@ async function studioSend() {
     // 402: surface the upsell instead of a generic error.
     if (res.status === 402) {
       if (sbProgressEl) { sbProgressEl.remove(); sbProgressEl = null; }
-      sbStudioNote('The Video Editor add-on ($19.99/mo) powers this chat editor. Add it to direct your edits by chat — the editing tools themselves stay free.');
+      sbChatSay('The Video Editor add-on ($19.99/mo) powers this chat editor. Add it to direct your edits by chat — the editing tools themselves stay free.');
       if (typeof window.openVideoEditorUpsell === 'function') window.openVideoEditorUpsell();
       return;
     }
     if (!res.ok) throw 0;
     const data = await res.json();
-    if (data.reply) sbStudioNote(data.reply);
+    if (data.reply) sbChatSay(data.reply);
     if (data.brief) { proj.brief = String(data.brief).slice(0, 600); }
     const toGenerate = [];
     const edits = [];
@@ -2835,7 +2879,7 @@ async function studioSend() {
     // Generate sequentially so last-frame chaining sees each finished shot.
     for (const s of toGenerate) await sbGenerateShot(s);
   } catch (e) {
-    sbStudioNote('I couldn’t reach the director — try that again in a moment.');
+    sbChatSay('I couldn’t reach the director — try that again in a moment.');
   }
 }
 

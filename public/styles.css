@@ -1321,7 +1321,24 @@
 }
 .studio-chat-head { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; border-bottom: 1px solid var(--line); }
 .studio-chat-head .tile { width: 34px; height: 34px; }
-.studio-thread { flex: 1; min-height: 0; overflow: hidden auto; padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.studio-thread { flex: 1; min-height: 0; overflow: hidden auto; padding: 1rem; display: flex; flex-direction: column; gap: .6rem; scrollbar-width: none; -ms-overflow-style: none; }
+.studio-thread::-webkit-scrollbar { width: 0; height: 0; display: none; }
+/* Transient editor toasts — incidental hints & export/save progress. They float
+   over the editor and auto-dismiss, so the chat thread stays conversation-only. */
+#sbToasts {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 90;
+  display: flex; flex-direction: column; gap: .4rem; align-items: center; pointer-events: none;
+  width: min(92vw, 520px);
+}
+.sb-toast {
+  width: max-content; max-width: 100%;
+  background: rgba(18, 16, 24, .97); border: 1px solid var(--line-2); color: var(--text);
+  padding: .5rem .9rem; border-radius: 11px; font-size: .82rem; line-height: 1.35; text-align: center;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .5); backdrop-filter: blur(8px);
+  opacity: 0; transform: translateY(8px); transition: opacity .25s ease, transform .25s ease;
+}
+.sb-toast.in { opacity: 1; transform: none; }
+.sb-toast.prog { border-color: rgba(255, 214, 10, .4); color: var(--neon); }
 .studio-composer { display: flex; gap: .5rem; align-items: flex-end; padding: .75rem; border-top: 1px solid var(--line); }
 .studio-composer textarea {
   flex: 1; resize: none; background: rgba(0, 0, 0, .28); border: 1px solid var(--line-2); color: var(--text);
@@ -1362,8 +1379,8 @@
 .media-clip .mc-name { font-size: .82rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* viewer / preview */
-.editor-preview { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; padding: .8rem .9rem 0; }
-.preview-toolbar { display: flex; align-items: center; gap: .5rem; padding: 0 .1rem .6rem; }
+.editor-preview { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; padding: .5rem .9rem 0; }
+.preview-toolbar { display: flex; align-items: center; gap: .5rem; padding: 0 .1rem .4rem; }
 .pt-title { font-size: .85rem; color: var(--muted); }
 .pt-spacer { flex: 1; }
 .pt-icon { background: none; border: none; color: var(--muted); cursor: pointer; font-size: .95rem; padding: .2rem .4rem; border-radius: 7px; }
@@ -1426,7 +1443,7 @@
 .adj-p { flex: 1; background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); color: var(--text); border-radius: 8px; padding: .36rem; font: inherit; font-size: .76rem; cursor: pointer; }
 .adj-p.on { color: #0a0a0b; background: var(--split); border-color: transparent; font-weight: 700; }
 .preview-empty { color: var(--muted); font-size: .9rem; text-align: center; padding: 1rem; }
-.preview-controls { display: flex; align-items: center; gap: .5rem; padding: .7rem .1rem; }
+.preview-controls { display: flex; align-items: center; gap: .5rem; padding: .5rem .1rem; }
 .pc-btn { background: none; border: 1px solid var(--line-2); color: var(--text); width: 34px; height: 34px; border-radius: 9px; cursor: pointer; font-size: .85rem; display: grid; place-items: center; }
 .pc-btn:hover { border-color: #4a4a52; }
 .pc-play { background: var(--panel-2); }
@@ -1434,7 +1451,7 @@
 .pc-spacer { flex: 1; }
 
 /* timeline */
-.editor-timeline { height: auto; min-height: 220px; max-height: 50vh; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
+.editor-timeline { height: auto; min-height: 300px; max-height: 58vh; flex: none; border-top: 1px solid var(--line); background: rgba(255, 255, 255, .02); display: flex; flex-direction: column; }
 .timeline-bar { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .55rem .9rem; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
 .timeline-tools { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
 .tl-tool { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 9px; padding: .4rem .75rem; font-size: .82rem; cursor: pointer; font-family: inherit; }
@@ -1627,6 +1644,8 @@
 .sb-card.sel { border-color: rgba(255, 184, 77, .7); }
 .sb-num { color: var(--muted); font-size: .75rem; width: 1.1rem; text-align: right; flex: none; }
 .sb-thumb { width: 84px; height: 48px; object-fit: cover; border-radius: 6px; background: #000; flex: none; display: grid; place-items: center; }
+/* Photos show the whole image (contained), not a cropped fill. */
+.sb-thumb-photo { object-fit: contain; }
 .sb-thumb-empty { font-size: .95rem; }
 .sb-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .sb-meta b { font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1649,6 +1668,9 @@
 .sb-strip { position: absolute; inset: 0; display: flex; z-index: 1; }
 .sb-frame { flex: 1 1 0; min-width: 0; background-size: cover; background-position: center; box-shadow: inset -1px 0 0 rgba(0, 0, 0, .35); }
 .sb-frame:last-child { box-shadow: none; }
+/* A photo clip: tile the WHOLE image across the strip at its real aspect ratio
+   (height-fit, repeat across) so it reads as the actual picture, not a zoom-crop. */
+.sb-photostrip { display: block; background-repeat: repeat-x; background-position: center; background-size: auto 100%; background-color: #000; }
 .sb-block.sel { outline: 2px solid rgba(255, 184, 77, .8); outline-offset: -1px; z-index: 4; }
 .sb-block.st-draft { opacity: .45; }
 .sb-block.st-generating { animation: sbpulse .9s infinite alternate; }
