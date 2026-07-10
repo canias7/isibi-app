@@ -1958,7 +1958,15 @@ function sbPlayShot(s, next) {
   if (!v || !s.url) return;
   const start = s.in || 0;
   sbSegment = { out: s.out != null ? s.out : null, next: next || null };
+  // If the clip can't load (e.g. a blob URL that was revoked because the clip was
+  // deleted mid-play, or a broken source), don't stall the film — advance to the
+  // next clip instead of waiting on a loadedmetadata that will never come.
+  const onErr = () => {
+    v.removeEventListener('loadedmetadata', go);
+    if (next) next(); else { sbSegment = null; sbSyncPlayBtn(); }
+  };
   const go = () => {
+    v.removeEventListener('error', onErr);
     sbNoteSrcDur(s, v);
     sbApplyPreview(s);
     v.currentTime = start; v.play().catch(() => {});
@@ -1967,6 +1975,7 @@ function sbPlayShot(s, next) {
     v.dataset.src = s.url;
     v.src = s.url;
     v.addEventListener('loadedmetadata', go, { once: true });
+    v.addEventListener('error', onErr, { once: true });
   } else go();
   if (next) v.onended = () => next();
   else v.onended = null;
@@ -2028,6 +2037,7 @@ function sbTogglePlay() {
     const playNext = () => {
       if (i >= tl.length) { sbSegment = null; sbSyncPlayBtn(); return; }
       const s = tl[i++];
+      if (!s || !sbProject().shots.includes(s)) { playNext(); return; } // removed mid-play → skip
       sbSelected = s.id; sbRender();
       sbPlayShot(s, playNext);
     };
@@ -2262,6 +2272,7 @@ function sbPlayAll() {
   const playNext = () => {
     if (i >= shots.length) { sbSegment = null; return; }
     const s = shots[i++];
+    if (!s || !sbProject().shots.includes(s)) { playNext(); return; } // removed mid-play → skip
     sbSelected = s.id; sbRender();
     sbPlayShot(s, playNext);
   };
