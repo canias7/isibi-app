@@ -1860,6 +1860,41 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: final POST_COMMENT attempt on a real published video, token-gated.
+    if (url.pathname === "/api/social/sweep4" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const q = new URLSearchParams({ toolkit_slugs: "youtube", statuses: "ACTIVE", limit: "5" });
+      const cr = await composioFetch(env, `/connected_accounts?${q}`);
+      const uid = ((await cr.json().catch(() => ({}))).items || [])[0].user_id;
+      const ex = (slug, args) => composioExecute(env, slug, { userId: uid }, args || {});
+      const chans = await ex("YOUTUBE_LIST_CHANNELS", { mine: true });
+      const channelId = chans.data && (chans.data.items || [])[0] && chans.data.items[0].id;
+      const vids = await ex("YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true, maxResults: 50 });
+      const items = (vids.data && vids.data.items) || [];
+      // First REAL video: not a deleted/private placeholder, not a test.
+      let realVid = null, realTitle = null;
+      for (const it of items) {
+        const t = (it.snippet && it.snippet.title) || "";
+        const vid = it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId;
+        if (vid && !/deleted video|private video|zephyr|sweep/i.test(t)) { realVid = vid; realTitle = t; break; }
+      }
+      const out = { real_video: realVid, real_title: realTitle };
+      if (realVid && channelId) {
+        const pc = await ex("YOUTUBE_POST_COMMENT", { videoId: realVid, channelId, textOriginal: "test comment (auto-removed)" });
+        out.post_comment = { ok: pc.successful, error: composioErrText(pc.error) };
+        const cid = pc.data && pc.data.id;
+        if (cid) {
+          const rep = await ex("YOUTUBE_CREATE_COMMENT_REPLY", { parentId: cid, textOriginal: "reply" });
+          const upd = await ex("YOUTUBE_UPDATE_COMMENT", { id: cid, textOriginal: "edited" });
+          const del = await ex("YOUTUBE_DELETE_COMMENT", { id: cid });
+          out.chain = { create_reply: rep.successful, update_comment: upd.successful, delete_comment: del.successful,
+            errors: { reply: composioErrText(rep.error), update: composioErrText(upd.error), del: composioErrText(del.error) } };
+        }
+      }
+      return Response.json(out);
+    }
+
     // TEMP: definitive cleanup + last arg fixes, token-gated.
     if (url.pathname === "/api/social/sweep3" && request.method === "GET") {
       if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
