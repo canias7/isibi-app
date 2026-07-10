@@ -408,43 +408,57 @@ function toggleApRow(kind) {
   if (row) row.classList.toggle('open');
 }
 
-// One-line explainer for each input row's ⓘ. Keyed to the row's data-info.
+// One-line explainer for each input row. Info lives on the title itself —
+// hover the dotted-underlined word (no separate ⓘ button). Keyed to data-info.
 const AP_INFO = {
   imageVideo: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
   imageEdit: 'Attach an image to edit — describe the change and the model applies it to your picture.',
+  avatar: 'Avatar: attach a face or character the model keeps looking consistent across the video.',
+  audio: 'Audio: attach a voice or music track — used as the soundtrack or lip-sync source.',
+  clip: 'Video clip: attach a video to extend, restyle, or use as motion reference.',
+  end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
 };
 function showApInfo(kind, ev, el) {
-  ev.stopPropagation(); // don't let the click toggle the row open/closed
   const pop = document.getElementById('apInfoPop');
   if (!pop) return;
-  if (pop.classList.contains('open') && pop.dataset.for === kind) { pop.classList.remove('open'); return; }
   // The Image row means image-to-video in video mode, but image editing in image mode.
   const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
-  pop.textContent = AP_INFO[key] || '';
+  const txt = AP_INFO[key];
+  if (!txt) return;
+  pop.textContent = txt;
   pop.dataset.for = kind;
   const r = el.getBoundingClientRect();
   const w = 244;
-  // Line the caret (::before at left:16px, ~5px half-width) up under the icon.
+  // Line the caret (::before at left:16px, ~5px half-width) up under the word.
   const left = (r.left + r.width / 2) - 21;
   pop.style.left = Math.max(12, Math.min(left, window.innerWidth - w - 12)) + 'px';
   pop.style.top = (r.bottom + 8) + 'px';
   pop.classList.add('open');
 }
 function closeApInfo() { const p = document.getElementById('apInfoPop'); if (p) { p.classList.remove('open'); p.dataset.for = ''; } }
-// Any click that isn't on an ⓘ or inside the popover dismisses it.
+// Any click dismisses the hover popover (e.g. the title click that toggles the row).
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('apInfoPop');
-  if (pop && pop.classList.contains('open') && !e.target.closest('.ap-info') && !e.target.closest('#apInfoPop')) {
-    pop.classList.remove('open');
-  }
+  if (pop && pop.classList.contains('open') && !e.target.closest('#apInfoPop')) closeApInfo();
 });
-// The popover is position:fixed off the icon's rect — if the panel scrolls the
-// icon moves out from under it, so dismiss rather than let it float orphaned.
+// The popover is position:fixed off the word's rect — if the panel scrolls the
+// title moves out from under it, so dismiss rather than let it float orphaned.
 (function () {
   const ap = document.getElementById('attachPanel');
-  if (ap) ap.addEventListener('scroll', closeApInfo);
+  if (ap) {
+    ap.addEventListener('scroll', closeApInfo);
+    // Info lives on the title: hover the dotted-underlined word to show it.
+    ap.addEventListener('mouseover', (e) => {
+      const t = e.target.closest('.ap-title[data-info]');
+      if (t) showApInfo(t.dataset.info, e, t);
+    });
+    ap.addEventListener('mouseout', (e) => {
+      const t = e.target.closest('.ap-title[data-info]');
+      if (t && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.ap-title'))) closeApInfo();
+    });
+  }
   window.addEventListener('resize', closeApInfo);
   // Toggle the jump-to-latest chevron as the user scrolls the thread.
   const box = document.getElementById('messages');
@@ -5199,7 +5213,6 @@ const CLICK_ACTIONS = {
   'effort-menu': (e) => toggleEffortMenu(e),
   'set-effort': (e, el) => setEffort(el.dataset.effort),
   'ap-row': (e, el) => toggleApRow(el.dataset.row),
-  'ap-info': (e, el) => showApInfo(el.dataset.info, e, el),
   'img-src': (e, el) => openImgSrc(el.dataset.src, e),
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },

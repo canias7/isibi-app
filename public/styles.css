@@ -1983,19 +1983,35 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .attach-panel::-webkit-scrollbar { width: 8px; }
 .attach-panel::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
-.ap-row { position: relative; } /* anchors the absolutely-positioned .ap-info */
+.ap-row { position: relative; }
 .ap-row + .ap-row { border-top: 1px solid var(--line); }
 .ap-head {
-  display: flex; align-items: center; gap: .65rem; width: 100%;
+  display: flex; align-items: center; gap: .7rem; width: 100%;
   background: none; border: none; color: var(--text);
   font-size: .92rem; font-weight: 600; text-align: left;
-  padding: .78rem .6rem; border-radius: 12px; cursor: pointer;
+  padding: .7rem .6rem; border-radius: 12px; cursor: pointer;
 }
 .ap-head:hover { background: var(--panel-2); }
+/* Leading glyph — gives each mode instant identity. */
+.ap-ico {
+  flex-shrink: 0; width: 34px; height: 34px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line);
+  color: var(--muted); transition: color .15s ease, border-color .15s ease;
+}
+.ap-ico svg { width: 17px; height: 17px; }
+.ap-head:hover .ap-ico, .ap-row.open .ap-ico { color: var(--text); border-color: var(--line-2); }
+.ap-label { display: inline-flex; align-items: baseline; }
+/* Info lives on the title via a dotted underline — hover the word. */
+.ap-title[data-info] {
+  text-decoration: underline dotted; text-decoration-color: rgba(255,255,255,.3);
+  text-underline-offset: 3px; cursor: help;
+}
+.ap-title[data-info]:hover { text-decoration-color: var(--text); }
 .ap-count { color: var(--neon); font-weight: 700; margin-left: .45rem; font-size: .82rem; }
-.ap-head svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
-.ap-row.open .ap-head svg { transform: rotate(180deg); }
-.ap-body { display: none; padding: .15rem .5rem .85rem 2.45rem; }
+.ap-head > svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
+.ap-row.open .ap-head > svg { transform: rotate(180deg); }
+.ap-body { display: none; padding: .15rem .5rem .85rem 3.3rem; }
 .ap-row.open .ap-body { display: block; }
 .ap-body .attach-btn { padding: .5rem .85rem; font-size: .85rem; }
 /* Extra image slots (multi-image models, e.g. Seedance refs) */
@@ -2261,17 +2277,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 #rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count { font-size: .75rem; color: var(--muted); }
 #rowRef .ap-extra { gap: .55rem; margin-bottom: .55rem; }
 
-/* Small ⓘ per input row (a real button, sibling of the header so it's keyboard-
-   reachable and doesn't leak its "i" into the row's accessible name). Sits just
-   left of the chevron; click/Enter pops a one-line explainer. */
-.ap-info {
-  position: absolute; top: .5rem; right: 2.4rem; z-index: 2;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line-2);
-  background: none; color: var(--muted); font-size: .72rem; font-weight: 700; font-style: normal;
-  line-height: 1; cursor: pointer;
-}
-.ap-info:hover { color: var(--text); border-color: var(--text); }
+/* Explainer popover — anchored under a title's dotted-underlined word on hover. */
 #apInfoPop {
   position: fixed; z-index: 200; max-width: 244px; display: none;
   background: #14121b; border: 1px solid var(--line-2); border-radius: 10px;
