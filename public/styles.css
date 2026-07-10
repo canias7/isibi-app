@@ -967,6 +967,27 @@
 .ma-btn-on:hover:not([disabled]) { filter: brightness(1.06); }
 .ma-btn-off { color: var(--text); background: none; border-color: var(--line-2); }
 .ma-btn-off:hover:not([disabled]) { border-color: rgba(255, 120, 120, .6); color: #ff9a9a; }
+/* Media Agent read-only connection strip (linking lives in Integrations) */
+.ma-status { margin-top: 1.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: .7rem 1rem; }
+.ma-status-chips { display: flex; flex-wrap: wrap; gap: .6rem; }
+.ma-stat {
+  display: inline-flex; align-items: center; gap: .5rem;
+  padding: .4rem .7rem .4rem .45rem; border-radius: 999px;
+  border: 1px solid var(--line-2); background: var(--panel); font-size: .84rem; font-weight: 600;
+}
+.ma-stat-ico { width: 22px; height: 22px; flex: 0 0 22px; border-radius: 6px; display: grid; place-items: center; color: #fff; }
+.ma-stat-ico svg { width: 14px; height: 14px; }
+.ma-stat-name { color: var(--text); }
+.ma-stat-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+.ma-stat-txt { color: var(--muted); font-weight: 500; }
+.ma-stat-on .ma-stat-dot { background: #7ee0a0; }
+.ma-stat-on .ma-stat-txt { color: #7ee0a0; }
+.ma-stat-off .ma-stat-dot { background: rgba(237, 234, 243, .35); }
+.ma-manage {
+  margin-left: auto; background: none; border: none; color: var(--purple);
+  font: inherit; font-weight: 600; font-size: .84rem; cursor: pointer; padding: .3rem .1rem;
+}
+.ma-manage:hover { color: var(--neon); }
 /* Media Agent chat */
 .ma-chat { margin-top: 2rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
 .ma-chat-head {
