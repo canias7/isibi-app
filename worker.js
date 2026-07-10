@@ -1684,7 +1684,8 @@ async function handleRequest(request, env, ctx) {
       const run = async (log, ident, slug, args) => {
         const ex = await composioExecute(env, slug, ident, args || {});
         let sample = ""; try { sample = JSON.stringify(ex.data).slice(0, 400); } catch {}
-        log.push({ tool: slug, ok: ex.successful, http: ex.http, error: typeof ex.error === "object" ? (ex.error.message || JSON.stringify(ex.error)) : ex.error, sample });
+        const err = ex.error && typeof ex.error === "object" ? (ex.error.message || JSON.stringify(ex.error)) : ex.error;
+        log.push({ tool: slug, ok: ex.successful, http: ex.http, error: err, sample });
         return ex.data;
       };
       // Instagram
