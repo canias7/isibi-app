@@ -855,17 +855,25 @@ function composioFetch(env, path, opts = {}) {
   });
 }
 
+// The Meta App Review test account: routed through our CUSTOM (own-app) auth
+// config so the reviewer exercises our app's permissions. Everyone else uses
+// the live managed config (the custom app is dev-mode until App Review passes).
+const REVIEW_USER_ID = "36cb7d83-b310-4715-b11e-0df2ed5618e0";
+
 // The dashboard-created OAuth auth config for a toolkit. Prefer a Composio-
 // MANAGED enabled config: managed apps are live and work for every user,
 // whereas a custom (own-credentials) app stays in Meta development mode until
 // it passes App Review — preferring it would break connect for non-tester
 // users. Switch to preferring custom once that app is Live. Null if none.
-async function composioAuthConfigId(env, toolkit) {
+async function composioAuthConfigId(env, toolkit, userId) {
   const r = await composioFetch(env, `/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}&limit=20`);
   if (!r.ok) return null;
   const items = (await r.json().catch(() => ({}))).items || [];
   const enabled = items.filter((a) => a.status === "ENABLED");
-  const pick = enabled.find((a) => a.is_composio_managed === true) || enabled[0] || items[0];
+  const preferCustom = userId === REVIEW_USER_ID;
+  const pick =
+    (preferCustom && enabled.find((a) => a.is_composio_managed === false)) ||
+    enabled.find((a) => a.is_composio_managed === true) || enabled[0] || items[0];
   return pick ? pick.id : null;
 }
 
@@ -1817,7 +1825,7 @@ async function handleRequest(request, env, ctx) {
       const toolkit = String(body.toolkit || "").toLowerCase();
       if (!SOCIAL_TOOLKITS[toolkit]) return Response.json({ error: "unknown toolkit" }, { status: 400 });
       try {
-        const authConfigId = await composioAuthConfigId(env, toolkit);
+        const authConfigId = await composioAuthConfigId(env, toolkit, user.id);
         // No auth config yet → the user must create it in the Composio dashboard
         // (it holds the Meta/Google app credentials we can't provision for them).
         if (!authConfigId) return Response.json({ error: "no_auth_config", toolkit }, { status: 409 });
@@ -1854,6 +1862,65 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true });
       } catch {
         return Response.json({ error: "disconnect failed" }, { status: 502 });
+      }
+    }
+
+    // Instagram Direct Messages inbox. GET → conversations, or ?conversation_id
+    // → that thread's messages. Read via the user's own connection.
+    if (url.pathname === "/api/social/dm" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      const ident = { userId: user.id };
+      const convId = url.searchParams.get("conversation_id");
+      try {
+        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+        const me = info.data && info.data.username;
+        const msgsOf = (d) => (d && (d.data || (d.messages && d.messages.data))) || [];
+        if (convId) {
+          const m = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: convId });
+          const list = msgsOf(m.data).map((x) => ({
+            id: x.id, from: x.from && x.from.username, mine: (x.from && x.from.username) === me,
+            text: x.message || "", at: x.created_time,
+          })).reverse();
+          return Response.json({ me, messages: list });
+        }
+        const c = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
+        const items = (c.data && (c.data.data || c.data.conversations || c.data.items)) || [];
+        const convs = [];
+        for (const it of items.slice(0, 12)) {
+          const cm = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: it.id });
+          const ml = msgsOf(cm.data);
+          const other = ml.map((x) => x.from).find((f) => f && f.username && f.username !== me);
+          const last = ml[0];
+          convs.push({
+            id: it.id, user: other ? other.username : "unknown", user_id: other ? other.id : null,
+            last: last ? (last.message || "").slice(0, 80) : "", at: it.updated_time,
+          });
+        }
+        return Response.json({ me, conversations: convs });
+      } catch {
+        return Response.json({ error: "dm unavailable" }, { status: 503 });
+      }
+    }
+
+    // Send a DM reply. Only within Instagram's 24h window; user-initiated.
+    if (url.pathname === "/api/social/dm/send" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "dm", 200))) return QUOTA_EXCEEDED();
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const recipient = String(body.recipient_id || "");
+      const text = String(body.text || "").slice(0, 900);
+      if (!recipient || !text) return Response.json({ error: "missing recipient or text" }, { status: 400 });
+      try {
+        const ex = await composioExecute(env, "INSTAGRAM_SEND_TEXT_MESSAGE", { userId: user.id }, { recipient_id: recipient, text });
+        if (!ex.successful) return Response.json({ ok: false, error: String(composioErrText(ex.error) || "").slice(0, 200) }, { status: 502 });
+        return Response.json({ ok: true });
+      } catch {
+        return Response.json({ ok: false, error: "send failed" }, { status: 502 });
       }
     }
 
