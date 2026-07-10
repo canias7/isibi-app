@@ -3979,6 +3979,8 @@ const AV_SECTIONS = [
     opts: [{ v: 'Stubble', f: 'stubble' }, { v: 'Short beard', f: 'short-beard' }, { v: 'Moustache', f: 'moustache' }, { v: 'Handlebar', f: 'handlebar' }, { v: 'Goatee', f: 'goatee' }, { v: 'Circle beard', f: 'circle-beard' }, { v: 'Extended goatee', f: 'extended-goatee' }, { v: 'Full beard', f: 'full-beard' }, { v: 'Chin strap', f: 'chin-strap' }, { v: 'Soul patch', f: 'soul-patch' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
     opts: [{ v: 'Black', c: '#0e0d0b' }, { v: 'Espresso', c: '#1f1915' }, { v: 'Dark brown', c: '#332218' }, { v: 'Brown', c: '#613c26' }, { v: 'Chestnut', c: '#91623b' }, { v: 'Auburn', c: '#763421' }, { v: 'Copper', c: '#aa562c' }, { v: 'Dark blonde', c: '#b78a50' }, { v: 'Blonde', c: '#debb70' }, { v: 'Silver', c: '#c1bfb6' }] },
+  { key: 'eyes', label: 'Eye Color', icon: '👁️', type: 'images', imgDir: '/avatars/eyes/',
+    opts: [{ v: 'Black', f: 'black' }, { v: 'Dark brown', f: 'dark-brown' }, { v: 'Brown', f: 'brown' }, { v: 'Amber', f: 'amber' }, { v: 'Hazel', f: 'hazel' }, { v: 'Green', f: 'green' }, { v: 'Blue', f: 'blue' }, { v: 'Light blue', f: 'light-blue' }, { v: 'Gray', f: 'gray' }, { v: 'Violet', f: 'violet' }] },
   { key: 'body', label: 'Body Type', icon: '🧍', type: 'images', optsByGender: {
       men: [{ v: 'Slim', f: 'slim' }, { v: 'Lean', f: 'lean' }, { v: 'Athletic', f: 'athletic' }, { v: 'Muscular', f: 'muscular' }, { v: 'Stocky', f: 'stocky' }, { v: 'Heavy', f: 'heavy' }, { v: 'Skinny', f: 'skinny' }, { v: 'Average', f: 'average' }, { v: 'Broad', f: 'broad' }, { v: 'Tall', f: 'tall' }],
       women: [{ v: 'Petite', f: 'petite' }, { v: 'Slim', f: 'slim' }, { v: 'Lean', f: 'lean' }, { v: 'Athletic', f: 'athletic' }, { v: 'Muscular', f: 'muscular' }, { v: 'Curvy', f: 'curvy' }, { v: 'Pear', f: 'pear' }, { v: 'Full', f: 'full' }, { v: 'Broad', f: 'broad' }, { v: 'Tall', f: 'tall' }],
@@ -4058,6 +4060,7 @@ function avOpts(s) {
 // photo (the colored placeholder shows through).
 function avTileSrc(s, o) {
   if (o.f && (s.gendered || s.optsByGender)) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.jpg';
+  if (o.f && s.imgDir) return s.imgDir + o.f + '.jpg';
   return o.img || '';
 }
 
@@ -4205,6 +4208,7 @@ function buildAvatarPrompt() {
   }
   const facial = arr('facial').filter((f) => f !== 'None');
   if (facial.length) b.push('with a ' + join(lc(facial)));
+  const eyes = arr('eyes'); if (eyes.length) b.push(join(lc(eyes)) + ' eyes');
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
