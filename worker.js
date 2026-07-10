@@ -1802,6 +1802,24 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: schema dump + Instagram write lifecycle test, token-gated.
+    if (url.pathname === "/api/social/writetest" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const wantSchema = url.searchParams.get("schema");
+      if (wantSchema) {
+        const out = {};
+        for (const slug of wantSchema.split(",").filter(Boolean)) {
+          const r = await composioFetch(env, `/tools/${encodeURIComponent(slug)}`);
+          const d = await r.json().catch(() => ({}));
+          const ip = d.input_parameters || {};
+          out[slug] = { required: ip.required || [], props: Object.keys(ip.properties || {}) };
+        }
+        return Response.json(out);
+      }
+      return Response.json({ note: "pass ?schema=SLUG,SLUG to inspect args first" });
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
