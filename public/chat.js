@@ -4188,19 +4188,162 @@ function saveProducts(list) {
 }
 function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
-// Placeholder scaffold — the Media Agent surface will be filled in later.
+// ── Media Agent ───────────────────────────────────────────────────────────
+// Connect Instagram / YouTube through Composio so the agent can act on them.
+// The account link is a server-driven OAuth popup; we poll status until the
+// connection goes ACTIVE. (Agent capabilities land on top of this later.)
+const SOCIAL_APPS = [
+  { key: 'instagram', name: 'Instagram', tag: 'Business or Creator account',
+    ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.3" cy="6.7" r="1.1" fill="currentColor" stroke="none"/></svg>' },
+  { key: 'youtube', name: 'YouTube', tag: 'Channel uploads & analytics',
+    ico: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="4"/><path d="M10.5 9.2l4.2 2.8-4.2 2.8z" fill="currentColor" stroke="none"/></svg>' },
+];
+let socialStatus = null;   // { instagram:{connected,status,id}, youtube:{...} } | { _off:true } | null
+let socialPoll = null;
+
 function renderMediaAgent() {
   const view = document.getElementById('viewMediaAgent');
   if (!view) return;
   view.innerHTML =
-    '<div class="ma-empty">' +
-      '<div class="ma-orb">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg>' +
+    '<div class="ma-page">' +
+      '<div class="ma-head">' +
+        '<h1>Media Agent</h1>' +
+        '<p>Connect your accounts so the agent can publish and manage media for you. More capabilities are coming soon.</p>' +
       '</div>' +
-      '<h1 class="ma-title">Media Agent</h1>' +
-      '<p class="ma-sub">An agent that plans and produces media for you end-to-end. This space is coming soon.</p>' +
-      '<span class="ma-tag">Coming soon</span>' +
+      '<div class="ma-msg" id="maMsg" hidden></div>' +
+      '<div class="ma-conns" id="maConns">' +
+        SOCIAL_APPS.map((a) => socialCardHtml(a, { loading: true })).join('') +
+      '</div>' +
     '</div>';
+  loadSocialStatus();
+}
+
+function socialCardHtml(app, slot) {
+  slot = slot || {};
+  const loading = slot.loading;
+  const connected = !!slot.connected;
+  const pending = !loading && !connected && slot.status && slot.status !== 'INACTIVE';
+  const pill = loading ? '<span class="ma-pill">Checking…</span>'
+    : connected ? '<span class="ma-pill on">● Connected</span>'
+    : pending ? '<span class="ma-pill wait">Pending…</span>'
+    : '<span class="ma-pill">Not connected</span>';
+  const btn = connected
+    ? '<button class="ma-btn ma-btn-off" data-social-dis="' + app.key + '">Disconnect</button>'
+    : '<button class="ma-btn ma-btn-on" data-social-con="' + app.key + '"' + (loading ? ' disabled' : '') + '>Connect</button>';
+  return '<div class="ma-conn" data-app="' + app.key + '">' +
+      '<div class="ma-conn-ico ma-ico-' + app.key + '">' + app.ico + '</div>' +
+      '<div class="ma-conn-info"><div class="ma-conn-name">' + app.name + '</div>' +
+        '<div class="ma-conn-sub">' + app.tag + '</div></div>' +
+      pill + btn +
+    '</div>';
+}
+
+function paintSocial() {
+  const wrap = document.getElementById('maConns');
+  if (!wrap) return;
+  if (socialStatus && socialStatus._off) {
+    wrap.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
+    return;
+  }
+  wrap.innerHTML = SOCIAL_APPS.map((a) => socialCardHtml(a, socialStatus ? socialStatus[a.key] : { loading: true })).join('');
+  wrap.querySelectorAll('[data-social-con]').forEach((b) => { b.onclick = () => connectSocial(b.dataset.socialCon); });
+  wrap.querySelectorAll('[data-social-dis]').forEach((b) => { b.onclick = () => disconnectSocial(b.dataset.socialDis); });
+}
+
+function maMsg(text, kind) {
+  const el = document.getElementById('maMsg');
+  if (!el) return;
+  if (!text) { el.hidden = true; el.innerHTML = ''; return; }
+  el.hidden = false;
+  el.className = 'ma-msg' + (kind ? ' ma-msg-' + kind : '');
+  el.innerHTML = text;
+}
+
+async function loadSocialStatus() {
+  try {
+    const r = await apiFetch('/api/social/status');
+    if (r.ok) socialStatus = await r.json();
+    else if (r.status === 501) socialStatus = { _off: true };
+    else socialStatus = null;
+  } catch { socialStatus = null; }
+  paintSocial();
+}
+
+async function connectSocial(key) {
+  const app = SOCIAL_APPS.find((a) => a.key === key);
+  maMsg('');
+  const btn = document.querySelector('[data-social-con="' + key + '"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Opening…'; }
+  let data = {};
+  try {
+    const r = await apiFetch('/api/social/connect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolkit: key }),
+    });
+    data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      if (r.status === 409 && data.error === 'no_auth_config') {
+        maMsg('No ' + (app ? app.name : key) + ' auth config found. Create one in your ' +
+          '<a href="https://dashboard.composio.dev" target="_blank" rel="noopener">Composio dashboard</a> (add the app + your developer credentials), then try again.', 'warn');
+      } else {
+        maMsg('Couldn’t start the connection' + (data.detail ? ' — ' + esc(data.detail) : '.'), 'warn');
+      }
+      paintSocial();
+      return;
+    }
+  } catch {
+    maMsg('Network error starting the connection. Try again.', 'warn');
+    paintSocial();
+    return;
+  }
+  if (!data.redirect_url) { paintSocial(); return; }
+  const popup = window.open(data.redirect_url, 'composio_' + key, 'width=620,height=780');
+  maMsg('Authorize ' + (app ? app.name : key) + ' in the popup window…');
+  pollSocial(key, popup);
+}
+
+function pollSocial(key, popup) {
+  if (socialPoll) clearInterval(socialPoll);
+  const app = SOCIAL_APPS.find((a) => a.key === key);
+  let tries = 0;
+  socialPoll = setInterval(async () => {
+    tries++;
+    let connected = false;
+    try {
+      const r = await apiFetch('/api/social/status');
+      if (r.ok) { socialStatus = await r.json(); connected = !!(socialStatus[key] && socialStatus[key].connected); }
+    } catch {}
+    const closed = !popup || popup.closed;
+    if (connected) {
+      clearInterval(socialPoll); socialPoll = null;
+      if (popup && !popup.closed) { try { popup.close(); } catch {} }
+      maMsg((app ? app.name : key) + ' connected ✓', 'ok');
+    } else if (tries > 48 || (closed && tries > 1)) {
+      clearInterval(socialPoll); socialPoll = null;
+      if (closed) maMsg('Connection window closed before finishing. Nothing was linked.', 'warn');
+      else maMsg('Still waiting on authorization — you can retry any time.', 'warn');
+    }
+    paintSocial();
+  }, 2500);
+}
+
+async function disconnectSocial(key) {
+  const app = SOCIAL_APPS.find((a) => a.key === key);
+  if (!confirm('Disconnect ' + (app ? app.name : key) + '? The agent will lose access until you reconnect.')) return;
+  const btn = document.querySelector('[data-social-dis="' + key + '"]');
+  if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
+  maMsg('');
+  try {
+    const r = await apiFetch('/api/social/disconnect', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ toolkit: key }),
+    });
+    if (!r.ok) throw 0;
+    if (socialStatus && socialStatus[key]) socialStatus[key] = { connected: false, status: null, id: null };
+  } catch {
+    maMsg('Couldn’t disconnect — try again.', 'warn');
+  }
+  paintSocial();
 }
 
 function renderProducts() {
