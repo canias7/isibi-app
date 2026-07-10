@@ -855,16 +855,17 @@ function composioFetch(env, path, opts = {}) {
   });
 }
 
-// The dashboard-created OAuth auth config for a toolkit (needs the Meta/Google
-// app credentials). Prefer a custom (own-credentials) enabled config over a
-// Composio-managed one — custom configs carry the fuller scope set (e.g.
-// Instagram DM sending). Null if the user hasn't made one yet.
+// The dashboard-created OAuth auth config for a toolkit. Prefer a Composio-
+// MANAGED enabled config: managed apps are live and work for every user,
+// whereas a custom (own-credentials) app stays in Meta development mode until
+// it passes App Review — preferring it would break connect for non-tester
+// users. Switch to preferring custom once that app is Live. Null if none.
 async function composioAuthConfigId(env, toolkit) {
   const r = await composioFetch(env, `/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}&limit=20`);
   if (!r.ok) return null;
   const items = (await r.json().catch(() => ({}))).items || [];
   const enabled = items.filter((a) => a.status === "ENABLED");
-  const pick = enabled.find((a) => a.is_composio_managed === false) || enabled[0] || items[0];
+  const pick = enabled.find((a) => a.is_composio_managed === true) || enabled[0] || items[0];
   return pick ? pick.id : null;
 }
 
@@ -1871,37 +1872,6 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ ok: false, error: "publish failed" }, { status: 502 });
       }
-    }
-
-    // TEMP: Instagram DM send test (post-reconnect), token-gated. ?send=1.
-    if (url.pathname === "/api/social/dmtest" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      const qq = new URLSearchParams({ toolkit_slugs: "instagram", statuses: "ACTIVE", limit: "5" });
-      const cr = await composioFetch(env, `/connected_accounts?${qq}`);
-      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
-      const uid = acc.user_id;
-      const ex = (slug, args) => composioExecute(env, slug, { userId: uid }, args || {});
-      const R = [];
-      const call = async (slug, args) => { const e = await ex(slug, args); R.push({ tool: slug, ok: e.successful, error: composioErrText(e.error) }); return e.data; };
-      const info = await ex("INSTAGRAM_GET_USER_INFO", {});
-      const me = info.data && info.data.username;
-      const conv = await call("INSTAGRAM_LIST_ALL_CONVERSATIONS", {});
-      const convItems = (conv && (conv.data || conv.conversations || conv.items)) || [];
-      const conversationId = convItems[0] && (convItems[0].id || convItems[0].conversation_id);
-      let recipientId = url.searchParams.get("rid") || null, latestFrom = null;
-      let msgs = null;
-      if (conversationId) msgs = await call("INSTAGRAM_LIST_ALL_MESSAGES", { conversation_id: conversationId });
-      // Newest message from someone other than the connected account = recipient.
-      const mlist = (msgs && (msgs.data || msgs.messages && msgs.messages.data)) || [];
-      for (const m of mlist) { const f = m.from || {}; if (f.username && f.username !== me) { latestFrom = { id: f.id, username: f.username, at: m.created_time }; break; } }
-      if (!recipientId && latestFrom) recipientId = latestFrom.id;
-      if (recipientId) await call("INSTAGRAM_MARK_SEEN", { recipient_id: recipientId });
-      if (url.searchParams.get("send") === "1" && recipientId) {
-        await call("INSTAGRAM_SEND_TEXT_MESSAGE", { recipient_id: recipientId, text: "Automated test reply from the Zephyr Media Agent ✅" });
-        await call("INSTAGRAM_SEND_IMAGE", { recipient_id: recipientId, image_url: "https://dummyimage.com/600x600/141018/ff79c6.jpg" });
-      }
-      return Response.json({ me, ig_user_id: info.data && info.data.id, conversation_id: conversationId, recipient: latestFrom || recipientId, results: R, raw_conversations: JSON.stringify(conv || {}).slice(0, 800) });
     }
 
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
