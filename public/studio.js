@@ -783,10 +783,16 @@ function sbBuildClipWave(s) {
       if (!any) { sbClipWave[s.id] = false; return; } // silent clip → no band
       const c = document.createElement('canvas'); c.width = W; c.height = H;
       const cx = c.getContext('2d');
-      cx.fillStyle = 'rgba(255,255,255,.85)';
+      // iMovie blue band: a vertical gradient with the waveform in a lighter tint,
+      // baked into one transparent PNG so it blends cleanly over the filmstrip.
+      const bg = cx.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, 'rgba(74,132,208,.90)'); bg.addColorStop(1, 'rgba(38,84,150,.94)');
+      cx.fillStyle = bg; cx.fillRect(0, 0, W, H);
+      const wamp = amp * 0.8; // leave a little margin so it reads as a waveform, not a bar
+      cx.fillStyle = 'rgba(214,232,255,.72)';
       cx.beginPath(); cx.moveTo(0, mid);
-      for (let i = 0; i < peaks; i++) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid - Math.max(1, vals[i] * amp)); }
-      for (let i = peaks - 1; i >= 0; i--) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid + Math.max(1, vals[i] * amp)); }
+      for (let i = 0; i < peaks; i++) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid - Math.max(1, vals[i] * wamp)); }
+      for (let i = peaks - 1; i >= 0; i--) { const x = (i / (peaks - 1)) * W; cx.lineTo(x, mid + Math.max(1, vals[i] * wamp)); }
       cx.closePath(); cx.fill();
       sbClipWave[s.id] = c.toDataURL('image/png');
     } catch (e) { sbClipWave[s.id] = false; }
