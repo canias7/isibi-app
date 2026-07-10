@@ -1669,64 +1669,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP diagnostics — comprehensive read-only tool sweep, token-gated.
-    if (url.pathname === "/api/social/selftest2" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "not configured" }, { status: 501 });
-      const acct = async (tk) => {
-        const q = new URLSearchParams({ toolkit_slugs: tk, statuses: "ACTIVE", limit: "10" });
-        const r = await composioFetch(env, `/connected_accounts?${q}`);
-        if (!r.ok) return null;
-        return ((await r.json().catch(() => ({}))).items || [])[0] || null;
-      };
-      const out = {};
-      const run = async (log, ident, slug, args) => {
-        const ex = await composioExecute(env, slug, ident, args || {});
-        let sample = ""; try { sample = JSON.stringify(ex.data).slice(0, 400); } catch {}
-        const err = ex.error && typeof ex.error === "object" ? (ex.error.message || JSON.stringify(ex.error)) : ex.error;
-        log.push({ tool: slug, ok: ex.successful, http: ex.http, error: err, sample });
-        return ex.data;
-      };
-      // Instagram
-      {
-        const a = await acct("instagram"); const log = []; out.instagram = { account: a && a.id, tests: log };
-        if (a) {
-          const id = { userId: a.user_id, connectedAccountId: a.id };
-          const info = await run(log, id, "INSTAGRAM_GET_USER_INFO", {});
-          const igId = info && info.id;
-          await run(log, id, "INSTAGRAM_GET_IG_USER_CONTENT_PUBLISHING_LIMIT", {});
-          await run(log, id, "INSTAGRAM_GET_USER_INSIGHTS", { metric: "reach", period: "day" });
-          const media = await run(log, id, "INSTAGRAM_GET_IG_USER_MEDIA", igId ? { ig_user_id: igId } : {});
-          await run(log, id, "INSTAGRAM_GET_IG_USER_STORIES", igId ? { ig_user_id: igId } : {});
-          const firstMedia = media && (media.data || media.items || [])[0];
-          const mid = firstMedia && firstMedia.id;
-          if (mid) {
-            await run(log, id, "INSTAGRAM_GET_IG_MEDIA", { ig_media_id: mid });
-            await run(log, id, "INSTAGRAM_GET_IG_MEDIA_INSIGHTS", { ig_media_id: mid });
-            await run(log, id, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", { ig_media_id: mid });
-          }
-        }
-      }
-      // YouTube
-      {
-        const a = await acct("youtube"); const log = []; out.youtube = { account: a && a.id, tests: log };
-        if (a) {
-          const id = { userId: a.user_id, connectedAccountId: a.id };
-          await run(log, id, "YOUTUBE_LIST_CHANNELS", { mine: true });
-          await run(log, id, "YOUTUBE_GET_CHANNEL_STATISTICS", { mine: true });
-          await run(log, id, "YOUTUBE_LIST_USER_PLAYLISTS", {});
-          await run(log, id, "YOUTUBE_LIST_USER_SUBSCRIPTIONS", {});
-          await run(log, id, "YOUTUBE_SEARCH_YOU_TUBE", { q: "music" });
-          const vids = await run(log, id, "YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true });
-          const item = vids && (vids.items || [])[0];
-          const vid = item && item.snippet && item.snippet.resourceId && item.snippet.resourceId.videoId;
-          if (vid) await run(log, id, "YOUTUBE_LIST_VIDEO_COMMENTS", { videoId: vid });
-        }
-      }
-      return Response.json(out);
-    }
-
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
