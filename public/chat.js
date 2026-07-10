@@ -4031,6 +4031,9 @@ function saveAvatars(list) {
 // the right). AV_PARTS is a placeholder set of options, replaced with the
 // real parts later. Avatars generate with Nano Banana Pro.
 const AVATAR_MODEL = 'fal-ai/nano-banana-pro';
+// Credit cost of one avatar render (same conversion the worker charges with).
+function avatarCredits() { return Math.max(1, Math.ceil((IMAGE_PRICE[AVATAR_MODEL] || 0) / CREDIT_USD)); }
+function avatarCost() { return '✦ ' + avatarCredits().toLocaleString(); }
 let avatarMode = 'list';
 const acSel = {};   // key -> selected value
 const acOpen = {};  // key -> section expanded?
@@ -4159,7 +4162,7 @@ function renderAvatarCreator(view) {
     const sel = acSel[s.key];
     const sOpts = avOpts(s);
     let body = '';
-    const has = (v) => Array.isArray(sel) && sel.includes(v); // multi-select per category
+    const has = (v) => Array.isArray(sel) && sel.includes(v); // single-select per category
     if (s.type === 'cards') {
       body = '<div class="ab-cards">' + sOpts.map((o) =>
         '<button type="button" class="ab-card' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
@@ -4213,8 +4216,9 @@ function renderAvatarCreator(view) {
           '</div>' +
           '<div class="ac-actions">' +
             '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
-            '<button type="button" class="ac-gen" id="acGen">Generate avatar ✦</button>' +
+            '<button type="button" class="ac-gen" id="acGen"><span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span></button>' +
           '</div>' +
+          '<div class="ac-model-note">Nano Banana Pro · ' + avatarCredits() + ' credits per generation</div>' +
         '</div>' +
         '<aside class="ac-builder">' +
           '<div class="ab-top"><span class="ab-top-t">Builder</span><button type="button" class="ab-reset" id="acReset">Reset</button></div>' +
@@ -4256,12 +4260,15 @@ function renderAvatarCreator(view) {
       renderAvatarCreator(view);
       return;
     }
-    const arr = Array.isArray(acSel[k]) ? acSel[k].slice() : [];
-    const i = arr.indexOf(v);
-    if (i >= 0) arr.splice(i, 1); else arr.push(v);
-    acSel[k] = arr.length ? arr : undefined;
-    el.classList.toggle('on', arr.indexOf(v) >= 0);
-    setCount(el.closest('.ab-sec'));
+    // Single-select per category: clicking sets this as the only pick,
+    // clicking the active one clears it. (You have one hair, one skin tone…)
+    const wasOn = Array.isArray(acSel[k]) && acSel[k].indexOf(v) >= 0;
+    acSel[k] = wasOn ? undefined : [v];
+    const sec = el.closest('.ab-sec');
+    sec.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((n) => {
+      n.classList.toggle('on', !wasOn && n.dataset.v === v);
+    });
+    setCount(sec);
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
@@ -4312,13 +4319,64 @@ function buildAvatarPrompt() {
   return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
 }
 
-function acGenerate() {
+let acBusy = false;
+// Generate the avatar right here in the preview stage — don't dump the prompt
+// into the main chat. Renders into #acPreview, then saves it to the avatar list.
+async function acGenerate() {
+  if (acBusy) return;
+  const stage = document.getElementById('acPreview');
+  const genBtn = document.getElementById('acGen');
+  if (!stage) return;
   const prompt = buildAvatarPrompt();
-  try { selectedModels.image = AVATAR_MODEL; } catch (e) {}
-  showView('home');
-  if (typeof setMode === 'function') setMode('image');
-  const i = document.getElementById('input');
-  if (i) { i.value = prompt; if (typeof autoGrow === 'function') autoGrow(i); i.focus(); }
+  acBusy = true;
+  if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<span class="ac-gen-t">Generating…</span>'; }
+  stage.classList.add('ac-loading');
+  stage.innerHTML = '<span class="ac-spin"></span><div class="ac-ph-txt">Creating your avatar…<br>this takes a few seconds.</div>';
+  const fail = (msg) => {
+    stage.classList.remove('ac-loading');
+    stage.innerHTML = '<span class="ac-ph-ico">⚠️</span><div class="ac-ph-txt">' + esc(msg) + '</div>';
+  };
+  try {
+    const res = await apiFetch('/api/image', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: AVATAR_MODEL, prompt, ratio: '3:4', effort: 'off', director: 'off' }),
+    });
+    const job = await res.json().catch(() => ({}));
+    if (res.status === 402) { fail('Not enough credits — tap your ✦ balance up top to get more.'); return; }
+    if (!res.ok || !job.status_url || !job.response_url) {
+      fail(typeof friendlyFail === 'function' ? friendlyFail(job) : 'Generation failed — try again.'); return;
+    }
+    if (typeof job.balance === 'number' && typeof setCredits === 'function') setCredits(job.balance);
+    // Poll fal until the render completes (avatars are quick — 5 min ceiling).
+    const deadline = Date.now() + 5 * 60 * 1000;
+    let state = '';
+    while (Date.now() < deadline) {
+      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
+      if (sr.ok) { const st = await sr.json().catch(() => ({})); state = st.status || ''; if (state === 'COMPLETED') break; }
+      await new Promise((r) => setTimeout(r, 3500));
+    }
+    if (state !== 'COMPLETED') { fail('Timed out — please try again.'); return; }
+    const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+    const out = await rr.json().catch(() => ({}));
+    const imgs = ((out.images || (out.data && out.data.images) || []).map((im) => im && im.url).filter(Boolean));
+    let url = imgs[0] || (out.image && out.image.url) || '';
+    if (!url) { fail('No image came back — please try again.'); return; }
+    // Copy to permanent storage (fal URLs expire); fall back to the temp link.
+    let finalUrl = url;
+    try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; } catch (e) {}
+    if (avatarMode !== 'create') return; // user navigated away mid-render
+    stage.classList.remove('ac-loading');
+    stage.innerHTML = '<img class="ac-result" src="' + esc(finalUrl) + '" alt="Your avatar" />';
+    // Persist it so it shows in the avatar grid.
+    const list = loadAvatars();
+    list.unshift({ id: prUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
+    saveAvatars(list);
+  } catch (e) {
+    fail('Network hiccup — please try again.');
+  } finally {
+    acBusy = false;
+    if (genBtn) { genBtn.disabled = false; genBtn.innerHTML = '<span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span>'; }
+  }
 }
 
 // ── Memory: universal auto-learned taste is a SYSTEM feature with no
