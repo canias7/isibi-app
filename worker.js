@@ -1510,6 +1510,64 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // Cancel / manage membership — hands the member to Stripe's own Billing
+    // Portal (Stripe-hosted: cancel, swap card, view invoices). Checkout uses
+    // `customer_email`, so Stripe minted a customer per email rather than a
+    // stored id; we look it up here, preferring whichever customer still holds a
+    // live subscription (a member who bought a plan AND an add-on can have more
+    // than one). Cancelling in the portal sets cancel_at_period_end, so credits
+    // and plan_until keep their rolling 32-day window and simply lapse to free
+    // when no further invoice renews them.
+    if (url.pathname === "/api/billing/portal" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.STRIPE_SECRET_KEY) {
+        return Response.json({ error: "payments not configured yet" }, { status: 501 });
+      }
+      if (!user.email) return Response.json({ error: "no_customer" }, { status: 404 });
+      const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+      try {
+        const cr = await fetch(
+          `https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=100`,
+          { headers: sAuth, signal: AbortSignal.timeout(15000) },
+        );
+        const cd = await cr.json().catch(() => ({}));
+        const customers = (cd && cd.data) || [];
+        if (!customers.length) return Response.json({ error: "no_customer" }, { status: 404 });
+        // Prefer a customer with a live subscription so the portal opens on the
+        // membership they'd want to cancel; else fall back to the newest customer
+        // (invoice history / re-subscribe still works).
+        const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+        let picked = null;
+        for (const c of customers) {
+          const sr = await fetch(
+            `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10`,
+            { headers: sAuth, signal: AbortSignal.timeout(15000) },
+          );
+          const sd = await sr.json().catch(() => ({}));
+          if (((sd && sd.data) || []).some((s) => LIVE.includes(s.status))) { picked = c.id; break; }
+        }
+        if (!picked) {
+          picked = customers.slice().sort((a, b) => (b.created || 0) - (a.created || 0))[0].id;
+        }
+        const form = new URLSearchParams({ customer: picked, return_url: "https://isibi.ai/" });
+        const pr = await fetch("https://api.stripe.com/v1/billing_portal/sessions", {
+          method: "POST",
+          headers: { ...sAuth, "Content-Type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+          signal: AbortSignal.timeout(15000),
+        });
+        const pd = await pr.json().catch(() => ({}));
+        // A missing portal session usually means the Billing Portal hasn't been
+        // configured in the Stripe dashboard yet — surface a distinct code so the
+        // client can show a "contact support" note rather than a generic retry.
+        if (!pr.ok || !pd.url) return Response.json({ error: "portal_unavailable" }, { status: 502 });
+        return Response.json({ url: pd.url });
+      } catch {
+        return Response.json({ error: "portal_unavailable" }, { status: 502 });
+      }
+    }
+
     if (url.pathname === "/api/stripe/webhook" && request.method === "POST") {
       // add_credits is now REVOKEd from anon/authenticated, so the webhook must
       // call it with the service_role key — require that secret too.
