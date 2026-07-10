@@ -3971,8 +3971,10 @@ const AV_SECTIONS = [
       { v: 'Caribbean', f: 'caribbean' },
     ] },
   { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
-  { key: 'hair', label: 'Hair', icon: '💇', type: 'cards',
-    opts: [{ v: 'Short' }, { v: 'Long' }, { v: 'Curly' }, { v: 'Wavy' }, { v: 'Straight' }, { v: 'Buzz' }, { v: 'Ponytail' }, { v: 'Bald' }] },
+  { key: 'hair', label: 'Hair', icon: '💇', type: 'images', optsByGender: {
+      men: [{ v: 'Buzz', f: 'buzz' }, { v: 'Textured crop', f: 'textured-crop' }, { v: 'Tousled', f: 'tousled' }, { v: 'Quiff', f: 'quiff' }, { v: 'Side part', f: 'side-part' }, { v: 'Curly', f: 'curly' }, { v: 'Wavy', f: 'wavy' }, { v: 'Afro', f: 'afro' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Long', f: 'long' }],
+      women: [{ v: 'Pixie', f: 'pixie' }, { v: 'Bob', f: 'bob' }, { v: 'Long straight', f: 'long-straight' }, { v: 'Wavy', f: 'wavy' }, { v: 'Curly', f: 'curly' }, { v: 'Afro', f: 'afro' }, { v: 'Box braids', f: 'box-braids' }, { v: 'Dreadlocks', f: 'dreadlocks' }, { v: 'Bun', f: 'bun' }, { v: 'Ponytail', f: 'ponytail' }],
+    } },
   { key: 'facial', label: 'Facial Hair', icon: '🧔', type: 'cards',
     opts: [{ v: 'None' }, { v: 'Stubble' }, { v: 'Moustache' }, { v: 'Goatee' }, { v: 'Beard' }, { v: 'Full beard' }] },
   { key: 'haircolor', label: 'Hair Color', icon: '🖌️', type: 'swatch',
@@ -4043,11 +4045,17 @@ function avGender() {
   const g = Array.isArray(acSel.gender) ? acSel.gender : [];
   return g.length === 1 && g[0] === 'Male' ? 'men' : 'women';
 }
-// Resolve a tile's photo URL. Gendered sections (ethnicity) swap folder with
-// the Gender pick; a plain `img` on an option wins if set; otherwise no photo
-// (the colored placeholder shows through).
+// A section's live option list. Sections with per-gender option sets
+// (hair — men vs women have different styles) resolve against the Gender pick;
+// the rest use their static `opts`.
+function avOpts(s) {
+  return s.optsByGender ? (s.optsByGender[avGender()] || []) : s.opts;
+}
+// Resolve a tile's photo URL. Gendered sections (ethnicity, hair) swap folder
+// with the Gender pick; a plain `img` on an option wins if set; otherwise no
+// photo (the colored placeholder shows through).
 function avTileSrc(s, o) {
-  if (s.gendered && o.f) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.jpg';
+  if (o.f && (s.gendered || s.optsByGender)) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.jpg';
   return o.img || '';
 }
 
@@ -4058,15 +4066,16 @@ function renderAvatarCreator(view) {
   const secHtml = AV_SECTIONS.map((s) => {
     const open = acOpen[s.key] !== false; // default expanded
     const sel = acSel[s.key];
+    const sOpts = avOpts(s);
     let body = '';
     const has = (v) => Array.isArray(sel) && sel.includes(v); // multi-select per category
     if (s.type === 'cards') {
-      body = '<div class="ab-cards">' + s.opts.map((o) =>
+      body = '<div class="ab-cards">' + sOpts.map((o) =>
         '<button type="button" class="ab-card' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
           '<span class="ab-card-l">' + esc(o.v) + '</span>' + (o.ico ? '<span class="ab-card-i">' + o.ico + '</span>' : '') +
         '</button>').join('') + '</div>';
     } else if (s.type === 'images') {
-      body = '<div class="ab-imgs">' + s.opts.map((o, i) => {
+      body = '<div class="ab-imgs">' + sOpts.map((o, i) => {
         const src = avTileSrc(s, o);
         // Colored placeholder always sits behind; the photo layers on top and
         // hides itself (revealing the placeholder) if the file isn't there yet.
@@ -4077,7 +4086,7 @@ function renderAvatarCreator(view) {
         '</button>';
       }).join('') + '</div>';
     } else if (s.type === 'swatch') {
-      body = '<div class="ab-swatches">' + s.opts.map((o) =>
+      body = '<div class="ab-swatches">' + sOpts.map((o) =>
         '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
     } else if (s.type === 'slider') {
       const val = sel != null ? sel : s.def;
@@ -4121,21 +4130,6 @@ function renderAvatarCreator(view) {
     const k = sec.dataset.sec, v = acSel[k], def = AV_SECTIONS.find((x) => x.key === k);
     c.textContent = def && def.type === 'slider' ? ' · ' + (v != null ? v : def.def) : (Array.isArray(v) && v.length ? ' · ' + v.length : '');
   };
-  // Re-point gendered tile photos (ethnicity) when the Gender pick changes.
-  const refreshGenderedTiles = () => {
-    AV_SECTIONS.filter((s) => s.gendered).forEach((s) => s.opts.forEach((o) => {
-      const btn = view.querySelector('.ab-img[data-k="' + s.key + '"][data-v="' + o.v.replace(/"/g, '\\"') + '"]');
-      if (!btn) return;
-      let img = btn.querySelector('.ab-img-photo');
-      if (!img) {
-        img = document.createElement('img');
-        img.className = 'ab-img-photo'; img.alt = ''; img.loading = 'lazy';
-        img.onerror = () => img.remove();
-        btn.insertBefore(img, btn.querySelector('.ab-img-l'));
-      }
-      img.src = avTileSrc(s, o);
-    }));
-  };
   view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
   view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
     acSel[r.dataset.k] = +r.value;
@@ -4147,38 +4141,36 @@ function renderAvatarCreator(view) {
   }; });
   view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
     const k = el.dataset.k, v = el.dataset.v;
+    // Gender is single-select (you're one): clicking sets it, clicking the
+    // active one clears it. It swaps the ethnicity photos AND the hair option
+    // set, so rebuild the panel and drop the now-invalid gendered hair pick.
+    if (k === 'gender') {
+      const cur = Array.isArray(acSel.gender) ? acSel.gender : [];
+      acSel.gender = (cur.length === 1 && cur[0] === v) ? undefined : [v];
+      delete acSel.hair;
+      renderAvatarCreator(view);
+      return;
+    }
     const arr = Array.isArray(acSel[k]) ? acSel[k].slice() : [];
     const i = arr.indexOf(v);
     if (i >= 0) arr.splice(i, 1); else arr.push(v);
     acSel[k] = arr.length ? arr : undefined;
     el.classList.toggle('on', arr.indexOf(v) >= 0);
     setCount(el.closest('.ab-sec'));
-    if (k === 'gender') refreshGenderedTiles();
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
-    view.querySelectorAll('.ac-builder .on').forEach((x) => x.classList.remove('on'));
-    view.querySelectorAll('.ab-range').forEach((r) => {
-      const def = (AV_SECTIONS.find((s) => s.key === r.dataset.k) || {}).def;
-      if (def != null) { r.value = def; const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = def; }
-    });
-    view.querySelectorAll('.ab-sec').forEach((sec) => setCount(sec));
-    refreshGenderedTiles();
+    renderAvatarCreator(view);
   };
   view.querySelector('#acShuffle').onclick = () => {
+    // Pick gender first so gendered option sets (hair) randomize from the
+    // right list, then rebuild.
     AV_SECTIONS.forEach((s) => {
-      const sec = view.querySelector('.ab-sec[data-sec="' + s.key + '"]');
-      if (s.type === 'slider') {
-        const v = s.min + Math.floor(Math.random() * (s.max - s.min + 1));
-        acSel[s.key] = v;
-        if (sec) { const r = sec.querySelector('.ab-range'); if (r) r.value = v; const lbl = sec.querySelector('[data-valfor="' + s.key + '"]'); if (lbl) lbl.textContent = v; setCount(sec); }
-        return;
-      }
-      const opt = s.opts[Math.floor(Math.random() * s.opts.length)];
-      acSel[s.key] = [opt.v];
-      if (sec) { sec.querySelectorAll('[data-k="' + s.key + '"]').forEach((x) => x.classList.toggle('on', acSel[s.key].indexOf(x.dataset.v) >= 0)); setCount(sec); }
+      if (s.type === 'slider') { acSel[s.key] = s.min + Math.floor(Math.random() * (s.max - s.min + 1)); return; }
+      const opts = avOpts(s); if (!opts || !opts.length) { delete acSel[s.key]; return; }
+      acSel[s.key] = [opts[Math.floor(Math.random() * opts.length)].v];
     });
-    refreshGenderedTiles();
+    renderAvatarCreator(view);
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
 }
