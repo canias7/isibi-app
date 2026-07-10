@@ -1941,6 +1941,24 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: verify DM reads work on the owner account after reconnect.
+    if (url.pathname === "/api/social/dmcheck" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const ident = { userId: "7cf5e6de-a025-419e-81ca-18e26a648cf6" };
+      const conns = await composioConnections(env, ident.userId, "instagram");
+      const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+      const conv = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
+      const items = (conv.data && (conv.data.data || conv.data.conversations)) || [];
+      return Response.json({
+        connections: conns.map((c) => ({ id: c.id, status: c.status, managed: c.auth_config && c.auth_config.is_composio_managed })),
+        me: info.data && info.data.username,
+        conversation_count: items.length,
+        reads_ok: conv.successful && items.length > 0,
+        note: conv.data && conv.data.composio_execution_message,
+      });
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
