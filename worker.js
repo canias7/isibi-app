@@ -1874,41 +1874,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP: DM test against the CUSTOM (own-app) Instagram connection. ?send=1.
-    if (url.pathname === "/api/social/dmtest" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      // Find the custom (non-managed) Instagram auth config.
-      const acr = await composioFetch(env, `/auth_configs?toolkit_slug=instagram&limit=20`);
-      const acs = ((await acr.json().catch(() => ({}))).items || []);
-      const custom = acs.find((a) => a.is_composio_managed === false && a.status === "ENABLED");
-      if (!custom) return Response.json({ error: "no custom instagram auth config" }, { status: 404 });
-      // Its active connected account.
-      const ccr = await composioFetch(env, `/connected_accounts?auth_config_ids=${custom.id}&statuses=ACTIVE&limit=5`);
-      const conn = ((await ccr.json().catch(() => ({}))).items || [])[0];
-      if (!conn) return Response.json({ error: "no active connection under custom config", auth_config: custom.id }, { status: 404 });
-      const ident = { userId: conn.user_id, connectedAccountId: conn.id };
-      const R = [];
-      const ex = (slug, args) => composioExecute(env, slug, ident, args || {});
-      const call = async (slug, args) => { const e = await ex(slug, args); R.push({ tool: slug, ok: e.successful, error: composioErrText(e.error) }); return e.data; };
-      const info = await ex("INSTAGRAM_GET_USER_INFO", {});
-      const me = info.data && info.data.username;
-      const conv = await call("INSTAGRAM_LIST_ALL_CONVERSATIONS", {});
-      const convItems = (conv && (conv.data || conv.conversations || conv.items)) || [];
-      const conversationId = convItems[0] && (convItems[0].id || convItems[0].conversation_id);
-      let recipientId = url.searchParams.get("rid") || null, latestFrom = null, msgs = null;
-      if (conversationId) msgs = await call("INSTAGRAM_LIST_ALL_MESSAGES", { conversation_id: conversationId });
-      const mlist = (msgs && (msgs.data || (msgs.messages && msgs.messages.data))) || [];
-      for (const m of mlist) { const f = m.from || {}; if (f.username && f.username !== me) { latestFrom = { id: f.id, username: f.username, at: m.created_time }; break; } }
-      if (!recipientId && latestFrom) recipientId = latestFrom.id;
-      if (recipientId) await call("INSTAGRAM_MARK_SEEN", { recipient_id: recipientId });
-      if (url.searchParams.get("send") === "1" && recipientId) {
-        await call("INSTAGRAM_SEND_TEXT_MESSAGE", { recipient_id: recipientId, text: "Automated test reply from the Zephyr Media Agent ✅" });
-        await call("INSTAGRAM_SEND_IMAGE", { recipient_id: recipientId, image_url: "https://dummyimage.com/600x600/141018/ff79c6.jpg" });
-      }
-      return Response.json({ me, conn: conn.id, conversation_id: conversationId, recipient: latestFrom || recipientId, results: R, raw: JSON.stringify(conv || {}).slice(0, 500) });
-    }
-
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
