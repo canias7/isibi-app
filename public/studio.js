@@ -491,8 +491,10 @@ function sbRender() {
       vlane.appendChild(block);
     });
 
-    // Overlay lane (picture-in-picture): clips that play ON TOP of the film.
-    sbOverlayLane(inner, total);
+    // Overlay lane (picture-in-picture) — only once there's a base clip to sit
+    // on top of (an overlay with nothing under it makes no sense), or if one
+    // already exists.
+    if (tl.length || proj.shots.some(sbIsOverlay)) sbOverlayLane(inner, total);
 
     // Audio lanes (music, then voice) as waveform clips from the film's start.
     if (proj.music && proj.music.url) sbAudioLane(inner, proj.music, 'music', total);
@@ -541,6 +543,7 @@ function sbRender() {
   sbRenderStyleControls();
   sbRenderBrowser();
   sbRenderAdjust();
+  sbUpdateTimecode();
 }
 
 // Fill in audio-clip defaults (offset in the film + trim in/out + fades).
@@ -1227,6 +1230,23 @@ function sbMusicSync(v, opts) {
   sbSyncAudioTrack(sbProject().music, document.getElementById('sbMusicAudio'), 'music', v, opts);
   sbVoiceSync(v, opts);
   sbPipSync(v);
+  sbUpdateTimecode();
+}
+// Film-global transport timecode (position / total), honest when the film is
+// empty. mm:ss like iMovie — not the dense mm:ss:ff we used to show.
+function sbUpdateTimecode() {
+  const tc = document.getElementById('studioTimecode');
+  if (!tc) return;
+  const main = sbProject().shots.filter(sbOnMain);
+  if (!main.length) { tc.textContent = '0:00 / 0:00'; return; }
+  const total = main.reduce((a, s) => a + (sbShotDur(s) || 4), 0);
+  tc.textContent = sbFmtClock(sbFilmTime()) + ' / ' + sbFmtClock(total);
+}
+// m:ss (drop the leading zero on minutes, iMovie-style).
+function sbFmtClock(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+  return m + ':' + String(ss).padStart(2, '0');
 }
 // ── Picture-in-picture preview ──────────────────────────────────────────────
 // Which overlay clip (if any) is on screen at the current film time.
@@ -1797,16 +1817,9 @@ function sbVideoEl() {
     v.crossOrigin = 'anonymous';
     stage.appendChild(v);
     v.addEventListener('timeupdate', () => {
-      const tc = document.getElementById('studioTimecode');
-      // A duration-less webm reports Infinity — show the selected clip's known
-      // length instead so the timecode never reads "Infinity"/blank.
-      if (tc) {
-        const total = isFinite(v.duration) ? v.duration : (sbShot(sbSelected) ? sbShotDur(sbShot(sbSelected)) : 0);
-        tc.textContent = sbFmtFrames(v.currentTime) + ' / ' + sbFmtFrames(total || 0);
-      }
       sbSegmentTick(v);
       sbUpdatePlayhead(v);
-      sbMusicSync(v);
+      sbMusicSync(v); // also refreshes the timecode + PiP
     });
     // Keep the background music track + the play button locked to the film's state.
     v.addEventListener('play', () => { sbMusicSync(v, { hard: true }); sbSyncPlayBtn(); });
