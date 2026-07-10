@@ -1802,35 +1802,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP: token-gated publish test (drives the exact socialPublish path).
-    if (url.pathname === "/api/social/pubtest" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      const q = new URLSearchParams({ toolkit_slugs: "youtube", statuses: "ACTIVE", limit: "5" });
-      const cr = await composioFetch(env, `/connected_accounts?${q}`);
-      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
-      if (!acc) return Response.json({ error: "no youtube account" }, { status: 404 });
-      const del = url.searchParams.get("del");
-      if (del) {
-        const ids = del.split(",").filter(Boolean);
-        const results = [];
-        for (const vid of ids) {
-          const ex = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", { userId: acc.user_id }, { videoId: vid, confirmDelete: true });
-          results.push({ videoId: vid, ok: ex.successful, error: composioErrText(ex.error) });
-        }
-        return Response.json({ deleted: results });
-      }
-      const res = await socialPublish(env, acc.user_id, {
-        platform: "youtube",
-        media_url: url.searchParams.get("url") || "https://download.samplelib.com/mp4/sample-5s.mp4",
-        title: "Zephyr test upload (private)",
-        description: "Automated private test upload from the Media Agent. Safe to delete.",
-        tags: ["zephyr", "test"],
-        privacy: "private",
-      });
-      return Response.json(res);
-    }
-
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
