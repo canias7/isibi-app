@@ -1810,6 +1810,11 @@ async function handleRequest(request, env, ctx) {
       const cr = await composioFetch(env, `/connected_accounts?${q}`);
       const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
       if (!acc) return Response.json({ error: "no youtube account" }, { status: 404 });
+      const del = url.searchParams.get("del");
+      if (del) {
+        const ex = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", { userId: acc.user_id }, { id: del });
+        return Response.json({ deleted: del, ok: ex.successful, error: composioErrText(ex.error), result: ex.data });
+      }
       const res = await socialPublish(env, acc.user_id, {
         platform: "youtube",
         media_url: url.searchParams.get("url") || "https://download.samplelib.com/mp4/sample-5s.mp4",
