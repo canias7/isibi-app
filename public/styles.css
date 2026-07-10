@@ -785,6 +785,18 @@
 .sp-chev { display: inline-block; transition: transform .15s ease; }
 .sp-tap.open .sp-chev { transform: rotate(90deg); }
 .sp-note { margin: .5rem .2rem 0; }
+/* Integrations — connect-app rows: brand icon + label, Connect button on the right. */
+.ig-item .sp-item-l { display: flex; align-items: center; gap: .8rem; }
+.ig-txt { min-width: 0; }
+.ig-ico { width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; }
+.ig-ico svg { width: 38px; height: 38px; display: block; }
+.ig-connect {
+  background: none; border: 1px solid var(--line-2); color: var(--text);
+  font: inherit; font-weight: 600; font-size: .82rem; padding: .45rem .95rem;
+  border-radius: 999px; cursor: pointer;
+  transition: border-color .12s ease, background .12s ease;
+}
+.ig-connect:hover { border-color: #ff79c6; background: var(--panel-2); }
 .sp-signout {
   width: 100%; margin-top: .3rem; padding: .8rem; border-radius: 12px;
   background: none; border: 1px solid var(--line-2); color: var(--muted);
