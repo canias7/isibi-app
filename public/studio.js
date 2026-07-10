@@ -106,6 +106,90 @@ function sbFmt(s) {
   const m = Math.floor(s / 60), ss = Math.floor(s % 60);
   return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
 }
+// mm:ss:ff at 30fps — the frame field gives iMovie-style frame-exact readout.
+function sbFmtFrames(s) {
+  if (!isFinite(s) || s < 0) s = 0;
+  const ff = Math.floor((s - Math.floor(s)) * 30);
+  return sbFmt(s) + ':' + String(ff).padStart(2, '0');
+}
+// ── Skim magnifier (iMovie-style) ─────────────────────────────────────────────
+// Hovering the timeline shows the EXACT frame under the cursor in a floating
+// loupe (frame-accurate), plus a mm:ss:ff readout — without moving the real
+// playhead. A hidden <video> is seeked to the hovered source time; seeks are
+// throttled to one at a time so the loupe chases the cursor smoothly.
+let sbSkimVideo = null, sbSkimBusy = false, sbSkimNext = null, sbSkimSrcId = null;
+function sbSkimBox() {
+  let box = document.getElementById('sbSkim');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'sbSkim'; box.className = 'sb-skim'; box.style.display = 'none';
+    box.innerHTML = '<canvas width="240" height="135"></canvas><span class="sb-skim-tc"></span>';
+    document.body.appendChild(box);
+  }
+  if (!sbSkimVideo) {
+    sbSkimVideo = document.createElement('video');
+    sbSkimVideo.muted = true; sbSkimVideo.crossOrigin = 'anonymous'; sbSkimVideo.preload = 'auto';
+  }
+  return box;
+}
+function sbSkimGrab(clip, srcT, ctx) {
+  sbSkimNext = { clip, srcT, ctx };
+  if (sbSkimBusy) return;
+  sbSkimBusy = true;
+  const step = () => {
+    const job = sbSkimNext; sbSkimNext = null;
+    if (!job) { sbSkimBusy = false; return; }
+    const v = sbSkimVideo;
+    const drawAndLoop = () => {
+      try { job.ctx.drawImage(v, 0, 0, 240, 135); } catch (e) {}
+      if (sbSkimNext) step(); else sbSkimBusy = false;
+    };
+    if (sbSkimSrcId !== job.clip.id) {
+      sbSkimSrcId = job.clip.id;
+      v.onloadedmetadata = () => { v.onseeked = drawAndLoop; try { v.currentTime = Math.min(job.srcT, v.duration || job.srcT); } catch (e) { sbSkimBusy = false; } };
+      v.onerror = () => { sbSkimBusy = false; sbSkimSrcId = null; };
+      v.src = job.clip.url;
+    } else {
+      v.onseeked = drawAndLoop;
+      try { v.currentTime = job.srcT; } catch (e) { sbSkimBusy = false; }
+    }
+  };
+  step();
+}
+function sbAttachSkim(track, skimLine, total) {
+  const box = sbSkimBox();
+  const sctx = box.querySelector('canvas').getContext('2d');
+  const label = box.querySelector('.sb-skim-tc');
+  const hide = () => { box.style.display = 'none'; skimLine.style.display = 'none'; };
+  track.addEventListener('pointerleave', hide);
+  track.addEventListener('pointermove', (e) => {
+    if (sbScrubbing) { hide(); return; } // dragging the real playhead → no skim
+    if (e.target.closest('.tl-actrl') || e.target.closest('.tl-atrim') || e.target.closest('.tl-fadedot') || e.target.closest('.sb-trim')) { hide(); return; }
+    const inner = track.querySelector('.tl-inner'); if (!inner) { hide(); return; }
+    const irect = inner.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (e.clientX - irect.left) / (irect.width || 1)));
+    const ft = frac * total;
+    const tl = sbProject().shots.filter((s) => s.onTimeline);
+    if (!tl.length) { hide(); return; }
+    let acc = 0, clip = tl[tl.length - 1], srcT = clip.in || 0;
+    for (const s of tl) { const d = sbShotDur(s) || 0; if (ft < acc + d) { clip = s; srcT = (s.in || 0) + Math.max(0, ft - acc); break; } acc += d; }
+    skimLine.style.left = (frac * 100) + '%'; skimLine.style.display = 'block';
+    box.style.display = 'block';
+    box.style.left = Math.round(e.clientX) + 'px';
+    box.style.top = Math.round(irect.top - 10) + 'px';
+    label.textContent = sbFmtFrames(ft);
+    if (clip && clip.src === 'title') {
+      sctx.fillStyle = clip.g0 || '#20202a'; sctx.fillRect(0, 0, 240, 135);
+      sctx.fillStyle = sbTitleInk(clip); sctx.font = "700 20px 'Space Grotesk', sans-serif";
+      sctx.textAlign = 'center'; sctx.textBaseline = 'middle';
+      sctx.fillText((clip.text || 'Title').slice(0, 24), 120, 67);
+    } else if (clip && clip.url) {
+      sbSkimGrab(clip, srcT, sctx);
+    } else {
+      sctx.fillStyle = '#000'; sctx.fillRect(0, 0, 240, 135);
+    }
+  });
+}
 // Effective (timeline) length. A per-clip speed change scales it so the clip's
 // width, the film total, the playhead and the export duration all agree.
 function sbShotDur(s) {
@@ -392,6 +476,11 @@ function sbRender() {
     ph.className = 'playhead';
     ph.style.display = 'none';
     inner.appendChild(ph);
+    // Skim magnifier: hover the lanes to preview the exact frame under the cursor.
+    const skimLine = document.createElement('div');
+    skimLine.className = 'skimline'; skimLine.style.display = 'none';
+    inner.appendChild(skimLine);
+    sbAttachSkim(track, skimLine, total);
     // Click / drag anywhere on the lanes to move the playhead there and seek.
     track.onpointerdown = (e) => {
       if (e.target.closest('.sb-trim') || e.target.closest('.tl-actrl')) return;
@@ -1409,7 +1498,7 @@ function sbVideoEl() {
       // length instead so the timecode never reads "Infinity"/blank.
       if (tc) {
         const total = isFinite(v.duration) ? v.duration : (sbShot(sbSelected) ? sbShotDur(sbShot(sbSelected)) : 0);
-        tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(total || 0);
+        tc.textContent = sbFmtFrames(v.currentTime) + ' / ' + sbFmtFrames(total || 0);
       }
       sbSegmentTick(v);
       sbUpdatePlayhead(v);
@@ -2630,6 +2719,8 @@ function initStudio() {
     else if (e.key === 's' || e.key === 'S') { e.preventDefault(); sbSplitAtPlayhead(); }
     else if (e.key === 'ArrowRight') { e.preventDefault(); if (v) { v.currentTime = Math.min(v.duration || 1e9, v.currentTime + (e.shiftKey ? 1 : 0.1)); } }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); if (v) { v.currentTime = Math.max(0, v.currentTime - (e.shiftKey ? 1 : 0.1)); } }
+    // Frame-exact stepping: , / . nudge the playhead one frame (1/30s) at a time.
+    else if (e.key === ',' || e.key === '.') { e.preventDefault(); if (v) { const d = (e.key === '.' ? 1 : -1) / 30; v.currentTime = Math.max(0, Math.min(v.duration || 1e9, v.currentTime + d)); } }
     else if (e.key === 'Delete' || e.key === 'Backspace') { if (sbSelected) { e.preventDefault(); sbRemoveShot(sbSelected); } }
   });
   sbLoad();

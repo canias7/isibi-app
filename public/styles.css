@@ -1459,6 +1459,11 @@
 }
 .playhead { position: absolute; top: 0; bottom: 0; left: 18px; width: 2px; background: var(--neon); box-shadow: 0 0 8px rgba(255, 214, 10, .6); pointer-events: none; z-index: 5; }
 .playhead::before { content: ''; position: absolute; top: -1px; left: -4px; width: 10px; height: 6px; border-radius: 2px; background: var(--neon); box-shadow: 0 0 6px rgba(255, 214, 10, .7); }
+/* Skim magnifier: a hover line on the lanes + a floating frame loupe. */
+.skimline { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(255, 255, 255, .5); pointer-events: none; z-index: 4; }
+.sb-skim { position: fixed; z-index: 9999; transform: translate(-50%, -100%); pointer-events: none; background: #0b0b10; border: 1px solid rgba(237, 234, 243, .18); border-radius: 9px; padding: 4px 4px 2px; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+.sb-skim canvas { display: block; width: 240px; height: 135px; border-radius: 5px; background: #000; }
+.sb-skim-tc { display: block; text-align: center; font: 600 11px/1.7 ui-monospace, "SF Mono", monospace; color: var(--neon); letter-spacing: .04em; }
 .timeline-track.drop-here { border-color: rgba(255, 214, 10, .7); border-style: solid; background-color: rgba(255, 214, 10, .06); }
 .timeline-track.has-shots { cursor: pointer; user-select: none; touch-action: none; }
 /* Trim handles on each timeline clip */
