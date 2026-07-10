@@ -3732,9 +3732,11 @@ async function doSignOut(everywhere) {
 
 // Settings page — a plain, conventional settings view (grouped list rows),
 // rebuilt each time it opens so account/credits/prefs are current.
-// ── Integrations: connect outbound publishing destinations. ──
-// The connections aren't wired to real OAuth yet — the cards render the
-// destinations and the Connect buttons surface a "coming soon" toast.
+// ── Integrations: connect the user's social accounts. ──
+// The real account-linking hub — Connect/Disconnect drive the same Composio
+// OAuth flow as the Media Agent (/api/social/{status,connect,disconnect}),
+// sharing socialStatus + connectSocial/disconnectSocial. Once linked, the
+// Media Agent page handles chat, DMs and publishing on top of these.
 const INTEGRATIONS = [
   {
     id: 'youtube',
@@ -3759,6 +3761,44 @@ const INTEGRATIONS = [
   },
 ];
 
+// One Integrations row — reflects live connection state and offers the right
+// action (Connect when linked-off, Disconnect when active). a.id matches the
+// socialStatus / SOCIAL_APPS key ('instagram' | 'youtube').
+function igItemHtml(app, slot) {
+  slot = slot || {};
+  const loading = slot.loading;
+  const connected = !!slot.connected;
+  const pending = !loading && !connected && slot.status && slot.status !== 'INACTIVE';
+  const pill = loading ? '<span class="ma-pill">Checking…</span>'
+    : connected ? '<span class="ma-pill on">● Connected</span>'
+    : pending ? '<span class="ma-pill wait">Pending…</span>'
+    : '';
+  const btn = connected
+    ? '<button type="button" class="ig-connect ig-dis" data-ig-dis="' + app.id + '">Disconnect</button>'
+    : '<button type="button" class="ig-connect" data-ig-con="' + app.id + '"' + (loading ? ' disabled' : '') + '>Connect</button>';
+  return '<div class="sp-item ig-item">' +
+      '<span class="sp-item-l">' +
+        '<span class="ig-ico">' + app.ico + '</span>' +
+        '<span class="ig-txt"><span class="sp-item-t">' + esc(app.name) + '</span>' +
+        '<span class="sp-item-s">' + esc(app.desc) + '</span></span>' +
+      '</span>' +
+      '<span class="sp-item-r">' + pill + btn + '</span>' +
+    '</div>';
+}
+
+// Repaint the Integrations list from socialStatus (no-op when not mounted).
+function paintIntegrations() {
+  const list = document.getElementById('igList');
+  if (!list) return;
+  if (socialStatus && socialStatus._off) {
+    list.innerHTML = '<div class="ma-note">Social connections aren’t configured on the server yet.</div>';
+    return;
+  }
+  list.innerHTML = INTEGRATIONS.map((a) => igItemHtml(a, socialStatus ? socialStatus[a.id] : { loading: true })).join('');
+  list.querySelectorAll('[data-ig-con]').forEach((b) => { b.onclick = () => connectSocial(b.dataset.igCon); });
+  list.querySelectorAll('[data-ig-dis]').forEach((b) => { b.onclick = () => disconnectSocial(b.dataset.igDis); });
+}
+
 function renderIntegrations() {
   const view = document.getElementById('viewIntegrations');
   if (!view) return;
@@ -3766,32 +3806,19 @@ function renderIntegrations() {
   view.innerHTML =
     '<div class="settings-page">' +
       '<div class="sp-title">Integrations</div>' +
+      '<div class="sp-sub">Connect your accounts so Zephyr can manage and publish to them. ' +
+        'Chat, DMs and publishing live on the <b>Media Agent</b> page once linked.</div>' +
+      '<div class="ma-msg" id="igMsg" hidden></div>' +
       '<div class="sp-group">' +
-        '<div class="sp-glabel">Publish to</div>' +
-        '<div class="sp-list">' +
-          INTEGRATIONS.map((a) =>
-            '<div class="sp-item ig-item">' +
-              '<span class="sp-item-l">' +
-                '<span class="ig-ico">' + a.ico + '</span>' +
-                '<span class="ig-txt"><span class="sp-item-t">' + esc(a.name) + '</span>' +
-                '<span class="sp-item-s">' + esc(a.desc) + '</span></span>' +
-              '</span>' +
-              '<span class="sp-item-r">' +
-                '<button type="button" class="ig-connect" data-ig="' + a.id + '">Connect</button>' +
-              '</span>' +
-            '</div>'
-          ).join('') +
+        '<div class="sp-glabel">Accounts</div>' +
+        '<div class="sp-list" id="igList">' +
+          INTEGRATIONS.map((a) => igItemHtml(a, { loading: true })).join('') +
         '</div>' +
         '<div class="cp-note sp-note">More destinations coming soon.</div>' +
       '</div>' +
     '</div>';
 
-  view.querySelectorAll('.ig-connect').forEach((btn) => {
-    btn.onclick = () => {
-      const app = INTEGRATIONS.find((a) => a.id === btn.dataset.ig);
-      if (typeof sbToast === 'function') sbToast((app ? app.name : 'This') + ' connections are coming soon.');
-    };
-  });
+  loadSocialStatus();   // fetches status, then paints this list + Media Agent
 }
 
 function renderSettings() {
@@ -4718,7 +4745,11 @@ function socialCardHtml(app, slot) {
     '</div>';
 }
 
+// Repaint every mounted surface that shows connection state. Both the Media
+// Agent (#maConns) and Integrations (#igList) share socialStatus, so the flow
+// keeps them in sync no matter which page triggered connect/disconnect.
 function paintSocial() {
+  paintIntegrations();
   const wrap = document.getElementById('maConns');
   if (!wrap) return;
   if (socialStatus && socialStatus._off) {
@@ -4730,13 +4761,17 @@ function paintSocial() {
   wrap.querySelectorAll('[data-social-dis]').forEach((b) => { b.onclick = () => disconnectSocial(b.dataset.socialDis); });
 }
 
+// Status line for the connect/disconnect flow — mirrored to whichever surface
+// is mounted (Media Agent's #maMsg and/or Integrations' #igMsg).
 function maMsg(text, kind) {
-  const el = document.getElementById('maMsg');
-  if (!el) return;
-  if (!text) { el.hidden = true; el.innerHTML = ''; return; }
-  el.hidden = false;
-  el.className = 'ma-msg' + (kind ? ' ma-msg-' + kind : '');
-  el.innerHTML = text;
+  ['maMsg', 'igMsg'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.className = 'ma-msg' + (kind ? ' ma-msg-' + kind : '');
+    el.innerHTML = text;
+  });
 }
 
 async function loadSocialStatus() {
@@ -4752,7 +4787,7 @@ async function loadSocialStatus() {
 async function connectSocial(key) {
   const app = SOCIAL_APPS.find((a) => a.key === key);
   maMsg('');
-  const btn = document.querySelector('[data-social-con="' + key + '"]');
+  const btn = document.querySelector('[data-social-con="' + key + '"], [data-ig-con="' + key + '"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Opening…'; }
   let data = {};
   try {
@@ -4810,7 +4845,7 @@ function pollSocial(key, popup) {
 async function disconnectSocial(key) {
   const app = SOCIAL_APPS.find((a) => a.key === key);
   if (!confirm('Disconnect ' + (app ? app.name : key) + '? The agent will lose access until you reconnect.')) return;
-  const btn = document.querySelector('[data-social-dis="' + key + '"]');
+  const btn = document.querySelector('[data-social-dis="' + key + '"], [data-ig-dis="' + key + '"]');
   if (btn) { btn.disabled = true; btn.textContent = 'Removing…'; }
   maMsg('');
   try {

@@ -805,7 +805,9 @@
   border-radius: 999px; cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
-.ig-connect:hover { border-color: #ff79c6; background: var(--panel-2); }
+.ig-connect:hover:not([disabled]) { border-color: #ff79c6; background: var(--panel-2); }
+.ig-connect[disabled] { opacity: .6; cursor: default; }
+.ig-connect.ig-dis:hover:not([disabled]) { border-color: rgba(255, 120, 120, .6); color: #ff9a9a; background: none; }
 .sp-signout {
   width: 100%; margin-top: .3rem; padding: .8rem; border-radius: 12px;
   background: none; border: 1px solid var(--line-2); color: var(--muted);
