@@ -1812,8 +1812,13 @@ async function handleRequest(request, env, ctx) {
       if (!acc) return Response.json({ error: "no youtube account" }, { status: 404 });
       const del = url.searchParams.get("del");
       if (del) {
-        const ex = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", { userId: acc.user_id }, { id: del });
-        return Response.json({ deleted: del, ok: ex.successful, error: composioErrText(ex.error), result: ex.data });
+        const ids = del.split(",").filter(Boolean);
+        const results = [];
+        for (const vid of ids) {
+          const ex = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", { userId: acc.user_id }, { videoId: vid, confirmDelete: true });
+          results.push({ videoId: vid, ok: ex.successful, error: composioErrText(ex.error) });
+        }
+        return Response.json({ deleted: results });
       }
       const res = await socialPublish(env, acc.user_id, {
         platform: "youtube",
