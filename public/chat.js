@@ -4852,7 +4852,7 @@ function openCreateProduct() {
       '<label class="pr-upload" id="prUpload">' +
         '<input type="file" accept="image/*" id="prFile" hidden />' +
         '<div class="pr-upload-inner" id="prUploadInner">' +
-          '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image</div><div class="pr-upload-sub">PNG or JPG</div>' +
+          '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image <span class="pr-req">*</span></div><div class="pr-upload-sub">PNG or JPG</div>' +
         '</div>' +
       '</label>' +
       '<div class="pr-fields">' +
@@ -4870,8 +4870,8 @@ function openCreateProduct() {
   const nameInp = ov.querySelector('#prName');
   const descInp = ov.querySelector('#prDesc');
   const createBtn = ov.querySelector('#prCreate');
-  // Product name is required to save; the image is optional.
-  const refresh = () => { createBtn.disabled = !nameInp.value.trim(); };
+  // Both a product name and an image are required to save.
+  const refresh = () => { createBtn.disabled = !nameInp.value.trim() || !imgData; };
   fileInput.onchange = async () => {
     const f = fileInput.files && fileInput.files[0];
     if (!f) return;
