@@ -2071,7 +2071,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .pt-tab:hover { color: var(--text); }
 .pt-tab.active { background: var(--split); color: #0a0a0b; box-shadow: 0 4px 14px rgba(255, 121, 198, .3); }
-.pt-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem; }
+.pt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; }
 /* Glass preset card: framed gradient preview + a footer row. */
 .pt-card {
   display: flex; flex-direction: column; padding: .55rem; text-align: left; cursor: pointer;
@@ -2125,6 +2125,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   padding: .4rem .95rem; border-radius: 10px; transition: background .13s ease, color .13s ease, border-color .13s ease;
 }
 .pt-card:hover .pt-try { background: var(--split); color: #0a0a0b; border-color: transparent; }
+@media (max-width: 1040px) {
+  .pt-grid { grid-template-columns: repeat(2, 1fr); }
+}
 @media (max-width: 620px) {
   .pt-grid { grid-template-columns: 1fr; }
 }
