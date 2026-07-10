@@ -4110,7 +4110,7 @@ function renderAvatar() {
       '<div class="av-page">' +
         '<div class="av-top"><h1>Your avatars</h1>' +
           '<div class="av-top-btns">' +
-            '<button type="button" class="av-mini" data-act="generate">✨ Generate</button>' +
+            '<button type="button" class="av-mini" data-act="generate">Generate</button>' +
             '<button type="button" class="av-mini" data-act="import">⬆ Import</button>' +
           '</div>' +
         '</div>' +
