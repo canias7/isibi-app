@@ -2013,18 +2013,25 @@ async function sbThumb(s) {
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'metadata';
   v.src = s.url;
   await sbMeta(v);
-  s.dur = s.dur || v.duration;
-  s.srcDur = v.duration || s.dur || 0;
+  // Recorded/streamed webm reports Infinity duration until sought past the end —
+  // resolve it so an imported clip never lands on the timeline with infinite
+  // length (which would break every width/offset the timeline computes).
+  if (!isFinite(v.duration) || v.duration <= 0) {
+    try { await sbSeek(v, 1e9); } catch (e) {}
+  }
+  const realDur = (isFinite(v.duration) && v.duration > 0) ? v.duration : (v.currentTime || 0);
+  s.dur = s.dur || realDur;
+  s.srcDur = realDur || s.dur || 0;
   if (s.in == null) s.in = 0;
   if (s.out == null) s.out = s.srcDur;
-  await sbSeek(v, Math.min(0.1, v.duration / 2));
+  await sbSeek(v, Math.min(0.1, realDur / 2));
   s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
   // Filmstrip: sample frames at a fixed time density (≈one every 0.5s, like
   // iMovie) so a longer clip gets more frames and every frame is the same
   // on-screen width. Capped so a very long clip doesn't trigger a huge number
   // of seeks / bloat storage.
   try {
-    const dur = s.dur || v.duration || 0;
+    const dur = s.dur || realDur || 0;
     const SEC_PER_FRAME = 0.5, MAX_FRAMES = 30;
     const n = Math.max(2, Math.min(MAX_FRAMES, Math.ceil((dur || 2) / SEC_PER_FRAME)));
     const frames = [];
