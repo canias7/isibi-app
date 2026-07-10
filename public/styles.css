@@ -996,7 +996,7 @@
 .ab-ph2 { background: linear-gradient(160deg, #ffb84d, #ff7a5b); }
 .ab-img-l { position: absolute; left: 6px; bottom: 5px; font-size: .72rem; font-weight: 700; color: #fff; text-shadow: 0 1px 4px rgba(0, 0, 0, .7); }
 /* swatch options (skin) */
-.ab-swatches { display: flex; flex-wrap: wrap; gap: .5rem; }
+.ab-swatches { display: grid; grid-template-columns: repeat(5, 34px); gap: .5rem; justify-content: start; }
 .ab-swatch { width: 34px; height: 34px; border-radius: 9px; border: 2px solid var(--line-2); cursor: pointer; padding: 0; transition: transform .1s ease, border-color .1s ease; }
 .ab-swatch:hover { transform: scale(1.06); }
 .ab-swatch.on { border-color: #ff9ad4; box-shadow: 0 0 0 2px rgba(255, 154, 212, .3); }
