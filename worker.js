@@ -1860,27 +1860,183 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP: full catalog lister — every tool + its required args, token-gated.
-    if (url.pathname === "/api/social/catalog" && request.method === "GET") {
+    // TEMP: exhaustive tool sweep, token-gated. ?part=ig | yt. Creates its own
+    // throwaway artifacts, reverts reversible actions, cleans up after.
+    if (url.pathname === "/api/social/sweep" && request.method === "GET") {
       if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
         return new Response("not found", { status: 404 });
-      const tk = url.searchParams.get("toolkit") || "instagram";
-      const tools = [];
-      let cursor = "";
-      for (let page = 0; page < 10; page++) {
-        const q = new URLSearchParams({ toolkit_slug: tk, limit: "100" });
-        if (cursor) q.set("cursor", cursor);
-        const r = await composioFetch(env, `/tools?${q}`);
-        const d = await r.json().catch(() => ({}));
-        for (const it of (d.items || [])) {
-          const ip = it.input_parameters || {};
-          tools.push({ slug: it.slug, required: ip.required || [] });
+      const part = url.searchParams.get("part") || "ig";
+      const acct = async (tk) => {
+        const q = new URLSearchParams({ toolkit_slugs: tk, statuses: "ACTIVE", limit: "5" });
+        const r = await composioFetch(env, `/connected_accounts?${q}`);
+        return ((await r.json().catch(() => ({}))).items || [])[0] || null;
+      };
+      const R = [];
+      const pickId = (d) => d && (d.id || (d.data && d.data.id) || (d.response_data && d.response_data.id));
+      const mk = (uid) => async (slug, args) => {
+        try {
+          const ex = await composioExecute(env, slug, { userId: uid }, args || {});
+          R.push({ tool: slug, status: ex.successful ? "pass" : "fail", error: ex.successful ? undefined : String(composioErrText(ex.error) || "").slice(0, 90) });
+          return ex.data;
+        } catch (e) { R.push({ tool: slug, status: "error", error: String(e && e.message || e).slice(0, 90) }); return null; }
+      };
+      const skip = (slug, why) => R.push({ tool: slug, status: "skip", error: why });
+
+      if (part === "ig") {
+        const a = await acct("instagram");
+        if (!a) return Response.json({ error: "no instagram account" }, { status: 404 });
+        const run = mk(a.user_id);
+        const info = await run("INSTAGRAM_GET_USER_INFO", {});
+        const igId = info && info.id;
+        let media = await run("INSTAGRAM_GET_IG_USER_MEDIA", { ig_user_id: igId });
+        let mediaId = pickId((media && (media.data || media.items) || [])[0]) || ((media && media.data || [])[0] || {}).id;
+        // Reuse the existing test post if present; else publish one.
+        if (!mediaId) {
+          const cont = await run("INSTAGRAM_POST_IG_USER_MEDIA", { ig_user_id: igId, image_url: "https://dummyimage.com/1080x1080/141018/ff79c6.jpg", caption: "Zephyr sweep test (safe to delete)" });
+          const cid = pickId(cont);
+          if (cid) { const pub = await run("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", { ig_user_id: igId, creation_id: String(cid) }); mediaId = pickId(pub); }
+        } else { skip("INSTAGRAM_POST_IG_USER_MEDIA", "already verified; not re-posting"); skip("INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", "already verified; not re-posting"); }
+        // Unpublished container → creation_id for status/deprecated post tools.
+        const cont2 = await run("INSTAGRAM_CREATE_MEDIA_CONTAINER", { ig_user_id: igId, image_url: "https://dummyimage.com/1080x1080/101010/ffffff.jpg" });
+        const creationId = pickId(cont2);
+        // Reads
+        await run("INSTAGRAM_GET_USER_INSIGHTS", { metric: "reach", period: "day" });
+        await run("INSTAGRAM_GET_USER_MEDIA", {});
+        await run("INSTAGRAM_GET_IG_USER_STORIES", {});
+        await run("INSTAGRAM_GET_IG_USER_TAGS", { ig_user_id: igId });
+        await run("INSTAGRAM_GET_IG_USER_LIVE_MEDIA", {});
+        await run("INSTAGRAM_GET_IG_USER_CONTENT_PUBLISHING_LIMIT", {});
+        await run("INSTAGRAM_GET_MESSENGER_PROFILE", { ig_user_id: igId });
+        await run("INSTAGRAM_LIST_ALL_CONVERSATIONS", {});
+        if (creationId) await run("INSTAGRAM_GET_POST_STATUS", { creation_id: String(creationId) });
+        if (mediaId) {
+          await run("INSTAGRAM_GET_IG_MEDIA", { ig_media_id: mediaId });
+          await run("INSTAGRAM_GET_IG_MEDIA_CHILDREN", { ig_media_id: mediaId });
+          await run("INSTAGRAM_GET_IG_MEDIA_COMMENTS", { ig_media_id: mediaId });
+          await run("INSTAGRAM_GET_IG_MEDIA_INSIGHTS", { ig_media_id: mediaId, metric: "reach" });
+          await run("INSTAGRAM_GET_POST_COMMENTS", { ig_post_id: mediaId });
+          await run("INSTAGRAM_GET_POST_INSIGHTS", { ig_post_id: mediaId });
+          // Comment lifecycle
+          const c = await run("INSTAGRAM_POST_IG_MEDIA_COMMENTS", { ig_media_id: mediaId, message: "sweep test" });
+          const cid = pickId(c);
+          if (cid) {
+            await run("INSTAGRAM_GET_IG_COMMENT_REPLIES", { ig_comment_id: cid });
+            await run("INSTAGRAM_POST_IG_COMMENT_REPLIES", { ig_comment_id: cid, message: "sweep reply" });
+            await run("INSTAGRAM_REPLY_TO_COMMENT", { ig_comment_id: cid, message: "sweep reply 2" });
+            await run("INSTAGRAM_DELETE_COMMENT", { ig_comment_id: cid });
+          }
         }
-        cursor = d.next_cursor || "";
-        if (!cursor) break;
+        skip("INSTAGRAM_CREATE_CAROUSEL_CONTAINER", "needs 2+ child containers");
+        skip("INSTAGRAM_CREATE_POST", "deprecated dup of PUBLISH; would create another post");
+        skip("INSTAGRAM_POST_IG_USER_MENTIONS", "needs a real @mention media");
+        skip("INSTAGRAM_SEND_TEXT_MESSAGE", "IG blocks initiating DMs (needs inbound thread)");
+        skip("INSTAGRAM_SEND_IMAGE", "IG blocks initiating DMs");
+        skip("INSTAGRAM_MARK_SEEN", "needs a DM thread");
+        skip("INSTAGRAM_GET_CONVERSATION", "needs an existing conversation_id");
+        skip("INSTAGRAM_LIST_ALL_MESSAGES", "needs an existing conversation_id");
+        skip("INSTAGRAM_GET_PAGE_CONVERSATIONS", "needs the linked FB page_id");
+        skip("INSTAGRAM_UPDATE_MESSENGER_PROFILE", "would change your real Messenger config");
+        skip("INSTAGRAM_DELETE_MESSENGER_PROFILE", "would wipe your real Messenger config");
+        return Response.json({ part, ig_media_id: mediaId, results: R });
       }
-      tools.sort((a, b) => a.slug.localeCompare(b.slug));
-      return Response.json({ toolkit: tk, count: tools.length, tools });
+
+      // ── YouTube ──
+      const a = await acct("youtube");
+      if (!a) return Response.json({ error: "no youtube account" }, { status: 404 });
+      const uid = a.user_id;
+      const run = mk(uid);
+      // Reads
+      const chans = await run("YOUTUBE_LIST_CHANNELS", { mine: true });
+      const channelId = chans && (chans.items || [])[0] && (chans.items[0].id);
+      await run("YOUTUBE_GET_CHANNEL_STATISTICS", { mine: true });
+      const vids = await run("YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true });
+      const realVideoId = vids && (vids.items || [])[0] && vids.items[0].snippet && vids.items[0].snippet.resourceId && vids.items[0].snippet.resourceId.videoId;
+      await run("YOUTUBE_LIST_USER_PLAYLISTS", {});
+      await run("YOUTUBE_LIST_USER_SUBSCRIPTIONS", {});
+      await run("YOUTUBE_SEARCH_YOU_TUBE", { q: "music" });
+      await run("YOUTUBE_LIST_I18N_LANGUAGES", {});
+      await run("YOUTUBE_LIST_I18N_REGIONS", {});
+      await run("YOUTUBE_LIST_VIDEO_CATEGORIES", { regionCode: "US" });
+      await run("YOUTUBE_LIST_MOST_POPULAR_VIDEOS", {});
+      await run("YOUTUBE_LIST_VIDEO_ABUSE_REPORT_REASONS", {});
+      await run("YOUTUBE_LIST_CHANNEL_SECTIONS", { part: "snippet", mine: true });
+      await run("YOUTUBE_LIST_COMMENT_THREADS", { videoId: realVideoId });
+      await run("YOUTUBE_LIST_COMMENT_THREADS2", { part: "snippet", videoId: realVideoId });
+      await run("YOUTUBE_LIST_PLAYLIST_IMAGES", {});
+      await run("YOUTUBE_LIST_SUPER_CHAT_EVENTS", {});
+      if (channelId) {
+        await run("YOUTUBE_GET_CHANNEL_ACTIVITIES", { channelId });
+        await run("YOUTUBE_GET_CHANNEL_ID_BY_HANDLE", { channel_handle: "@cristiananias4811" });
+      }
+      if (realVideoId) {
+        await run("YOUTUBE_GET_VIDEO_DETAILS_BATCH", { id: realVideoId });
+        await run("YOUTUBE_LIST_CAPTION_TRACK", { video_id: realVideoId });
+        await run("YOUTUBE_LIST_COMMENTS", { videoId: realVideoId });
+      }
+      // Artifacts: private test video
+      let testVideoId = null;
+      const up = await socialPublish(env, uid, { platform: "youtube", media_url: "https://download.samplelib.com/mp4/sample-5s.mp4", title: "Zephyr sweep (private)", description: "temp", tags: ["zephyr"], privacy: "private" });
+      R.push({ tool: "YOUTUBE_UPLOAD_VIDEO", status: up.ok ? "pass" : "fail", error: up.ok ? undefined : String(up.error || "").slice(0, 90) });
+      testVideoId = up.id;
+      // MULTIPART upload (second video) — test then delete
+      let mpVideoId = null;
+      try {
+        const file = await composioUploadFile(env, { toolkitSlug: "youtube", toolSlug: "YOUTUBE_MULTIPART_UPLOAD_VIDEO", url: "https://download.samplelib.com/mp4/sample-5s.mp4" });
+        const mp = await run("YOUTUBE_MULTIPART_UPLOAD_VIDEO", { title: "Zephyr sweep MP (private)", description: "temp", categoryId: "22", privacyStatus: "private", videoFile: file });
+        mpVideoId = pickId(mp);
+      } catch (e) { R.push({ tool: "YOUTUBE_MULTIPART_UPLOAD_VIDEO", status: "error", error: String(e && e.message || e).slice(0, 90) }); }
+      if (testVideoId) {
+        await run("YOUTUBE_GET_VIDEO_RATING", { id: testVideoId });
+        await run("YOUTUBE_RATE_VIDEO", { id: testVideoId, rating: "like" });
+        await run("YOUTUBE_RATE_VIDEO", { id: testVideoId, rating: "none" });
+        await run("YOUTUBE_UPDATE_VIDEO", { video_id: testVideoId, title: "Zephyr sweep (edited)" });
+        await run("YOUTUBE_UPDATE_THUMBNAIL", { videoId: testVideoId, thumbnailUrl: "https://dummyimage.com/1280x720/141018/ff79c6.jpg" });
+        // Comment lifecycle on the test video
+        const pc = await run("YOUTUBE_POST_COMMENT", { videoId: testVideoId, channelId, textOriginal: "sweep test comment" });
+        const ytCommentId = pickId(pc);
+        if (ytCommentId) {
+          await run("YOUTUBE_CREATE_COMMENT_REPLY", { parentId: ytCommentId, textOriginal: "sweep reply" });
+          await run("YOUTUBE_UPDATE_COMMENT", { id: ytCommentId, textOriginal: "sweep edited" });
+          await run("YOUTUBE_SET_COMMENT_MODERATION_STATUS", { id: ytCommentId, moderationStatus: "published" });
+          await run("YOUTUBE_MARK_COMMENT_AS_SPAM", { id: ytCommentId });
+          await run("YOUTUBE_DELETE_COMMENT", { id: ytCommentId });
+        }
+      }
+      // Playlist lifecycle
+      const pl = await run("YOUTUBE_CREATE_PLAYLIST", { title: "Zephyr sweep playlist", description: "temp", privacyStatus: "private" });
+      const playlistId = pickId(pl);
+      if (playlistId) {
+        await run("YOUTUBE_UPDATE_PLAYLIST", { id: playlistId, snippet: { title: "Zephyr sweep playlist 2" } });
+        await run("YOUTUBE_LIST_PLAYLIST_ITEMS", { playlistId });
+        let itemId = null;
+        if (testVideoId) { const ai = await run("YOUTUBE_ADD_VIDEO_TO_PLAYLIST", { playlistId, videoId: testVideoId }); itemId = pickId(ai); }
+        if (itemId) {
+          await run("YOUTUBE_UPDATE_PLAYLIST_ITEM", { id: itemId, snippet: { playlistId, resourceId: { kind: "youtube#video", videoId: testVideoId }, position: 0 } });
+          await run("YOUTUBE_DELETE_PLAYLIST_ITEM", { id: itemId });
+        }
+        await run("YOUTUBE_DELETE_PLAYLIST", { id: playlistId, confirmDelete: true });
+      }
+      // Channel section lifecycle
+      const cs = await run("YOUTUBE_CREATE_CHANNEL_SECTION", { snippet: { type: "recentUploads", style: "horizontalRow" } });
+      const sectionId = pickId(cs);
+      if (sectionId) {
+        await run("YOUTUBE_UPDATE_CHANNEL_SECTION", { id: sectionId, snippet: { type: "recentUploads", style: "verticalList" } });
+        await run("YOUTUBE_DELETE_CHANNEL_SECTION", { id: sectionId });
+      }
+      // Subscribe → unsubscribe (reversible; Google Developers channel)
+      const sub = await run("YOUTUBE_SUBSCRIBE_CHANNEL", { channelId: "UC_x5XG1OV2P6uZZ5FSM9Ttw" });
+      const subId = pickId(sub);
+      if (subId) await run("YOUTUBE_UNSUBSCRIBE_CHANNEL", { subscriptionId: subId });
+      // Cleanup test videos
+      if (testVideoId) await run("YOUTUBE_DELETE_VIDEO", { videoId: testVideoId, confirmDelete: true });
+      if (mpVideoId) await run("YOUTUBE_DELETE_VIDEO", { videoId: mpVideoId, confirmDelete: true });
+      // Skips (unsafe / need external state)
+      skip("YOUTUBE_REPORT_VIDEO_ABUSE", "would file a real abuse report to YouTube");
+      skip("YOUTUBE_UPDATE_CHANNEL", "would edit your real channel metadata");
+      skip("YOUTUBE_LIST_LIVE_CHAT_MESSAGES", "needs an active live broadcast");
+      skip("YOUTUBE_LOAD_CAPTIONS", "needs a caption track id");
+      skip("YOUTUBE_UPDATE_CAPTION", "needs a caption track id");
+      return Response.json({ part, test_video: testVideoId, results: R });
     }
 
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
