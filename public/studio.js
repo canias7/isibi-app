@@ -1903,7 +1903,8 @@ function sbVideoEl() {
   if (!v) {
     stage.innerHTML = '';
     v = document.createElement('video');
-    v.controls = true;
+    v.controls = false; // clean iMovie-style preview — our own transport + the
+                        // timeline drive play/scrub (no browser chrome or a second timecode)
     v.playsInline = true;
     v.crossOrigin = 'anonymous';
     stage.appendChild(v);
@@ -1917,6 +1918,7 @@ function sbVideoEl() {
     v.addEventListener('pause', () => { sbMusicSync(v); sbSyncPlayBtn(); });
     v.addEventListener('seeking', () => sbMusicSync(v, { hard: true }));
     v.addEventListener('ended', () => { sbMusicSync(v); sbSyncPlayBtn(); });
+    v.addEventListener('click', () => sbTogglePlay()); // click the viewer to play/pause (iMovie)
   }
   return v;
 }
@@ -1965,6 +1967,31 @@ function sbPlayShot(s, next) {
   } else go();
   if (next) v.onended = () => next();
   else v.onended = null;
+}
+// Cue a clip into the preview WITHOUT playing it — load it, show its first frame,
+// park the playhead there. Selecting a clip cues it (iMovie-style); the ▶ button
+// is what starts playback.
+function sbCueShot(s) {
+  if (sbIsStatic(s)) { sbStopTitle(); sbShowStatic(s); sbUpdatePlayhead(null); sbSyncPlayBtn(); return; }
+  sbStopTitle();
+  sbStopAudioOnly();
+  const v = sbVideoEl();
+  if (!v || !s.url) return;
+  const start = s.in || 0;
+  sbSegment = { out: s.out != null ? s.out : null, next: null };
+  const go = () => {
+    sbNoteSrcDur(s, v);
+    sbApplyPreview(s);
+    try { v.currentTime = start; } catch (_) {}
+    v.pause();
+    sbUpdatePlayhead(v); sbMusicSync(v); sbSyncPlayBtn();
+  };
+  if (v.dataset.src !== s.url) {
+    v.dataset.src = s.url;
+    v.src = s.url;
+    v.addEventListener('loadedmetadata', go, { once: true });
+  } else go();
+  v.onended = null;
 }
 
 // ── Preview transport (the toolbar buttons around the stage) ────────────────
@@ -2218,7 +2245,7 @@ function sbSelect(id) {
   if (s && sbIsStatic(s)) { sbStopTitle(); sbStopAudioOnly(); sbShowStatic(s); sbUpdatePlayhead(null); sbSyncPlayBtn(); return; }
   sbStopTitle();
   sbStopAudioOnly();
-  if (s && s.url) sbPlayShot(s);
+  if (s && s.url) sbCueShot(s); // cue (paused) on select — ▶ starts playback
   else if (s && s.status === 'restoring') sbStudioNote('Restoring your imported clip — one sec…');
   else if (s) sbStudioNote(s.status === 'draft'
     ? 'Shot ' + (sbProject().shots.indexOf(s) + 1) + ' isn’t generated yet — say "generate shot ' + (sbProject().shots.indexOf(s) + 1) + '" and I’ll run it.'
