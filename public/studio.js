@@ -2172,9 +2172,11 @@ async function sbSaveToGallery() {
   const poster = sbCaptureFrame();
   try {
     await sbExport(async (blob, ext) => {
-      // WebM films (Chrome canvas fallback) aren't accepted by every gallery
-      // surface as reliably as MP4, but the worker takes both.
-      if (blob.size > 38_000_000) { sbStudioNote('This film is a bit large to save to the gallery — downloading it instead.'); sbDownloadBlob(blob, ext); return; }
+      // The film is sent to /api/save as base64, which inflates it ~33%, and the
+      // worker caps a video upload at 40 MB of base64 (~30 MB of blob). Cap the
+      // blob just under that so a large film downloads directly instead of paying
+      // for an encode + upload the server would only reject.
+      if (blob.size > 29_000_000) { sbStudioNote('This film is a bit large to save to the gallery — downloading it instead.'); sbDownloadBlob(blob, ext); return; }
       let b64;
       try { b64 = await sbBlobToB64(blob); } catch (e) { sbDownloadBlob(blob, ext); return; }
       if (typeof trySave !== 'function') { sbDownloadBlob(blob, ext); return; }
