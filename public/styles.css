@@ -2400,6 +2400,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .g-item:hover { border-color: var(--neon); transform: translateY(-2px); box-shadow: 0 14px 34px rgba(0, 0, 0, .45); }
 .g-item img, .g-item video { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; cursor: pointer; }
+.g-item:has(.g-audio) { align-self: start; }
 .g-audio { display: flex; align-items: center; gap: .7rem; padding: 1rem .9rem; }
 .g-audio .note { font-size: 1.3rem; }
 .g-audio audio { flex: 1; height: 36px; }
