@@ -849,15 +849,7 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
-// Arrow under the chatbox — slides the whole view down to the Presets screen
-// (and back up from its own arrow).
-function togglePresets(open) {
-  if (open) renderPresets();
-  document.getElementById('homeSlide').classList.toggle('show-presets', open);
-  document.getElementById('drawerArrow').setAttribute('aria-expanded', open);
-}
-
-// Preset categories shown as top tabs on the Presets screen. Each card drops a
+// Preset categories shown as top tabs on the Home page. Each card drops a
 // ready-to-edit starter prompt into the composer (and sets the mode).
 const PRESET_CATS = [
   { key: 'marketing', label: 'Marketing', items: [
@@ -893,8 +885,10 @@ const PRESET_CATS = [
   ] },
 ];
 let presetCat = 'marketing';
-function renderPresets() {
-  const body = document.getElementById('presetsBody');
+// Builds the preset tabs + card grid into any container. `rerender` is called
+// when a category tab is clicked so the caller can repaint just its own host
+// (keeps surrounding chrome — e.g. the Home greeting — intact).
+function renderPresetsInto(body, rerender) {
   if (!body) return;
   const tabs = PRESET_CATS.map((c) =>
     '<button type="button" class="pt-tab' + (c.key === presetCat ? ' active' : '') + '" data-cat="' + c.key + '">' + esc(c.label) + '</button>').join('');
@@ -922,13 +916,13 @@ function renderPresets() {
     '</button>';
   }).join('');
   body.innerHTML = '<div class="pt-tabs">' + tabs + '</div><div class="pt-grid">' + cards + '</div>';
-  body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; renderPresets(); }; });
+  body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; rerender(); }; });
   body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });
 }
 function usePreset(it) {
   if (!it) return;
   if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
-  togglePresets(false);
+  if (typeof showView === 'function') showView('home'); // land in the Builder chatbox with the prompt loaded
   const input = document.getElementById('input');
   if (input) { input.value = it.prompt; if (typeof autoGrow === 'function') autoGrow(input); input.focus(); }
 }
@@ -3871,17 +3865,7 @@ function renderSettings() {
   };
 }
 
-// Netflix-style model showcase rows on the Home landing. Each row is a model
-// name + a horizontal strip of example videos. Drop URLs into `videos` (they
-// can be /public paths or remote URLs) and they replace the placeholder tiles.
-const MODEL_ROWS = [
-  { model: 'Seedance 2.0 4K', videos: [] },
-  { model: 'Veo 3.1', videos: [] },
-  { model: 'Kling 3.0', videos: [] },
-  { model: 'Sora 2', videos: [] },
-  { model: 'Hailuo 02', videos: [] },
-];
-// ── Home landing / dashboard: greeting, quick actions, model rows, recent. ──
+// ── Home landing / dashboard: personalized greeting + the Presets picker. ──
 function renderLanding() {
   const view = document.getElementById('viewLanding');
   if (!view) return;
@@ -3891,45 +3875,16 @@ function renderLanding() {
   const h = new Date().getHours();
   const greet = h < 5 ? 'Late night' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 
-  const recent = (typeof galleryItems === 'function' ? galleryItems() : []).slice(0, 8);
-  const recentHtml = recent.length
-    ? '<div class="lp-sec">Recent creations</div><div class="lp-recent">' +
-      recent.map((it) => '<button type="button" class="lp-rec" data-go="gallery">' +
-        (it.kind === 'image'
-          ? '<img src="' + esc(it.url) + '" alt="" loading="lazy" />'
-          : it.kind === 'audio'
-          ? '<span class="lp-rec-audio">🎙</span>'
-          : '<video src="' + esc(it.url) + '" muted preload="metadata"></video>') +
-      '</button>').join('') + '</div>'
-    : '';
-
-  const nfHtml = MODEL_ROWS.map((row) => {
-    const cards = (row.videos && row.videos.length ? row.videos : [null, null, null, null, null, null])
-      .map((v, i) => v
-        ? '<div class="nf-card"><video src="' + esc(v) + '" muted loop playsinline preload="metadata"></video></div>'
-        : '<div class="nf-card nf-ph nf-ph' + (i % 3) + '"><span class="nf-play">▶</span></div>').join('');
-    return '<div class="nf-row">' +
-      '<div class="nf-head"><h2 class="nf-title">' + esc(row.model) + '</h2>' +
-        '<button type="button" class="nf-all">See all <span class="nf-all-c">›</span></button></div>' +
-      '<div class="nf-track">' + cards + '</div></div>';
-  }).join('');
-
   view.innerHTML =
     '<div class="lp-page">' +
       '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
-        '<p>Pick up where you left off, or start something new.</p></div>' +
-      nfHtml + recentHtml +
+        '<p>Pick a starting point and make it yours.</p></div>' +
+      '<div class="lp-presets" id="landingPresets"></div>' +
     '</div>';
 
-  view.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => showView(b.dataset.go); });
-  view.querySelectorAll('.nf-all').forEach((b) => { b.onclick = () => showView('gallery'); });
-  // Netflix-style hover-to-play; click goes fullscreen.
-  view.querySelectorAll('.nf-card video').forEach((v) => {
-    const card = v.closest('.nf-card');
-    card.addEventListener('mouseenter', () => { v.play().catch(() => {}); });
-    card.addEventListener('mouseleave', () => { try { v.pause(); v.currentTime = 0; } catch (e) {} });
-    card.addEventListener('click', () => { if (v.requestFullscreen) v.requestFullscreen().catch(() => {}); });
-  });
+  const host = view.querySelector('#landingPresets');
+  const rerender = () => renderPresetsInto(host, rerender);
+  renderPresetsInto(host, rerender);
 }
 
 // ── Avatar: talking-avatar workspace. Empty state offers "Generate with AI"
@@ -4795,8 +4750,6 @@ const CLICK_ACTIONS = {
   'model-menu': (e) => toggleModelMenu(e),
   'opt-settings': (e) => toggleOpt(e, 'settings'),
   'send': () => send(true),
-  'presets-open': () => togglePresets(true),
-  'presets-close': () => togglePresets(false),
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
   'gal-upgrade': () => openCredits(),
