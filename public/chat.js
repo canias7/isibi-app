@@ -4069,7 +4069,7 @@ function renderAvatar() {
         '<div class="av-hero"><h1>Create your avatar</h1>' +
           '<p>Generate a talking avatar with AI, or import your own portrait.</p></div>' +
         '<div class="av-choices">' +
-          '<button type="button" class="av-choice" data-act="generate"><span class="av-choice-ico">✨</span>' +
+          '<button type="button" class="av-choice" data-act="generate">' +
             '<span class="av-choice-t">Generate with AI</span>' +
             '<span class="av-choice-s">Describe a person and isibi creates the avatar.</span></button>' +
           '<button type="button" class="av-choice" data-act="import"><span class="av-choice-ico">⬆</span>' +
