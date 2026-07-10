@@ -984,8 +984,8 @@
 .ab-card-l { font-size: .78rem; font-weight: 600; }
 .ab-card-i { position: absolute; right: .5rem; bottom: .4rem; font-size: 1.05rem; opacity: .8; }
 /* image options (ethnicity) */
-.ab-imgs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; }
-.ab-img { position: relative; aspect-ratio: 3 / 4; border-radius: 11px; overflow: hidden; border: 1px solid var(--line-2); background: #17161d; cursor: pointer; padding: 0; transition: border-color .12s ease; }
+.ab-imgs { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+.ab-img { flex: 0 0 calc((100% - 1rem) / 3); position: relative; aspect-ratio: 3 / 4; border-radius: 11px; overflow: hidden; border: 1px solid var(--line-2); background: #17161d; cursor: pointer; padding: 0; transition: border-color .12s ease; }
 .ab-img:hover { border-color: #4a4a52; }
 .ab-img.on { border-color: transparent; box-shadow: 0 0 0 2px #ff9ad4 inset; }
 .ab-img.on::after { content: '✓'; position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 50%; background: var(--split); color: #0a0a0b; font-size: .72rem; font-weight: 800; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0, 0, 0, .45); }
