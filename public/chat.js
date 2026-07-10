@@ -4188,6 +4188,21 @@ function saveProducts(list) {
 }
 function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+// Placeholder scaffold — the Media Agent surface will be filled in later.
+function renderMediaAgent() {
+  const view = document.getElementById('viewMediaAgent');
+  if (!view) return;
+  view.innerHTML =
+    '<div class="ma-empty">' +
+      '<div class="ma-orb">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg>' +
+      '</div>' +
+      '<h1 class="ma-title">Media Agent</h1>' +
+      '<p class="ma-sub">An agent that plans and produces media for you end-to-end. This space is coming soon.</p>' +
+      '<span class="ma-tag">Coming soon</span>' +
+    '</div>';
+}
+
 function renderProducts() {
   const view = document.getElementById('viewProducts');
   if (!view) return;
@@ -4551,7 +4566,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
@@ -4563,6 +4578,7 @@ function showView(name) {
   if (name === 'gallery') { renderGallery(); refreshStorageBar(); }
   if (name === 'products') renderProducts();
   if (name === 'avatar') renderAvatar();
+  if (name === 'mediaAgent') renderMediaAgent();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));

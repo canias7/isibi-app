@@ -897,6 +897,23 @@
 .av-card:hover .av-del { opacity: 1; }
 @media (max-width: 640px) { .view-avatar.active { padding: 1.5rem 1rem 2.5rem; } }
 
+/* ── Media Agent (placeholder scaffold) ── */
+.view-media-agent.active { padding: 2rem; }
+.ma-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; max-width: 460px; gap: .3rem; }
+.ma-orb {
+  width: 84px; height: 84px; border-radius: 22px; display: grid; place-items: center; margin-bottom: 1.1rem;
+  background: linear-gradient(135deg, rgba(255, 121, 198, .16), rgba(255, 184, 77, .16));
+  border: 1px solid var(--line-2); color: var(--text);
+}
+.ma-orb svg { width: 40px; height: 40px; }
+.ma-title { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; }
+.ma-sub { color: var(--muted); font-size: .95rem; margin-top: .35rem; line-height: 1.5; }
+.ma-tag {
+  margin-top: 1.1rem; font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: .35rem .8rem; border-radius: 999px; color: #0a090e;
+  background: linear-gradient(90deg, #ff79c6, #ffb84d);
+}
+
 /* ── Avatar creator (preview in the middle, Builder panel on the right) ── */
 .ac-page { width: 100%; max-width: 1120px; margin: 0 auto; }
 .ac-back { background: none; border: 1px solid var(--line-2); color: var(--muted); font: inherit; font-size: .85rem; padding: .42rem .8rem; border-radius: 9px; cursor: pointer; margin-bottom: 1.3rem; transition: color .12s ease; }
