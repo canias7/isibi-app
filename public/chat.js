@@ -4334,6 +4334,14 @@ function renderMediaAgent() {
         SOCIAL_APPS.map((a) => socialCardHtml(a, { loading: true })).join('') +
       '</div>' +
       '<div class="ma-publish" id="maPublish"></div>' +
+      '<div class="ma-dm" id="maDm">' +
+        '<div class="ma-dm-head"><span>Instagram Direct Messages</span>' +
+          '<button type="button" class="ma-dm-refresh" id="maDmRefresh" title="Refresh">↻</button></div>' +
+        '<div class="ma-dm-body">' +
+          '<div class="ma-dm-list" id="maDmList"></div>' +
+          '<div class="ma-dm-thread" id="maDmThread"></div>' +
+        '</div>' +
+      '</div>' +
       '<div class="ma-chat">' +
         '<div class="ma-chat-head">Ask your agent</div>' +
         '<div class="ma-thread" id="maThread"></div>' +
@@ -4346,8 +4354,94 @@ function renderMediaAgent() {
   loadSocialStatus();
   agentRenderThread();
   renderPublish();
+  loadDMs();
   const form = document.getElementById('maComposer');
   if (form) form.onsubmit = (e) => { e.preventDefault(); const i = document.getElementById('maInput'); const t = i.value.trim(); if (t) { i.value = ''; agentSend(t); } };
+  const dr = document.getElementById('maDmRefresh');
+  if (dr) dr.onclick = () => loadDMs();
+}
+
+// ── Media Agent · Instagram DM inbox ──
+let dmConvs = null;
+let dmOpen = null;   // { id, user, user_id }
+
+async function loadDMs() {
+  const list = document.getElementById('maDmList');
+  if (list) list.innerHTML = '<div class="ma-dm-empty">Loading conversations…</div>';
+  try {
+    const r = await apiFetch('/api/social/dm');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { dmConvs = []; renderDmList(r.status === 501 ? 'Not configured.' : 'Couldn’t load messages.'); return; }
+    dmConvs = d.conversations || [];
+  } catch { dmConvs = []; renderDmList('Network error.'); return; }
+  renderDmList();
+}
+
+function renderDmList(note) {
+  const list = document.getElementById('maDmList');
+  if (!list) return;
+  if (note) { list.innerHTML = '<div class="ma-dm-empty">' + esc(note) + '</div>'; return; }
+  if (!dmConvs || !dmConvs.length) { list.innerHTML = '<div class="ma-dm-empty">No conversations yet. When someone DMs your account, it shows here.</div>'; return; }
+  list.innerHTML = dmConvs.map((c) =>
+    '<button type="button" class="ma-dm-conv' + (dmOpen && dmOpen.id === c.id ? ' on' : '') + '" data-cid="' + esc(c.id) + '">' +
+      '<span class="ma-dm-av">' + esc((c.user || '?').slice(0, 1).toUpperCase()) + '</span>' +
+      '<span class="ma-dm-meta"><span class="ma-dm-user">' + esc(c.user || 'unknown') + '</span>' +
+        '<span class="ma-dm-prev">' + esc(c.last || '') + '</span></span>' +
+    '</button>').join('');
+  list.querySelectorAll('[data-cid]').forEach((b) => {
+    b.onclick = () => { const c = dmConvs.find((x) => x.id === b.dataset.cid); if (c) openThread(c); };
+  });
+}
+
+async function openThread(c) {
+  dmOpen = c;
+  renderDmList();
+  const t = document.getElementById('maDmThread');
+  if (t) t.innerHTML = '<div class="ma-dm-empty">Loading…</div>';
+  let msgs = [];
+  try {
+    const r = await apiFetch('/api/social/dm?conversation_id=' + encodeURIComponent(c.id));
+    const d = await r.json().catch(() => ({}));
+    msgs = d.messages || [];
+  } catch {}
+  renderThread(c, msgs);
+}
+
+function renderThread(c, msgs) {
+  const t = document.getElementById('maDmThread');
+  if (!t) return;
+  t.innerHTML =
+    '<div class="ma-dm-tophead">Chat with <b>@' + esc(c.user || 'unknown') + '</b></div>' +
+    '<div class="ma-dm-msgs" id="maDmMsgs">' +
+      (msgs.length ? msgs.map((m) =>
+        '<div class="ma-dm-bub ' + (m.mine ? 'mine' : 'them') + '">' + agentFmt(m.text || '') + '</div>').join('')
+        : '<div class="ma-dm-empty">No messages loaded.</div>') +
+    '</div>' +
+    '<form class="ma-dm-reply" id="maDmReply" autocomplete="off">' +
+      '<input id="maDmInput" class="ma-input" placeholder="Reply to @' + esc(c.user || '') + '…" autocomplete="off"' + (c.user_id ? '' : ' disabled') + ' />' +
+      '<button type="submit" class="ma-send" aria-label="Send reply">↑</button>' +
+    '</form>' +
+    '<div class="ma-dm-note" id="maDmNote"></div>';
+  const box = document.getElementById('maDmMsgs'); if (box) box.scrollTop = box.scrollHeight;
+  const form = document.getElementById('maDmReply');
+  if (form) form.onsubmit = (e) => { e.preventDefault(); const i = document.getElementById('maDmInput'); const v = i.value.trim(); if (v && c.user_id) { i.value = ''; sendDM(c, v); } };
+}
+
+async function sendDM(c, text) {
+  const note = document.getElementById('maDmNote');
+  const box = document.getElementById('maDmMsgs');
+  if (box) box.insertAdjacentHTML('beforeend', '<div class="ma-dm-bub mine pending">' + agentFmt(text) + '</div>');
+  if (box) box.scrollTop = box.scrollHeight;
+  if (note) note.textContent = 'Sending…';
+  try {
+    const r = await apiFetch('/api/social/dm/send', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient_id: c.user_id, text }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) { if (note) note.textContent = 'Sent ✓'; box.querySelector('.pending')?.classList.remove('pending'); }
+    else { if (note) note.textContent = 'Couldn’t send — ' + esc(String(d.error || 'try again').slice(0, 120)); box.querySelector('.pending')?.classList.add('failed'); }
+  } catch { if (note) note.textContent = 'Network error.'; }
 }
 
 // ── Media Agent publishing (write, behind a confirm gate) ──
