@@ -3792,6 +3792,7 @@ function renderSettings() {
   view.innerHTML =
     '<div class="settings-page">' +
       '<div class="sp-title">Settings</div>' +
+      '<div class="sp-sub">Your account, plan, and everything private to you.</div>' +
 
       '<div class="sp-group">' +
         '<div class="sp-glabel">Account</div>' +
