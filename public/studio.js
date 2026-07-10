@@ -210,7 +210,8 @@ function sbAttachSkim(track, skimLine, total) {
 function sbShotDur(s) {
   const raw = (s.out != null && s.in != null) ? Math.max(0, s.out - s.in) : (s.dur || 0);
   const sp = s.speed && s.speed > 0 ? s.speed : 1;
-  return raw / sp;
+  const d = raw / sp;
+  return Number.isFinite(d) && d >= 0 ? d : 0; // never leak NaN/negative into widths & totals
 }
 
 // ── Persistent import store (IndexedDB) ─────────────────────────────────────
@@ -549,13 +550,19 @@ function sbRender() {
 }
 
 // Fill in audio-clip defaults (offset in the film + trim in/out + fades).
+// Also sanitize non-finite fields (corrupt/legacy data) so they can't leak
+// NaN into lane widths, the film clock, or the exporter.
 function sbAudioInit(tr) {
   if (!tr) return;
-  if (tr.offset == null) tr.offset = 0;
-  if (tr.in == null) tr.in = 0;
-  if (tr.out == null) tr.out = tr.dur || 0;
-  if (tr.fadeIn == null) tr.fadeIn = 0;
-  if (tr.fadeOut == null) tr.fadeOut = 0;
+  const num = (x, d) => (Number.isFinite(x) ? x : d);
+  tr.dur = Math.max(0, num(tr.dur, 0));
+  tr.offset = Math.max(0, num(tr.offset, 0));
+  tr.in = Math.max(0, num(tr.in, 0));
+  tr.out = num(tr.out, tr.dur);
+  if (!Number.isFinite(tr.out) || tr.out < tr.in) tr.out = tr.dur;
+  tr.fadeIn = Math.max(0, num(tr.fadeIn, 0));
+  tr.fadeOut = Math.max(0, num(tr.fadeOut, 0));
+  if (tr.volume != null) tr.volume = Math.max(0, Math.min(1, num(tr.volume, 1)));
 }
 function sbAClipDur(tr) { return Math.max(0.1, (tr.out != null && tr.in != null) ? (tr.out - tr.in) : (tr.dur || 0)); }
 
@@ -1250,7 +1257,9 @@ function sbMusicLoad() {
   const a = sbMusicEl();
   if (!m || !m.url) { a.pause(); if (a.dataset.src) { a.removeAttribute('src'); a.dataset.src = ''; try { a.load(); } catch (_) {} } return; }
   if (a.dataset.src !== m.url) { a.dataset.src = m.url; a.src = m.url; }
-  a.volume = m.volume != null ? m.volume : 0.6;
+  // Clamp: a stored volume outside [0,1] (bad/legacy data) would throw on assign
+  // and take the whole editor render down with it.
+  a.volume = Math.max(0, Math.min(1, m.volume != null ? m.volume : 0.6));
 }
 // Cumulative film position (seconds) of the current clip + offset.
 function sbFilmTime() {
@@ -2096,7 +2105,7 @@ function sbFilterStr(s) {
   }
   return parts.join(' ') || 'none';
 }
-function sbClipVol(s) { return s.muted ? 0 : (s.volume != null ? s.volume : 1); }
+function sbClipVol(s) { return s.muted ? 0 : Math.max(0, Math.min(1, s.volume != null ? s.volume : 1)); }
 function sbAdjOn(a) { return !!(a && ((a.br != null && a.br !== 1) || (a.con != null && a.con !== 1) || (a.sat != null && a.sat !== 1))); }
 function sbHasOverlay(s) { return !!(s && s.overlay && s.overlay.text && String(s.overlay.text).trim()); }
 function sbClipHasAdjust(s) {
