@@ -898,6 +898,20 @@ function sbFadeMul(tr, localT, clipDur) {
   if (tr.fadeOut > 0 && localT > clipDur - tr.fadeOut) m *= Math.max(0, (clipDur - localT) / tr.fadeOut);
   return m;
 }
+// Read an audio file's real duration, resolving the MediaRecorder-webm quirk
+// where the duration reads Infinity until you seek past the end. Recorded
+// voiceovers are ALWAYS such a webm, so without this every voiceover (and any
+// duration-less music file) lands on the lane with infinite length.
+async function sbAudioDuration(url) {
+  const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
+  try {
+    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; setTimeout(ok, 6000); });
+    if (!isFinite(a.duration) || a.duration <= 0) {
+      await new Promise((ok) => { a.onseeked = ok; try { a.currentTime = 1e9; } catch (e) {} setTimeout(ok, 2500); });
+    }
+    return (isFinite(a.duration) && a.duration > 0) ? a.duration : (a.currentTime || 0);
+  } catch (e) { return 0; }
+}
 // Sync one audio track's element to the film position, honoring its offset,
 // trim (in/out), fades, volume, and (music) ducking. Silent outside its span.
 function sbSyncAudioTrack(tr, el, kind, v, opts) {
@@ -950,11 +964,7 @@ async function sbSetMusic(f) {
   sbSave(); sbRenderMusicBar();
   try { await sbMediaPut('music-' + proj.id, f); proj.music.stored = true; }
   catch (e) { console.warn('could not persist music (kept for this tab only):', e); }
-  try {
-    const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
-    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
-    proj.music.dur = a.duration || 0;
-  } catch (e) {}
+  proj.music.dur = await sbAudioDuration(url);
   proj.music.out = proj.music.dur; sbAudioInit(proj.music);
   sbSave(); sbRenderMusicBar(); sbMusicLoad();
   sbStudioNote('Added music: “' + proj.music.name + '”. Drag it along the lane to reposition, trim its ends, or fade it with the corner dots.');
@@ -1323,11 +1333,7 @@ async function sbSetVoice(blob) {
   sbSave(); sbRenderVoiceBar();
   try { await sbMediaPut('voice-' + proj.id, blob); proj.voice.stored = true; }
   catch (e) { console.warn('could not persist voiceover:', e); }
-  try {
-    const a = document.createElement('audio'); a.preload = 'metadata'; a.src = url;
-    await new Promise((ok, err) => { a.onloadedmetadata = ok; a.onerror = err; });
-    proj.voice.dur = a.duration || 0;
-  } catch (e) {}
+  proj.voice.dur = await sbAudioDuration(url);
   proj.voice.out = proj.voice.dur; sbAudioInit(proj.voice);
   sbSave(); sbRenderVoiceBar();
   sbStudioNote('Voiceover added — drag it along the lane to place it, trim its ends, or fade it with the corner dots.');
