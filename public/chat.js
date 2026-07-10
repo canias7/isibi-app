@@ -4034,6 +4034,17 @@ const AVATAR_MODEL = 'fal-ai/nano-banana-pro';
 // Credit cost of one avatar render (same conversion the worker charges with).
 function avatarCredits() { return Math.max(1, Math.ceil((IMAGE_PRICE[AVATAR_MODEL] || 0) / CREDIT_USD)); }
 function avatarCost() { return '✦ ' + avatarCredits().toLocaleString(); }
+// Empty-state "ghost silhouette": a person glyph inside a dashed ring whose
+// dashes rotate continuously, over a faint grid.
+function acGhostHtml() {
+  return '<span class="ac-ghost">' +
+      '<span class="ac-ghost-ring"></span>' +
+      '<svg class="ac-ghost-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.4"/><path d="M5.5 20a6.5 6.5 0 0 1 13 0"/></svg>' +
+    '</span>' +
+    '<div class="ac-ph-h">Your avatar lives <span class="ac-accent">here</span></div>' +
+    '<div class="ac-ph-txt">Shape it on the right, then generate.</div>' +
+    '<span class="ac-tag"><i class="ac-tag-dot"></i>Human</span>';
+}
 let avatarMode = 'list';
 const acSel = {};   // key -> selected value
 const acOpen = {};  // key -> section expanded?
@@ -4209,11 +4220,7 @@ function renderAvatarCreator(view) {
       '<button type="button" class="ac-back" id="acBack">← Avatars</button>' +
       '<div class="ac-main">' +
         '<div class="ac-stage">' +
-          '<div class="ac-preview" id="acPreview">' +
-            '<span class="ac-ph-ico">🖼️</span>' +
-            '<div class="ac-ph-txt">Your avatar lives here.<br>Design it on the right, then generate.</div>' +
-            '<span class="ac-tag">Human</span>' +
-          '</div>' +
+          '<div class="ac-preview ac-empty" id="acPreview">' + acGhostHtml() + '</div>' +
           '<div class="ac-actions">' +
             '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
             '<button type="button" class="ac-gen" id="acGen"><span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span></button>' +
@@ -4330,6 +4337,7 @@ async function acGenerate() {
   const prompt = buildAvatarPrompt();
   acBusy = true;
   if (genBtn) { genBtn.disabled = true; genBtn.innerHTML = '<span class="ac-gen-t">Generating…</span>'; }
+  stage.classList.remove('ac-empty');
   stage.classList.add('ac-loading');
   stage.innerHTML = '<span class="ac-spin"></span><div class="ac-ph-txt">Creating your avatar…<br>this takes a few seconds.</div>';
   const fail = (msg) => {

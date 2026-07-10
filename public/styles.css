@@ -1079,7 +1079,21 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .ac-ph-ico { font-size: 2rem; opacity: .5; }
 .ac-ph-txt { color: var(--muted); font-size: .9rem; line-height: 1.5; max-width: 260px; }
-.ac-tag { position: absolute; left: 12px; bottom: 12px; font-size: .72rem; font-weight: 600; background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: .18rem .5rem; color: var(--text); }
+.ac-tag { position: absolute; left: 12px; bottom: 12px; display: inline-flex; align-items: center; gap: .4rem; font-size: .72rem; font-weight: 600; background: var(--panel); border: 1px solid var(--line-2); border-radius: 7px; padding: .2rem .55rem; color: var(--text); }
+.ac-tag-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--split); }
+/* Empty state — "ghost silhouette" over a faint grid. */
+.ac-preview.ac-empty {
+  background:
+    linear-gradient(rgba(255, 255, 255, .022) 1px, transparent 1px) 0 0 / 100% 34px,
+    linear-gradient(90deg, rgba(255, 255, 255, .022) 1px, transparent 1px) 0 0 / 34px 100%,
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, .04), transparent 60%), var(--panel-2);
+}
+.ac-ghost { position: relative; width: 118px; height: 118px; display: grid; place-items: center; margin-bottom: .3rem; }
+.ac-ghost-ring { position: absolute; inset: 0; border-radius: 50%; border: 2px dashed rgba(255, 255, 255, .22); animation: acghost 16s linear infinite; }
+@keyframes acghost { to { transform: rotate(360deg); } }
+.ac-ghost-ico { width: 52px; height: 52px; color: rgba(255, 255, 255, .48); }
+.ac-ph-h { font-size: 1.06rem; font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+.ac-ph-h .ac-accent { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 /* Generated avatar shown in-place (Generate renders here, not in the chat). */
 .ac-preview.ac-loading { padding: 1.5rem; }
 .ac-preview .ac-result { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 18px; }
