@@ -856,12 +856,15 @@ function composioFetch(env, path, opts = {}) {
 }
 
 // The dashboard-created OAuth auth config for a toolkit (needs the Meta/Google
-// app credentials). Prefer an enabled one; null if the user hasn't made it yet.
+// app credentials). Prefer a custom (own-credentials) enabled config over a
+// Composio-managed one — custom configs carry the fuller scope set (e.g.
+// Instagram DM sending). Null if the user hasn't made one yet.
 async function composioAuthConfigId(env, toolkit) {
   const r = await composioFetch(env, `/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}&limit=20`);
   if (!r.ok) return null;
   const items = (await r.json().catch(() => ({}))).items || [];
-  const pick = items.find((a) => a.status === "ENABLED") || items[0];
+  const enabled = items.filter((a) => a.status === "ENABLED");
+  const pick = enabled.find((a) => a.is_composio_managed === false) || enabled[0] || items[0];
   return pick ? pick.id : null;
 }
 
