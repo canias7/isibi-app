@@ -1669,6 +1669,20 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: dump write-tool input schemas so we build with correct arg names.
+    if (url.pathname === "/api/social/schema" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const slugs = (url.searchParams.get("slugs") || "").split(",").filter(Boolean);
+      const out = {};
+      for (const slug of slugs) {
+        const r = await composioFetch(env, `/tools/${encodeURIComponent(slug)}`);
+        const d = await r.json().catch(() => ({}));
+        out[slug] = { http: r.status, input_parameters: d.input_parameters || d.inputParameters || d, };
+      }
+      return Response.json(out);
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
