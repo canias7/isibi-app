@@ -40,6 +40,7 @@ jobs:
             STRIPE_WEBHOOK_SECRET
             CREDITS_MINT_SECRET
             SUPABASE_SERVICE_KEY
+            COMPOSIO_API_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -47,3 +48,4 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          COMPOSIO_API_KEY: ${{ secrets.COMPOSIO_API_KEY }}
