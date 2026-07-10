@@ -4885,12 +4885,25 @@ function openCreateProduct() {
   const descInp = ov.querySelector('#prDesc');
   const createBtn = ov.querySelector('#prCreate');
   // Both a product name and an image are required to save.
+  const uploadPrompt = '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image</div><div class="pr-upload-sub">PNG or JPG</div>';
   const refresh = () => { createBtn.disabled = !nameInp.value.trim() || !imgData; };
+  // Clear an accidentally-added image; Create stays disabled until one is re-added.
+  const clearImg = (e) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    imgData = '';
+    fileInput.value = '';
+    inner.innerHTML = uploadPrompt;
+    refresh();
+  };
   fileInput.onchange = async () => {
     const f = fileInput.files && fileInput.files[0];
     if (!f) return;
     imgData = await downscaleImage(f, 720);
-    if (imgData) inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />';
+    if (imgData) {
+      inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />' +
+        '<button type="button" class="pr-upload-x" aria-label="Remove image">✕</button>';
+      inner.querySelector('.pr-upload-x').onclick = clearImg;
+    }
     refresh();
   };
   nameInp.oninput = refresh;
