@@ -881,20 +881,24 @@ function socialSlot(conns, toolkit) {
   return c ? { connected: c.status === "ACTIVE", status: c.status, id: c.id } : { connected: false, status: null, id: null };
 }
 
-// First ACTIVE connected account for a toolkit (project-wide lookup).
+// First ACTIVE connected account (full record) for a toolkit, project-wide.
 async function composioActiveAccount(env, toolkit) {
   const q = new URLSearchParams({ toolkit_slugs: toolkit, statuses: "ACTIVE", limit: "10" });
   const r = await composioFetch(env, `/connected_accounts?${q}`);
   if (!r.ok) return null;
   const items = (await r.json().catch(() => ({}))).items || [];
-  return items[0] ? items[0].id : null;
+  return items[0] || null;
 }
 
-// Run a Composio tool against a connected account. Returns the normalized result.
-async function composioExecute(env, slug, connectedAccountId, args) {
+// Run a Composio tool. Composio needs a user identity (user_id) alongside the
+// connected account; the real agent passes the caller's Supabase uid.
+async function composioExecute(env, slug, { userId, connectedAccountId }, args) {
+  const body = { arguments: args || {} };
+  if (userId) body.user_id = userId;
+  if (connectedAccountId) body.connected_account_id = connectedAccountId;
   const r = await composioFetch(env, `/tools/execute/${encodeURIComponent(slug)}`, {
     method: "POST",
-    body: JSON.stringify({ connected_account_id: connectedAccountId, arguments: args || {} }),
+    body: JSON.stringify(body),
   });
   const d = await r.json().catch(() => ({}));
   return { http: r.status, successful: d.successful === true, error: d.error || null, data: d.data };
@@ -1652,10 +1656,11 @@ async function handleRequest(request, env, ctx) {
       const result = {};
       for (const tk of Object.keys(battery)) {
         const acc = await composioActiveAccount(env, tk);
-        result[tk] = { account: acc, tests: [] };
+        result[tk] = { account: acc ? acc.id : null, user_id: acc ? acc.user_id || null : null, tests: [] };
         if (!acc) continue;
+        const ident = { userId: acc.user_id, connectedAccountId: acc.id };
         for (const [slug, args] of battery[tk]) {
-          const ex = await composioExecute(env, slug, acc, args);
+          const ex = await composioExecute(env, slug, ident, args);
           let sample = "";
           try { sample = JSON.stringify(ex.data).slice(0, 600); } catch {}
           result[tk].tests.push({ tool: slug, ok: ex.successful, http: ex.http, error: ex.error, sample });
