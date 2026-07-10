@@ -881,15 +881,6 @@ function socialSlot(conns, toolkit) {
   return c ? { connected: c.status === "ACTIVE", status: c.status, id: c.id } : { connected: false, status: null, id: null };
 }
 
-// First ACTIVE connected account (full record) for a toolkit, project-wide.
-async function composioActiveAccount(env, toolkit) {
-  const q = new URLSearchParams({ toolkit_slugs: toolkit, statuses: "ACTIVE", limit: "10" });
-  const r = await composioFetch(env, `/connected_accounts?${q}`);
-  if (!r.ok) return null;
-  const items = (await r.json().catch(() => ({}))).items || [];
-  return items[0] || null;
-}
-
 // Run a Composio tool. Composio needs a user identity (user_id) alongside the
 // connected account; the real agent passes the caller's Supabase uid.
 async function composioExecute(env, slug, { userId, connectedAccountId }, args) {
@@ -1633,40 +1624,6 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ error: "disconnect failed" }, { status: 502 });
       }
-    }
-
-    // TEMP diagnostics — read-only tool self-test, token-gated. Removed after use.
-    if (url.pathname === "/api/social/selftest" && request.method === "GET") {
-      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
-        return new Response("not found", { status: 404 });
-      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "not configured" }, { status: 501 });
-      const battery = {
-        instagram: [
-          ["INSTAGRAM_GET_USER_INFO", {}],
-          ["INSTAGRAM_GET_IG_USER_MEDIA", {}],
-          ["INSTAGRAM_GET_IG_USER_CONTENT_PUBLISHING_LIMIT", {}],
-        ],
-        youtube: [
-          ["YOUTUBE_LIST_CHANNELS", { mine: true }],
-          ["YOUTUBE_GET_CHANNEL_STATISTICS", { mine: true }],
-          ["YOUTUBE_LIST_USER_PLAYLISTS", {}],
-          ["YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true }],
-        ],
-      };
-      const result = {};
-      for (const tk of Object.keys(battery)) {
-        const acc = await composioActiveAccount(env, tk);
-        result[tk] = { account: acc ? acc.id : null, user_id: acc ? acc.user_id || null : null, tests: [] };
-        if (!acc) continue;
-        const ident = { userId: acc.user_id, connectedAccountId: acc.id };
-        for (const [slug, args] of battery[tk]) {
-          const ex = await composioExecute(env, slug, ident, args);
-          let sample = "";
-          try { sample = JSON.stringify(ex.data).slice(0, 600); } catch {}
-          result[tk].tests.push({ tool: slug, ok: ex.successful, http: ex.http, error: ex.error, sample });
-        }
-      }
-      return Response.json(result);
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
