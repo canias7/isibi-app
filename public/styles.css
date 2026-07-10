@@ -1752,6 +1752,7 @@
 .tl-video .clip-block.sb-block { position: absolute; top: 0; bottom: 0; inset-inline: auto; height: auto; padding: 0; min-width: 8px; border-radius: 7px; overflow: hidden; border: 1px solid rgba(255, 255, 255, .09); box-shadow: 0 1px 3px rgba(0, 0, 0, .35); transition: filter .12s ease, box-shadow .12s ease; }
 .tl-video .clip-block.sb-block:hover { filter: brightness(1.07); box-shadow: 0 2px 8px rgba(0, 0, 0, .45); }
 .tl-video .clip-block.sb-block.sel { box-shadow: 0 2px 10px rgba(255, 184, 77, .28); }
+.tl-video .clip-block.sb-block.dragging { opacity: .82; z-index: 7; cursor: grabbing; box-shadow: 0 8px 22px rgba(0, 0, 0, .55); }
 /* Overlay (picture-in-picture) lane — clips that play ON TOP of the film.
    Calm by default; only glows as a dropzone while you're dragging onto it. */
 .tl-overlay { height: 58px; border: 1px solid rgba(255, 255, 255, .06); border-radius: 8px; background: rgba(255, 255, 255, .02); }
