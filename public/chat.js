@@ -4225,12 +4225,13 @@ function renderMediaAgent() {
     '<div class="ma-page">' +
       '<div class="ma-head">' +
         '<h1>Media Agent</h1>' +
-        '<p>Connect your accounts, then chat with your agent below. It can read your Instagram &amp; YouTube today — publishing is coming soon.</p>' +
+        '<p>Connect your accounts, then chat with your agent or publish media below. It can read your Instagram &amp; YouTube — and post to them with your confirmation.</p>' +
       '</div>' +
       '<div class="ma-msg" id="maMsg" hidden></div>' +
       '<div class="ma-conns" id="maConns">' +
         SOCIAL_APPS.map((a) => socialCardHtml(a, { loading: true })).join('') +
       '</div>' +
+      '<div class="ma-publish" id="maPublish"></div>' +
       '<div class="ma-chat">' +
         '<div class="ma-chat-head">Ask your agent</div>' +
         '<div class="ma-thread" id="maThread"></div>' +
@@ -4242,8 +4243,114 @@ function renderMediaAgent() {
     '</div>';
   loadSocialStatus();
   agentRenderThread();
+  renderPublish();
   const form = document.getElementById('maComposer');
   if (form) form.onsubmit = (e) => { e.preventDefault(); const i = document.getElementById('maInput'); const t = i.value.trim(); if (t) { i.value = ''; agentSend(t); } };
+}
+
+// ── Media Agent publishing (write, behind a confirm gate) ──
+let pubPlatform = 'youtube';
+let pubBusy = false;
+
+function renderPublish() {
+  const el = document.getElementById('maPublish');
+  if (!el) return;
+  const yt = pubPlatform === 'youtube';
+  el.innerHTML =
+    '<div class="ma-pub-head">' +
+      '<span class="ma-pub-title">Publish media</span>' +
+      '<div class="ma-pub-tabs">' +
+        '<button type="button" class="ma-pub-tab' + (yt ? ' on' : '') + '" data-pub="youtube">YouTube</button>' +
+        '<button type="button" class="ma-pub-tab' + (!yt ? ' on' : '') + '" data-pub="instagram">Instagram</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="ma-pub-body">' +
+      '<label class="ma-pub-l">Media URL <span class="ma-pub-hint">(public link — e.g. from your Gallery)</span></label>' +
+      '<input id="pubMedia" class="ma-pub-in" placeholder="https://…' + (yt ? '.mp4' : '.jpg or .mp4') + '" autocomplete="off" />' +
+      (yt
+        ? '<label class="ma-pub-l">Title</label>' +
+          '<input id="pubTitle" class="ma-pub-in" placeholder="Video title" autocomplete="off" />' +
+          '<label class="ma-pub-l">Description</label>' +
+          '<textarea id="pubDesc" class="ma-pub-in ma-pub-ta" placeholder="Description (optional)"></textarea>' +
+          '<label class="ma-pub-l">Privacy</label>' +
+          '<select id="pubPrivacy" class="ma-pub-in">' +
+            '<option value="private">Private (only you)</option>' +
+            '<option value="unlisted">Unlisted (anyone with the link)</option>' +
+            '<option value="public">Public</option>' +
+          '</select>'
+        : '<label class="ma-pub-l">Type</label>' +
+          '<select id="pubType" class="ma-pub-in">' +
+            '<option value="image">Image post</option>' +
+            '<option value="video">Reel / video</option>' +
+          '</select>' +
+          '<label class="ma-pub-l">Caption</label>' +
+          '<textarea id="pubCaption" class="ma-pub-ta ma-pub-in" placeholder="Caption (optional)"></textarea>') +
+      '<div class="ma-pub-foot" id="pubFoot"></div>' +
+    '</div>';
+  el.querySelectorAll('[data-pub]').forEach((b) => { b.onclick = () => { if (!pubBusy) { pubPlatform = b.dataset.pub; renderPublish(); } }; });
+  renderPubFoot();
+}
+
+function renderPubFoot(mode) {
+  const foot = document.getElementById('pubFoot');
+  if (!foot) return;
+  const name = pubPlatform === 'youtube' ? 'YouTube' : 'Instagram';
+  if (mode === 'confirm') {
+    const priv = pubPlatform === 'youtube' ? (document.getElementById('pubPrivacy') || {}).value : null;
+    foot.innerHTML =
+      '<div class="ma-pub-confirm">' +
+        '<span>Publish to <b>' + name + '</b>' + (priv ? ' as <b>' + priv + '</b>' : '') + '? This posts to your real account.</span>' +
+        '<div class="ma-pub-cbtns">' +
+          '<button type="button" class="ma-btn ma-btn-off" id="pubCancel">Cancel</button>' +
+          '<button type="button" class="ma-btn ma-btn-on" id="pubGo">Confirm &amp; publish</button>' +
+        '</div>' +
+      '</div>';
+    foot.querySelector('#pubCancel').onclick = () => renderPubFoot();
+    foot.querySelector('#pubGo').onclick = () => doPublish();
+    return;
+  }
+  foot.innerHTML = '<button type="button" class="ma-btn ma-btn-on ma-pub-submit" id="pubSubmit">Publish to ' + name + '</button>' +
+    '<div class="ma-pub-result" id="pubResult"></div>';
+  foot.querySelector('#pubSubmit').onclick = () => {
+    const media = (document.getElementById('pubMedia') || {}).value || '';
+    if (!media.trim()) { pubResult('Add a media URL first.', 'warn'); return; }
+    renderPubFoot('confirm');
+  };
+}
+
+function pubResult(html, kind) {
+  const el = document.getElementById('pubResult');
+  if (el) el.innerHTML = html ? '<div class="ma-pub-res ma-pub-res-' + (kind || 'ok') + '">' + html + '</div>' : '';
+}
+
+async function doPublish() {
+  if (pubBusy) return;
+  pubBusy = true;
+  const payload = { platform: pubPlatform, media_url: (document.getElementById('pubMedia') || {}).value.trim() };
+  if (pubPlatform === 'youtube') {
+    payload.title = (document.getElementById('pubTitle') || {}).value.trim() || 'Untitled';
+    payload.description = (document.getElementById('pubDesc') || {}).value.trim();
+    payload.privacy = (document.getElementById('pubPrivacy') || {}).value || 'private';
+  } else {
+    payload.media_type = (document.getElementById('pubType') || {}).value || 'image';
+    payload.caption = (document.getElementById('pubCaption') || {}).value.trim();
+  }
+  renderPubFoot();
+  pubResult('Publishing… (uploading can take a bit)', 'busy');
+  try {
+    const r = await apiFetch('/api/social/publish', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 429) pubResult('You’ve hit today’s publish limit.', 'warn');
+    else if (r.status === 501) pubResult('Publishing isn’t configured on the server.', 'warn');
+    else if (d.ok) {
+      const link = pubPlatform === 'youtube' && d.id ? ' <a href="https://youtu.be/' + esc(d.id) + '" target="_blank" rel="noopener">View →</a>' : '';
+      pubResult('Published to ' + (pubPlatform === 'youtube' ? 'YouTube' : 'Instagram') + ' ✓' + link, 'ok');
+    } else pubResult('Couldn’t publish — ' + esc(String(d.error || 'try again').slice(0, 160)), 'warn');
+  } catch { pubResult('Network error — try again.', 'warn'); }
+  pubBusy = false;
 }
 
 // ── Media Agent chat (read-only account Q&A) ──
