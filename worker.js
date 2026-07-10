@@ -840,6 +840,47 @@ async function videoEditorGate(request) {
   } catch { return false; }
 }
 
+// ── Composio (Media Agent social connections) ─────────────────────────────
+// Instagram/YouTube are linked per-user through Composio. The API key stays
+// server-side (env.COMPOSIO_API_KEY); each Zephyr user maps to a Composio
+// user_id === their Supabase uid, so connections never cross accounts.
+const COMPOSIO_BASE = "https://backend.composio.dev/api/v3.1";
+const SOCIAL_TOOLKITS = { instagram: "instagram", youtube: "youtube" };
+
+function composioFetch(env, path, opts = {}) {
+  return fetch(`${COMPOSIO_BASE}${path}`, {
+    ...opts,
+    headers: { "x-api-key": env.COMPOSIO_API_KEY, "Content-Type": "application/json", ...(opts.headers || {}) },
+    signal: AbortSignal.timeout(12000),
+  });
+}
+
+// The dashboard-created OAuth auth config for a toolkit (needs the Meta/Google
+// app credentials). Prefer an enabled one; null if the user hasn't made it yet.
+async function composioAuthConfigId(env, toolkit) {
+  const r = await composioFetch(env, `/auth_configs?toolkit_slug=${encodeURIComponent(toolkit)}&limit=20`);
+  if (!r.ok) return null;
+  const items = (await r.json().catch(() => ({}))).items || [];
+  const pick = items.find((a) => a.status === "ENABLED") || items[0];
+  return pick ? pick.id : null;
+}
+
+// This user's connected accounts (optionally one toolkit). Filtered by user_id
+// server-side, so a caller only ever sees / acts on their own connections.
+async function composioConnections(env, userId, toolkit) {
+  const q = new URLSearchParams({ user_ids: userId, limit: "50" });
+  if (toolkit) q.set("toolkit_slugs", toolkit);
+  const r = await composioFetch(env, `/connected_accounts?${q}`);
+  if (!r.ok) return [];
+  return (await r.json().catch(() => ({}))).items || [];
+}
+
+function socialSlot(conns, toolkit) {
+  const cs = conns.filter((c) => String(c.toolkit?.slug || "").toLowerCase() === toolkit);
+  const c = cs.find((x) => x.status === "ACTIVE") || cs[0];
+  return c ? { connected: c.status === "ACTIVE", status: c.status, id: c.id } : { connected: false, status: null, id: null };
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1501,6 +1542,73 @@ async function handleRequest(request, env, ctx) {
         return Response.json(await r.json());
       } catch {
         return Response.json({ error: "video editor unavailable" }, { status: 503 });
+      }
+    }
+
+    // ── Media Agent: social account connections via Composio ──
+    // Connection status for the current user's Instagram + YouTube.
+    if (url.pathname === "/api/social/status" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      try {
+        const conns = await composioConnections(env, user.id, null);
+        return Response.json({
+          instagram: socialSlot(conns, "instagram"),
+          youtube: socialSlot(conns, "youtube"),
+        });
+      } catch {
+        return Response.json({ error: "social status unavailable" }, { status: 503 });
+      }
+    }
+
+    // Start an OAuth link session — returns the URL the client opens in a popup.
+    if (url.pathname === "/api/social/connect" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const toolkit = String(body.toolkit || "").toLowerCase();
+      if (!SOCIAL_TOOLKITS[toolkit]) return Response.json({ error: "unknown toolkit" }, { status: 400 });
+      try {
+        const authConfigId = await composioAuthConfigId(env, toolkit);
+        // No auth config yet → the user must create it in the Composio dashboard
+        // (it holds the Meta/Google app credentials we can't provision for them).
+        if (!authConfigId) return Response.json({ error: "no_auth_config", toolkit }, { status: 409 });
+        const r = await composioFetch(env, "/connected_accounts/link", {
+          method: "POST",
+          body: JSON.stringify({ auth_config_id: authConfigId, user_id: user.id }),
+        });
+        if (!r.ok) {
+          const detail = (await r.text().catch(() => "")).slice(0, 300);
+          return Response.json({ error: "connect failed", detail }, { status: 502 });
+        }
+        const d = await r.json();
+        return Response.json({ redirect_url: d.redirect_url, connected_account_id: d.connected_account_id });
+      } catch {
+        return Response.json({ error: "connect failed" }, { status: 502 });
+      }
+    }
+
+    // Disconnect — deletes this user's connected account(s) for a toolkit.
+    if (url.pathname === "/api/social/disconnect" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const toolkit = String(body.toolkit || "").toLowerCase();
+      if (!SOCIAL_TOOLKITS[toolkit]) return Response.json({ error: "unknown toolkit" }, { status: 400 });
+      try {
+        // Scoped to user.id, so only the caller's own connections are removed.
+        const conns = await composioConnections(env, user.id, toolkit);
+        await Promise.all(conns.map((c) =>
+          composioFetch(env, `/connected_accounts/${encodeURIComponent(c.id)}`, { method: "DELETE" }).catch(() => {})
+        ));
+        return Response.json({ ok: true });
+      } catch {
+        return Response.json({ error: "disconnect failed" }, { status: 502 });
       }
     }
 
