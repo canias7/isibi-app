@@ -14,6 +14,7 @@ let sbZoomLevel = 1;        // timeline zoom (1 = fit; >1 scrolls)
 let sbTitleState = null;    // {id, elapsed} while a static card (title OR photo) is "playing"
 let sbTitleRAF = 0;
 let sbAudioOnly = null;     // {playing, t0, raf} while previewing music/voice with no video on the timeline
+let sbPip = null;           // {oid, kind, wrap, media} — the live picture-in-picture overlay element
 
 // A "static" clip has no moving source — a title card or an imported still photo.
 // Both are painted frame-by-frame off a RAF clock (sbTitleState) rather than a
@@ -176,7 +177,7 @@ function sbAttachSkim(track, skimLine, total) {
     const irect = inner.getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (e.clientX - irect.left) / (irect.width || 1)));
     const ft = frac * total;
-    const tl = sbProject().shots.filter((s) => s.onTimeline);
+    const tl = sbProject().shots.filter(sbOnMain);
     if (!tl.length) { hide(); return; }
     let acc = 0, clip = tl[tl.length - 1], srcT = clip.in || 0;
     for (const s of tl) { const d = sbShotDur(s) || 0; if (ft < acc + d) { clip = s; srcT = (s.in || 0) + Math.max(0, ft - acc); break; } acc += d; }
@@ -356,7 +357,7 @@ function sbRender() {
   // shot strip on the timeline — only the clips the user has added to the film
   const track = document.getElementById('timelineTrack');
   if (track) {
-    const tl = proj.shots.filter((s) => s.onTimeline);
+    const tl = proj.shots.filter(sbOnMain);
     track.innerHTML = '';
     track.classList.toggle('has-shots', tl.length > 0);
     // Dropping a library clip onto the track adds it to the film.
@@ -483,6 +484,9 @@ function sbRender() {
       vlane.appendChild(block);
     });
 
+    // Overlay lane (picture-in-picture): clips that play ON TOP of the film.
+    sbOverlayLane(inner, total);
+
     // Audio lanes (music, then voice) as waveform clips from the film's start.
     if (proj.music && proj.music.url) sbAudioLane(inner, proj.music, 'music', total);
     if (proj.voice && proj.voice.url) sbAudioLane(inner, proj.voice, 'voice', total);
@@ -519,7 +523,7 @@ function sbRender() {
   }
   const totalEl = document.getElementById('sbTotalDur');
   if (totalEl) {
-    const tl = proj.shots.filter((s) => s.onTimeline);
+    const tl = proj.shots.filter(sbOnMain);
     const ready = tl.filter((s) => s.status === 'ready').length;
     totalEl.textContent = tl.length
       ? sbFmt(tl.reduce((a, s) => a + sbShotDur(s), 0)) + ' · ' + ready + '/' + tl.length + ' shots ready'
@@ -775,10 +779,142 @@ function sbDropOnTimeline(id, clientX) {
   arr.splice(target, 0, s);
   sbSave(); sbRender();
 }
+
+// ── Overlay / picture-in-picture lane ───────────────────────────────────────
+// An overlay clip floats ON TOP of the main film — it has its own start time on
+// the lane and a corner position, and doesn't add to the film's length.
+const SB_PIP_CORNERS = ['br', 'bl', 'tr', 'tl'];
+const SB_PIP_GLYPH = { br: '◢', bl: '◣', tr: '◥', tl: '◤' };
+function sbOverlayInit(s) {
+  if (!s) return;
+  if (s.start == null) s.start = 0;
+  if (!SB_PIP_CORNERS.includes(s.pip)) s.pip = 'br';
+  if (s.pipScale == null) s.pipScale = 0.34;
+  if (s.in == null) s.in = 0;
+  if (s.out == null && (s.srcDur || s.dur)) s.out = s.srcDur || s.dur;
+}
+function sbFilmTotalMain() {
+  return sbProject().shots.filter(sbOnMain).reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
+}
+// Drop a clip onto the overlay lane → it becomes a PiP starting at the drop time.
+function sbDropOverlay(id, clientX) {
+  const s = sbShot(id);
+  if (!s) return;
+  const total = sbFilmTotalMain();
+  let t = 0;
+  const inner = document.querySelector('#timelineTrack .tl-inner');
+  if (inner) {
+    const rect = inner.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (clientX - rect.left) / (rect.width || 1)));
+    t = frac * total;
+  }
+  s.onTimeline = true; s.lane = 'overlay';
+  sbOverlayInit(s);
+  const dur = sbShotDur(s) || 4;
+  s.start = Math.max(0, Math.min(t, Math.max(0, total - Math.min(dur, 0.3))));
+  sbSave(); sbRender();
+  sbStudioNote('Overlay added — it plays on top of your film. Drag it along the lane to time it, trim its ends, or tap the corner button to move the picture-in-picture.');
+}
+function sbCyclePip(id) {
+  const s = sbShot(id); if (!s) return;
+  sbOverlayInit(s);
+  s.pip = SB_PIP_CORNERS[(SB_PIP_CORNERS.indexOf(s.pip) + 1) % SB_PIP_CORNERS.length];
+  sbSave(); sbRender(); sbPipSync(document.querySelector('#previewStage video'));
+}
+function sbRemoveOverlay(id) {
+  const s = sbShot(id); if (!s) return;
+  s.onTimeline = false; s.lane = 'main';
+  if (sbSelected === id) sbSelected = null;
+  if (sbPip && sbPip.oid === id && sbPip.wrap) { sbPip.wrap.remove(); sbPip = null; }
+  sbSave(); sbRender();
+}
+// Drag an overlay clip along the lane to change WHEN it plays.
+function sbOverlayDrag(e, s, total) {
+  if (e.target.closest('.sb-trim, .sb-ocorner, .sb-x')) return;
+  e.stopPropagation();
+  const inner = document.querySelector('#timelineTrack .tl-inner'); if (!inner) return;
+  const rect = inner.getBoundingClientRect();
+  const el = e.currentTarget;
+  try { el.setPointerCapture(e.pointerId); } catch (_) {}
+  const startX = e.clientX, start0 = s.start || 0;
+  const dur = sbShotDur(s) || 4;
+  let moved = false;
+  const move = (ev) => {
+    const dSec = ((ev.clientX - startX) / (rect.width || 1)) * total;
+    if (Math.abs(dSec) > 0.03) moved = true;
+    s.start = Math.max(0, Math.min(Math.max(0, total - Math.min(dur, 0.3)), start0 + dSec));
+    el.style.left = Math.max(0, (s.start / total) * 100) + '%';
+  };
+  const up = () => {
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
+    try { el.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (moved) { sbSave(); sbRender(); } else { sbSelect(s.id); }
+  };
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+}
+// Render the overlay lane + its PiP clips (positioned by start over the film).
+function sbOverlayLane(inner, total) {
+  const proj = sbProject();
+  const ovs = proj.shots.filter(sbIsOverlay);
+  const lane = document.createElement('div');
+  lane.className = 'tl-lane tl-overlay';
+  lane.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); lane.classList.add('drop-here'); });
+  lane.addEventListener('dragleave', () => lane.classList.remove('drop-here'));
+  lane.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation(); lane.classList.remove('drop-here');
+    const id = e.dataTransfer.getData('text/sb');
+    if (id) sbDropOverlay(id, e.clientX);
+  });
+  if (!ovs.length) {
+    const hint = document.createElement('span');
+    hint.className = 'tl-overlay-hint';
+    hint.textContent = '＋ Overlay — drop a clip here to play it on top (picture-in-picture)';
+    lane.appendChild(hint);
+  }
+  ovs.forEach((s) => {
+    sbOverlayInit(s);
+    const dur = sbShotDur(s) || 4;
+    const leftPct = Math.max(0, Math.min(99, (s.start / total) * 100));
+    const wPct = Math.max(3, Math.min(100 - leftPct, (dur / total) * 100));
+    const clip = document.createElement('div');
+    clip.className = 'tl-oclip sb-block' + (s.id === sbSelected ? ' sel' : '');
+    clip.style.left = leftPct + '%';
+    clip.style.width = wPct + '%';
+    clip.dataset.sid = s.id;
+    let body = '';
+    if (sbIsImage(s)) {
+      body = '<div class="sb-strip sb-photostrip" style="background-image:url(\'' + (s.url || s.thumb || '') + '\')"></div>';
+    } else {
+      const frames = (Array.isArray(s.strip) && s.strip.length) ? s.strip : (s.thumb ? [s.thumb, s.thumb] : []);
+      if (frames.length) body = '<div class="sb-strip">' + frames.map((src) => '<i class="sb-frame" style="background-image:url(\'' + src + '\')"></i>').join('') + '</div>';
+    }
+    clip.innerHTML = body +
+      '<span class="sb-cliplabel"><b class="cl-dur">' + (Math.round(dur * 10) / 10) + 's</b> <span>PiP</span></span>' +
+      '<button class="sb-ocorner" title="Move the picture-in-picture corner">' + (SB_PIP_GLYPH[s.pip] || '◢') + '</button>' +
+      '<button class="sb-x sb-ox" title="Remove overlay">×</button>' +
+      '<span class="sb-trim l" title="Trim the start"></span><span class="sb-trim r" title="Trim the end"></span>';
+    clip.querySelector('.sb-trim.l').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'l'));
+    clip.querySelector('.sb-trim.r').addEventListener('pointerdown', (e) => sbTrimStart(e, s, 'r'));
+    const corner = clip.querySelector('.sb-ocorner');
+    corner.addEventListener('pointerdown', (e) => e.stopPropagation());
+    corner.addEventListener('click', (e) => { e.stopPropagation(); sbCyclePip(s.id); });
+    const x = clip.querySelector('.sb-ox');
+    x.addEventListener('pointerdown', (e) => e.stopPropagation());
+    x.addEventListener('click', (e) => { e.stopPropagation(); sbRemoveOverlay(s.id); });
+    clip.addEventListener('pointerdown', (e) => sbOverlayDrag(e, s, total));
+    lane.appendChild(clip);
+  });
+  inner.appendChild(lane);
+}
 function sbToggleTimeline(id) {
   const s = sbShot(id);
   if (!s) return;
   s.onTimeline = !s.onTimeline;
+  if (s.onTimeline && s.lane == null) s.lane = 'main';
   sbSave(); sbRender();
 }
 function sbToggleClipMute(id) {
@@ -822,7 +958,7 @@ function sbUpdatePlayhead(v) {
   const track = document.getElementById('timelineTrack');
   const ph = track && track.querySelector('.playhead');
   if (!ph) return;
-  const tl = sbProject().shots.filter((s) => s.onTimeline);
+  const tl = sbProject().shots.filter(sbOnMain);
   const idx = tl.findIndex((s) => s.id === sbSelected);
   if (idx < 0) { ph.style.display = 'none'; return; }
   const total = tl.reduce((a, s) => a + (sbShotDur(s) || 4), 0) || 1;
@@ -849,7 +985,7 @@ function sbScrubToClientX(clientX) {
 }
 // Fraction of the whole film → the clip under it + the offset inside that clip.
 function sbSeekFilmFraction(frac) {
-  const tl = sbProject().shots.filter((s) => s.onTimeline);
+  const tl = sbProject().shots.filter(sbOnMain);
   if (!tl.length) return;
   const durs = tl.map((s) => sbShotDur(s) || 4);
   const total = durs.reduce((a, b) => a + b, 0) || 1;
@@ -862,6 +998,7 @@ function sbSeekFilmFraction(frac) {
 }
 // Load (if needed) a clip and seek to `off` seconds into it, keeping play state.
 function sbSeekClip(s, off) {
+  if (sbIsOverlay(s)) { if (sbSelected !== s.id) { sbSelected = s.id; sbRender(); } return; }
   if (sbIsStatic(s)) {
     if (sbSelected !== s.id) { sbSelected = s.id; sbPlaying = null; sbRender(); }
     sbStopTitle();
@@ -903,7 +1040,7 @@ function sbTrimStart(e, s, side) {
   const handle = e.currentTarget;
   try { handle.setPointerCapture(e.pointerId); } catch (_) {}
   const rect = inner.getBoundingClientRect();
-  const tl = sbProject().shots.filter((x) => x.onTimeline);
+  const tl = sbProject().shots.filter(sbOnMain);
   const total = tl.reduce((a, x) => a + (sbShotDur(x) || 4), 0) || 1;
   const startX = e.clientX;
   const in0 = s.in || 0;
@@ -1025,7 +1162,7 @@ function sbFilmTime() {
   // Previewing music/voice on their own (no video on the timeline): the film
   // clock IS the elapsed audio time.
   if (sbAudioOnly && sbAudioOnly.playing) return (performance.now() - sbAudioOnly.t0) / 1000;
-  const tl = sbProject().shots.filter((s) => s.onTimeline);
+  const tl = sbProject().shots.filter(sbOnMain);
   const idx = tl.findIndex((s) => s.id === sbSelected);
   if (idx < 0) return 0;
   let before = 0;
@@ -1082,6 +1219,58 @@ function sbMusicSync(v, opts) {
   sbMusicLoad();
   sbSyncAudioTrack(sbProject().music, document.getElementById('sbMusicAudio'), 'music', v, opts);
   sbVoiceSync(v, opts);
+  sbPipSync(v);
+}
+// ── Picture-in-picture preview ──────────────────────────────────────────────
+// Which overlay clip (if any) is on screen at the current film time.
+function sbActiveOverlay(ft) {
+  const ovs = sbProject().shots.filter(sbIsOverlay);
+  for (const o of ovs) {
+    sbOverlayInit(o);
+    const d = sbShotDur(o) || 4;
+    if (ft >= o.start - 0.03 && ft < o.start + d + 0.03 && (o.url || sbIsImage(o))) return o;
+  }
+  return null;
+}
+function sbApplyPipPos(wrap, pip, scale) {
+  wrap.style.width = Math.round((scale || 0.34) * 100) + '%';
+  wrap.style.top = wrap.style.bottom = wrap.style.left = wrap.style.right = '';
+  const m = '4.5%';
+  if (pip === 'tl') { wrap.style.top = m; wrap.style.left = m; }
+  else if (pip === 'tr') { wrap.style.top = m; wrap.style.right = m; }
+  else if (pip === 'bl') { wrap.style.bottom = m; wrap.style.left = m; }
+  else { wrap.style.bottom = m; wrap.style.right = m; } // br
+}
+// Show/sync the PiP element over the preview for whatever overlay is on screen.
+function sbPipSync(v) {
+  const stage = document.getElementById('previewStage');
+  if (!stage) return;
+  const ft = sbFilmTime();
+  const playing = (sbTitleState && sbTitleState.playing) || (sbAudioOnly && sbAudioOnly.playing) || (v && !v.paused && !v.ended);
+  const o = sbActiveOverlay(ft);
+  if (!o) {
+    if (sbPip && sbPip.wrap) { if (sbPip.media && sbPip.media.pause) { try { sbPip.media.pause(); } catch (e) {} } sbPip.wrap.remove(); }
+    return;
+  }
+  const isImg = sbIsImage(o);
+  if (!sbPip || sbPip.oid !== o.id || sbPip.kind !== (isImg ? 'img' : 'vid')) {
+    if (sbPip && sbPip.wrap) sbPip.wrap.remove();
+    const wrap = document.createElement('div'); wrap.className = 'sb-pip';
+    const media = document.createElement(isImg ? 'img' : 'video'); media.className = 'sb-pip-media';
+    if (!isImg) { media.muted = true; media.playsInline = true; media.preload = 'auto'; }
+    media.src = o.url;
+    wrap.appendChild(media);
+    sbPip = { oid: o.id, kind: isImg ? 'img' : 'vid', wrap, media };
+  }
+  // Re-attach after any innerHTML wipe from a clip switch (keeps the decoded frame).
+  if (sbPip.wrap.parentNode !== stage) stage.appendChild(sbPip.wrap);
+  sbApplyPipPos(sbPip.wrap, o.pip, o.pipScale);
+  if (!isImg && sbPip.media) {
+    const srcT = (o.in || 0) + Math.max(0, ft - o.start);
+    if (Math.abs((sbPip.media.currentTime || 0) - srcT) > 0.34) { try { sbPip.media.currentTime = srcT; } catch (e) {} }
+    if (playing) { if (sbPip.media.paused) sbPip.media.play().catch(() => {}); }
+    else if (!sbPip.media.paused) sbPip.media.pause();
+  }
 }
 function sbVoiceEl() {
   let a = document.getElementById('sbVoiceAudio');
@@ -1394,7 +1583,7 @@ async function sbDetachAudio(id) {
   const idx = proj.shots.indexOf(s) + 1;
   // Place the detached audio at the clip's position in the film.
   let filmStart = 0;
-  for (const x of proj.shots.filter((x) => x.onTimeline)) { if (x.id === s.id) break; filmStart += sbShotDur(x) || 0; }
+  for (const x of proj.shots.filter(sbOnMain)) { if (x.id === s.id) break; filmStart += sbShotDur(x) || 0; }
   const prev = s.status;
   s.status = 'editing'; sbSave(); sbRender();
   try {
@@ -1690,7 +1879,7 @@ function sbTogglePlay() {
   // Not playing → play THROUGH the film from the selected clip to the end,
   // chaining shot → shot (this is what makes it "keep on playing" instead of
   // stopping at the current clip).
-  const tl = sbProject().shots.filter((s) => s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready')));
+  const tl = sbProject().shots.filter((s) => sbOnMain(s) && (s.src === 'title' || (s.url && s.status === 'ready')));
   if (tl.length) {
     let start = tl.findIndex((s) => s.id === sbSelected);
     if (start < 0) start = 0;
@@ -1912,6 +2101,9 @@ function sbSelect(id) {
   sbPlaying = null;
   const s = sbShot(id);
   sbRender();
+  // Overlays float on top of the film — selecting one just highlights it; it
+  // doesn't take over the main preview.
+  if (s && sbIsOverlay(s)) { sbPipSync(document.querySelector('#previewStage video')); return; }
   if (s && sbIsStatic(s)) { sbStopTitle(); sbStopAudioOnly(); sbShowStatic(s); sbUpdatePlayhead(null); sbSyncPlayBtn(); return; }
   sbStopTitle();
   sbStopAudioOnly();
@@ -1923,7 +2115,7 @@ function sbSelect(id) {
 }
 
 function sbPlayAll() {
-  const shots = sbProject().shots.filter((s) => s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready')));
+  const shots = sbProject().shots.filter((s) => sbOnMain(s) && (s.src === 'title' || (s.url && s.status === 'ready')));
   if (!shots.length) { sbStudioNote('Nothing on the timeline yet — add clips to your film first (drag them onto the timeline or tap ＋).'); return; }
   let i = 0;
   const playNext = () => {
@@ -2328,7 +2520,7 @@ function sbDownloadBlob(blob, ext) {
 // or the stitch fails.
 // A clip is exportable if it's a title card (no source needed) or a ready video.
 function sbExportable(s) {
-  return s.onTimeline && (s.src === 'title' || (s.url && s.status === 'ready'));
+  return sbOnMain(s) && (s.src === 'title' || (s.url && s.status === 'ready'));
 }
 async function sbExport(deliver) {
   if (sbBusy) return;
@@ -2351,8 +2543,9 @@ async function sbExport(deliver) {
   // (ffmpeg stream-copy/xfade doesn't apply them), so any adjusted clip routes
   // there for a correct render.
   const hasAdjust = shots.some(sbClipHasAdjust);
+  const hasOverlay = proj0.shots.some(sbIsOverlay);
   try {
-    if (!hasTitle && !hasImage && !hasVoice && !hasAdjust && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
+    if (!hasTitle && !hasImage && !hasVoice && !hasAdjust && !hasOverlay && window.sbFFExport && window.sbFFSupported && window.sbFFSupported()) {
       try {
         const proj = sbProject();
         const descriptors = shots.map((s) => ({ src: s.url, url: s.url, start: s.in || 0, dur: sbShotDur(s) || 0, muted: !!s.muted }));
@@ -2415,7 +2608,7 @@ function sbCaptureFrame() {
     }
   } catch (e) {}
   // Fall back to the first timeline clip's poster frame.
-  const first = sbProject().shots.find((s) => s.onTimeline && s.thumb);
+  const first = sbProject().shots.find((s) => sbOnMain(s) && s.thumb);
   return first ? first.thumb : null;
 }
 function sbAddFilmToGallery(url, poster) {
@@ -2507,6 +2700,23 @@ async function sbExportCanvas(shots, deliver, quiet) {
     }
     tapAudio(sbProject().music, 'music');
     tapAudio(sbProject().voice, 'voice');
+    // Picture-in-picture overlays: build a media element for each and keep it
+    // decoded so sbExportShot can composite it per frame. Video overlays are
+    // driven off the film clock (like audio); images just get drawn.
+    const overlays = sbProject().shots.filter((s) => sbIsOverlay(s) && (s.url || sbIsImage(s))).map((o) => {
+      sbOverlayInit(o);
+      const isImg = sbIsImage(o);
+      const el = document.createElement(isImg ? 'img' : 'video');
+      if (!isImg) { el.muted = true; el.crossOrigin = 'anonymous'; el.preload = 'auto'; el.playsInline = true; }
+      el.src = o.url;
+      return { o, el, isImg, start: o.start || 0, dur: sbShotDur(o) || 4, inT: o.in || 0 };
+    });
+    // Give the overlay media a beat to load its first frame before the render.
+    await Promise.all(overlays.map((ov) => new Promise((res) => {
+      if (ov.isImg) { if (ov.el.complete) return res(); ov.el.onload = res; ov.el.onerror = res; }
+      else { if (ov.el.readyState >= 1) return res(); ov.el.onloadedmetadata = res; ov.el.onerror = res; }
+      setTimeout(res, 4000);
+    })));
     // Lock each track to the film clock: play only while the picture advances,
     // pause during load/seek stalls, resync position on real drift, ramp fades.
     let audioRAF = 0, lastFilm = -1, lastAdvance = performance.now();
@@ -2529,6 +2739,18 @@ async function sbExportCanvas(shots, deliver, quiet) {
         if (t.fadeOut > 0 && local > t.clipDur - t.fadeOut) gain = Math.min(gain, t.base * (t.clipDur - local) / t.fadeOut);
         t.g.gain.value = Math.max(0.0001, gain);
       }
+      // Keep each video overlay decoding at the right source time (muted).
+      for (const ov of overlays) {
+        if (ov.isImg) continue;
+        const local = fc - ov.start;
+        if (local < 0 || local >= ov.dur) { if (!ov.el.paused) { try { ov.el.pause(); } catch (e) {} } continue; }
+        if (stalled) { if (!ov.el.paused) { try { ov.el.pause(); } catch (e) {} } }
+        else {
+          if (ov.el.paused) { try { ov.el.play().catch(() => {}); } catch (e) {} }
+          const want = ov.inT + local;
+          if (Math.abs((ov.el.currentTime || 0) - want) > 0.2) { try { ov.el.currentTime = want; } catch (e) {} }
+        }
+      }
       audioRAF = requestAnimationFrame(syncAudio);
     }
     // Pick a container the browser can actually record. Chrome keeps webm/vp9;
@@ -2544,7 +2766,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
     rec.ondataavailable = (e) => { if (e.data.size) parts.push(e.data); };
     const done = new Promise((ok) => { rec.onstop = ok; });
     rec.start(250);
-    if (tracks.length) syncAudio(); // drive the audio off the film clock, once recording
+    if (tracks.length || overlays.length) syncAudio(); // drive audio + overlays off the film clock
 
     // Transitions + film-wide fade are painted as overlays here (the ffmpeg path
     // does them natively; this realtime path must draw them itself).
@@ -2560,7 +2782,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
       try {
         prevFrame = await sbExportShot(shots[i], {
           ctx, W, H, ac, dest, filmStart, filmTotal: filmDur, transition, fade,
-          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame, clock,
+          isFirst: i === 0, isLast: i === shots.length - 1, prevFrame, clock, overlays,
         });
         ok++;
       } catch (e) { console.warn('shot ' + (i + 1) + ' skipped:', e); skipped++; prevFrame = null; }
@@ -2570,6 +2792,7 @@ async function sbExportCanvas(shots, deliver, quiet) {
     await done;
     cancelAnimationFrame(audioRAF);
     tracks.forEach((t) => { try { t.el.pause(); } catch (e) {} });
+    overlays.forEach((ov) => { try { if (ov.el.pause) ov.el.pause(); } catch (e) {} });
     ac.close().catch(() => {});
     if (!ok) { sbStudioNote('Export failed — none of the shots could be read (they may still be uploading, or blocked by the browser).'); return; }
     // Match the file to what the recorder actually produced (webm on Chrome,
@@ -2637,6 +2860,34 @@ function sbFrameOverlays(ctx, W, H, o, st, dur) {
   if (white > 0) { ctx.globalAlpha = white; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
 }
 
+// Composite any active picture-in-picture overlays onto the export frame.
+function sbDrawExportOverlays(o, within) {
+  if (!o.overlays || !o.overlays.length) return;
+  const { ctx, W, H } = o;
+  const ft = o.filmStart + Math.max(0, within);
+  for (const ov of o.overlays) {
+    if (ft < ov.start - 0.02 || ft >= ov.start + ov.dur + 0.02) continue;
+    const el = ov.el;
+    const mw = ov.isImg ? el.naturalWidth : el.videoWidth;
+    const mh = ov.isImg ? el.naturalHeight : el.videoHeight;
+    if (!mw || !mh) continue;
+    const scale = ov.o.pipScale || 0.34;
+    const pw = W * scale, ph = pw * (mh / mw);
+    const mgx = W * 0.045, mgy = H * 0.045;
+    const pip = ov.o.pip || 'br';
+    let x = W - pw - mgx, y = H - ph - mgy; // br default
+    if (pip === 'tl') { x = mgx; y = mgy; }
+    else if (pip === 'tr') { x = W - pw - mgx; y = mgy; }
+    else if (pip === 'bl') { x = mgx; y = H - ph - mgy; }
+    ctx.save();
+    ctx.fillStyle = '#000'; ctx.fillRect(x - 2, y - 2, pw + 4, ph + 4);
+    try { ctx.drawImage(el, x, y, pw, ph); } catch (e) {}
+    ctx.lineWidth = Math.max(2, W * 0.0035);
+    ctx.strokeStyle = 'rgba(255,255,255,.9)';
+    ctx.strokeRect(x, y, pw, ph);
+    ctx.restore();
+  }
+}
 // Play one clip onto the shared export canvas; resolves with its last frame.
 function sbExportShot(s, o) {
   const { ctx, W, H, ac, dest } = o;
@@ -2669,6 +2920,7 @@ function sbExportShot(s, o) {
           const within = (performance.now() - t0) / 1000;
           if (o.clock) o.clock.film = o.filmStart + Math.min(shotDur, within);
           paint();
+          try { sbDrawExportOverlays(o, within); } catch (e) {}
           try { sbFrameOverlays(ctx, W, H, o, within, shotDur); } catch (e) {}
           if (performance.now() - t0 >= durMs) { resolve(sbSnapshot(ctx, W, H)); return; }
           requestAnimationFrame(draw);
@@ -2729,6 +2981,7 @@ function sbExportShot(s, o) {
           }
           ctx.filter = 'none';
           try { sbPaintCaption(ctx, W, H, s); } catch (e) {}
+          try { sbDrawExportOverlays(o, (v.currentTime - start) / sp); } catch (e) {}
           try { sbFrameOverlays(ctx, W, H, o, (v.currentTime - start) / sp, shotDur); } catch (e) {}
           if (v.currentTime >= stopAt - 0.03 || v.ended) { finish(resolve, sbSnapshot(ctx, W, H)); return; }
           raf = requestAnimationFrame(draw);

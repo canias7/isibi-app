@@ -1695,6 +1695,27 @@
 .sb-title .sb-cliplabel { background: linear-gradient(180deg, rgba(0, 0, 0, .35), rgba(0, 0, 0, 0)); }
 .sb-title .sb-cliplabel .cl-dur { color: #0b0b10; }
 .tl-video .clip-block.sb-block { position: absolute; top: 0; bottom: 0; inset-inline: auto; height: auto; padding: 0; min-width: 8px; }
+/* Overlay (picture-in-picture) lane — clips that play ON TOP of the film. */
+.tl-overlay { height: 52px; border: 1px dashed rgba(255, 214, 10, .28); border-radius: 7px; background: rgba(255, 214, 10, .03); }
+.tl-overlay.drop-here { border-color: var(--neon); background: rgba(255, 214, 10, .1); }
+.tl-overlay-hint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: .68rem; color: rgba(255, 214, 10, .6); white-space: nowrap; pointer-events: none; }
+.tl-oclip {
+  position: absolute; top: 3px; bottom: 3px; border-radius: 7px; overflow: hidden; min-width: 24px;
+  border: 1px solid rgba(255, 214, 10, .5); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
+  cursor: grab; touch-action: none; background: #000;
+}
+.tl-oclip.sel { outline: 2px solid rgba(255, 184, 77, .9); outline-offset: -1px; z-index: 4; }
+.sb-ocorner {
+  position: absolute; right: 22px; top: 3px; z-index: 5; width: 20px; height: 18px; border-radius: 5px;
+  background: rgba(0, 0, 0, .58); border: 1px solid var(--line-2); color: var(--neon); font-size: .7rem;
+  line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0;
+}
+.sb-ocorner:hover { border-color: var(--neon); }
+.sb-ox { position: absolute; right: 3px; top: 3px; z-index: 5; width: 18px; height: 18px; border-radius: 5px; background: rgba(0, 0, 0, .58); border: none; color: #ddd; font-size: .85rem; line-height: 1; cursor: pointer; padding: 0; }
+.sb-ox:hover { color: #f43f5e; }
+/* The live PiP inset over the preview stage (mirrors the export compositing). */
+.sb-pip { position: absolute; z-index: 4; border-radius: 8px; overflow: hidden; box-shadow: 0 6px 22px rgba(0, 0, 0, .6); border: 2px solid rgba(255, 255, 255, .9); background: #000; line-height: 0; }
+.sb-pip-media { display: block; width: 100%; height: 100%; object-fit: cover; }
 .tl-audio { height: 42px; }
 /* iMovie audio clip: solid coloured body, darker waveform layer on top. */
 .tl-aclip {
