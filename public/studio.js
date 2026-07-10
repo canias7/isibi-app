@@ -333,19 +333,13 @@ function sbRender() {
       const thumb = s.thumb
         ? '<img class="sb-thumb' + (sbIsImage(s) ? ' sb-thumb-photo' : '') + '" src="' + (typeof esc === 'function' ? esc(s.thumb) : s.thumb) + '" alt="" />'
         : '<span class="sb-thumb sb-thumb-empty">' + (s.status === 'generating' ? '⏳' : '🎬') + '</span>';
-      card.innerHTML =
-        '<span class="sb-num">' + (i + 1) + '</span>' + thumb +
-        '<span class="sb-meta"><b></b><small></small></span>' +
-        '<span class="sb-dot" title="' + s.status + '"></span>' +
+      // Just the thumbnail. The add-to-timeline (＋/🎞) and remove (×) buttons
+      // sit over it and appear on hover — no clutter text, duration, or status dot.
+      card.innerHTML = thumb +
         '<button class="sb-tl' + (s.onTimeline ? ' on' : '') + '" title="' +
           (s.onTimeline ? 'On the timeline — click to remove from your film' : 'Add this clip to the timeline') +
           '">' + (s.onTimeline ? '🎞' : '＋') + '</button>' +
         '<button class="sb-x" title="Remove clip">×</button>';
-      // Imported clips carry no title label — the user just wants the frame.
-      card.querySelector('b').textContent = s.src === 'import' ? '' : (s.title || 'Shot ' + (i + 1));
-      card.querySelector('small').textContent =
-        sbFmtDur(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status) +
-        (s.onTimeline ? '' : ' · in list');
       card.onclick = (e) => {
         const c = e.target.className || '';
         if (c !== 'sb-x' && c.indexOf('sb-tl') < 0) sbSelect(s.id);
