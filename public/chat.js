@@ -4167,9 +4167,16 @@ function renderAvatarCreator(view) {
         '<button type="button" class="ab-swatch' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '" style="background:' + esc(o.c) + '" title="' + esc(o.v) + '" aria-label="' + esc(o.v) + '"></button>').join('') + '</div>';
     } else if (s.type === 'slider') {
       const val = sel != null ? sel : s.def;
-      body = '<div class="ab-slider">' +
-        '<div class="ab-slider-top"><span class="ab-range-val" data-valfor="' + s.key + '">' + val + '</span></div>' +
-        '<input type="range" class="ab-range" data-k="' + s.key + '" min="' + s.min + '" max="' + s.max + '" value="' + val + '" />' +
+      const pct = ((val - s.min) / (s.max - s.min)) * 100;
+      body = '<div class="ab-ruler" data-min="' + s.min + '" data-max="' + s.max + '">' +
+        '<span class="ab-ruler-lbl">' + esc(s.label) + '</span>' +
+        '<span class="ab-ruler-bubble" data-valfor="' + s.key + '">' + val + '</span>' +
+        '<div class="ab-ruler-track">' +
+          '<div class="ab-ruler-ticks"></div>' +
+          '<div class="ab-ruler-fill" style="width:' + pct + '%"></div>' +
+          '<div class="ab-ruler-thumb" style="left:' + pct + '%"></div>' +
+          '<input type="range" class="ab-range" data-k="' + s.key + '" min="' + s.min + '" max="' + s.max + '" value="' + val + '" />' +
+        '</div>' +
       '</div>';
     }
     const cntStr = s.type === 'slider' ? ' · ' + (sel != null ? sel : s.def) : (Array.isArray(sel) && sel.length ? ' · ' + sel.length : '');
@@ -4210,7 +4217,14 @@ function renderAvatarCreator(view) {
   view.querySelector('#acBack').onclick = () => { avatarMode = 'list'; renderAvatar(); };
   view.querySelectorAll('.ab-range').forEach((r) => { r.oninput = () => {
     acSel[r.dataset.k] = +r.value;
-    const lbl = view.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (lbl) lbl.textContent = r.value;
+    const ruler = r.closest('.ab-ruler');
+    if (ruler) {
+      const mn = +ruler.dataset.min, mx = +ruler.dataset.max;
+      const pct = ((+r.value - mn) / (mx - mn)) * 100;
+      const fill = ruler.querySelector('.ab-ruler-fill'); if (fill) fill.style.width = pct + '%';
+      const thumb = ruler.querySelector('.ab-ruler-thumb'); if (thumb) thumb.style.left = pct + '%';
+      const bub = ruler.querySelector('[data-valfor="' + r.dataset.k + '"]'); if (bub) bub.textContent = r.value;
+    }
     setCount(r.closest('.ab-sec'));
   }; });
   view.querySelectorAll('.ab-sec-h').forEach((h) => { h.onclick = () => {
