@@ -3806,16 +3806,17 @@ function renderSettings() {
             '<span class="sp-item-l"><span class="sp-item-t">Credits &amp; plan</span></span>' +
             '<span class="sp-item-r">' + esc(balTxt) + ' <span class="st-chev">›</span></span>' +
           '</button>' +
-          // Members get a Stripe Billing Portal link: change plan, update card,
-          // or cancel anytime. Hidden for free accounts (nothing to manage).
-          (isPaid ?
-            '<button type="button" class="sp-item sp-tap" id="spManage">' +
-              '<span class="sp-item-l"><span class="sp-item-t">Manage membership</span>' +
-              '<span class="sp-item-s">Change plan, update payment, or cancel anytime.</span></span>' +
-              '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
-            '</button>' : '') +
+          // Stripe Billing Portal link: change plan, update card, or cancel
+          // anytime. Shown to everyone — a free / never-subscribed account that
+          // taps it gets a friendly "no active membership" note (the endpoint
+          // returns 404 no_customer), so there's nothing to hide.
+          '<button type="button" class="sp-item sp-tap" id="spManage">' +
+            '<span class="sp-item-l"><span class="sp-item-t">Manage membership</span>' +
+            '<span class="sp-item-s">Change plan, update payment, or cancel anytime.</span></span>' +
+            '<span class="sp-item-r"><span class="st-chev">›</span></span>' +
+          '</button>' +
         '</div>' +
-        (isPaid ? '<div class="cp-note sp-note" id="spManageNote"></div>' : '') +
+        '<div class="cp-note sp-note" id="spManageNote"></div>' +
       '</div>' +
 
       '<div class="sp-group">' +
