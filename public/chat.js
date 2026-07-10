@@ -3718,6 +3718,68 @@ async function doSignOut(everywhere) {
 
 // Settings page — a plain, conventional settings view (grouped list rows),
 // rebuilt each time it opens so account/credits/prefs are current.
+// ── Integrations: connect outbound publishing destinations. ──
+// The connections aren't wired to real OAuth yet — the cards render the
+// destinations and the Connect buttons surface a "coming soon" toast.
+const INTEGRATIONS = [
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    desc: 'Publish your generated videos straight to your channel.',
+    ico: '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path fill="#FF0000" d="M23 12s0-3.79-.48-5.6a2.94 2.94 0 0 0-2.07-2.08C18.64 3.83 12 3.83 12 3.83s-6.64 0-8.45.49A2.94 2.94 0 0 0 1.48 6.4C1 8.21 1 12 1 12s0 3.79.48 5.6a2.94 2.94 0 0 0 2.07 2.08c1.81.49 8.45.49 8.45.49s6.64 0 8.45-.49a2.94 2.94 0 0 0 2.07-2.08C23 15.79 23 12 23 12z"/>' +
+      '<path fill="#fff" d="M9.75 15.5l6-3.5-6-3.5z"/></svg>',
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    desc: 'Post your creations to your feed, reels and stories.',
+    ico: '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+      '<defs><linearGradient id="igGrad" x1="0" y1="1" x2="1" y2="0">' +
+      '<stop offset="0" stop-color="#feda75"/><stop offset=".3" stop-color="#fa7e1e"/>' +
+      '<stop offset=".6" stop-color="#d62976"/><stop offset="1" stop-color="#962fbf"/></linearGradient></defs>' +
+      '<rect x="2" y="2" width="20" height="20" rx="6" fill="url(#igGrad)"/>' +
+      '<rect x="6" y="6" width="12" height="12" rx="4" fill="none" stroke="#fff" stroke-width="1.6"/>' +
+      '<circle cx="12" cy="12" r="3" fill="none" stroke="#fff" stroke-width="1.6"/>' +
+      '<circle cx="16.6" cy="7.4" r="1.15" fill="#fff"/></svg>',
+  },
+];
+
+function renderIntegrations() {
+  const view = document.getElementById('viewIntegrations');
+  if (!view) return;
+
+  view.innerHTML =
+    '<div class="settings-page">' +
+      '<div class="sp-title">Integrations</div>' +
+      '<div class="sp-group">' +
+        '<div class="sp-glabel">Publish to</div>' +
+        '<div class="sp-list">' +
+          INTEGRATIONS.map((a) =>
+            '<div class="sp-item ig-item">' +
+              '<span class="sp-item-l">' +
+                '<span class="ig-ico">' + a.ico + '</span>' +
+                '<span class="ig-txt"><span class="sp-item-t">' + esc(a.name) + '</span>' +
+                '<span class="sp-item-s">' + esc(a.desc) + '</span></span>' +
+              '</span>' +
+              '<span class="sp-item-r">' +
+                '<button type="button" class="ig-connect" data-ig="' + a.id + '">Connect</button>' +
+              '</span>' +
+            '</div>'
+          ).join('') +
+        '</div>' +
+        '<div class="cp-note sp-note">More destinations coming soon.</div>' +
+      '</div>' +
+    '</div>';
+
+  view.querySelectorAll('.ig-connect').forEach((btn) => {
+    btn.onclick = () => {
+      const app = INTEGRATIONS.find((a) => a.id === btn.dataset.ig);
+      if (typeof sbToast === 'function') sbToast((app ? app.name : 'This') + ' connections are coming soon.');
+    };
+  });
+}
+
 function renderSettings() {
   const view = document.getElementById('viewSettings');
   if (!view) return;
@@ -4730,7 +4792,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
@@ -4743,6 +4805,7 @@ function showView(name) {
   if (name === 'products') renderProducts();
   if (name === 'avatar') renderAvatar();
   if (name === 'mediaAgent') renderMediaAgent();
+  if (name === 'integrations') renderIntegrations();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
