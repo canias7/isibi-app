@@ -846,8 +846,9 @@ async function sbBuildStrip(s) {
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'metadata'; v.src = s.url;
   try {
     await sbMeta(v);
+    if (s.out == null && !isFinite(v.duration)) { try { await sbSeek(v, 1e9); } catch (e) {} } // resolve webm Infinity
     const inP = s.in || 0;
-    const outP = s.out != null ? s.out : v.duration;
+    const outP = s.out != null ? s.out : ((isFinite(v.duration) && v.duration > 0) ? v.duration : (v.currentTime || 0));
     const span = Math.max(0.1, outP - inP);
     await sbSeek(v, Math.min(inP + span / 2, outP - 0.01));
     s.thumb = sbGrabFrame(v, 480).toDataURL('image/jpeg', 0.72);
@@ -1404,7 +1405,12 @@ function sbVideoEl() {
     stage.appendChild(v);
     v.addEventListener('timeupdate', () => {
       const tc = document.getElementById('studioTimecode');
-      if (tc) tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(v.duration || 0);
+      // A duration-less webm reports Infinity — show the selected clip's known
+      // length instead so the timecode never reads "Infinity"/blank.
+      if (tc) {
+        const total = isFinite(v.duration) ? v.duration : (sbShot(sbSelected) ? sbShotDur(sbShot(sbSelected)) : 0);
+        tc.textContent = sbFmt(v.currentTime) + ' / ' + sbFmt(total || 0);
+      }
       sbSegmentTick(v);
       sbUpdatePlayhead(v);
       sbMusicSync(v);
@@ -2009,7 +2015,9 @@ async function sbLastFrame(s) {
   v.muted = true; v.crossOrigin = 'anonymous'; v.preload = 'auto';
   v.src = s.url;
   await sbMeta(v);
-  const t = (s.out != null ? s.out : v.duration) - 0.08;
+  if (s.out == null && !isFinite(v.duration)) { try { await sbSeek(v, 1e9); } catch (e) {} } // resolve webm Infinity
+  const end = s.out != null ? s.out : ((isFinite(v.duration) && v.duration > 0) ? v.duration : (v.currentTime || 0));
+  const t = end - 0.08;
   await sbSeek(v, Math.max(0, t));
   return sbGrabFrame(v, 1024).toDataURL('image/jpeg', 0.85);
 }
