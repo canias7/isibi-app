@@ -895,6 +895,52 @@ async function composioExecute(env, slug, { userId, connectedAccountId }, args) 
   return { http: r.status, successful: d.successful === true, error: d.error || null, data: d.data };
 }
 
+function composioErrText(e) {
+  return e && typeof e === "object" ? (e.message || JSON.stringify(e)) : (e || null);
+}
+
+// ── Publishing (write) ─────────────────────────────────────────────────────
+// Executed ONLY after the user confirms in the UI — never autonomously by the
+// model. YouTube = single upload; Instagram = create-container then publish.
+async function socialPublish(env, userId, p) {
+  const ident = { userId };
+  const platform = String(p.platform || "").toLowerCase();
+  const mediaUrl = String(p.media_url || "");
+  if (!mediaUrl) return { ok: false, platform, error: "no media url" };
+
+  if (platform === "youtube") {
+    const args = {
+      title: String(p.title || "Untitled").slice(0, 100),
+      description: String(p.description || "").slice(0, 4900),
+      tags: Array.isArray(p.tags) ? p.tags.map(String).slice(0, 20) : [],
+      categoryId: String(p.categoryId || "22"),
+      privacyStatus: ["private", "public", "unlisted"].includes(p.privacy) ? p.privacy : "private",
+      videoFilePath: mediaUrl,
+    };
+    const ex = await composioExecute(env, "YOUTUBE_UPLOAD_VIDEO", ident, args);
+    const vid = ex.data && (ex.data.id || (ex.data.response_data && ex.data.response_data.id));
+    return { ok: ex.successful, platform, id: vid || null, result: ex.data, error: composioErrText(ex.error) };
+  }
+
+  if (platform === "instagram") {
+    const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+    const igId = info.data && info.data.id;
+    if (!igId) return { ok: false, platform, step: "resolve", error: "couldn't resolve Instagram account id" };
+    const isVideo = String(p.media_type || "").toLowerCase() === "video";
+    const cArgs = { ig_user_id: igId, caption: String(p.caption || "").slice(0, 2200) };
+    if (isVideo) { cArgs.video_url = mediaUrl; cArgs.media_type = "REELS"; }
+    else { cArgs.image_url = mediaUrl; }
+    const c = await composioExecute(env, "INSTAGRAM_POST_IG_USER_MEDIA", ident, cArgs);
+    const creation = c.data && (c.data.id || c.data.creation_id || (c.data.data && c.data.data.id));
+    if (!c.successful || !creation)
+      return { ok: false, platform, step: "container", error: composioErrText(c.error) || "container failed", result: c.data };
+    const pub = await composioExecute(env, "INSTAGRAM_POST_IG_USER_MEDIA_PUBLISH", ident, { ig_user_id: igId, creation_id: String(creation) });
+    return { ok: pub.successful, platform, id: creation, result: pub.data, error: composioErrText(pub.error) };
+  }
+
+  return { ok: false, platform, error: "unknown platform" };
+}
+
 // ── Media Agent brain: read-only action catalog ───────────────────────────
 // The agent gets ONE tool (run_action) and may only call slugs in this
 // allowlist — all read-only, so it can never post/delete on the live accounts.
@@ -1669,18 +1715,40 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP: dump write-tool input schemas so we build with correct arg names.
-    if (url.pathname === "/api/social/schema" && request.method === "GET") {
+    // Publish media to a connected account. Called ONLY after the user confirms
+    // in the UI — writes are never triggered autonomously by the agent model.
+    if (url.pathname === "/api/social/publish" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "publish", 30))) return QUOTA_EXCEEDED();
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      try {
+        const res = await socialPublish(env, user.id, body);
+        return Response.json(res, { status: res.ok ? 200 : 502 });
+      } catch {
+        return Response.json({ ok: false, error: "publish failed" }, { status: 502 });
+      }
+    }
+
+    // TEMP: token-gated publish test (drives the exact socialPublish path).
+    if (url.pathname === "/api/social/pubtest" && request.method === "GET") {
       if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
         return new Response("not found", { status: 404 });
-      const slugs = (url.searchParams.get("slugs") || "").split(",").filter(Boolean);
-      const out = {};
-      for (const slug of slugs) {
-        const r = await composioFetch(env, `/tools/${encodeURIComponent(slug)}`);
-        const d = await r.json().catch(() => ({}));
-        out[slug] = { http: r.status, input_parameters: d.input_parameters || d.inputParameters || d, };
-      }
-      return Response.json(out);
+      const q = new URLSearchParams({ toolkit_slugs: "youtube", statuses: "ACTIVE", limit: "5" });
+      const cr = await composioFetch(env, `/connected_accounts?${q}`);
+      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
+      if (!acc) return Response.json({ error: "no youtube account" }, { status: 404 });
+      const res = await socialPublish(env, acc.user_id, {
+        platform: "youtube",
+        media_url: url.searchParams.get("url") || "https://download.samplelib.com/mp4/sample-5s.mp4",
+        title: "Zephyr test upload (private)",
+        description: "Automated private test upload from the Media Agent. Safe to delete.",
+        tags: ["zephyr", "test"],
+        privacy: "private",
+      });
+      return Response.json(res);
     }
 
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
