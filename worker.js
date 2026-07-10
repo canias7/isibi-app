@@ -1860,6 +1860,61 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP: definitive cleanup + last arg fixes, token-gated.
+    if (url.pathname === "/api/social/sweep3" && request.method === "GET") {
+      if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
+        return new Response("not found", { status: 404 });
+      const q = new URLSearchParams({ toolkit_slugs: "youtube", statuses: "ACTIVE", limit: "5" });
+      const cr = await composioFetch(env, `/connected_accounts?${q}`);
+      const acc = ((await cr.json().catch(() => ({}))).items || [])[0];
+      const uid = acc.user_id;
+      const ex = (slug, args) => composioExecute(env, slug, { userId: uid }, args || {});
+      // List all videos, delete every Zephyr-titled one + any known leftover ids.
+      const vids = await ex("YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true, maxResults: 50 });
+      const items = (vids.data && vids.data.items) || [];
+      const catalog = items.map((it) => ({ title: (it.snippet && it.snippet.title) || "", vid: it.snippet && it.snippet.resourceId && it.snippet.resourceId.videoId }));
+      const toDelete = new Set(["eYOrAvXWuIY"]);
+      let realVid = null;
+      for (const c of catalog) {
+        if (!c.vid) continue;
+        if (/zephyr|sweep/i.test(c.title)) toDelete.add(c.vid);
+        else if (!realVid) realVid = c.vid;
+      }
+      const deleted = [];
+      for (const vid of toDelete) {
+        const d = await ex("YOUTUBE_DELETE_VIDEO", { videoId: vid, confirmDelete: true });
+        deleted.push({ vid, ok: d.successful, error: composioErrText(d.error) });
+      }
+      // Fix LIST_PLAYLIST_IMAGES arg name.
+      const pls = await ex("YOUTUBE_LIST_USER_PLAYLISTS", {});
+      const plId = pls.data && (pls.data.items || [])[0] && pls.data.items[0].id;
+      const pli = plId ? await ex("YOUTUBE_LIST_PLAYLIST_IMAGES", { parent: plId }) : null;
+      // Final POST_COMMENT attempt on a confirmed real, public video.
+      const chans = await ex("YOUTUBE_LIST_CHANNELS", { mine: true });
+      const channelId = chans.data && (chans.data.items || [])[0] && chans.data.items[0].id;
+      let comment = null;
+      if (realVid && channelId) comment = await ex("YOUTUBE_POST_COMMENT", { videoId: realVid, channelId, textOriginal: "test (auto-removed)" });
+      const commentId = comment && comment.data && comment.data.id;
+      let commentChain = null;
+      if (commentId) {
+        const rep = await ex("YOUTUBE_CREATE_COMMENT_REPLY", { parentId: commentId, textOriginal: "reply" });
+        const upd = await ex("YOUTUBE_UPDATE_COMMENT", { id: commentId, textOriginal: "edited" });
+        const del = await ex("YOUTUBE_DELETE_COMMENT", { id: commentId });
+        commentChain = { reply: rep.successful, update: upd.successful, delete: del.successful,
+          errors: { reply: composioErrText(rep.error), update: composioErrText(upd.error), delete: composioErrText(del.error) } };
+      }
+      // Re-list to confirm nothing Zephyr remains.
+      const after = await ex("YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true, maxResults: 50 });
+      const remaining = ((after.data && after.data.items) || []).filter((it) => /zephyr|sweep/i.test((it.snippet && it.snippet.title) || "")).map((it) => it.snippet.title);
+      return Response.json({
+        catalog_titles: catalog.map((c) => c.title),
+        deleted,
+        remaining_zephyr: remaining,
+        list_playlist_images: { ok: pli && pli.successful, error: pli && composioErrText(pli.error) },
+        post_comment: { real_video: realVid, ok: comment && comment.successful, error: comment && composioErrText(comment.error), chain: commentChain },
+      });
+    }
+
     // TEMP: YouTube cleanup + retry the sweep's arg failures, token-gated.
     if (url.pathname === "/api/social/sweep2" && request.method === "GET") {
       if (url.searchParams.get("key") !== "zephyr-selftest-7Kd92QmZ1xVr8pLtNc4wEbY6")
