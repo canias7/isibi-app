@@ -4163,14 +4163,80 @@ function renderMediaAgent() {
     '<div class="ma-page">' +
       '<div class="ma-head">' +
         '<h1>Media Agent</h1>' +
-        '<p>Connect your accounts so the agent can publish and manage media for you. More capabilities are coming soon.</p>' +
+        '<p>Connect your accounts, then chat with your agent below. It can read your Instagram &amp; YouTube today — publishing is coming soon.</p>' +
       '</div>' +
       '<div class="ma-msg" id="maMsg" hidden></div>' +
       '<div class="ma-conns" id="maConns">' +
         SOCIAL_APPS.map((a) => socialCardHtml(a, { loading: true })).join('') +
       '</div>' +
+      '<div class="ma-chat">' +
+        '<div class="ma-chat-head">Ask your agent</div>' +
+        '<div class="ma-thread" id="maThread"></div>' +
+        '<form class="ma-composer" id="maComposer" autocomplete="off">' +
+          '<input id="maInput" class="ma-input" placeholder="Ask about your Instagram or YouTube…" autocomplete="off" />' +
+          '<button type="submit" class="ma-send" aria-label="Send">↑</button>' +
+        '</form>' +
+      '</div>' +
     '</div>';
   loadSocialStatus();
+  agentRenderThread();
+  const form = document.getElementById('maComposer');
+  if (form) form.onsubmit = (e) => { e.preventDefault(); const i = document.getElementById('maInput'); const t = i.value.trim(); if (t) { i.value = ''; agentSend(t); } };
+}
+
+// ── Media Agent chat (read-only account Q&A) ──
+let agentMsgs = [];       // {role:'user'|'assistant', content}
+let agentBusy = false;
+
+const AGENT_SUGGESTIONS = [
+  'How many followers do I have on each platform?',
+  'What are my latest YouTube videos and their views?',
+  'How many posts can I still publish on Instagram today?',
+];
+
+function agentRenderThread() {
+  const thread = document.getElementById('maThread');
+  if (!thread) return;
+  if (!agentMsgs.length && !agentBusy) {
+    thread.innerHTML = '<div class="ma-empty-chat">' +
+      '<p>Your agent can read your Instagram &amp; YouTube. Try:</p>' +
+      '<div class="ma-suggests">' +
+        AGENT_SUGGESTIONS.map((s) => '<button type="button" class="ma-suggest">' + esc(s) + '</button>').join('') +
+      '</div></div>';
+    thread.querySelectorAll('.ma-suggest').forEach((b) => { b.onclick = () => agentSend(b.textContent); });
+    return;
+  }
+  thread.innerHTML = agentMsgs.map((m) =>
+    '<div class="ma-bub ma-bub-' + m.role + '">' + agentFmt(m.content) + '</div>').join('') +
+    (agentBusy ? '<div class="ma-bub ma-bub-assistant ma-typing"><span></span><span></span><span></span></div>' : '');
+  thread.scrollTop = thread.scrollHeight;
+}
+
+// Minimal, safe formatting: escape, then bold **x** and newlines → <br>.
+function agentFmt(text) {
+  return esc(text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+}
+
+async function agentSend(text) {
+  if (agentBusy) return;
+  agentMsgs.push({ role: 'user', content: text });
+  agentBusy = true;
+  agentRenderThread();
+  try {
+    const r = await apiFetch('/api/agent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: agentMsgs }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 429) agentMsgs.push({ role: 'assistant', content: 'You’ve hit today’s agent limit — try again tomorrow.' });
+    else if (r.status === 501) agentMsgs.push({ role: 'assistant', content: 'The agent isn’t configured on the server yet.' });
+    else if (!r.ok || !d.reply) agentMsgs.push({ role: 'assistant', content: 'Something went wrong reaching your accounts. Try again.' });
+    else agentMsgs.push({ role: 'assistant', content: d.reply });
+  } catch {
+    agentMsgs.push({ role: 'assistant', content: 'Network error — try again.' });
+  }
+  agentBusy = false;
+  agentRenderThread();
 }
 
 function socialCardHtml(app, slot) {

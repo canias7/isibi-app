@@ -895,6 +895,49 @@ async function composioExecute(env, slug, { userId, connectedAccountId }, args) 
   return { http: r.status, successful: d.successful === true, error: d.error || null, data: d.data };
 }
 
+// ── Media Agent brain: read-only action catalog ───────────────────────────
+// The agent gets ONE tool (run_action) and may only call slugs in this
+// allowlist — all read-only, so it can never post/delete on the live accounts.
+// Publishing actions land later behind an explicit confirm gate.
+const AGENT_ACTIONS = {
+  instagram: {
+    INSTAGRAM_GET_USER_INFO: "Profile: username, followers/follows counts, media count, account type. Returns the IG account id ('id') that media actions need.",
+    INSTAGRAM_GET_USER_INSIGHTS: "Account-level insights (reach, impressions, follower demographics). May need 'metric' and 'period' args.",
+    INSTAGRAM_GET_IG_USER_MEDIA: "List your published posts. Needs 'ig_user_id' — get it from INSTAGRAM_GET_USER_INFO first.",
+    INSTAGRAM_GET_IG_MEDIA: "Details of one post. Needs the media id.",
+    INSTAGRAM_GET_IG_MEDIA_INSIGHTS: "Performance metrics for one post (views, reach, engagement). Needs the media id.",
+    INSTAGRAM_GET_IG_MEDIA_COMMENTS: "Comments on one post. Needs the media id.",
+    INSTAGRAM_GET_IG_USER_CONTENT_PUBLISHING_LIMIT: "How many posts can still be published in the current 24h window.",
+  },
+  youtube: {
+    YOUTUBE_LIST_CHANNELS: "Your channel(s). Pass {\"mine\": true}.",
+    YOUTUBE_GET_CHANNEL_STATISTICS: "Subscriber, view and video counts. Pass {\"mine\": true}.",
+    YOUTUBE_LIST_CHANNEL_VIDEOS: "Your uploaded videos (most recent first). Pass {\"mine\": true}.",
+    YOUTUBE_LIST_USER_PLAYLISTS: "Your playlists.",
+    YOUTUBE_LIST_USER_SUBSCRIPTIONS: "Channels you subscribe to.",
+    YOUTUBE_SEARCH_YOU_TUBE: "Search YouTube. Needs 'q'.",
+  },
+};
+const AGENT_ALLOW = new Set([
+  ...Object.keys(AGENT_ACTIONS.instagram),
+  ...Object.keys(AGENT_ACTIONS.youtube),
+]);
+
+function agentSystemPrompt(connected) {
+  const lines = [];
+  for (const [tk, acts] of Object.entries(AGENT_ACTIONS)) {
+    const on = connected[tk];
+    lines.push(`\n${tk.toUpperCase()} — ${on ? "connected" : "NOT connected (tell the user to connect it above; don't call its actions)"}`);
+    for (const [slug, desc] of Object.entries(acts)) lines.push(`  • ${slug}: ${desc}`);
+  }
+  return [
+    "You are the Media Agent for Zephyr (isibi.ai) — a helpful assistant that manages the user's Instagram and YouTube accounts.",
+    "You can inspect their accounts by calling run_action with one of the allowed action slugs and its arguments. All actions are READ-ONLY right now; you cannot post, upload, comment, or delete yet — if asked to, say that publishing is coming soon.",
+    "Chain actions when needed (e.g. get the IG account id before listing media). Keep answers concise and concrete — cite real numbers you fetched. Format lists cleanly. Never invent metrics; if an action fails, say what happened.",
+    "\nAllowed actions:", lines.join("\n"),
+  ].join("\n");
+}
+
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
@@ -1624,6 +1667,80 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ error: "disconnect failed" }, { status: 502 });
       }
+    }
+
+    // Media Agent brain — chat that inspects the user's IG/YT via Composio
+    // tool-use (read-only). Rate-limited; no credit charge (like the director).
+    if (url.pathname === "/api/agent" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY || !env.COMPOSIO_API_KEY)
+        return Response.json({ error: "agent not configured" }, { status: 501 });
+      if (!(await useQuota(request, "agent", 120))) return QUOTA_EXCEEDED();
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      // Client holds the plain-text history; take the recent tail, sanitized.
+      const turns = (Array.isArray(body.messages) ? body.messages : [])
+        .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+        .slice(-20)
+        .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
+      if (!turns.length || turns[turns.length - 1].role !== "user")
+        return Response.json({ error: "no message" }, { status: 400 });
+
+      const conns = await composioConnections(env, user.id, null);
+      const connected = { instagram: socialSlot(conns, "instagram").connected, youtube: socialSlot(conns, "youtube").connected };
+      const system = agentSystemPrompt(connected);
+      const agentTool = {
+        name: "run_action",
+        description: "Run one read-only action on the user's connected social account and return its JSON result.",
+        input_schema: {
+          type: "object",
+          properties: {
+            action: { type: "string", description: "The action slug to run — must be one of the allowed actions listed in the system prompt." },
+            arguments: { type: "object", description: "Arguments object for the action (e.g. {\"mine\": true}). Use {} when none are needed." },
+          },
+          required: ["action"],
+        },
+      };
+
+      const actionsLog = [];
+      for (let hop = 0; hop < 6; hop++) {
+        let r;
+        try {
+          r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: 1500, system, tools: [agentTool], messages: turns }),
+            signal: AbortSignal.timeout(60000),
+          });
+        } catch {
+          return Response.json({ error: "agent request failed" }, { status: 502 });
+        }
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) return Response.json({ error: "agent error" }, { status: 502 });
+        const content = data.content || [];
+        const toolUses = content.filter((c) => c.type === "tool_use");
+        if (data.stop_reason !== "tool_use" || !toolUses.length) {
+          const reply = content.filter((c) => c.type === "text").map((c) => c.text).join("\n").trim();
+          return Response.json({ reply: reply || "(no reply)", actions: actionsLog });
+        }
+        turns.push({ role: "assistant", content });
+        const results = [];
+        for (const tu of toolUses) {
+          const slug = String(tu.input?.action || "");
+          let out;
+          if (!AGENT_ALLOW.has(slug)) {
+            out = { error: "action not allowed: " + slug };
+          } else {
+            const ex = await composioExecute(env, slug, { userId: user.id }, tu.input.arguments || {});
+            out = ex.successful ? ex.data : { error: ex.error || "action failed" };
+            actionsLog.push(slug);
+          }
+          results.push({ type: "tool_result", tool_use_id: tu.id, content: JSON.stringify(out).slice(0, 8000) });
+        }
+        turns.push({ role: "user", content: results });
+      }
+      return Response.json({ reply: "I ran several steps but couldn't wrap that up — try narrowing the question.", actions: actionsLog });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
