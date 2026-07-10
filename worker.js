@@ -1901,7 +1901,7 @@ async function handleRequest(request, env, ctx) {
         await call("INSTAGRAM_SEND_TEXT_MESSAGE", { recipient_id: recipientId, text: "Automated test reply from the Zephyr Media Agent ✅" });
         await call("INSTAGRAM_SEND_IMAGE", { recipient_id: recipientId, image_url: "https://dummyimage.com/600x600/141018/ff79c6.jpg" });
       }
-      return Response.json({ me, conversation_id: conversationId, recipient: latestFrom || recipientId, results: R });
+      return Response.json({ me, ig_user_id: info.data && info.data.id, conversation_id: conversationId, recipient: latestFrom || recipientId, results: R, raw_conversations: JSON.stringify(conv || {}).slice(0, 800) });
     }
 
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
