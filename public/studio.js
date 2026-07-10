@@ -114,6 +114,13 @@ function sbFmt(s) {
   const m = Math.floor(s / 60), ss = Math.floor(s % 60);
   return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
 }
+// Friendly clip length that never collapses a real short clip to "00:00":
+// sub-minute clips read in seconds ("0.6s", "12.4s"), longer ones as mm:ss.
+function sbFmtDur(s) {
+  if (!isFinite(s) || s <= 0) return '0s';
+  if (s < 60) return (Math.round(s * 10) / 10) + 's';
+  return sbFmt(s);
+}
 // mm:ss:ff at 30fps — the frame field gives iMovie-style frame-exact readout.
 function sbFmtFrames(s) {
   if (!isFinite(s) || s < 0) s = 0;
@@ -337,7 +344,7 @@ function sbRender() {
       // Imported clips carry no title label — the user just wants the frame.
       card.querySelector('b').textContent = s.src === 'import' ? '' : (s.title || 'Shot ' + (i + 1));
       card.querySelector('small').textContent =
-        sbFmt(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status) +
+        sbFmtDur(sbShotDur(s)) + ' · ' + (s.status === 'draft' ? 'not generated' : s.status) +
         (s.onTimeline ? '' : ' · in list');
       card.onclick = (e) => {
         const c = e.target.className || '';
