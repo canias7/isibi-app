@@ -4047,7 +4047,7 @@ function avGender() {
 // the Gender pick; a plain `img` on an option wins if set; otherwise no photo
 // (the colored placeholder shows through).
 function avTileSrc(s, o) {
-  if (s.gendered && o.f) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.png';
+  if (s.gendered && o.f) return '/avatars/' + s.key + '/' + avGender() + '/' + o.f + '.jpg';
   return o.img || '';
 }
 
