@@ -3956,7 +3956,7 @@ const AV_SECTIONS = [
   { key: 'gender', label: 'Gender', icon: '⚧', type: 'cards',
     opts: [{ v: 'Female', ico: '♀' }, { v: 'Male', ico: '♂' }] },
   { key: 'skin', label: 'Skin Color', icon: '🎨', type: 'swatch',
-    opts: [{ v: 'Fair', c: '#f2e3d5' }, { v: 'Light', c: '#e6c8a8' }, { v: 'Medium', c: '#d0a06f' }, { v: 'Tan', c: '#a86f43' }, { v: 'Brown', c: '#7a4a26' }, { v: 'Deep', c: '#4a2c17' }] },
+    opts: [{ v: 'Porcelain', c: '#f4ddcf' }, { v: 'Fair', c: '#ebcaad' }, { v: 'Light', c: '#d8b48d' }, { v: 'Beige', c: '#ca9f74' }, { v: 'Tan', c: '#bd8a5a' }, { v: 'Golden', c: '#b0703c' }, { v: 'Caramel', c: '#8a5531' }, { v: 'Rich brown', c: '#683e22' }, { v: 'Deep brown', c: '#492a19' }, { v: 'Ebony', c: '#2b190f' }] },
   { key: 'ethnicity', label: 'Ethnicity / Origin Base', icon: '🌍', type: 'images',
     opts: [{ v: 'African' }, { v: 'Asian' }, { v: 'European' }, { v: 'Indian' }, { v: 'Middle Eastern' }, { v: 'Mixed' }] },
   { key: 'age', label: 'Age', icon: '🎂', type: 'slider', min: 18, max: 100, def: 25 },
