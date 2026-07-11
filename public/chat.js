@@ -4536,6 +4536,7 @@ function renderSection() {
   if (!body) return;
   if (maSec === 'analytics') { renderAnalytics(body); return; }
   if (maSec === 'posts') { renderPosts(body); return; }
+  if (maSec === 'dms') { renderDms(body); return; }
   const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
   body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
     '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4672,6 +4673,19 @@ function paintPosts(body, d) {
 let dmConvs = null;
 let dmOpen = null;   // { id, user, user_id }
 
+// Renders the DMs tab as a conversation list (reading/replying comes later).
+function renderDms(body) {
+  body.innerHTML =
+    '<div class="ma-dm" id="maDm">' +
+      '<div class="ma-dm-head"><span>Direct Messages</span>' +
+        '<button type="button" class="ma-dm-refresh" id="maDmRefresh" title="Refresh">↻</button></div>' +
+      '<div class="ma-dm-list ma-dm-list-full" id="maDmList"></div>' +
+    '</div>';
+  loadDMs();
+  const dr = document.getElementById('maDmRefresh');
+  if (dr) dr.onclick = () => loadDMs();
+}
+
 async function loadDMs() {
   const list = document.getElementById('maDmList');
   if (list) list.innerHTML = '<div class="ma-dm-empty">Loading conversations…</div>';
@@ -4704,7 +4718,8 @@ async function openThread(c) {
   dmOpen = c;
   renderDmList();
   const t = document.getElementById('maDmThread');
-  if (t) t.innerHTML = '<div class="ma-dm-empty">Loading…</div>';
+  if (!t) return;   // list-only mode (no thread pane yet) — just highlight
+  t.innerHTML = '<div class="ma-dm-empty">Loading…</div>';
   let msgs = [];
   try {
     const r = await apiFetch('/api/social/dm?conversation_id=' + encodeURIComponent(c.id));
