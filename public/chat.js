@@ -4449,13 +4449,15 @@ let igPostsLoading = false;
 let postsSort = 'recent';  // 'recent' | 'top'
 let igComments = null;     // cached comments payload (per session)
 let igCommentsLoading = false;
+let arState = null;        // auto-reply config { dm_enabled, dm_prompt, comment_enabled, comment_prompt }
+let arChannel = 'dm';      // active auto-reply sub-tab: 'dm' | 'comment'
 const IG_SECTIONS = [
-  { key: 'autoreply', label: 'Auto reply' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'posts', label: 'Posts' },
   { key: 'dms', label: 'DMs' },
   { key: 'comments', label: 'Comments' },
   { key: 'triggers', label: 'Triggers' },
+  { key: 'autoreply', label: 'Auto reply' },
 ];
 
 function renderMediaAgent() {
@@ -4541,6 +4543,7 @@ function renderSection() {
   if (maSec === 'posts') { renderPosts(body); return; }
   if (maSec === 'dms') { renderDms(body); return; }
   if (maSec === 'comments') { renderComments(body); return; }
+  if (maSec === 'autoreply') { renderAutoReply(body); return; }
   const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
   body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
     '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4719,6 +4722,87 @@ function paintComments(body, d) {
   body.querySelectorAll('[data-perma]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
   });
+}
+
+// ── Auto reply section (prompt-driven, per channel: DM + Comments) ──
+function renderAutoReply(body) {
+  if (arState) { paintAutoReply(body); return; }
+  body.innerHTML = '<div class="sec-loading">Loading…</div>';
+  apiFetch('/api/social/autoreply')
+    .then((r) => (r.ok ? r.json() : {}))
+    .catch(() => ({}))
+    .then((c) => {
+      arState = {
+        dm_enabled: !!(c && c.dm_enabled), dm_prompt: (c && c.dm_prompt) || '',
+        comment_enabled: !!(c && c.comment_enabled), comment_prompt: (c && c.comment_prompt) || '',
+      };
+      if (maSec === 'autoreply') paintAutoReply(document.getElementById('secBody') || body);
+    });
+}
+
+// Pull whatever's typed into the visible textarea back into arState so a
+// sub-tab switch (or save) never loses in-progress edits.
+function arSyncFromDom() {
+  const ta = document.getElementById('arPrompt');
+  if (ta) arState[arChannel + '_prompt'] = ta.value;
+  const sw = document.getElementById('arEnabled');
+  if (sw) arState[arChannel + '_enabled'] = sw.classList.contains('on');
+}
+
+function paintAutoReply(body) {
+  if (!body || !arState) return;
+  const ch = arChannel;                       // 'dm' | 'comment'
+  const on = !!arState[ch + '_enabled'];
+  const prompt = arState[ch + '_prompt'] || '';
+  const isDm = ch === 'dm';
+  const noun = isDm ? 'direct messages' : 'comments';
+  const ph = isDm
+    ? 'e.g. Reply warmly and briefly as the account owner. Thank people for reaching out. If someone asks about pricing or collabs, point them to studio@example.com. Never share personal details or promise delivery dates.'
+    : 'e.g. Thank people for kind comments in a short, friendly way. Answer simple questions about the work. If a comment is negative or asks something you can’t answer, stay polite and don’t engage further.';
+  body.innerHTML =
+    '<div class="ar">' +
+      '<div class="ar-subtabs">' +
+        '<button type="button" class="ar-subtab' + (isDm ? ' on' : '') + '" data-arch="dm">DM</button>' +
+        '<button type="button" class="ar-subtab' + (!isDm ? ' on' : '') + '" data-arch="comment">Comments</button>' +
+      '</div>' +
+      '<div class="ar-body">' +
+        '<div class="ar-row">' +
+          '<div class="ar-row-l"><div class="ar-row-t">Auto reply to ' + noun + '</div>' +
+            '<div class="ar-row-s">When on, the agent replies using your instructions below.</div></div>' +
+          '<button type="button" class="ar-switch' + (on ? ' on' : '') + '" id="arEnabled" role="switch" aria-checked="' + on + '"><span class="ar-knob"></span></button>' +
+        '</div>' +
+        '<div class="ar-field"><div class="ar-label">Instructions <span class="ar-hint">— tone, what to say, what to avoid</span></div>' +
+          '<textarea class="ar-prompt" id="arPrompt" placeholder="' + esc(ph) + '">' + esc(prompt) + '</textarea></div>' +
+        '<div class="ar-foot"><button type="button" class="ma-btn ma-btn-on" id="arSave">Save</button>' +
+          '<span class="ar-status" id="arStatus"></span></div>' +
+      '</div>' +
+    '</div>';
+  body.querySelectorAll('[data-arch]').forEach((b) => {
+    b.onclick = () => { if (b.dataset.arch === arChannel) return; arSyncFromDom(); arChannel = b.dataset.arch; paintAutoReply(document.getElementById('secBody')); };
+  });
+  const sw = document.getElementById('arEnabled');
+  if (sw) sw.onclick = () => { const v = !sw.classList.contains('on'); sw.classList.toggle('on', v); sw.setAttribute('aria-checked', v); };
+  const save = document.getElementById('arSave');
+  if (save) save.onclick = () => saveAutoReply();
+}
+
+async function saveAutoReply() {
+  arSyncFromDom();
+  const save = document.getElementById('arSave');
+  const status = document.getElementById('arStatus');
+  const setStatus = (t, kind) => { if (status) { status.textContent = t; status.className = 'ar-status' + (kind ? ' ' + kind : ''); } };
+  if (arState[arChannel + '_enabled'] && !String(arState[arChannel + '_prompt']).trim()) {
+    setStatus('Add instructions before turning it on.', 'warn'); return;
+  }
+  if (save) { save.disabled = true; save.textContent = 'Saving…'; }
+  try {
+    const r = await apiFetch('/api/social/autoreply', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(arState),
+    });
+    setStatus(r.ok ? 'Saved ✓' : 'Couldn’t save — try again.', r.ok ? 'ok' : 'warn');
+  } catch { setStatus('Network error.', 'warn'); }
+  if (save) { save.disabled = false; save.textContent = 'Save'; }
 }
 
 // ── Media Agent · Instagram DM inbox ──
