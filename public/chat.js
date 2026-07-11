@@ -4443,6 +4443,8 @@ let maApp = 'instagram';   // selected app in the switcher
 let maSec = 'analytics';   // selected section within the app panel
 let igAnalytics = null;    // cached analytics payload (per session)
 let igAnalyticsLoading = false;
+let ytAnalytics = null;    // cached YouTube analytics payload (per session)
+let ytAnalyticsLoading = false;
 let igPosts = null;        // cached posts payload (per session)
 let igPostsLoading = false;
 let postsSort = 'recent';  // 'recent' | 'top'
@@ -4459,6 +4461,13 @@ const IG_SECTIONS = [
   { key: 'autoreply', label: 'Auto reply' },
   { key: 'settings', label: 'Settings' },
 ];
+const YT_SECTIONS = [
+  { key: 'analytics', label: 'Analytics' },
+  { key: 'videos', label: 'Videos' },
+  { key: 'playlists', label: 'Playlists' },
+];
+// The section tabs for the active app.
+function appSections() { return maApp === 'youtube' ? YT_SECTIONS : IG_SECTIONS; }
 
 function renderMediaAgent() {
   const view = document.getElementById('viewMediaAgent');
@@ -4506,13 +4515,12 @@ function selectMaApp(app) {
   renderAppMain();
 }
 
-// The per-app workspace. Instagram gets the section tabs (Analytics/Posts/DMs/
-// Comments/Triggers); YouTube's panel is not designed yet. Not-connected apps
-// point the user to Integrations to link.
+// The per-app workspace. Each app gets its own section tabs (Instagram:
+// Analytics/Posts/DMs/…; YouTube: Analytics/Videos/Playlists). Not-connected
+// apps point the user to Integrations to link.
 function renderAppMain() {
   const el = document.getElementById('appMain');
   if (!el) return;
-  if (maApp === 'youtube') { el.innerHTML = appNote('The YouTube workspace is coming soon.'); return; }
   if (!socialStatus) { el.innerHTML = appNote('Checking connection…'); return; }
   if (socialStatus._off) { el.innerHTML = appNote('Social connections aren’t configured on the server yet.'); return; }
   const slot = socialStatus[maApp];
@@ -4525,9 +4533,11 @@ function renderAppMain() {
     if (cta) cta.onclick = () => showView('integrations');
     return;
   }
+  const sections = appSections();
+  if (!sections.some((s) => s.key === maSec)) maSec = sections[0].key;   // keep section valid per app
   el.innerHTML =
     '<div class="sec-tabs">' +
-      IG_SECTIONS.map((s) => '<button type="button" class="sec-tab' + (maSec === s.key ? ' on' : '') + '" data-sec="' + s.key + '">' + s.label + '</button>').join('') +
+      sections.map((s) => '<button type="button" class="sec-tab' + (maSec === s.key ? ' on' : '') + '" data-sec="' + s.key + '">' + s.label + '</button>').join('') +
     '</div>' +
     '<div class="sec-body" id="secBody"></div>';
   el.querySelectorAll('[data-sec]').forEach((b) => { b.onclick = () => { maSec = b.dataset.sec; renderAppMain(); }; });
@@ -4539,6 +4549,13 @@ function appNote(text) { return '<div class="app-empty"><p>' + esc(text) + '</p>
 function renderSection() {
   const body = document.getElementById('secBody');
   if (!body) return;
+  if (maApp === 'youtube') {
+    if (maSec === 'analytics') { renderYtAnalytics(body); return; }
+    const yl = (YT_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
+    body.innerHTML = '<div class="sec-soon"><p><b>' + esc(yl) + '</b> is coming soon.</p>' +
+      '<p class="sec-soon-s">We’re building this section next.</p></div>';
+    return;
+  }
   if (maSec === 'analytics') { renderAnalytics(body); return; }
   if (maSec === 'posts') { renderPosts(body); return; }
   if (maSec === 'dms') { renderDms(body); return; }
@@ -4547,6 +4564,67 @@ function renderSection() {
   const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
   body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
     '<p class="sec-soon-s">We’re building this section next.</p></div>';
+}
+
+// ── YouTube Analytics section (live channel data) ──
+function renderYtAnalytics(body) {
+  if (ytAnalytics) { paintYtAnalytics(body, ytAnalytics); return; }
+  body.innerHTML = '<div class="sec-loading">Loading analytics…</div>';
+  if (ytAnalyticsLoading) return;
+  ytAnalyticsLoading = true;
+  apiFetch('/api/social/analytics?platform=youtube')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Analytics isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { ytAnalytics = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { ytAnalytics = { _err: 'Network error.' }; })
+    .finally(() => {
+      ytAnalyticsLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maApp === 'youtube' && maSec === 'analytics') paintYtAnalytics(b, ytAnalytics);
+    });
+}
+
+function paintYtAnalytics(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="ytRetry">Retry</button></div>';
+    const rt = document.getElementById('ytRetry');
+    if (rt) rt.onclick = () => { ytAnalytics = null; renderYtAnalytics(body); };
+    return;
+  }
+  const ch = d.channel || {};
+  const head = ch.title
+    ? '<div class="yt-chan">' +
+        '<span class="yt-chan-av"' + (ch.thumb ? ' style="background-image:url(' + esc(ch.thumb) + ')"' : '') + '></span>' +
+        '<span class="yt-chan-meta"><span class="yt-chan-t">' + esc(ch.title) + '</span>' +
+          (ch.handle ? '<span class="yt-chan-h">' + esc(ch.handle) + '</span>' : '') + '</span>' +
+      '</div>'
+    : '';
+  const tiles = [
+    ['Subscribers', d.subscribers], ['Views', d.views], ['Videos', d.video_count],
+  ].map(([l, v]) => '<div class="stat"><div class="stat-l">' + l + '</div><div class="stat-v">' + maNum(v) + '</div></div>').join('');
+  const vids = (d.videos || []).map((v) =>
+    '<button type="button" class="prow" data-yturl="' + esc(v.url || '') + '">' +
+      '<span class="pthumb pthumb-wide"' + (v.thumb ? ' style="background-image:url(' + esc(v.thumb) + ')"' : '') + '></span>' +
+      '<span class="pmeta"><span class="pt">' + esc(v.title || '(untitled)') + '</span>' +
+        '<span class="ps">' + esc(ytDate(v.published)) + '</span></span>' +
+    '</button>').join('');
+  body.innerHTML =
+    head +
+    '<div class="stats stats-3">' + tiles + '</div>' +
+    (vids ? '<div class="sec-sub">Recent videos</div>' + vids : '');
+  body.querySelectorAll('[data-yturl]').forEach((b) => {
+    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+  });
+}
+
+// "Jul 4, 2026" from an ISO date (blank on failure).
+function ytDate(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  try { return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return ''; }
 }
 
 // Compact number: <10k with thousands separators, else 1-decimal "k".

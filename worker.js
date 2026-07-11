@@ -1117,6 +1117,55 @@ async function instagramAnalytics(env, userId, debug) {
   return out;
 }
 
+// YouTube channel analytics. All three reads are verified live (see
+// docs/media-agent.md): channel info, statistics, and recent uploads. Every
+// field degrades to null/[] on failure rather than throwing.
+async function youtubeAnalytics(env, userId) {
+  const ident = { userId };
+  const out = { channel: null, subscribers: null, views: null, video_count: null, videos: [] };
+  try {
+    const ch = await composioExecute(env, "YOUTUBE_LIST_CHANNELS", ident, { mine: true });
+    const c = (ch.data && (ch.data.items || [])[0]) || null;
+    if (c) {
+      const sn = c.snippet || {};
+      const th = sn.thumbnails || {};
+      out.channel = {
+        id: c.id || null,
+        title: sn.title || null,
+        handle: sn.customUrl || null,
+        thumb: (th.medium && th.medium.url) || (th.default && th.default.url) || (th.high && th.high.url) || null,
+      };
+    }
+  } catch {}
+  try {
+    const st = await composioExecute(env, "YOUTUBE_GET_CHANNEL_STATISTICS", ident, { mine: true });
+    const s = (st.data && ((st.data.channels || [])[0] || (st.data.items || [])[0])) || null;
+    const stats = s && s.statistics;
+    if (stats) {
+      out.subscribers = anNum(stats.subscriberCount);
+      out.views = anNum(stats.viewCount);
+      out.video_count = anNum(stats.videoCount);
+    }
+  } catch {}
+  try {
+    const vids = await composioExecute(env, "YOUTUBE_LIST_CHANNEL_VIDEOS", ident, { mine: true, maxResults: 12 });
+    const items = (vids.data && (vids.data.items || [])) || [];
+    out.videos = items.map((v) => {
+      const sn = v.snippet || {};
+      const th = sn.thumbnails || {};
+      const vidId = (sn.resourceId && sn.resourceId.videoId) || null;
+      return {
+        id: vidId,
+        title: String(sn.title || "").slice(0, 100),
+        thumb: (th.medium && th.medium.url) || (th.high && th.high.url) || (th.default && th.default.url) || null,
+        published: sn.publishedAt || null,
+        url: vidId ? "https://www.youtube.com/watch?v=" + vidId : null,
+      };
+    }).filter((v) => v.id).slice(0, 8);
+  } catch {}
+  return out;
+}
+
 // The user's Instagram posts (most recent first), normalized for the grid.
 // Likes/comments come free with the media list; per-post reach would need an
 // insight call each, so it's left for a detail view later.
@@ -2310,18 +2359,22 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // Analytics dashboard for a connected account (read-only). Instagram only
-    // for now; returns a normalized payload with null for anything unavailable.
+    // Analytics dashboard for a connected account (read-only). Instagram and
+    // YouTube; returns a normalized payload with null for anything unavailable.
     if (url.pathname === "/api/social/analytics" && request.method === "GET") {
       const user = await authUser(request);
       if (!user) return UNAUTHED();
       if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
       if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
       const platform = (url.searchParams.get("platform") || "instagram").toLowerCase();
-      if (platform !== "instagram") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      if (platform !== "instagram" && platform !== "youtube") {
+        return Response.json({ error: "unsupported platform" }, { status: 400 });
+      }
       try {
-        const data = await instagramAnalytics(env, user.id, url.searchParams.get("debug") === "1");
-        return Response.json({ ok: true, ...data });
+        const data = platform === "youtube"
+          ? await youtubeAnalytics(env, user.id)
+          : await instagramAnalytics(env, user.id, url.searchParams.get("debug") === "1");
+        return Response.json({ ok: true, platform, ...data });
       } catch {
         return Response.json({ error: "analytics unavailable" }, { status: 503 });
       }
