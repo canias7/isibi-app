@@ -1738,22 +1738,28 @@ async function handleRequest(request, env, ctx) {
           if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
         }
 
-        // Reconcile @ImageN reference tags with the ACTUAL generation. Tags only
-        // mean something for a Seedance reference-to-video; on a rerun/revise of
-        // an old reference prompt (references already cleared), or a plan-mode
-        // prompt whose reference set shrank, they'd be dangling noise pointing at
-        // images that aren't there. Strip tags that don't map to a sent image.
+        // Reconcile @ImageN reference tags with the ACTUAL generation. Seedance
+        // binds tags natively; Veo's reference endpoint has no tag concept, so
+        // its tags are translated to plain "reference image N" wording instead
+        // of stripped (the UI badges refs as @ImageN on every ref-capable model).
+        // On a rerun/revise of an old reference prompt (references already
+        // cleared), or a plan-mode prompt whose reference set shrank, tags would
+        // be dangling noise pointing at images that aren't there — drop those.
         if (typeof input.prompt === "string" && /@(?:Image|Video|Audio)\d/i.test(input.prompt)) {
-          const isRefGen = isSeedance && endpoint.includes("/reference-to-video");
-          const refN = isRefGen && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
-          if (!isRefGen) {
-            // Drop the appended "Feature @Image1, @Image2." clause and any inline tags.
+          const refN = endpoint.includes("/reference-to-video") && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
+          if (isSeedance && refN) {
+            // Native tag binding: keep only tags that point at an attached reference.
+            input.prompt = input.prompt.replace(/@(?:Image|Video|Audio)(\d+)/gi, (m, d) => (+d <= refN ? m : ""));
+          } else if (refN) {
+            // Tagless family (Veo): translate cited tags into natural wording.
+            input.prompt = input.prompt.replace(/@Image(\d+)/gi, (m, d) => (+d <= refN ? "reference image " + d : ""));
+            input.prompt = input.prompt.replace(/\s*@(?:Video|Audio)\d+/gi, "");
+          } else {
+            // Not a reference gen: drop the appended "Feature @Image1, @Image2."
+            // clause and any inline tags.
             input.prompt = input.prompt
               .replace(/\s*\bFeature\s+@(?:Image|Video|Audio)\d+(?:\s*,\s*@(?:Image|Video|Audio)\d+)*\s*\.?/gi, "")
               .replace(/\s*@(?:Image|Video|Audio)\d+/gi, "");
-          } else {
-            // Reference gen: keep only tags that point at an attached reference.
-            input.prompt = input.prompt.replace(/@(?:Image|Video|Audio)(\d+)/gi, (m, d) => (+d <= refN ? m : ""));
           }
           input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
         }
@@ -2858,7 +2864,7 @@ async function handleRequest(request, env, ctx) {
       const refLine = (refCount && kind === "video")
         ? (/seedance/.test(genModel)
           ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. Seedance binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.`
-          : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words.`)
+          : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words. The UI labels them @Image1…@Image${refCount} in order, so if the user's message cites @ImageN, that's the reference they mean — refer to it naturally in the prompt (e.g. "the subject from reference image ${refCount > 1 ? "N" : "1"}"), not by tag.`)
         : "";
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
