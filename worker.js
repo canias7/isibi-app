@@ -1205,6 +1205,28 @@ async function youtubeVideos(env, userId, limit) {
   return { videos: list };
 }
 
+// The channel's playlists for the YouTube Playlists tab (verified read).
+async function youtubePlaylists(env, userId) {
+  const ident = { userId };
+  try {
+    const pl = await composioExecute(env, "YOUTUBE_LIST_USER_PLAYLISTS", ident, {});
+    const items = (pl.data && (pl.data.items || [])) || [];
+    const playlists = items.map((p) => {
+      const sn = p.snippet || {};
+      const th = sn.thumbnails || {};
+      const cd = p.contentDetails || {};
+      return {
+        id: p.id || null,
+        title: String(sn.title || "").slice(0, 140),
+        thumb: (th.medium && th.medium.url) || (th.high && th.high.url) || (th.default && th.default.url) || null,
+        count: anNum(cd.itemCount),
+        url: p.id ? "https://www.youtube.com/playlist?list=" + p.id : null,
+      };
+    }).filter((p) => p.id);
+    return { playlists };
+  } catch { return { playlists: [] }; }
+}
+
 // The user's Instagram posts (most recent first), normalized for the grid.
 // Likes/comments come free with the media list; per-post reach would need an
 // insight call each, so it's left for a detail view later.
@@ -2436,6 +2458,22 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, platform, ...data });
       } catch {
         return Response.json({ error: "posts unavailable" }, { status: 503 });
+      }
+    }
+
+    // The user's YouTube playlists (read-only).
+    if (url.pathname === "/api/social/playlists" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
+      const platform = (url.searchParams.get("platform") || "youtube").toLowerCase();
+      if (platform !== "youtube") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      try {
+        const data = await youtubePlaylists(env, user.id);
+        return Response.json({ ok: true, ...data });
+      } catch {
+        return Response.json({ error: "playlists unavailable" }, { status: 503 });
       }
     }
 

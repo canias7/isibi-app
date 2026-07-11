@@ -4447,6 +4447,8 @@ let ytAnalytics = null;    // cached YouTube analytics payload (per session)
 let ytAnalyticsLoading = false;
 let ytVideos = null;       // cached YouTube videos payload (per session)
 let ytVideosLoading = false;
+let ytPlaylists = null;    // cached YouTube playlists payload (per session)
+let ytPlaylistsLoading = false;
 let igPosts = null;        // cached posts payload (per session)
 let igPostsLoading = false;
 let postsSort = 'recent';  // 'recent' | 'top'
@@ -4554,6 +4556,7 @@ function renderSection() {
   if (maApp === 'youtube') {
     if (maSec === 'analytics') { renderYtAnalytics(body); return; }
     if (maSec === 'videos') { renderYtVideos(body); return; }
+    if (maSec === 'playlists') { renderYtPlaylists(body); return; }
     const yl = (YT_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
     body.innerHTML = '<div class="sec-soon"><p><b>' + esc(yl) + '</b> is coming soon.</p>' +
       '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4617,6 +4620,52 @@ function paintYtAnalytics(body, d) {
     head +
     '<div class="stats stats-3">' + tiles + '</div>' +
     (vids ? '<div class="sec-sub">Recent videos</div>' + vids : '');
+  body.querySelectorAll('[data-yturl]').forEach((b) => {
+    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+  });
+}
+
+// ── YouTube Playlists section ──
+function renderYtPlaylists(body) {
+  if (ytPlaylists) { paintYtPlaylists(body, ytPlaylists); return; }
+  body.innerHTML = '<div class="sec-loading">Loading playlists…</div>';
+  if (ytPlaylistsLoading) return;
+  ytPlaylistsLoading = true;
+  apiFetch('/api/social/playlists?platform=youtube')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Playlists isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { ytPlaylists = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { ytPlaylists = { _err: 'Network error.' }; })
+    .finally(() => {
+      ytPlaylistsLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maApp === 'youtube' && maSec === 'playlists') paintYtPlaylists(b, ytPlaylists);
+    });
+}
+
+function paintYtPlaylists(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="ytpRetry">Retry</button></div>';
+    const rt = document.getElementById('ytpRetry');
+    if (rt) rt.onclick = () => { ytPlaylists = null; renderYtPlaylists(body); };
+    return;
+  }
+  const pls = d.playlists || [];
+  if (!pls.length) {
+    body.innerHTML = '<div class="sec-soon"><p>No playlists yet.</p>' +
+      '<p class="sec-soon-s">Playlists on your channel will show up here.</p></div>';
+    return;
+  }
+  body.innerHTML =
+    '<div class="ytg">' + pls.map((p) =>
+      '<button type="button" class="ytv" data-yturl="' + esc(p.url || '') + '">' +
+        '<span class="ytv-thumb"' + (p.thumb ? ' style="background-image:url(' + esc(p.thumb) + ')"' : '') + '>' +
+          '<span class="ytv-pl">☰ ' + (p.count != null ? maNum(p.count) : '') + '</span></span>' +
+        '<span class="ytv-t">' + esc(p.title || '(untitled)') + '</span>' +
+        '<span class="ytv-m">' + (p.count != null ? maNum(p.count) + ' video' + (p.count === 1 ? '' : 's') : 'Playlist') + '</span>' +
+      '</button>').join('') + '</div>';
   body.querySelectorAll('[data-yturl]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
   });
