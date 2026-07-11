@@ -34,6 +34,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Attachments cleared when switching to a non-supporting model — NOT a bug (owner's call)
+- **Status:** ✅ working as intended — do not change
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` `updateAttachVisibility()` (~line 384)
+- **What:** Attach an image → switch to a model without image support → switch
+  back: the image is gone. The code deliberately deletes incompatible
+  attachments on model switch (rather than hiding them) so a stale attachment
+  can never be silently sent to a model that can't use it (send code doesn't
+  gate by caps).
+- **Decision:** Owner reviewed 2026-07-11 and prefers this behavior. Leave as is.
+
 ### Messages leak across all chats — thread never repaints on switch
 - **Status:** ✅ fixed
 - **Reported:** 2026-07-11
