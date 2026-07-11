@@ -4707,21 +4707,71 @@ function paintYtVideos(body, d) {
     return;
   }
   const vids = d.videos || [];
-  if (!vids.length) {
-    body.innerHTML = '<div class="sec-soon"><p>No videos yet.</p>' +
-      '<p class="sec-soon-s">Uploads on your channel will show up here.</p></div>';
-    return;
-  }
-  body.innerHTML =
-    '<div class="ytg">' + vids.map((v) =>
-      '<button type="button" class="ytv" data-yturl="' + esc(v.url || '') + '">' +
-        '<span class="ytv-thumb"' + (v.thumb ? ' style="background-image:url(' + esc(v.thumb) + ')"' : '') + '></span>' +
-        '<span class="ytv-t">' + esc(v.title || '(untitled)') + '</span>' +
-        '<span class="ytv-m">' + (v.views != null ? '▶ ' + maNum(v.views) + ' views' : ytDate(v.published)) + '</span>' +
-      '</button>').join('') + '</div>';
+  const head = '<div class="posts-head"><span class="posts-count">' + vids.length +
+    ' video' + (vids.length === 1 ? '' : 's') + '</span>' +
+    '<div class="posts-ctrls"><button type="button" class="posts-add" id="ytAdd" title="Upload video" aria-label="Upload to YouTube">+</button></div></div>';
+  const grid = vids.length
+    ? '<div class="ytg">' + vids.map((v) =>
+        '<button type="button" class="ytv" data-yturl="' + esc(v.url || '') + '">' +
+          '<span class="ytv-thumb"' + (v.thumb ? ' style="background-image:url(' + esc(v.thumb) + ')"' : '') + '></span>' +
+          '<span class="ytv-t">' + esc(v.title || '(untitled)') + '</span>' +
+          '<span class="ytv-m">' + (v.views != null ? '▶ ' + maNum(v.views) + ' views' : ytDate(v.published)) + '</span>' +
+        '</button>').join('') + '</div>'
+    : '<div class="sec-soon"><p>No videos yet.</p>' +
+        '<p class="sec-soon-s">Tap + to upload a video to your channel.</p></div>';
+  body.innerHTML = head + grid;
   body.querySelectorAll('[data-yturl]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
   });
+  const add = document.getElementById('ytAdd');
+  if (add) add.onclick = () => openYtComposer(body);
+}
+
+// The "+" composer in the Videos tab — upload a video to YouTube. Reuses the
+// shared publish foot/doPublish (pubPlatform='youtube').
+function openYtComposer(body) {
+  pubPlatform = 'youtube';
+  pubBusy = false;
+  body.innerHTML =
+    '<div class="ma-publish" id="maPublish">' +
+      '<div class="ma-pub-head">' +
+        '<button type="button" class="ma-pub-back" id="pubBack">← Videos</button>' +
+        '<span class="ma-pub-title">Upload to YouTube</span>' +
+      '</div>' +
+      '<div class="ma-pub-body">' +
+        '<label class="ma-pub-l">Video</label>' +
+        '<div class="pub-preview" id="pubPreview"></div>' +
+        '<div class="pub-pick">' +
+          '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="pubFileBtn">📁 Choose from computer</button>' +
+          '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="pubGal">🖼 From gallery</button>' +
+        '</div>' +
+        '<input type="file" id="pubFile" accept="video/*" style="display:none">' +
+        '<label class="ma-pub-l">or paste a public URL</label>' +
+        '<input id="pubMedia" class="ma-pub-in" placeholder="https://….mp4">' +
+        '<label class="ma-pub-l">Title</label>' +
+        '<input id="pubTitle" class="ma-pub-in" placeholder="Video title">' +
+        '<label class="ma-pub-l">Description</label>' +
+        '<textarea id="pubDesc" class="ma-pub-ta ma-pub-in" placeholder="Description (optional)"></textarea>' +
+        '<label class="ma-pub-l">Privacy</label>' +
+        '<select id="pubPrivacy" class="ma-pub-in">' +
+          '<option value="private">Private (only you)</option>' +
+          '<option value="unlisted">Unlisted (anyone with the link)</option>' +
+          '<option value="public">Public</option>' +
+        '</select>' +
+        '<div class="ma-pub-foot" id="pubFoot"></div>' +
+      '</div>' +
+    '</div>';
+  const back = document.getElementById('pubBack');
+  if (back) back.onclick = () => { ytVideos = null; renderYtVideos(body); };
+  const gal = document.getElementById('pubGal');
+  if (gal) gal.onclick = () => openPubGalleryPicker(true);   // videos only
+  const fileBtn = document.getElementById('pubFileBtn');
+  const fileIn = document.getElementById('pubFile');
+  if (fileBtn && fileIn) {
+    fileBtn.onclick = () => fileIn.click();
+    fileIn.onchange = () => { if (fileIn.files && fileIn.files[0]) pubUploadDeviceFile(fileIn.files[0]); };
+  }
+  renderPubFoot();
 }
 
 // Compact number: <10k with thousands separators, else 1-decimal "k".
@@ -4971,10 +5021,11 @@ function allGalleryMedia() {
 
 // Gallery picker for the composer — images and videos; a pick fills the URL +
 // type fields (reusing the shared .gal-overlay styling).
-function openPubGalleryPicker() {
+function openPubGalleryPicker(videoOnly) {
   const old = document.querySelector('.gal-overlay');
   if (old) old.remove();
-  const items = allGalleryMedia();
+  let items = allGalleryMedia();
+  if (videoOnly) items = items.filter((it) => it.kind === 'video');
   const ov = document.createElement('div');
   ov.className = 'gal-overlay';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
