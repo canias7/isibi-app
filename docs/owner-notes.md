@@ -34,16 +34,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
-### YouTube Videos tab: 4 cards per row (panel widened, card size unchanged)
+### Media Agent: wide panel on EVERY tab (superseded the Videos-only widening)
 - **Status:** ✅ done
 - **Reported:** 2026-07-11
-- **Where:** `public/styles.css` `.ma-page.wide` / `.ytg`; `public/chat.js` `renderSection()`
-- **What:** Owner wants the Videos grid 4-across without changing card size —
-  i.e. widen the space, not the cards.
-- **Fix:** `renderSection()` toggles `.wide` on `.ma-page` only for
-  YouTube → Videos (other tabs keep the 720px panel). Wide panel caps at
-  1420px = 4 × ~332px cards; steps down to 3/2 columns on narrower windows so
-  card size stays steady. (PR #___)
+- **Where:** `public/styles.css` `.ma-page` / `.ytg` / `.grid`
+- **What:** First pass widened only YouTube → Videos (PR #352). Owner then said
+  every tab — including all Instagram tabs — should use that wide size.
+- **Fix:** `.ma-page` is now always 1420px max (the `.wide` toggle was removed);
+  YouTube videos run 4-up (~332px cards, same as the old 2-up/720px), IG posts
+  run 6-up (~215px tiles, same as the old 3-up). Column counts step down on
+  narrower windows so cards keep their size. (PR #___)
+- **Preference:** grids scale by ADDING COLUMNS, never by growing cards.
 
 ### YouTube Videos tab: deleted-video tombstones shown + no thumbnails on real videos
 - **Status:** ✅ fixed

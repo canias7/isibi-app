@@ -4545,10 +4545,6 @@ function appNote(text) { return '<div class="app-empty"><p>' + esc(text) + '</p>
 function renderSection() {
   const body = document.getElementById('secBody');
   if (!body) return;
-  // The YouTube Videos grid runs 4 cards across at the standard card size, so
-  // its panel needs more room than the default 720px — widen only there.
-  const page = body.closest('.ma-page');
-  if (page) page.classList.toggle('wide', maApp === 'youtube' && maSec === 'videos');
   if (maApp === 'youtube') {
     if (maSec === 'analytics') { renderYtAnalytics(body); return; }
     if (maSec === 'videos') { renderYtVideos(body); return; }
