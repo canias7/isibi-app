@@ -2380,49 +2380,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP diagnostic — why does the tester's custom app read 0 comments?
-    // Hash-gated + uid-locked to the App Review tester. Reports the raw media +
-    // per-post comment-fetch results so we can see if it's a permission error,
-    // a swallowed error, or genuinely empty. Reverted after use.
-    if (url.pathname === "/api/_diag_tcomments" && request.method === "POST") {
-      const b = await request.json().catch(() => ({}));
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(b.key || ""))))]
-        .map((x) => x.toString(16).padStart(2, "0")).join("");
-      if (hash !== "0c9dcd738255cac5ca7ac0d1d2e878771ad4ed89dce13b831fce45162fad89c9") {
-        return Response.json({ error: "nope" }, { status: 403 });
-      }
-      const uid = "36cb7d83-b310-4715-b11e-0df2ed5618e0";
-      const ident = { userId: uid };
-      const out = { posts: [] };
-      try {
-        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
-        const d = (info.data && (info.data.data || info.data)) || {};
-        out.me = d.username; out.igId = d.id || d.ig_id || null;
-        const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
-          ig_user_id: out.igId, limit: 8, fields: "id,media_type,permalink,timestamp",
-        });
-        out.mediaHttp = m.http; out.mediaSuccessful = m.successful; out.mediaError = m.error;
-        const media = anMediaList(m.data).slice(0, 8);
-        out.mediaCount = media.length;
-        for (const post of media) {
-          const c = await composioExecute(env, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", ident, { ig_media_id: post.id });
-          const list = (c.data && (c.data.data || (c.data.comments && c.data.comments.data))) || [];
-          out.posts.push({
-            id: post.id, permalink: post.permalink || null,
-            http: c.http, successful: c.successful, error: c.error,
-            commentCount: Array.isArray(list) ? list.length : 0,
-            raw: JSON.stringify(c.data).slice(0, 1500),
-          });
-          // Also try INSTAGRAM_GET_POST_COMMENTS (older action) to compare shapes.
-          try {
-            const c2 = await composioExecute(env, "INSTAGRAM_GET_POST_COMMENTS", ident, { media_id: post.id });
-            out.posts[out.posts.length - 1].alt = { http: c2.http, successful: c2.successful, error: c2.error, raw: JSON.stringify(c2.data).slice(0, 800) };
-          } catch (e2) { out.posts[out.posts.length - 1].alt = { thrown: String(e2 && e2.message || e2) }; }
-        }
-      } catch (e) { out.error = String(e && e.message || e); }
-      return Response.json(out);
-    }
-
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
     // per-user in user_autoreply (RLS own-row). The execution engine that acts
     // on this config is separate; here we only load/save the settings.
