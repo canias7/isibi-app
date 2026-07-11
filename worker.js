@@ -1193,6 +1193,133 @@ async function instagramComments(env, userId) {
   return { comments: out.slice(0, 60) };
 }
 
+// ── Auto-reply engine (cron) ───────────────────────────────────────────────
+// Runs on a schedule (see scheduled()): for accounts with DM auto-reply on, it
+// answers new inbound DMs using the owner's saved prompt. While under test it's
+// gated to an allowlist of uids — empty the set to open it to everyone.
+const AUTOREPLY_ALLOW = new Set(["7cf5e6de-a025-419e-81ca-18e26a648cf6"]);
+
+function sbSvcHeaders(env) {
+  return {
+    apikey: env.SUPABASE_SERVICE_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    "Content-Type": "application/json",
+  };
+}
+
+// Inbound message ids we've already answered for this user (reply at most once).
+async function autoreplyHandled(env, uid) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/autoreply_log?user_id=eq.${uid}&channel=eq.dm&select=ref_id&order=created_at.desc&limit=300`, {
+      headers: sbSvcHeaders(env), signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;               // null → couldn't read; caller skips sending to stay safe
+    const rows = await r.json().catch(() => []);
+    return new Set((Array.isArray(rows) ? rows : []).map((x) => x.ref_id));
+  } catch { return null; }
+}
+
+async function autoreplyMark(env, uid, refId, replied) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/autoreply_log`, {
+      method: "POST",
+      headers: { ...sbSvcHeaders(env), Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify({ user_id: uid, channel: "dm", ref_id: refId, replied: !!replied }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {}
+}
+
+// Instagram only lets you reply within 24h of the user's last message.
+function autoreplyWithinDay(ts) {
+  if (ts == null || ts === "") return true;   // unknown → let the send attempt decide
+  let t = typeof ts === "number" ? ts : Date.parse(ts);
+  if (!Number.isFinite(t)) return true;
+  if (t < 1e12) t *= 1000;                     // seconds → ms
+  return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+// Draft a reply with Haiku from the owner's instructions + the recent thread.
+async function autoreplyDraft(env, transcript, ownerPrompt) {
+  const system =
+    "You are auto-replying to an Instagram direct message on behalf of the account owner. " +
+    "Follow the owner's instructions exactly. Write ONE short, natural reply in the owner's voice — " +
+    "no hashtags, no surrounding quotation marks, no preamble. Output only the reply text.\n\n" +
+    "Owner's instructions:\n" + String(ownerPrompt || "").slice(0, 3000);
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001", max_tokens: 300, system,
+        messages: [{ role: "user", content: "Conversation so far:\n" + transcript + "\n\nWrite the reply." }],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const text = (d.content || []).filter((c) => c.type === "text").map((c) => c.text).join("").trim();
+    return text ? text.slice(0, 900) : null;
+  } catch { return null; }
+}
+
+// Answer new inbound DMs for one user.
+async function runAutoReplyDm(env, uid, cfg) {
+  const ident = { userId: uid };
+  const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+  const me = info.data && (info.data.username || (info.data.data && info.data.data.username));
+  if (!me) return;
+  const handled = await autoreplyHandled(env, uid);
+  if (!handled) return;                          // couldn't read the log — skip this tick (no double-replies)
+  const c = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
+  const items = (c.data && (c.data.data || c.data.conversations || c.data.items)) || [];
+  if (!Array.isArray(items) || !items.length) return;
+  const msgsOf = (d) => (d && (d.data || (d.messages && d.messages.data))) || [];
+  let budget = 5;                                // cap sends per user per run
+  for (const it of items.slice(0, 10)) {
+    if (budget <= 0) break;
+    const m = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: it.id });
+    const ml = msgsOf(m.data);
+    if (!Array.isArray(ml) || !ml.length) continue;
+    const latest = ml[0];                        // newest-first
+    const fromUser = latest.from && latest.from.username;
+    if (!latest.id || !fromUser || fromUser === me) continue;   // last message is ours or unknown
+    if (handled.has(latest.id)) continue;        // already answered this message
+    if (!autoreplyWithinDay(latest.created_time)) { await autoreplyMark(env, uid, latest.id, false); continue; }
+    const recipient = latest.from && latest.from.id;
+    if (!recipient) continue;
+    const transcript = ml.slice(0, 10).reverse()
+      .map((x) => ((x.from && x.from.username) === me ? "You" : "Them") + ": " + String(x.message || "").replace(/\s+/g, " ").trim())
+      .filter((l) => l.length > 5).join("\n");
+    const reply = await autoreplyDraft(env, transcript, cfg.dm_prompt);
+    if (!reply) continue;                         // no draft this time — retry next tick
+    let ok = false;
+    try {
+      const ex = await composioExecute(env, "INSTAGRAM_SEND_TEXT_MESSAGE", ident, { recipient_id: String(recipient), text: reply });
+      ok = ex.successful;
+    } catch {}
+    await autoreplyMark(env, uid, latest.id, ok); // mark handled either way — never loop on one message
+    budget--;
+  }
+}
+
+// Cron entry: answer new DMs for every enabled (and allowlisted) account.
+async function runAutoReply(env) {
+  if (!env.COMPOSIO_API_KEY || !env.ANTHROPIC_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
+  let rows = [];
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_autoreply?dm_enabled=eq.true&select=user_id,dm_prompt`, {
+      headers: sbSvcHeaders(env), signal: AbortSignal.timeout(8000),
+    });
+    if (r.ok) rows = await r.json().catch(() => []);
+  } catch {}
+  for (const cfg of Array.isArray(rows) ? rows : []) {
+    if (AUTOREPLY_ALLOW.size && !AUTOREPLY_ALLOW.has(cfg.user_id)) continue;   // scoped while testing
+    if (!String(cfg.dm_prompt || "").trim()) continue;                          // no instructions → skip
+    try { await runAutoReplyDm(env, cfg.user_id, cfg); } catch {}
+  }
+}
+
 // ── Media Agent brain: read-only action catalog ───────────────────────────
 // The agent gets ONE tool (run_action) and may only call slugs in this
 // allowlist — all read-only, so it can never post/delete on the live accounts.
@@ -1239,6 +1366,10 @@ function agentSystemPrompt(connected) {
 export default {
   async fetch(request, env, ctx) {
     return harden(await handleRequest(request, env, ctx));
+  },
+  // Cron trigger (see wrangler.jsonc): drive the DM auto-reply engine.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runAutoReply(env));
   },
 };
 
