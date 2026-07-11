@@ -2200,6 +2200,13 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   position: absolute; top: 0; right: 4px; cursor: pointer;
   color: #fff; text-shadow: 0 0 5px #000; font-weight: 700;
 }
+/* @ImageN tag badge on reference thumbnails (tag-binding models only). */
+.ap-extra .slot-tag {
+  position: absolute; left: 3px; bottom: 3px; padding: .08rem .3rem;
+  font-size: .58rem; font-weight: 700; letter-spacing: .02em;
+  color: #fff; background: rgba(0, 0, 0, .72); border-radius: 5px;
+  pointer-events: none;
+}
 .ap-add { margin-top: .5rem; }
 /* Not enough side room → the panel becomes a block above the composer. */
 @media (max-width: 1399px) {
