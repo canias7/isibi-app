@@ -929,7 +929,10 @@
 
 /* ── Media Agent (social connections) ── */
 .view-media-agent.active { flex-direction: column; overflow-y: auto; padding: 2.4rem 2rem 3rem; }
-.ma-page { width: 100%; max-width: 720px; margin: 0 auto; }
+/* Wide workspace on every tab (owner's call 2026-07-11): 1420px fits 4 YouTube
+   video cards / 6 IG post cards per row at the same card sizes the old 720px
+   panel had — grids gain columns, cards keep their size. */
+.ma-page { width: 100%; max-width: 1420px; margin: 0 auto; }
 .ma-head h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; text-transform: uppercase; }
 .ma-head p { color: var(--muted); font-size: .92rem; margin-top: .35rem; max-width: 520px; line-height: 1.5; }
 .ma-msg {
@@ -1029,14 +1032,11 @@ button.prow:hover { background: rgba(255, 255, 255, .03); }
 .yt-chan-meta { min-width: 0; display: flex; flex-direction: column; }
 .yt-chan-t { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yt-chan-h { color: var(--muted); font-size: .82rem; }
-.ytg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
-/* Videos tab: the page widens (chat.js toggles .wide) so 4 cards fit per row
-   at the same ~332px card size as the 2-up layout — more cards, not bigger cards.
-   Narrower windows step down to 3/2 columns to keep card size steady. */
-.ma-page.wide { max-width: 1420px; }
-.ma-page.wide .ytg { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 1460px) { .ma-page.wide .ytg { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 1000px) { .ma-page.wide .ytg { grid-template-columns: repeat(2, 1fr); } }
+/* 4 across in the wide panel = same ~332px card as the old 2-up/720px layout;
+   step down columns on narrower windows so card size stays steady. */
+.ytg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+@media (max-width: 1460px) { .ytg { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1000px) { .ytg { grid-template-columns: repeat(2, 1fr); } }
 .ytv { display: flex; flex-direction: column; gap: .4rem; background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
 .ytv-thumb { width: 100%; aspect-ratio: 16 / 9; border-radius: 11px; border: 1px solid var(--line-2); background: linear-gradient(135deg, rgba(255, 121, 198, .35), rgba(255, 184, 77, .35)); background-size: cover; background-position: center; }
 .ytv:hover .ytv-thumb { filter: brightness(1.07); }
@@ -1066,7 +1066,10 @@ button.prow:hover { background: rgba(255, 255, 255, .03); }
 .pub-preview-x:hover { background: rgba(0, 0, 0, .85); }
 .gal-cell { position: relative; padding: 0; border: none; background: none; cursor: pointer; display: block; }
 .gal-cell-k { position: absolute; top: 8px; right: 8px; font-size: .6rem; font-weight: 700; letter-spacing: .04em; background: rgba(0, 0, 0, .68); color: #fff; padding: .18rem .4rem; border-radius: 6px; }
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; }
+/* 6 across in the wide panel = same ~215px tile as the old 3-up/720px layout. */
+.grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: .7rem; }
+@media (max-width: 1460px) { .grid { grid-template-columns: repeat(4, 1fr); } }
+@media (max-width: 1000px) { .grid { grid-template-columns: repeat(3, 1fr); } }
 .post { display: block; text-align: left; padding: 0; border: 1px solid var(--line-2); border-radius: 13px; overflow: hidden; background: var(--panel); cursor: pointer; font: inherit; color: var(--text); transition: filter .12s ease, border-color .12s ease; }
 .post:hover { filter: brightness(1.06); border-color: var(--line-2); }
 .post-media { display: flex; aspect-ratio: 1; align-items: flex-start; justify-content: flex-end; padding: .5rem; background: linear-gradient(135deg, rgba(255, 121, 198, .3), rgba(255, 184, 77, .3)); background-size: cover; background-position: center; }
