@@ -1166,6 +1166,45 @@ async function youtubeAnalytics(env, userId) {
   return out;
 }
 
+// The channel's uploads for the YouTube Videos tab. The list comes from the
+// verified LIST_CHANNEL_VIDEOS read; per-video view/like counts are enriched
+// opportunistically via a batch details call (best-effort — degrades to no
+// counts if that action isn't available).
+async function youtubeVideos(env, userId, limit) {
+  const ident = { userId };
+  let list = [];
+  try {
+    const vids = await composioExecute(env, "YOUTUBE_LIST_CHANNEL_VIDEOS", ident, {
+      mine: true, maxResults: Math.min(Math.max(limit || 24, 1), 50),
+    });
+    const items = (vids.data && (vids.data.items || [])) || [];
+    list = items.map((v) => {
+      const sn = v.snippet || {};
+      const th = sn.thumbnails || {};
+      const vidId = (sn.resourceId && sn.resourceId.videoId) || null;
+      return {
+        id: vidId,
+        title: String(sn.title || "").slice(0, 140),
+        thumb: (th.medium && th.medium.url) || (th.high && th.high.url) || (th.default && th.default.url) || null,
+        published: sn.publishedAt || null,
+        url: vidId ? "https://www.youtube.com/watch?v=" + vidId : null,
+        views: null, likes: null,
+      };
+    }).filter((v) => v.id);
+  } catch { return { videos: [] }; }
+  try {
+    const ids = list.map((v) => v.id).slice(0, 50).join(",");
+    if (ids) {
+      const det = await composioExecute(env, "YOUTUBE_GET_VIDEO_DETAILS_BATCH", ident, { id: ids });
+      const ditems = (det.data && (det.data.items || [])) || [];
+      const byId = {};
+      for (const it of ditems) { if (it && it.id) byId[it.id] = it.statistics || {}; }
+      for (const v of list) { const s = byId[v.id]; if (s) { v.views = anNum(s.viewCount); v.likes = anNum(s.likeCount); } }
+    }
+  } catch {}
+  return { videos: list };
+}
+
 // The user's Instagram posts (most recent first), normalized for the grid.
 // Likes/comments come free with the media list; per-post reach would need an
 // insight call each, so it's left for a detail view later.
@@ -2387,10 +2426,14 @@ async function handleRequest(request, env, ctx) {
       if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
       if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
       const platform = (url.searchParams.get("platform") || "instagram").toLowerCase();
-      if (platform !== "instagram") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      if (platform !== "instagram" && platform !== "youtube") {
+        return Response.json({ error: "unsupported platform" }, { status: 400 });
+      }
       try {
-        const data = await instagramPosts(env, user.id, 48);
-        return Response.json({ ok: true, ...data });
+        const data = platform === "youtube"
+          ? await youtubeVideos(env, user.id, 40)
+          : await instagramPosts(env, user.id, 48);
+        return Response.json({ ok: true, platform, ...data });
       } catch {
         return Response.json({ error: "posts unavailable" }, { status: 503 });
       }

@@ -4445,6 +4445,8 @@ let igAnalytics = null;    // cached analytics payload (per session)
 let igAnalyticsLoading = false;
 let ytAnalytics = null;    // cached YouTube analytics payload (per session)
 let ytAnalyticsLoading = false;
+let ytVideos = null;       // cached YouTube videos payload (per session)
+let ytVideosLoading = false;
 let igPosts = null;        // cached posts payload (per session)
 let igPostsLoading = false;
 let postsSort = 'recent';  // 'recent' | 'top'
@@ -4551,6 +4553,7 @@ function renderSection() {
   if (!body) return;
   if (maApp === 'youtube') {
     if (maSec === 'analytics') { renderYtAnalytics(body); return; }
+    if (maSec === 'videos') { renderYtVideos(body); return; }
     const yl = (YT_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
     body.innerHTML = '<div class="sec-soon"><p><b>' + esc(yl) + '</b> is coming soon.</p>' +
       '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4625,6 +4628,51 @@ function ytDate(iso) {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return '';
   try { return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch { return ''; }
+}
+
+// ── YouTube Videos section (channel uploads grid) ──
+function renderYtVideos(body) {
+  if (ytVideos) { paintYtVideos(body, ytVideos); return; }
+  body.innerHTML = '<div class="sec-loading">Loading videos…</div>';
+  if (ytVideosLoading) return;
+  ytVideosLoading = true;
+  apiFetch('/api/social/posts?platform=youtube')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Videos isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { ytVideos = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { ytVideos = { _err: 'Network error.' }; })
+    .finally(() => {
+      ytVideosLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maApp === 'youtube' && maSec === 'videos') paintYtVideos(b, ytVideos);
+    });
+}
+
+function paintYtVideos(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="ytvRetry">Retry</button></div>';
+    const rt = document.getElementById('ytvRetry');
+    if (rt) rt.onclick = () => { ytVideos = null; renderYtVideos(body); };
+    return;
+  }
+  const vids = d.videos || [];
+  if (!vids.length) {
+    body.innerHTML = '<div class="sec-soon"><p>No videos yet.</p>' +
+      '<p class="sec-soon-s">Uploads on your channel will show up here.</p></div>';
+    return;
+  }
+  body.innerHTML =
+    '<div class="ytg">' + vids.map((v) =>
+      '<button type="button" class="ytv" data-yturl="' + esc(v.url || '') + '">' +
+        '<span class="ytv-thumb"' + (v.thumb ? ' style="background-image:url(' + esc(v.thumb) + ')"' : '') + '></span>' +
+        '<span class="ytv-t">' + esc(v.title || '(untitled)') + '</span>' +
+        '<span class="ytv-m">' + (v.views != null ? '▶ ' + maNum(v.views) + ' views' : ytDate(v.published)) + '</span>' +
+      '</button>').join('') + '</div>';
+  body.querySelectorAll('[data-yturl]').forEach((b) => {
+    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+  });
 }
 
 // Compact number: <10k with thousands separators, else 1-decimal "k".
