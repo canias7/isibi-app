@@ -4252,7 +4252,6 @@ function renderAvatarCreator(view) {
             '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
             '<button type="button" class="ac-gen" id="acGen"><span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span></button>' +
           '</div>' +
-          '<div class="ac-model-note">Nano Banana Pro · ' + avatarCredits() + ' credits per generation</div>' +
         '</div>' +
         '<aside class="ac-builder">' +
           '<div class="ab-top"><span class="ab-top-t">Builder</span><button type="button" class="ab-reset" id="acReset">Reset</button></div>' +
