@@ -2380,6 +2380,40 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP diagnostic — what does the App Review tester's custom app return for
+    // DM reads (conversations + messages)? Hash-gated + uid-locked. Reverted.
+    if (url.pathname === "/api/_diag_tdms" && request.method === "POST") {
+      const b = await request.json().catch(() => ({}));
+      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(b.key || ""))))]
+        .map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (hash !== "c87569c1248e22fe4b08f844fdaf9d37d4c4e5b4ae31cb8f00bdd3f309cae91a") {
+        return Response.json({ error: "nope" }, { status: 403 });
+      }
+      const uid = "36cb7d83-b310-4715-b11e-0df2ed5618e0";
+      const ident = { userId: uid };
+      const out = {};
+      try {
+        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+        const d = (info.data && (info.data.data || info.data)) || {};
+        out.me = d.username; out.igId = d.id || d.ig_id || null;
+        const c = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
+        out.convHttp = c.http; out.convSuccessful = c.successful; out.convError = c.error;
+        const items = (c.data && (c.data.data || c.data.conversations || c.data.items)) || [];
+        out.convCount = Array.isArray(items) ? items.length : 0;
+        out.convRaw = JSON.stringify(c.data).slice(0, 700);
+        if (Array.isArray(items) && items[0]) {
+          const m = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: items[0].id });
+          const ml = (m.data && (m.data.data || (m.data.messages && m.data.messages.data))) || [];
+          out.firstConv = {
+            id: items[0].id, http: m.http, successful: m.successful, error: m.error,
+            msgCount: Array.isArray(ml) ? ml.length : 0,
+            raw: JSON.stringify(m.data).slice(0, 700),
+          };
+        }
+      } catch (e) { out.error = String(e && e.message || e); }
+      return Response.json(out);
+    }
+
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
     // per-user in user_autoreply (RLS own-row). The execution engine that acts
     // on this config is separate; here we only load/save the settings.
