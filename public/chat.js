@@ -4450,6 +4450,7 @@ let postsSort = 'recent';  // 'recent' | 'top'
 let igComments = null;     // cached comments payload (per session)
 let igCommentsLoading = false;
 const IG_SECTIONS = [
+  { key: 'autoreply', label: 'Auto reply' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'posts', label: 'Posts' },
   { key: 'dms', label: 'DMs' },
