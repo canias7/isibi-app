@@ -379,7 +379,9 @@ const CSP = [
   "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media",
+  // *.ytimg.com = YouTube video thumbnails, *.cdninstagram.com / *.fbcdn.net =
+  // Instagram post thumbnails (Media Agent tabs) — CSP was silently blocking them.
+  "img-src 'self' data: blob: https://*.supabase.co https://fal.media https://*.fal.media https://*.ytimg.com https://*.cdninstagram.com https://*.fbcdn.net",
   // data: is needed so the client can decode an attached audio clip's data-URL
   // (measures its real duration → correct lip-sync billing) and play it back.
   // These directives don't govern scripts, so this doesn't weaken script-src.
@@ -1178,14 +1180,22 @@ async function youtubeVideos(env, userId, limit) {
       mine: true, maxResults: Math.min(Math.max(limit || 24, 1), 50),
     });
     const items = (vids.data && (vids.data.items || [])) || [];
-    list = items.map((v) => {
+    // YouTube keeps tombstones for deleted uploads in the channel list — title
+    // "Deleted video" and no thumbnails. Drop them (both checks, so a real
+    // video actually titled that never gets hidden).
+    list = items.filter((v) => {
+      const sn = v.snippet || {};
+      return !(sn.title === "Deleted video" && !Object.keys(sn.thumbnails || {}).length);
+    }).map((v) => {
       const sn = v.snippet || {};
       const th = sn.thumbnails || {};
       const vidId = (sn.resourceId && sn.resourceId.videoId) || null;
       return {
         id: vidId,
         title: String(sn.title || "").slice(0, 140),
-        thumb: (th.medium && th.medium.url) || (th.high && th.high.url) || (th.default && th.default.url) || null,
+        // Largest thumbnail YouTube has for this video — the grid cards render
+        // big (and 2x on retina), so medium (320px) visibly blurs.
+        thumb: (th.maxres && th.maxres.url) || (th.standard && th.standard.url) || (th.high && th.high.url) || (th.medium && th.medium.url) || (th.default && th.default.url) || null,
         published: sn.publishedAt || null,
         url: vidId ? "https://www.youtube.com/watch?v=" + vidId : null,
         views: null, likes: null,
