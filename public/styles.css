@@ -1058,6 +1058,15 @@
 .cmt-text { font-size: .9rem; line-height: 1.45; color: var(--text); word-wrap: break-word; }
 .cmt-thumb { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 9px; border: 1px solid var(--line-2); padding: 0; cursor: pointer; background-color: var(--panel); background-size: cover; background-position: center; }
 button.cmt-thumb:hover { border-color: var(--line-2); filter: brightness(1.08); }
+.cmt-reply-btn { align-self: flex-start; margin-top: .25rem; background: none; border: none; color: var(--muted); font: inherit; font-size: .78rem; font-weight: 600; cursor: pointer; padding: 0; }
+.cmt-reply-btn:hover { color: #ff9ad2; }
+.cmt-reply { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .5rem; width: 100%; }
+.cmt-reply-in { flex: 1; min-width: 160px; font: inherit; font-size: .86rem; color: var(--text); background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); border-radius: 9px; padding: .5rem .7rem; }
+.cmt-reply-in:focus { outline: none; border-color: rgba(255, 121, 198, .6); }
+.cmt-reply-send { font-size: .82rem; padding: .45rem .9rem; }
+.cmt-reply-status { font-size: .78rem; color: var(--muted); }
+.cmt-reply-status.ok { color: #7ee0a0; }
+.cmt-reply-status.warn { color: #ff9a9a; }
 /* Auto reply config */
 .ar-subtabs { display: inline-flex; gap: .25rem; padding: .25rem; border: 1px solid var(--line-2); border-radius: 11px; background: var(--panel); margin-bottom: 1.3rem; }
 .ar-subtab { font: inherit; font-size: .85rem; font-weight: 600; color: var(--muted); background: none; border: none; border-radius: 8px; padding: .45rem 1.1rem; cursor: pointer; }
