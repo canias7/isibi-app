@@ -23,7 +23,7 @@ Write tools — **verified live 2026-07-11** (private test upload, then deleted)
 |---|---|---|
 | `YOUTUBE_UPLOAD_VIDEO` | via `socialPublish`: `composioUploadFile` → `{title, description, tags, categoryId, privacyStatus, videoFilePath}` | ✅ **works** (powers the Videos-tab "+" publish) |
 | `YOUTUBE_DELETE_VIDEO` | `{videoId, confirmDelete:true}` | ✅ works |
-| `YOUTUBE_GET_VIDEO_DETAILS_BATCH` | `{id:"id1,id2"}` | ❌ returns empty for valid ids (arg/format quirk — **Videos tab falls back to upload dates instead of view counts**; needs arg work to enable per-video views) |
+| `YOUTUBE_GET_VIDEO_DETAILS_BATCH` | `{id:"id1,id2"}` | ❌ returns empty for valid owned video ids — **NOT an arg issue** (probed single/array/comma/`+part`; `id` is the correct param, `ids`/`video_id` 400). Composio-side limitation. **Videos tab falls back to upload dates instead of view counts.** Would need a different stats source to enable per-video views. |
 
 Comment write tools (tested only in the earlier session `01P5kAxfLkGCXosjH3No4CBN`,
 PRs #274/#275 — not re-verified, no UI uses them yet): `YOUTUBE_POST_COMMENT`
