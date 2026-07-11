@@ -1023,6 +1023,11 @@
 .posts-sort { display: flex; gap: .35rem; }
 .psort { font: inherit; font-size: .8rem; font-weight: 600; color: var(--muted); background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); border-radius: 8px; padding: .35rem .7rem; cursor: pointer; }
 .psort.on { color: #0a090e; background: linear-gradient(90deg, #ff79c6, #ffb84d); border-color: transparent; }
+.posts-ctrls { display: flex; align-items: center; gap: .5rem; }
+.posts-add { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line-2); background: rgba(255, 255, 255, .04); color: var(--text); font-size: 1.25rem; line-height: 1; cursor: pointer; display: grid; place-items: center; transition: transform .12s ease, background .12s ease, color .12s ease; }
+.posts-add:hover { background: linear-gradient(90deg, #ff79c6, #ffb84d); color: #0a090e; border-color: transparent; transform: translateY(-1px); }
+.ma-pub-back { background: none; border: none; color: var(--muted); font: inherit; font-size: .85rem; cursor: pointer; padding: 0; }
+.ma-pub-back:hover { color: var(--text); }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; }
 .post { display: block; text-align: left; padding: 0; border: 1px solid var(--line-2); border-radius: 13px; overflow: hidden; background: var(--panel); cursor: pointer; font: inherit; color: var(--text); transition: filter .12s ease, border-color .12s ease; }
 .post:hover { filter: brightness(1.06); border-color: var(--line-2); }

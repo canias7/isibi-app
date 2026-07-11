@@ -4652,29 +4652,61 @@ function paintPosts(body, d) {
     return;
   }
   const posts = (d.posts || []).slice();
-  if (!posts.length) {
-    body.innerHTML = '<div class="sec-soon"><p>No posts yet.</p>' +
-      '<p class="sec-soon-s">Posts you publish to Instagram will show up here.</p></div>';
-    return;
-  }
   if (postsSort === 'top') posts.sort((a, b) => (b.likes || 0) - (a.likes || 0));
-  const grid = posts.map((p) =>
-    '<button type="button" class="post" data-perma="' + esc(p.permalink || '') + '">' +
-      '<span class="post-media"' + (p.thumb ? ' style="background-image:url(' + esc(p.thumb) + ')"' : '') + '>' +
-        (p.media_type ? '<span class="post-k">' + esc(p.media_type) + '</span>' : '') + '</span>' +
-      '<span class="post-nums"><span>♥ ' + maNum(p.likes) + '</span><span>💬 ' + maNum(p.comments) + '</span></span>' +
-    '</button>').join('');
-  body.innerHTML =
+  const addBtn = '<button type="button" class="posts-add" id="pAdd" title="New post" aria-label="New Instagram post">+</button>';
+  const head =
     '<div class="posts-head"><span class="posts-count">' + posts.length + ' post' + (posts.length === 1 ? '' : 's') + '</span>' +
-      '<div class="posts-sort">' +
-        '<button type="button" class="psort' + (postsSort === 'recent' ? ' on' : '') + '" data-sort="recent">Recent</button>' +
-        '<button type="button" class="psort' + (postsSort === 'top' ? ' on' : '') + '" data-sort="top">Top</button>' +
-      '</div></div>' +
-    '<div class="grid">' + grid + '</div>';
+      '<div class="posts-ctrls">' +
+        (posts.length ? '<div class="posts-sort">' +
+          '<button type="button" class="psort' + (postsSort === 'recent' ? ' on' : '') + '" data-sort="recent">Recent</button>' +
+          '<button type="button" class="psort' + (postsSort === 'top' ? ' on' : '') + '" data-sort="top">Top</button>' +
+        '</div>' : '') + addBtn +
+      '</div></div>';
+  const gridOrEmpty = posts.length
+    ? '<div class="grid">' + posts.map((p) =>
+        '<button type="button" class="post" data-perma="' + esc(p.permalink || '') + '">' +
+          '<span class="post-media"' + (p.thumb ? ' style="background-image:url(' + esc(p.thumb) + ')"' : '') + '>' +
+            (p.media_type ? '<span class="post-k">' + esc(p.media_type) + '</span>' : '') + '</span>' +
+          '<span class="post-nums"><span>♥ ' + maNum(p.likes) + '</span><span>💬 ' + maNum(p.comments) + '</span></span>' +
+        '</button>').join('') + '</div>'
+    : '<div class="sec-soon"><p>No posts yet.</p>' +
+        '<p class="sec-soon-s">Tap + to create your first Instagram post.</p></div>';
+  body.innerHTML = head + gridOrEmpty;
   body.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { postsSort = b.dataset.sort; paintPosts(body, d); }; });
   body.querySelectorAll('[data-perma]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
   });
+  const add = document.getElementById('pAdd');
+  if (add) add.onclick = () => openPostComposer(body);
+}
+
+// The "+" composer in the Posts tab — create & publish a new Instagram post
+// (image or reel). Reuses the shared publish foot/doPublish, scoped to Instagram.
+function openPostComposer(body) {
+  pubPlatform = 'instagram';
+  pubBusy = false;
+  body.innerHTML =
+    '<div class="ma-publish" id="maPublish">' +
+      '<div class="ma-pub-head">' +
+        '<button type="button" class="ma-pub-back" id="pubBack">← Posts</button>' +
+        '<span class="ma-pub-title">New Instagram post</span>' +
+      '</div>' +
+      '<div class="ma-pub-body">' +
+        '<label class="ma-pub-l">Media URL</label>' +
+        '<input id="pubMedia" class="ma-pub-in" placeholder="https://…  public image or video URL">' +
+        '<label class="ma-pub-l">Type</label>' +
+        '<select id="pubType" class="ma-pub-in">' +
+          '<option value="image">Image post</option>' +
+          '<option value="video">Reel / video</option>' +
+        '</select>' +
+        '<label class="ma-pub-l">Caption</label>' +
+        '<textarea id="pubCaption" class="ma-pub-ta ma-pub-in" placeholder="Caption (optional)"></textarea>' +
+        '<div class="ma-pub-foot" id="pubFoot"></div>' +
+      '</div>' +
+    '</div>';
+  const back = document.getElementById('pubBack');
+  if (back) back.onclick = () => { igPosts = null; renderPosts(body); };
+  renderPubFoot();
 }
 
 // ── Comments section (live feed across recent posts) ──
