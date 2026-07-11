@@ -4249,7 +4249,6 @@ function renderAvatarCreator(view) {
         '<div class="ac-stage">' +
           '<div class="ac-preview ac-empty" id="acPreview">' + acGhostHtml() + '</div>' +
           '<div class="ac-actions">' +
-            '<button type="button" class="ac-shuffle" id="acShuffle" title="Randomize" aria-label="Randomize">⤨</button>' +
             '<button type="button" class="ac-gen" id="acGen"><span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span></button>' +
           '</div>' +
         '</div>' +
@@ -4305,17 +4304,6 @@ function renderAvatarCreator(view) {
   }; });
   view.querySelector('#acReset').onclick = () => {
     Object.keys(acSel).forEach((k) => delete acSel[k]);
-    renderAvatarCreator(view);
-  };
-  view.querySelector('#acShuffle').onclick = () => {
-    // Pick gender first so gendered option sets (hair) randomize from the
-    // right list, then rebuild.
-    AV_SECTIONS.forEach((s) => {
-      if (s.menOnly && avGender() !== 'men') { delete acSel[s.key]; return; } // skip hidden sections
-      if (s.type === 'slider') { acSel[s.key] = s.min + Math.floor(Math.random() * (s.max - s.min + 1)); return; }
-      const opts = avOpts(s); if (!opts || !opts.length) { delete acSel[s.key]; return; }
-      acSel[s.key] = [opts[Math.floor(Math.random() * opts.length)].v];
-    });
     renderAvatarCreator(view);
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
