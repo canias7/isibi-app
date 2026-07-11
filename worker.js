@@ -1194,9 +1194,10 @@ async function instagramComments(env, userId) {
 }
 
 // ── Auto-reply engine (cron) ───────────────────────────────────────────────
-// Runs on a schedule (see scheduled()): for accounts with DM auto-reply on, it
-// answers new inbound DMs using the owner's saved prompt. While under test it's
-// gated to an allowlist of uids — empty the set to open it to everyone.
+// Runs on a schedule (see scheduled()): for accounts with DM and/or comment
+// auto-reply on, it answers new inbound DMs and new public comments using the
+// owner's saved per-channel prompt. While under test it's gated to an allowlist
+// of uids — empty the set to open it to everyone.
 const AUTOREPLY_ALLOW = new Set(["7cf5e6de-a025-419e-81ca-18e26a648cf6"]);
 
 function sbSvcHeaders(env) {
@@ -1207,10 +1208,10 @@ function sbSvcHeaders(env) {
   };
 }
 
-// Inbound message ids we've already answered for this user (reply at most once).
-async function autoreplyHandled(env, uid) {
+// Ref ids we've already answered for this user+channel (reply at most once).
+async function autoreplyHandled(env, uid, channel = "dm") {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/autoreply_log?user_id=eq.${uid}&channel=eq.dm&select=ref_id&order=created_at.desc&limit=300`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/autoreply_log?user_id=eq.${uid}&channel=eq.${channel}&select=ref_id&order=created_at.desc&limit=300`, {
       headers: sbSvcHeaders(env), signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) return null;               // null → couldn't read; caller skips sending to stay safe
@@ -1219,32 +1220,40 @@ async function autoreplyHandled(env, uid) {
   } catch { return null; }
 }
 
-async function autoreplyMark(env, uid, refId, replied) {
+async function autoreplyMark(env, uid, refId, replied, channel = "dm") {
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/autoreply_log`, {
       method: "POST",
       headers: { ...sbSvcHeaders(env), Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify({ user_id: uid, channel: "dm", ref_id: refId, replied: !!replied }),
+      body: JSON.stringify({ user_id: uid, channel, ref_id: refId, replied: !!replied }),
       signal: AbortSignal.timeout(8000),
     });
   } catch {}
 }
 
-// Instagram only lets you reply within 24h of the user's last message.
-function autoreplyWithinDay(ts) {
+// Recency guard. DMs: Instagram only allows a reply within 24h of the last
+// inbound message. Comments: we self-impose a short window so enabling the
+// feature doesn't necro-reply an old backlog.
+function autoreplyWithinDays(ts, days = 1) {
   if (ts == null || ts === "") return true;   // unknown → let the send attempt decide
   let t = typeof ts === "number" ? ts : Date.parse(ts);
   if (!Number.isFinite(t)) return true;
   if (t < 1e12) t *= 1000;                     // seconds → ms
-  return Date.now() - t < 24 * 60 * 60 * 1000;
+  return Date.now() - t < days * 24 * 60 * 60 * 1000;
 }
 
-// Draft a reply with Haiku from the owner's instructions + the recent thread.
-async function autoreplyDraft(env, transcript, ownerPrompt) {
+// Draft a reply with Haiku from the owner's instructions + the recent context.
+// kind: 'dm' (private thread) | 'comment' (public reply under a post).
+async function autoreplyDraft(env, transcript, ownerPrompt, kind = "dm") {
+  const surface = kind === "comment"
+    ? "You are auto-replying to a PUBLIC comment on one of the account owner's Instagram posts. " +
+      "Keep it to ONE short public reply (well under 300 characters), no more than one hashtag, no links, " +
+      "and never write in all capital letters. "
+    : "You are auto-replying to an Instagram direct message on behalf of the account owner. ";
   const system =
-    "You are auto-replying to an Instagram direct message on behalf of the account owner. " +
+    surface +
     "Follow the owner's instructions exactly. Write ONE short, natural reply in the owner's voice — " +
-    "no hashtags, no surrounding quotation marks, no preamble. Output only the reply text.\n\n" +
+    "no surrounding quotation marks, no preamble. Output only the reply text.\n\n" +
     "Owner's instructions:\n" + String(ownerPrompt || "").slice(0, 3000);
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -1285,7 +1294,7 @@ async function runAutoReplyDm(env, uid, cfg) {
     const fromUser = latest.from && latest.from.username;
     if (!latest.id || !fromUser || fromUser === me) continue;   // last message is ours or unknown
     if (handled.has(latest.id)) continue;        // already answered this message
-    if (!autoreplyWithinDay(latest.created_time)) { await autoreplyMark(env, uid, latest.id, false); continue; }
+    if (!autoreplyWithinDays(latest.created_time, 1)) { await autoreplyMark(env, uid, latest.id, false); continue; }
     const recipient = latest.from && latest.from.id;
     if (!recipient) continue;
     const transcript = ml.slice(0, 10).reverse()
@@ -1303,20 +1312,74 @@ async function runAutoReplyDm(env, uid, cfg) {
   }
 }
 
-// Cron entry: answer new DMs for every enabled (and allowlisted) account.
+// Answer new public comments on one user's recent posts.
+async function runAutoReplyComment(env, uid, cfg) {
+  const ident = { userId: uid };
+  const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+  const d = (info.data && (info.data.data || info.data)) || {};
+  const me = d.username;
+  const igId = d.id || d.ig_id || null;
+  if (!me || !igId) return;
+  const handled = await autoreplyHandled(env, uid, "comment");
+  if (!handled) return;                          // couldn't read the log — skip this tick
+  let media = [];
+  try {
+    const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
+      ig_user_id: igId, limit: 8, fields: "id,permalink",
+    });
+    media = anMediaList(m.data).slice(0, 8);
+  } catch {}
+  if (!media.length) return;
+  let budget = 5;                                // cap replies per user per run
+  for (const post of media) {
+    if (budget <= 0) break;
+    let list = [];
+    try {
+      const c = await composioExecute(env, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", ident, { ig_media_id: post.id });
+      list = (c.data && (c.data.data || (c.data.comments && c.data.comments.data))) || [];
+    } catch { continue; }
+    for (const cm of Array.isArray(list) ? list : []) {
+      if (budget <= 0) break;
+      if (!cm || !cm.id) continue;
+      const from = cm.username || (cm.from && cm.from.username) || null;
+      if (!from || from === me) continue;          // skip our own comments / our own replies
+      if (handled.has(cm.id)) continue;            // already answered this comment
+      if (!autoreplyWithinDays(cm.timestamp, 2)) { await autoreplyMark(env, uid, cm.id, false, "comment"); continue; }
+      const text = String(cm.text || "").replace(/\s+/g, " ").trim();
+      if (!text) continue;
+      const reply = await autoreplyDraft(env, "@" + from + " commented: " + text, cfg.comment_prompt, "comment");
+      if (!reply) continue;                        // no draft this time — retry next tick
+      let ok = false;
+      try {
+        const ex = await composioExecute(env, "INSTAGRAM_POST_IG_COMMENT_REPLIES", ident, {
+          ig_comment_id: String(cm.id), message: reply.slice(0, 300),
+        });
+        ok = ex.successful;
+      } catch {}
+      await autoreplyMark(env, uid, cm.id, ok, "comment"); // mark handled either way
+      budget--;
+    }
+  }
+}
+
+// Cron entry: run each enabled (and allowlisted) channel for every account.
 async function runAutoReply(env) {
   if (!env.COMPOSIO_API_KEY || !env.ANTHROPIC_API_KEY || !env.SUPABASE_SERVICE_KEY) return;
   let rows = [];
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_autoreply?dm_enabled=eq.true&select=user_id,dm_prompt`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/user_autoreply?or=(dm_enabled.eq.true,comment_enabled.eq.true)&select=user_id,dm_enabled,dm_prompt,comment_enabled,comment_prompt`, {
       headers: sbSvcHeaders(env), signal: AbortSignal.timeout(8000),
     });
     if (r.ok) rows = await r.json().catch(() => []);
   } catch {}
   for (const cfg of Array.isArray(rows) ? rows : []) {
     if (AUTOREPLY_ALLOW.size && !AUTOREPLY_ALLOW.has(cfg.user_id)) continue;   // scoped while testing
-    if (!String(cfg.dm_prompt || "").trim()) continue;                          // no instructions → skip
-    try { await runAutoReplyDm(env, cfg.user_id, cfg); } catch {}
+    if (cfg.dm_enabled && String(cfg.dm_prompt || "").trim()) {
+      try { await runAutoReplyDm(env, cfg.user_id, cfg); } catch {}
+    }
+    if (cfg.comment_enabled && String(cfg.comment_prompt || "").trim()) {
+      try { await runAutoReplyComment(env, cfg.user_id, cfg); } catch {}
+    }
   }
 }
 
@@ -2289,6 +2352,56 @@ async function handleRequest(request, env, ctx) {
       } catch {
         return Response.json({ error: "comments unavailable" }, { status: 503 });
       }
+    }
+
+    // TEMP diagnostic — verify comment auto-reply end-to-end (to be reverted).
+    // Hash-gated + uid-locked. Lists recent non-owner comments and, with
+    // {"send":true}, attempts one real INSTAGRAM_POST_IG_COMMENT_REPLIES so we
+    // can see the raw Instagram result (does comment-reply hit a permission
+    // wall like DMs, or go through?).
+    if (url.pathname === "/api/_diag_comment" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(body.key || ""))))]
+        .map((b) => b.toString(16).padStart(2, "0")).join("");
+      if (hash !== "db26e39c26a7dd2144afa0c2d7970d976d441a4acb32af715ec5c930acfe56a2") {
+        return Response.json({ error: "nope" }, { status: 403 });
+      }
+      const uid = "7cf5e6de-a025-419e-81ca-18e26a648cf6";
+      const ident = { userId: uid };
+      const out = { attempts: [] };
+      try {
+        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+        const d = (info.data && (info.data.data || info.data)) || {};
+        out.me = d.username; out.igId = d.id || d.ig_id || null;
+        const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
+          ig_user_id: out.igId, limit: 8, fields: "id,permalink",
+        });
+        const media = anMediaList(m.data).slice(0, 8);
+        out.mediaCount = media.length;
+        let done = false;
+        for (const post of media) {
+          if (done) break;
+          const c = await composioExecute(env, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", ident, { ig_media_id: post.id });
+          const list = (c.data && (c.data.data || (c.data.comments && c.data.comments.data))) || [];
+          for (const cm of Array.isArray(list) ? list : []) {
+            if (!cm || !cm.id) continue;
+            const from = cm.username || (cm.from && cm.from.username) || null;
+            const mine = from === out.me;
+            const rec = { post: post.id, id: cm.id, from, mine, text: String(cm.text || "").slice(0, 120), timestamp: cm.timestamp || null };
+            if (body.send && !mine && !done) {
+              const reply = await autoreplyDraft(env, "@" + from + " commented: " + rec.text, "Reply warmly and briefly, thanking them for the comment.", "comment");
+              rec.draft = reply;
+              const ex = await composioExecute(env, "INSTAGRAM_POST_IG_COMMENT_REPLIES", ident, {
+                ig_comment_id: String(cm.id), message: String(reply || "Thanks so much!").slice(0, 300),
+              });
+              rec.send = { http: ex.http, successful: ex.successful, error: ex.error, data: ex.data };
+              done = true;
+            }
+            out.attempts.push(rec);
+          }
+        }
+      } catch (e) { out.error = String(e && e.message || e); }
+      return Response.json(out);
     }
 
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
