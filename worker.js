@@ -2391,7 +2391,8 @@ async function handleRequest(request, env, ctx) {
             const mine = from === out.me;
             const rec = { post: post.id, id: cm.id, from, mine, text: String(cm.text || "").slice(0, 120), timestamp: cm.timestamp || null };
             if (body.send && !mine && !done) {
-              const reply = await autoreplyDraft(env, "@" + from + " commented: " + rec.text, "Reply warmly and briefly, thanking them for the comment.", "comment");
+              const testPrompt = String(body.prompt || "Reply warmly and briefly, thanking them for the comment.");
+              const reply = await autoreplyDraft(env, "@" + from + " commented: " + rec.text, testPrompt, "comment");
               rec.draft = reply;
               const ex = await composioExecute(env, "INSTAGRAM_POST_IG_COMMENT_REPLIES", ident, {
                 ig_comment_id: String(cm.id), message: String(reply || "Thanks so much!").slice(0, 300),
