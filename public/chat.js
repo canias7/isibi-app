@@ -4765,12 +4765,16 @@ async function pubUploadDeviceFile(file) {
     if (prev) {
       prev.innerHTML = '';
       if (kind === 'video') {
-        prev.innerHTML = '<div class="pub-preview-vid">🎬 Video ready</div>';
+        const chip = document.createElement('div');
+        chip.className = 'pub-preview-vid';
+        chip.textContent = '🎬 Video ready';
+        prev.appendChild(chip);
       } else {
         const img = document.createElement('img');
         img.alt = ''; img.src = d.url;
         prev.appendChild(img);
       }
+      prev.appendChild(pubPreviewRemoveBtn());
     }
   } catch {
     if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
@@ -4829,7 +4833,29 @@ function openPubGalleryPicker() {
   document.body.appendChild(ov);
 }
 
-// A picked gallery item fills the (hidden-ish) URL + type fields and shows a preview.
+// A "×" on the preview to clear the current media and pick another.
+function pubPreviewRemoveBtn() {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pub-preview-x';
+  b.title = 'Remove';
+  b.setAttribute('aria-label', 'Remove media');
+  b.textContent = '×';
+  b.onclick = pubClearMedia;
+  return b;
+}
+
+function pubClearMedia() {
+  const media = document.getElementById('pubMedia');
+  const prev = document.getElementById('pubPreview');
+  const fileIn = document.getElementById('pubFile');
+  if (media) media.value = '';
+  if (fileIn) fileIn.value = '';
+  if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
+  pubResult('', '');
+}
+
+// A picked gallery item fills the URL + type fields and shows a preview.
 function pubSelectMedia(it) {
   const media = document.getElementById('pubMedia');
   const type = document.getElementById('pubType');
@@ -4842,6 +4868,7 @@ function pubSelectMedia(it) {
     img.alt = '';
     img.src = it.kind === 'video' ? (it.poster || it.url) : it.url;
     prev.appendChild(img);
+    prev.appendChild(pubPreviewRemoveBtn());
     prev.classList.add('on');
   }
 }
