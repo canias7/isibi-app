@@ -1017,6 +1017,17 @@
 .pt { font-weight: 600; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ps { font-size: .75rem; color: var(--muted); }
 .pnum { font-size: .82rem; color: var(--muted); font-weight: 600; min-width: 60px; text-align: right; }
+/* YouTube analytics */
+.stats-3 { grid-template-columns: repeat(3, 1fr); }
+.pthumb-wide { width: 64px; flex-basis: 64px; height: 38px; border-radius: 7px; }
+button.prow { width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line); cursor: pointer; color: var(--text); font: inherit; }
+button.prow:first-of-type { border-top: none; }
+button.prow:hover { background: rgba(255, 255, 255, .03); }
+.yt-chan { display: flex; align-items: center; gap: .7rem; margin-bottom: 1.1rem; }
+.yt-chan-av { width: 46px; height: 46px; flex: 0 0 46px; border-radius: 50%; background: linear-gradient(135deg, rgba(255, 121, 198, .4), rgba(255, 184, 77, .4)); background-size: cover; background-position: center; }
+.yt-chan-meta { min-width: 0; display: flex; flex-direction: column; }
+.yt-chan-t { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yt-chan-h { color: var(--muted); font-size: .82rem; }
 /* Posts grid */
 .posts-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap; }
 .posts-count { font-size: .86rem; color: var(--muted); font-weight: 600; }
