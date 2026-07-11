@@ -13,5 +13,8 @@
   "routes": [
     { "pattern": "isibi.ai", "custom_domain": true },
     { "pattern": "www.isibi.ai", "custom_domain": true }
-  ]
+  ],
+  // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
+  // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
+  "triggers": { "crons": ["*/2 * * * *"] }
 }
