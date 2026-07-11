@@ -34,6 +34,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### YouTube Videos tab: 4 cards per row (panel widened, card size unchanged)
+- **Status:** ✅ done
+- **Reported:** 2026-07-11
+- **Where:** `public/styles.css` `.ma-page.wide` / `.ytg`; `public/chat.js` `renderSection()`
+- **What:** Owner wants the Videos grid 4-across without changing card size —
+  i.e. widen the space, not the cards.
+- **Fix:** `renderSection()` toggles `.wide` on `.ma-page` only for
+  YouTube → Videos (other tabs keep the 720px panel). Wide panel caps at
+  1420px = 4 × ~332px cards; steps down to 3/2 columns on narrower windows so
+  card size stays steady. (PR #___)
+
 ### YouTube Videos tab: deleted-video tombstones shown + no thumbnails on real videos
 - **Status:** ✅ fixed
 - **Reported:** 2026-07-11
