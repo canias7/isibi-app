@@ -5060,13 +5060,19 @@ async function saveAutoReply() {
 let dmConvs = null;
 let dmOpen = null;   // { id, user, user_id }
 
-// Renders the DMs tab as a conversation list (reading/replying comes later).
+// Renders the DMs tab: a conversation list (left) + the open thread with a
+// reply composer (right). Selecting a conversation loads its messages.
 function renderDms(body) {
   body.innerHTML =
     '<div class="ma-dm" id="maDm">' +
       '<div class="ma-dm-head"><span>Direct Messages</span>' +
         '<button type="button" class="ma-dm-refresh" id="maDmRefresh" title="Refresh">↻</button></div>' +
-      '<div class="ma-dm-list ma-dm-list-full" id="maDmList"></div>' +
+      '<div class="ma-dm-body">' +
+        '<div class="ma-dm-list" id="maDmList"></div>' +
+        '<div class="ma-dm-thread" id="maDmThread">' +
+          '<div class="ma-dm-empty">Select a conversation to read it and reply.</div>' +
+        '</div>' +
+      '</div>' +
     '</div>';
   loadDMs();
   const dr = document.getElementById('maDmRefresh');
