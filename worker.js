@@ -1163,6 +1163,29 @@ export default {
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
+    // TEMP diagnostic — read-only Instagram analytics dump for tuning the
+    // parser against live Composio shapes. Gated by a secret (only its hash is
+    // committed) AND locked to two known uids. Remove after use.
+    if (url.pathname === "/api/_diag_ig" && request.method === "GET") {
+      const k = url.searchParams.get("k") || "";
+      const dig = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(k));
+      const hash = [...new Uint8Array(dig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const OK = "b5f407132aae9c17a38b850974198e27b48782515436db43d794669bd548cbe5";
+      const ALLOW = new Set([
+        "7cf5e6de-a025-419e-81ca-18e26a648cf6",
+        "36cb7d83-b310-4715-b11e-0df2ed5618e0",
+      ]);
+      const uid = url.searchParams.get("uid") || "";
+      if (hash !== OK || !ALLOW.has(uid)) return new Response("Not found", { status: 404 });
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "no composio key" }, { status: 501 });
+      const conns = await composioConnections(env, uid, null);
+      return Response.json({
+        ig_connection: socialSlot(conns, "instagram"),
+        toolkits: conns.map((c) => ({ slug: c.toolkit && c.toolkit.slug, status: c.status })),
+        analytics: await instagramAnalytics(env, uid, true),
+      });
+    }
+
     const genKind =
       url.pathname === "/api/video" ? "video" :
       url.pathname === "/api/image" ? "image" :
