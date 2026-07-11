@@ -1030,6 +1030,13 @@ button.prow:hover { background: rgba(255, 255, 255, .03); }
 .yt-chan-t { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yt-chan-h { color: var(--muted); font-size: .82rem; }
 .ytg { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; }
+/* Videos tab: the page widens (chat.js toggles .wide) so 4 cards fit per row
+   at the same ~332px card size as the 2-up layout — more cards, not bigger cards.
+   Narrower windows step down to 3/2 columns to keep card size steady. */
+.ma-page.wide { max-width: 1420px; }
+.ma-page.wide .ytg { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1460px) { .ma-page.wide .ytg { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 1000px) { .ma-page.wide .ytg { grid-template-columns: repeat(2, 1fr); } }
 .ytv { display: flex; flex-direction: column; gap: .4rem; background: none; border: none; padding: 0; cursor: pointer; text-align: left; color: var(--text); font: inherit; }
 .ytv-thumb { width: 100%; aspect-ratio: 16 / 9; border-radius: 11px; border: 1px solid var(--line-2); background: linear-gradient(135deg, rgba(255, 121, 198, .35), rgba(255, 184, 77, .35)); background-size: cover; background-position: center; }
 .ytv:hover .ytv-thumb { filter: brightness(1.07); }
