@@ -1053,7 +1053,7 @@ async function instagramAnalytics(env, userId, debug) {
   const ident = { userId };
   const out = {
     username: null, followers: null, media_count: null,
-    reach: null, impressions: null, profile_views: null,
+    reach: null, views: null, interactions: null,
     reach_series: null, top_posts: [],
   };
   const raw = {};
@@ -1069,16 +1069,20 @@ async function instagramAnalytics(env, userId, debug) {
   } catch {}
 
   if (igId) {
-    // 30-day account totals.
-    try {
-      const ins = await composioExecute(env, "INSTAGRAM_GET_USER_INSIGHTS", ident,
-        { ig_user_id: igId, metric: "reach,impressions,profile_views", period: "days_28" });
-      if (debug) raw.insights = ins.data;
-      const list = anInsightList(ins.data);
-      out.reach = anMetricTotal(list, "reach");
-      out.impressions = anMetricTotal(list, "impressions");
-      out.profile_views = anMetricTotal(list, "profile_views");
-    } catch {}
+    // 30-day account totals. Instagram's current metric set is reach / views
+    // (replaced "impressions") / total_interactions — and one invalid metric
+    // 400s the whole request, so fetch each on its own to isolate failures.
+    const fetchTotal = async (metric, extra) => {
+      try {
+        const r = await composioExecute(env, "INSTAGRAM_GET_USER_INSIGHTS", ident,
+          { ig_user_id: igId, metric, period: "days_28", ...(extra || {}) });
+        if (debug) raw["m_" + metric] = r.data;
+        return anMetricTotal(anInsightList(r.data), metric);
+      } catch { return null; }
+    };
+    out.reach = await fetchTotal("reach");
+    out.views = await fetchTotal("views", { metric_type: "total_value" });
+    out.interactions = await fetchTotal("total_interactions", { metric_type: "total_value" });
     // 14-day daily reach series for the trend chart.
     try {
       const s = await composioExecute(env, "INSTAGRAM_GET_USER_INSIGHTS", ident,
