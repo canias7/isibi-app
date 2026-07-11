@@ -4447,6 +4447,8 @@ let igAnalyticsLoading = false;
 let igPosts = null;        // cached posts payload (per session)
 let igPostsLoading = false;
 let postsSort = 'recent';  // 'recent' | 'top'
+let igComments = null;     // cached comments payload (per session)
+let igCommentsLoading = false;
 const IG_SECTIONS = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'posts', label: 'Posts' },
@@ -4537,6 +4539,7 @@ function renderSection() {
   if (maSec === 'analytics') { renderAnalytics(body); return; }
   if (maSec === 'posts') { renderPosts(body); return; }
   if (maSec === 'dms') { renderDms(body); return; }
+  if (maSec === 'comments') { renderComments(body); return; }
   const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
   body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
     '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4664,6 +4667,54 @@ function paintPosts(body, d) {
       '</div></div>' +
     '<div class="grid">' + grid + '</div>';
   body.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { postsSort = b.dataset.sort; paintPosts(body, d); }; });
+  body.querySelectorAll('[data-perma]').forEach((b) => {
+    b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
+  });
+}
+
+// ── Comments section (live feed across recent posts) ──
+function renderComments(body) {
+  if (igComments) { paintComments(body, igComments); return; }
+  body.innerHTML = '<div class="sec-loading">Loading comments…</div>';
+  if (igCommentsLoading) return;
+  igCommentsLoading = true;
+  apiFetch('/api/social/comments?platform=instagram')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Comments isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { igComments = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { igComments = { _err: 'Network error.' }; })
+    .finally(() => {
+      igCommentsLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maSec === 'comments') paintComments(b, igComments);
+    });
+}
+
+function paintComments(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="cRetry">Retry</button></div>';
+    const rt = document.getElementById('cRetry');
+    if (rt) rt.onclick = () => { igComments = null; renderComments(body); };
+    return;
+  }
+  const comments = d.comments || [];
+  if (!comments.length) {
+    body.innerHTML = '<div class="sec-soon"><p>No comments yet.</p>' +
+      '<p class="sec-soon-s">Comments on your recent posts will show up here.</p></div>';
+    return;
+  }
+  body.innerHTML = '<div class="cmt-list">' + comments.map((c) =>
+    '<div class="cmt">' +
+      '<span class="cmt-av">' + esc((c.from || '?').slice(0, 1).toUpperCase()) + '</span>' +
+      '<span class="cmt-body"><span class="cmt-user">' + esc(c.from ? '@' + c.from : 'unknown') + '</span>' +
+        '<span class="cmt-text">' + agentFmt(c.text || '') + '</span></span>' +
+      (c.post_permalink
+        ? '<button type="button" class="cmt-thumb" data-perma="' + esc(c.post_permalink) + '"' +
+          (c.post_thumb ? ' style="background-image:url(' + esc(c.post_thumb) + ')"' : '') + ' title="Open post"></button>'
+        : '<span class="cmt-thumb"' + (c.post_thumb ? ' style="background-image:url(' + esc(c.post_thumb) + ')"' : '') + '></span>') +
+    '</div>').join('') + '</div>';
   body.querySelectorAll('[data-perma]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
   });

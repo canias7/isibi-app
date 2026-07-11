@@ -1033,6 +1033,16 @@
 /* DMs tab: drop the standalone card chrome, list runs full-width in the panel */
 .sec-body .ma-dm { margin-top: 0; border: none; border-radius: 0; background: none; }
 .ma-dm-list-full { border-right: none; max-height: 62vh; }
+/* Comments feed */
+.cmt-list { display: flex; flex-direction: column; }
+.cmt { display: flex; align-items: flex-start; gap: .7rem; padding: .8rem .2rem; border-top: 1px solid var(--line); }
+.cmt:first-child { border-top: none; }
+.cmt-av { width: 34px; height: 34px; flex: 0 0 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: .85rem; color: #0a090e; background: linear-gradient(135deg, #ff79c6, #ffb84d); }
+.cmt-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+.cmt-user { font-weight: 600; font-size: .86rem; }
+.cmt-text { font-size: .9rem; line-height: 1.45; color: var(--text); word-wrap: break-word; }
+.cmt-thumb { flex: 0 0 44px; width: 44px; height: 44px; border-radius: 9px; border: 1px solid var(--line-2); padding: 0; cursor: pointer; background-color: var(--panel); background-size: cover; background-position: center; }
+button.cmt-thumb:hover { border-color: var(--line-2); filter: brightness(1.08); }
 /* Media Agent chat */
 .ma-chat { margin-top: 2rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
 .ma-chat-head {
