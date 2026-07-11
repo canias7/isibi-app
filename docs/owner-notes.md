@@ -34,6 +34,29 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Home-page preset cards must not hand off to the Builder (interim)
+- **Status:** ✅ done (interim behavior)
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` `renderPresetsInto()` / `usePreset()` (~line 934)
+- **What:** Clicking a starter card on Home ("Product hero ad", "UGC testimonial"…)
+  switched to the Builder with the preset prompt loaded. Owner wants generation to
+  eventually happen ON the Home page itself; until that's built, cards shouldn't
+  navigate anywhere.
+- **Fix:** Unwired the card click (cards are display-only for now). `usePreset()`
+  kept intact for the future generate-on-Home flow. (PR #___)
+- **TODO later:** build generate-in-place on Home and re-wire the cards to it.
+
+### Attachments cleared when switching to a non-supporting model — NOT a bug (owner's call)
+- **Status:** ✅ working as intended — do not change
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` `updateAttachVisibility()` (~line 384)
+- **What:** Attach an image → switch to a model without image support → switch
+  back: the image is gone. The code deliberately deletes incompatible
+  attachments on model switch (rather than hiding them) so a stale attachment
+  can never be silently sent to a model that can't use it (send code doesn't
+  gate by caps).
+- **Decision:** Owner reviewed 2026-07-11 and prefers this behavior. Leave as is.
+
 ### Messages leak across all chats — thread never repaints on switch
 - **Status:** ✅ fixed
 - **Reported:** 2026-07-11
@@ -46,4 +69,4 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   the last declaration win, so every chat-thread repaint call actually hit the
   DM version, which no-ops when there's no DM panel (`#maDmThread` missing).
 - **Fix:** Renamed the Media Agent DM function (and its single caller) to
-  `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #___)
+  `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #348)
