@@ -4692,8 +4692,15 @@ function openPostComposer(body) {
         '<span class="ma-pub-title">New Instagram post</span>' +
       '</div>' +
       '<div class="ma-pub-body">' +
-        '<label class="ma-pub-l">Media URL</label>' +
-        '<input id="pubMedia" class="ma-pub-in" placeholder="https://…  public image or video URL">' +
+        '<label class="ma-pub-l">Media</label>' +
+        '<div class="pub-preview" id="pubPreview"></div>' +
+        '<div class="pub-pick">' +
+          '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="pubFileBtn">📁 Choose from computer</button>' +
+          '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="pubGal">🖼 From gallery</button>' +
+        '</div>' +
+        '<input type="file" id="pubFile" accept="image/*,video/*" style="display:none">' +
+        '<label class="ma-pub-l">or paste a public URL</label>' +
+        '<input id="pubMedia" class="ma-pub-in" placeholder="https://…">' +
         '<label class="ma-pub-l">Type</label>' +
         '<select id="pubType" class="ma-pub-in">' +
           '<option value="image">Image post</option>' +
@@ -4706,7 +4713,137 @@ function openPostComposer(body) {
     '</div>';
   const back = document.getElementById('pubBack');
   if (back) back.onclick = () => { igPosts = null; renderPosts(body); };
+  const gal = document.getElementById('pubGal');
+  if (gal) gal.onclick = () => openPubGalleryPicker();
+  const fileBtn = document.getElementById('pubFileBtn');
+  const fileIn = document.getElementById('pubFile');
+  if (fileBtn && fileIn) {
+    fileBtn.onclick = () => fileIn.click();
+    fileIn.onchange = () => { if (fileIn.files && fileIn.files[0]) pubUploadDeviceFile(fileIn.files[0]); };
+  }
   renderPubFoot();
+}
+
+// Upload a device-chosen file to storage (→ public URL Instagram can fetch),
+// then fill the composer's URL + type + preview. Images ≤12MB, video ≤~30MB.
+async function pubUploadDeviceFile(file) {
+  const kind = (file.type || '').startsWith('video') ? 'video' : 'image';
+  const prev = document.getElementById('pubPreview');
+  if ((kind === 'image' && file.size > 12_000_000) || (kind === 'video' && file.size > 30_000_000)) {
+    pubResult(kind === 'image' ? 'Image is too large (max 12MB).' : 'Video is too large (max 30MB).', 'warn');
+    return;
+  }
+  if (prev) { prev.classList.add('on'); prev.innerHTML = '<div class="pub-preview-load">Uploading…</div>'; }
+  pubResult('', '');
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    const b64 = String(dataUrl).split(',')[1] || '';
+    const r = await apiFetch('/api/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: b64, kind }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 402) {
+      if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
+      pubResult('Uploading your own files needs a paid plan (gallery storage). Pick from your gallery or paste a URL instead.', 'warn');
+      return;
+    }
+    if (!r.ok || !d.url) {
+      if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
+      pubResult('Upload failed — try a smaller file or a different format.', 'warn');
+      return;
+    }
+    const media = document.getElementById('pubMedia');
+    const type = document.getElementById('pubType');
+    if (media) media.value = d.url;
+    if (type) type.value = kind === 'video' ? 'video' : 'image';
+    if (prev) {
+      prev.innerHTML = '';
+      if (kind === 'video') {
+        prev.innerHTML = '<div class="pub-preview-vid">🎬 Video ready</div>';
+      } else {
+        const img = document.createElement('img');
+        img.alt = ''; img.src = d.url;
+        prev.appendChild(img);
+      }
+    }
+  } catch {
+    if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
+    pubResult('Couldn’t read that file.', 'warn');
+  }
+}
+
+// All saved media across chats (images + videos) for the publish picker.
+function allGalleryMedia() {
+  const seen = new Set();
+  const out = [];
+  (chatStore.chats || []).forEach((c) => (c.msgs || []).forEach((m) => {
+    if (m.t === 'media' && m.url && !seen.has(m.url)) {
+      seen.add(m.url);
+      out.push({ url: m.url, kind: m.kind || 'video', poster: m.poster || null, at: m.at || 0 });
+    }
+  }));
+  return out.sort((a, b) => b.at - a.at);
+}
+
+// Gallery picker for the composer — images and videos; a pick fills the URL +
+// type fields (reusing the shared .gal-overlay styling).
+function openPubGalleryPicker() {
+  const old = document.querySelector('.gal-overlay');
+  if (old) old.remove();
+  const items = allGalleryMedia();
+  const ov = document.createElement('div');
+  ov.className = 'gal-overlay';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>' +
+    '<span class="gal-sub">' + (items.length ? items.length + (items.length === 1 ? ' item' : ' items') : '') + '</span>' +
+    '<button class="gal-close">×</button></div>' +
+    (items.length ? '<div class="gal-grid"></div>'
+      : '<div class="gal-empty">Nothing in your gallery yet — generate an image or video first, then it shows up here.</div>') +
+    '</div>';
+  const closeBtn = ov.querySelector('.gal-close');
+  if (closeBtn) closeBtn.onclick = () => ov.remove();
+  const gridEl = ov.querySelector('.gal-grid');
+  if (gridEl) items.forEach((it) => {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'gal-cell';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = it.kind === 'video' ? (it.poster || it.url) : it.url;
+    cell.appendChild(img);
+    if (it.kind === 'video') {
+      const k = document.createElement('span');
+      k.className = 'gal-cell-k';
+      k.textContent = 'REEL';
+      cell.appendChild(k);
+    }
+    cell.onclick = () => { pubSelectMedia(it); ov.remove(); };
+    gridEl.appendChild(cell);
+  });
+  document.body.appendChild(ov);
+}
+
+// A picked gallery item fills the (hidden-ish) URL + type fields and shows a preview.
+function pubSelectMedia(it) {
+  const media = document.getElementById('pubMedia');
+  const type = document.getElementById('pubType');
+  const prev = document.getElementById('pubPreview');
+  if (media) media.value = it.url;
+  if (type) type.value = it.kind === 'video' ? 'video' : 'image';
+  if (prev) {
+    prev.innerHTML = '';
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = it.kind === 'video' ? (it.poster || it.url) : it.url;
+    prev.appendChild(img);
+    prev.classList.add('on');
+  }
 }
 
 // ── Comments section (live feed across recent posts) ──
