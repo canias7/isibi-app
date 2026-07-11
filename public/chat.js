@@ -427,9 +427,9 @@ function showApInfo(kind, ev, el) {
   const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
   let txt = AP_INFO[key];
   if (!txt) return;
-  // Tag-binding models: teach the @ImageN syntax right where the refs live.
+  // Reference-capable models: teach the @ImageN syntax right where the refs live.
   if (kind === 'ref' && refTagBinding()) {
-    txt += ' This model binds them by tag — mention @Image1, @Image2… in your message where each should appear (isibi adds the tags for you if you don’t).';
+    txt += ' Cite them in your message as @Image1, @Image2… where each should appear — isibi makes sure the model gets them either way.';
   }
   pop.textContent = txt;
   pop.dataset.for = kind;
@@ -629,9 +629,11 @@ function onAttachRef(inputEl) {
   });
 }
 function removeRef(i) { refList.splice(i, 1); renderRefList(); }
-// Seedance binds references by @ImageN tags cited in the prompt (Veo uses them
-// holistically — no tags), so only badge the thumbnails when tags are real.
-function refTagBinding() { return mode === 'video' && /seedance/i.test(model); }
+// Every reference-capable model gets @ImageN badges on its thumbnails so the
+// user can cite them in the prompt. Seedance binds tags natively; for other
+// families (Veo) the worker translates each @ImageN into plain "reference
+// image N" wording the model understands.
+function refTagBinding() { return mode === 'video' && !!refCap(); }
 function renderRefList() {
   const host = document.getElementById('refImages');
   if (!host) return;

@@ -43,8 +43,11 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   into Seedance prompts; worker appends "Feature @Image1…" to raw prompts and
   strips dangling tags) — but the UI never told the USER the tags exist.
 - **Fix:** Each reference thumbnail now wears an @ImageN badge, and the ref-row
-  tooltip teaches the syntax. Both only appear for tag-binding models
-  (Seedance); Veo refs are holistic (tags would be stripped), so no badges there.
+  tooltip teaches the syntax. First pass was Seedance-only; owner directed it to
+  apply to ALL reference-capable models — so badges show wherever a Reference
+  row exists, and the worker translates @ImageN → "reference image N" for
+  tagless families (Veo) instead of stripping, keeping the sentence intact. The
+  director is likewise told user-cited @ImageN on Veo means that reference.
 
 ### Media Agent: wide panel on EVERY tab (superseded the Videos-only widening)
 - **Status:** ✅ done
