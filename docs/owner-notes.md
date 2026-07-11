@@ -34,6 +34,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### White scrollbar after "Settings" tab in Media Agent panel
+- **Status:** ✅ fixed
+- **Reported:** 2026-07-11
+- **Where:** `public/styles.css` `.sec-tabs` (~line 995)
+- **What:** A white browser scrollbar stub painted right after the Settings tab
+  on the Media Agent panel (Windows Chrome default scrollbar on the dark theme).
+- **Cause:** `.sec-tabs` sets `overflow-x: auto`; per CSS rules that makes
+  `overflow-y` compute to auto too, and the tab buttons overflow the strip by a
+  couple px → browser painted a tiny default (white) vertical scrollbar.
+- **Fix:** `overflow-y: hidden` + hidden scrollbars on `.sec-tabs` (same idiom
+  as `.studio-thread`); tabs still scroll by wheel/touch if they overflow. (PR #___)
+
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)
 - **Reported:** 2026-07-11
