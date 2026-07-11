@@ -34,4 +34,16 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
-_(none logged yet — waiting on the owner's first report)_
+### Messages leak across all chats — thread never repaints on switch
+- **Status:** ✅ fixed
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` — duplicate `renderThread` (1592 + 5112)
+- **What:** Typing in one chat showed the same messages in every chat. Each chat's
+  stored `msgs` were actually separate; the bug was that switching chats never
+  redrew the thread, so the screen stayed frozen on the last chat's messages.
+- **Cause:** Two top-level functions were both named `renderThread` — the real
+  chat one (1592) and an unrelated Media Agent Instagram-DM one (5112). JS lets
+  the last declaration win, so every chat-thread repaint call actually hit the
+  DM version, which no-ops when there's no DM panel (`#maDmThread` missing).
+- **Fix:** Renamed the Media Agent DM function (and its single caller) to
+  `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #___)
