@@ -53,6 +53,9 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   thread records which image each cited tag pointed at. Thumbs are downscaled
   (≤168px JPEG) before persisting so the localStorage chat budget + Supabase
   chat sync stay small; strip type is `{t:'refs', imgs:[…]}` in chat msgs.
+- **In the chatbox too:** while references are attached, the composer shows one
+  clickable @ImageN chip per image (micro-thumbnail + tag); tapping inserts the
+  tag at the cursor (`renderRefChips`/`insertAtCursor`).
 
 ### Media Agent: wide panel on EVERY tab (superseded the Videos-only widening)
 - **Status:** ✅ done

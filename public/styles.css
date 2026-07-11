@@ -187,6 +187,19 @@
       align-self: flex-start; padding-left: .95rem;
       border-left: 2px solid; border-image: linear-gradient(180deg, #ff79c6, #ffb84d) 1;
     }
+    /* Composer chip row: one @ImageN chip per attached reference — tap to
+       insert the tag at the cursor. */
+    .ref-chips { display: flex; gap: .35rem; flex-wrap: wrap; padding: .55rem .9rem 0; }
+    .ref-chip {
+      display: inline-flex; align-items: center; gap: .35rem;
+      font: inherit; font-size: .72rem; font-weight: 600; color: var(--text);
+      background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2);
+      border-radius: 999px; padding: .16rem .55rem .16rem .18rem; cursor: pointer;
+      transition: background .12s ease, border-color .12s ease;
+    }
+    .ref-chip:hover { background: rgba(255, 255, 255, .09); border-color: rgba(255, 255, 255, .22); }
+    .ref-chip img { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; display: block; }
+
     /* Reference strip under a user message: the images the sent @ImageN tags
        pointed at, right-aligned like the bubble it belongs to. */
     .msg-refs { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; align-self: flex-end; max-width: 78%; padding-right: .95rem; }

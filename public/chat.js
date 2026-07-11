@@ -656,6 +656,49 @@ function renderRefList() {
   }
   const cnt = document.getElementById('cntRef');
   if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
+  renderRefChips();
+}
+
+// ── Reference chips in the composer ──
+// While references are attached (tag-binding context), the chatbox shows one
+// clickable @ImageN chip per image — tap to drop that tag at the cursor, so
+// writing "the character from @Image1…" never means memorizing the order.
+function renderRefChips() {
+  const composer = document.querySelector('#viewHome .composer');
+  if (!composer) return;
+  let bar = document.getElementById('refChips');
+  const want = refTagBinding() && refList.length;
+  if (!want) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'refChips';
+    bar.className = 'ref-chips';
+    composer.prepend(bar);
+  }
+  bar.innerHTML = '';
+  refList.forEach((src, i) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ref-chip';
+    chip.title = 'Insert @Image' + (i + 1) + ' into your message';
+    chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Image' + (i + 1);
+    chip.onclick = () => insertAtCursor('@Image' + (i + 1));
+    bar.appendChild(chip);
+  });
+}
+function insertAtCursor(tag) {
+  const input = document.getElementById('input');
+  if (!input) return;
+  const s = input.selectionStart ?? input.value.length;
+  const e = input.selectionEnd ?? s;
+  const before = input.value.slice(0, s), after = input.value.slice(e);
+  const lead = before && !/\s$/.test(before) ? ' ' : '';
+  const tail = after && !/^\s/.test(after) ? ' ' : '';
+  input.value = before + lead + tag + tail + after;
+  const pos = (before + lead + tag + tail).length;
+  input.setSelectionRange(pos, pos);
+  input.focus();
+  autoGrow(input);
 }
 
 // ── References in the chat thread ──
