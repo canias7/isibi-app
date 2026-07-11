@@ -34,6 +34,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Builder: reference images must be visibly defined as @Image1, @Image2…
+- **Status:** ✅ done
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` `renderRefList()` / `showApInfo()`; `public/styles.css` `.slot-tag`
+- **What:** For models that take reference images, the owner wants the chat to
+  define them as @image1 etc. The backend already did (director writes the tags
+  into Seedance prompts; worker appends "Feature @Image1…" to raw prompts and
+  strips dangling tags) — but the UI never told the USER the tags exist.
+- **Fix:** Each reference thumbnail now wears an @ImageN badge, and the ref-row
+  tooltip teaches the syntax. Both only appear for tag-binding models
+  (Seedance); Veo refs are holistic (tags would be stripped), so no badges there.
+
 ### Media Agent: wide panel on EVERY tab (superseded the Videos-only widening)
 - **Status:** ✅ done
 - **Reported:** 2026-07-11

@@ -425,8 +425,12 @@ function showApInfo(kind, ev, el) {
   if (!pop) return;
   // The Image row means image-to-video in video mode, but image editing in image mode.
   const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
-  const txt = AP_INFO[key];
+  let txt = AP_INFO[key];
   if (!txt) return;
+  // Tag-binding models: teach the @ImageN syntax right where the refs live.
+  if (kind === 'ref' && refTagBinding()) {
+    txt += ' This model binds them by tag — mention @Image1, @Image2… in your message where each should appear (isibi adds the tags for you if you don’t).';
+  }
   pop.textContent = txt;
   pop.dataset.for = kind;
   const r = el.getBoundingClientRect();
@@ -625,14 +629,20 @@ function onAttachRef(inputEl) {
   });
 }
 function removeRef(i) { refList.splice(i, 1); renderRefList(); }
+// Seedance binds references by @ImageN tags cited in the prompt (Veo uses them
+// holistically — no tags), so only badge the thumbnails when tags are real.
+function refTagBinding() { return mode === 'video' && /seedance/i.test(model); }
 function renderRefList() {
   const host = document.getElementById('refImages');
   if (!host) return;
   host.innerHTML = '';
+  const tagged = refTagBinding();
   refList.forEach((src, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
-    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="x">×</span>';
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" />' +
+      (tagged ? '<span class="slot-tag">@Image' + (i + 1) + '</span>' : '') +
+      '<span class="x">×</span>';
     d.querySelector('.x').onclick = () => removeRef(i);
     host.appendChild(d);
   });
