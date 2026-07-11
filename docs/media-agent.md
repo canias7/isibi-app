@@ -18,12 +18,17 @@ Read tools tested live against a connected channel ("Cristian Anias", 11 subs /
 | `YOUTUBE_LIST_USER_SUBSCRIPTIONS` | `{mine:true, maxResults:N}` | ✅ | `items[]` subs with `snippet` + `contentDetails` |
 | `YOUTUBE_SEARCH_YOU_TUBE` | `{q, maxResults:N}` | ✅ | `items[]` with `id.videoId`, `snippet` |
 
-Write tools (tested in an earlier session, session `01P5kAxfLkGCXosjH3No4CBN`, PRs
-#274/#275 — results not durably saved, re-verify before relying):
-`YOUTUBE_UPLOAD_VIDEO` (used by `socialPublish`; upload file via `composioUploadFile`
-first, then execute with `videoFilePath`), `YOUTUBE_POST_COMMENT` (`{videoId, channelId, textOriginal}`),
-`YOUTUBE_CREATE_COMMENT_REPLY` (`{parentId, textOriginal}`), `YOUTUBE_UPDATE_COMMENT`,
-`YOUTUBE_DELETE_COMMENT`, `YOUTUBE_DELETE_VIDEO` (`{videoId, confirmDelete:true}`),
+Write tools — **verified live 2026-07-11** (private test upload, then deleted):
+| Action | Args | Status |
+|---|---|---|
+| `YOUTUBE_UPLOAD_VIDEO` | via `socialPublish`: `composioUploadFile` → `{title, description, tags, categoryId, privacyStatus, videoFilePath}` | ✅ **works** (powers the Videos-tab "+" publish) |
+| `YOUTUBE_DELETE_VIDEO` | `{videoId, confirmDelete:true}` | ✅ works |
+| `YOUTUBE_GET_VIDEO_DETAILS_BATCH` | `{id:"id1,id2"}` | ❌ returns empty for valid ids (arg/format quirk — **Videos tab falls back to upload dates instead of view counts**; needs arg work to enable per-video views) |
+
+Comment write tools (tested only in the earlier session `01P5kAxfLkGCXosjH3No4CBN`,
+PRs #274/#275 — not re-verified, no UI uses them yet): `YOUTUBE_POST_COMMENT`
+(`{videoId, channelId, textOriginal}`), `YOUTUBE_CREATE_COMMENT_REPLY`
+(`{parentId, textOriginal}`), `YOUTUBE_UPDATE_COMMENT`, `YOUTUBE_DELETE_COMMENT`,
 `YOUTUBE_LIST_PLAYLIST_IMAGES` (arg is `parent`, NOT `playlistId`).
 
 No YouTube frontend built yet — the YouTube tile shows a "coming soon" placeholder.
