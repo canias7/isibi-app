@@ -1376,6 +1376,49 @@ export default {
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
+    // TEMP diagnostic — reproduce one DM send and return the raw Composio
+    // response, to diagnose why auto-reply sends fail. Hash-gated + uid-locked.
+    // Remove after use.
+    if (url.pathname === "/api/_diag_send" && request.method === "GET") {
+      const k = url.searchParams.get("k") || "";
+      const dig = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(k));
+      const hash = [...new Uint8Array(dig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+      const OK = "2f0a2dd6d28830cf1c6863ff7969327e04be50e990c5f71883d231ec1e19abc8";
+      const uid = url.searchParams.get("uid") || "";
+      if (hash !== OK || uid !== "7cf5e6de-a025-419e-81ca-18e26a648cf6") return new Response("Not found", { status: 404 });
+      const send = url.searchParams.get("send") === "1";
+      const ident = { userId: uid };
+      const out = { me: null, convCount: 0, attempts: [] };
+      try {
+        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+        out.me = info.data && (info.data.username || (info.data.data && info.data.data.username));
+        out.igId = info.data && (info.data.id || (info.data.data && info.data.data.id));
+        const c = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
+        const items = (c.data && (c.data.data || c.data.conversations || c.data.items)) || [];
+        out.convCount = items.length;
+        const msgsOf = (d) => (d && (d.data || (d.messages && d.messages.data))) || [];
+        for (const it of items.slice(0, 2)) {
+          const m = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: it.id });
+          const ml = msgsOf(m.data);
+          const latest = ml[0] || {};
+          const attempt = {
+            conv: it.id,
+            latestFrom: latest.from && latest.from.username,
+            latestFromId: latest.from && latest.from.id,
+            latestText: latest.message,
+            latestTime: latest.created_time,
+          };
+          if (send && attempt.latestFrom && attempt.latestFrom !== out.me && attempt.latestFromId) {
+            const ex = await composioExecute(env, "INSTAGRAM_SEND_TEXT_MESSAGE", ident,
+              { recipient_id: String(attempt.latestFromId), text: "🤖 auto-reply diagnostic test" });
+            attempt.send = { http: ex.http, successful: ex.successful, error: ex.error, data: ex.data };
+          }
+          out.attempts.push(attempt);
+        }
+      } catch (e) { out.err = String((e && e.message) || e); }
+      return Response.json(out);
+    }
+
     const genKind =
       url.pathname === "/api/video" ? "video" :
       url.pathname === "/api/image" ? "image" :
