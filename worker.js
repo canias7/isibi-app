@@ -2354,59 +2354,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP diagnostic — verify comment auto-reply end-to-end (to be reverted).
-    // Hash-gated + uid-locked. Lists recent non-owner comments and, with
-    // {"send":true}, attempts one real INSTAGRAM_POST_IG_COMMENT_REPLIES so we
-    // can see the raw Instagram result (does comment-reply hit a permission
-    // wall like DMs, or go through?).
-    if (url.pathname === "/api/_diag_comment" && request.method === "POST") {
-      const body = await request.json().catch(() => ({}));
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(body.key || ""))))]
-        .map((b) => b.toString(16).padStart(2, "0")).join("");
-      if (hash !== "db26e39c26a7dd2144afa0c2d7970d976d441a4acb32af715ec5c930acfe56a2") {
-        return Response.json({ error: "nope" }, { status: 403 });
-      }
-      const uid = "7cf5e6de-a025-419e-81ca-18e26a648cf6";
-      const ident = { userId: uid };
-      const out = { attempts: [] };
-      try {
-        const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
-        const d = (info.data && (info.data.data || info.data)) || {};
-        out.me = d.username; out.igId = d.id || d.ig_id || null;
-        out.mediaCountInfo = d.media_count ?? null;
-        const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
-          ig_user_id: out.igId, limit: 8, fields: "id,permalink,media_type,timestamp",
-        });
-        out.rawMedia = JSON.stringify(m.data).slice(0, 800);
-        const media = anMediaList(m.data).slice(0, 8);
-        out.mediaCount = media.length;
-        let done = false;
-        for (const post of media) {
-          if (done) break;
-          const c = await composioExecute(env, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", ident, { ig_media_id: post.id });
-          const list = (c.data && (c.data.data || (c.data.comments && c.data.comments.data))) || [];
-          for (const cm of Array.isArray(list) ? list : []) {
-            if (!cm || !cm.id) continue;
-            const from = cm.username || (cm.from && cm.from.username) || null;
-            const mine = from === out.me;
-            const rec = { post: post.id, id: cm.id, from, mine, text: String(cm.text || "").slice(0, 120), timestamp: cm.timestamp || null };
-            if (body.send && !mine && !done) {
-              const testPrompt = String(body.prompt || "Reply warmly and briefly, thanking them for the comment.");
-              const reply = await autoreplyDraft(env, "@" + from + " commented: " + rec.text, testPrompt, "comment");
-              rec.draft = reply;
-              const ex = await composioExecute(env, "INSTAGRAM_POST_IG_COMMENT_REPLIES", ident, {
-                ig_comment_id: String(cm.id), message: String(reply || "Thanks so much!").slice(0, 300),
-              });
-              rec.send = { http: ex.http, successful: ex.successful, error: ex.error, data: ex.data };
-              done = true;
-            }
-            out.attempts.push(rec);
-          }
-        }
-      } catch (e) { out.error = String(e && e.message || e); }
-      return Response.json(out);
-    }
-
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
     // per-user in user_autoreply (RLS own-row). The execution engine that acts
     // on this config is separate; here we only load/save the settings.
