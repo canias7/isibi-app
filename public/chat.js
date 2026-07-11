@@ -4441,6 +4441,16 @@ const SOCIAL_APPS = [
 let socialStatus = null;   // { instagram:{connected,status,id}, youtube:{...} } | { _off:true } | null
 let socialPoll = null;
 let maApp = 'instagram';   // selected app in the switcher
+let maSec = 'analytics';   // selected section within the app panel
+let igAnalytics = null;    // cached analytics payload (per session)
+let igAnalyticsLoading = false;
+const IG_SECTIONS = [
+  { key: 'analytics', label: 'Analytics' },
+  { key: 'posts', label: 'Posts' },
+  { key: 'dms', label: 'DMs' },
+  { key: 'comments', label: 'Comments' },
+  { key: 'triggers', label: 'Triggers' },
+];
 
 function renderMediaAgent() {
   const view = document.getElementById('viewMediaAgent');
@@ -4456,6 +4466,7 @@ function renderMediaAgent() {
       '<div class="app-main" id="appMain"></div>' +
     '</div>';
   paintMaSwitch();
+  renderAppMain();
   loadSocialStatus();
 }
 
@@ -4484,7 +4495,120 @@ function selectMaApp(app) {
   if (!SOCIAL_APPS.some((a) => a.key === app) || maApp === app) return;
   maApp = app;
   paintMaSwitch();
-  // Panel below will re-render here once its design is in.
+  renderAppMain();
+}
+
+// The per-app workspace. Instagram gets the section tabs (Analytics/Posts/DMs/
+// Comments/Triggers); YouTube's panel is not designed yet. Not-connected apps
+// point the user to Integrations to link.
+function renderAppMain() {
+  const el = document.getElementById('appMain');
+  if (!el) return;
+  if (maApp === 'youtube') { el.innerHTML = appNote('The YouTube workspace is coming soon.'); return; }
+  if (!socialStatus) { el.innerHTML = appNote('Checking connection…'); return; }
+  if (socialStatus._off) { el.innerHTML = appNote('Social connections aren’t configured on the server yet.'); return; }
+  const slot = socialStatus[maApp];
+  if (!(slot && slot.connected)) {
+    const name = (SOCIAL_APPS.find((a) => a.key === maApp) || {}).name || 'This app';
+    el.innerHTML =
+      '<div class="app-empty"><p>' + esc(name) + ' isn’t connected yet.</p>' +
+      '<button type="button" class="ma-btn ma-btn-on" id="appConnectCta">Connect in Integrations</button></div>';
+    const cta = document.getElementById('appConnectCta');
+    if (cta) cta.onclick = () => showView('integrations');
+    return;
+  }
+  el.innerHTML =
+    '<div class="sec-tabs">' +
+      IG_SECTIONS.map((s) => '<button type="button" class="sec-tab' + (maSec === s.key ? ' on' : '') + '" data-sec="' + s.key + '">' + s.label + '</button>').join('') +
+    '</div>' +
+    '<div class="sec-body" id="secBody"></div>';
+  el.querySelectorAll('[data-sec]').forEach((b) => { b.onclick = () => { maSec = b.dataset.sec; renderAppMain(); }; });
+  renderSection();
+}
+
+function appNote(text) { return '<div class="app-empty"><p>' + esc(text) + '</p></div>'; }
+
+function renderSection() {
+  const body = document.getElementById('secBody');
+  if (!body) return;
+  if (maSec === 'analytics') { renderAnalytics(body); return; }
+  const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
+  body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
+    '<p class="sec-soon-s">We’re building this section next.</p></div>';
+}
+
+// Compact number: <10k with thousands separators, else 1-decimal "k".
+function maNum(n) {
+  if (n == null || !Number.isFinite(n)) return '—';
+  if (n < 10000) return n.toLocaleString('en-US');
+  const k = n / 1000;
+  return (k >= 100 ? Math.round(k) : Number(k.toFixed(1))) + 'k';
+}
+
+// ── Analytics section (live Instagram data) ──
+function renderAnalytics(body) {
+  if (igAnalytics) { paintAnalytics(body, igAnalytics); return; }
+  body.innerHTML = '<div class="sec-loading">Loading analytics…</div>';
+  if (igAnalyticsLoading) return;
+  igAnalyticsLoading = true;
+  apiFetch('/api/social/analytics?platform=instagram')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Analytics isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { igAnalytics = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { igAnalytics = { _err: 'Network error.' }; })
+    .finally(() => {
+      igAnalyticsLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maSec === 'analytics') paintAnalytics(b, igAnalytics);
+    });
+}
+
+function paintAnalytics(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="anRetry">Retry</button></div>';
+    const rt = document.getElementById('anRetry');
+    if (rt) rt.onclick = () => { igAnalytics = null; renderAnalytics(body); };
+    return;
+  }
+  const tiles = [
+    ['Followers', d.followers], ['Reach · 30d', d.reach],
+    ['Impressions · 30d', d.impressions], ['Profile views', d.profile_views],
+  ].map(([l, v]) => '<div class="stat"><div class="stat-l">' + l + '</div><div class="stat-v">' + maNum(v) + '</div></div>').join('');
+  const chart = analyticsChart(d.reach_series);
+  const posts = (d.top_posts || []).map((p) =>
+    '<div class="prow">' +
+      '<span class="pthumb"' + (p.thumb ? ' style="background-image:url(' + esc(p.thumb) + ')"' : '') + '></span>' +
+      '<span class="pmeta"><span class="pt">' + esc(p.caption || '(no caption)') + '</span>' +
+        '<span class="ps">' + esc(p.media_type || 'post') + '</span></span>' +
+      '<span class="pnum">♥ ' + maNum(p.likes) + '</span>' +
+      '<span class="pnum">💬 ' + maNum(p.comments) + '</span>' +
+    '</div>').join('');
+  body.innerHTML =
+    '<div class="stats">' + tiles + '</div>' +
+    (chart ? '<div class="card"><div class="card-h"><span class="card-t">Reach</span>' +
+      '<span class="card-legend">Last ' + (d.reach_series.length) + ' days</span></div>' + chart + '</div>' : '') +
+    (posts ? '<div class="sec-sub">Top posts</div>' + posts : '');
+}
+
+// Pink→amber area/line chart from a [{t,v}] series (empty → no chart).
+function analyticsChart(series) {
+  if (!Array.isArray(series) || series.length < 2) return '';
+  const vals = series.map((s) => Number(s.v) || 0);
+  const W = 680, H = 150, padT = 14, padB = 12, padX = 6;
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const xs = (i) => padX + i * ((W - 2 * padX) / (vals.length - 1));
+  const ys = (v) => padT + (1 - (v - min) / span) * (H - padT - padB);
+  const line = vals.map((v, i) => (i ? 'L' : 'M') + xs(i).toFixed(1) + ' ' + ys(v).toFixed(1)).join(' ');
+  const area = line + ' L' + xs(vals.length - 1).toFixed(1) + ' ' + (H - padB) + ' L' + xs(0).toFixed(1) + ' ' + (H - padB) + ' Z';
+  const last = vals.length - 1;
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" preserveAspectRatio="none" style="display:block">' +
+    '<defs><linearGradient id="agL" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff79c6"/><stop offset="1" stop-color="#ffb84d"/></linearGradient>' +
+    '<linearGradient id="agF" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff79c6" stop-opacity=".28"/><stop offset="1" stop-color="#ff79c6" stop-opacity="0"/></linearGradient></defs>' +
+    '<path d="' + area + '" fill="url(#agF)"/>' +
+    '<path d="' + line + '" fill="none" stroke="url(#agL)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
+    '<circle cx="' + xs(last).toFixed(1) + '" cy="' + ys(vals[last]).toFixed(1) + '" r="4" fill="#ffb84d"/></svg>';
 }
 
 // ── Media Agent · Instagram DM inbox ──
@@ -4739,6 +4863,9 @@ async function agentSend(text) {
 function paintSocial() {
   paintIntegrations();
   paintMaSwitch();
+  // Reflect connection state in the panel (e.g. once status resolves from
+  // "Checking…" to connected). Cheap: analytics is cached after first load.
+  if (document.getElementById('appMain')) renderAppMain();
 }
 
 // Status line for the connect/disconnect flow — mirrored to whichever surface

@@ -1023,6 +1023,94 @@ async function socialPublish(env, userId, p) {
   return { ok: false, platform, error: "unknown platform" };
 }
 
+// ── Analytics (read) ───────────────────────────────────────────────────────
+// Pulls a compact Instagram dashboard through Composio: account totals, 30-day
+// reach/impressions/profile-views, a 14-day reach series, and top posts. Every
+// Composio call is defensive — a missing field returns null and the frontend
+// degrades gracefully, so one unavailable metric never sinks the whole panel.
+function anNum(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
+
+// Instagram Insights come back as { data: [ { name, values:[{value,end_time}],
+// total_value:{value} } ] }; unwrap whichever envelope Composio hands back.
+function anInsightList(d) {
+  const a = d && (d.data || (d.response_data && d.response_data.data) || d.insights);
+  return Array.isArray(a) ? a : [];
+}
+function anMetricTotal(list, name) {
+  const m = list.find((x) => x && x.name === name);
+  if (!m) return null;
+  if (m.total_value && m.total_value.value != null) return anNum(m.total_value.value);
+  if (Array.isArray(m.values) && m.values.length)
+    return anNum(m.values.reduce((s, v) => s + (Number(v.value) || 0), 0));
+  return null;
+}
+function anMediaList(d) {
+  const a = d && (d.data || (d.response_data && d.response_data.data) || d.media);
+  return Array.isArray(a) ? a : [];
+}
+
+async function instagramAnalytics(env, userId, debug) {
+  const ident = { userId };
+  const out = {
+    username: null, followers: null, media_count: null,
+    reach: null, impressions: null, profile_views: null,
+    reach_series: null, top_posts: [],
+  };
+  const raw = {};
+  let igId = null;
+  try {
+    const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+    if (debug) raw.info = info.data;
+    const d = info.data || {};
+    igId = d.id || d.ig_id || (d.data && d.data.id) || null;
+    out.username = d.username || (d.data && d.data.username) || null;
+    out.followers = anNum(d.followers_count ?? d.followers ?? (d.data && d.data.followers_count));
+    out.media_count = anNum(d.media_count ?? (d.data && d.data.media_count));
+  } catch {}
+
+  if (igId) {
+    // 30-day account totals.
+    try {
+      const ins = await composioExecute(env, "INSTAGRAM_GET_USER_INSIGHTS", ident,
+        { ig_user_id: igId, metric: "reach,impressions,profile_views", period: "days_28" });
+      if (debug) raw.insights = ins.data;
+      const list = anInsightList(ins.data);
+      out.reach = anMetricTotal(list, "reach");
+      out.impressions = anMetricTotal(list, "impressions");
+      out.profile_views = anMetricTotal(list, "profile_views");
+    } catch {}
+    // 14-day daily reach series for the trend chart.
+    try {
+      const s = await composioExecute(env, "INSTAGRAM_GET_USER_INSIGHTS", ident,
+        { ig_user_id: igId, metric: "reach", period: "day" });
+      if (debug) raw.series = s.data;
+      const r = anInsightList(s.data).find((x) => x && x.name === "reach");
+      if (r && Array.isArray(r.values) && r.values.length)
+        out.reach_series = r.values.slice(-14).map((x) => ({ t: x.end_time || null, v: anNum(x.value) }));
+    } catch {}
+    // Top posts by likes (from the media list — no per-post insight calls).
+    try {
+      const media = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
+        ig_user_id: igId, limit: 24,
+        fields: "id,caption,media_type,media_url,thumbnail_url,permalink,like_count,comments_count,timestamp",
+      });
+      if (debug) raw.media = media.data;
+      const posts = anMediaList(media.data).map((m) => ({
+        id: m.id,
+        caption: String(m.caption || "").replace(/\s+/g, " ").trim().slice(0, 80),
+        media_type: String(m.media_type || "").toLowerCase(),
+        permalink: m.permalink || null,
+        thumb: m.thumbnail_url || m.media_url || null,
+        likes: anNum(m.like_count), comments: anNum(m.comments_count),
+      })).filter((p) => p.id);
+      posts.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+      out.top_posts = posts.slice(0, 5);
+    } catch {}
+  }
+  if (debug) out._raw = raw;
+  return out;
+}
+
 // ── Media Agent brain: read-only action catalog ───────────────────────────
 // The agent gets ONE tool (run_action) and may only call slugs in this
 // allowlist — all read-only, so it can never post/delete on the live accounts.
@@ -1938,6 +2026,23 @@ async function handleRequest(request, env, ctx) {
         return Response.json(res, { status: res.ok ? 200 : 502 });
       } catch {
         return Response.json({ ok: false, error: "publish failed" }, { status: 502 });
+      }
+    }
+
+    // Analytics dashboard for a connected account (read-only). Instagram only
+    // for now; returns a normalized payload with null for anything unavailable.
+    if (url.pathname === "/api/social/analytics" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
+      const platform = (url.searchParams.get("platform") || "instagram").toLowerCase();
+      if (platform !== "instagram") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      try {
+        const data = await instagramAnalytics(env, user.id, url.searchParams.get("debug") === "1");
+        return Response.json({ ok: true, ...data });
+      } catch {
+        return Response.json({ error: "analytics unavailable" }, { status: 503 });
       }
     }
 
