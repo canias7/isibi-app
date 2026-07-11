@@ -34,6 +34,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Home-page preset cards must not hand off to the Builder (interim)
+- **Status:** ✅ done (interim behavior)
+- **Reported:** 2026-07-11
+- **Where:** `public/chat.js` `renderPresetsInto()` / `usePreset()` (~line 934)
+- **What:** Clicking a starter card on Home ("Product hero ad", "UGC testimonial"…)
+  switched to the Builder with the preset prompt loaded. Owner wants generation to
+  eventually happen ON the Home page itself; until that's built, cards shouldn't
+  navigate anywhere.
+- **Fix:** Unwired the card click (cards are display-only for now). `usePreset()`
+  kept intact for the future generate-on-Home flow. (PR #___)
+- **TODO later:** build generate-in-place on Home and re-wire the cards to it.
+
 ### Attachments cleared when switching to a non-supporting model — NOT a bug (owner's call)
 - **Status:** ✅ working as intended — do not change
 - **Reported:** 2026-07-11
