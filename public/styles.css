@@ -1017,7 +1017,19 @@
 .pt { font-weight: 600; font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ps { font-size: .75rem; color: var(--muted); }
 .pnum { font-size: .82rem; color: var(--muted); font-weight: 600; min-width: 60px; text-align: right; }
-@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+/* Posts grid */
+.posts-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap; }
+.posts-count { font-size: .86rem; color: var(--muted); font-weight: 600; }
+.posts-sort { display: flex; gap: .35rem; }
+.psort { font: inherit; font-size: .8rem; font-weight: 600; color: var(--muted); background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2); border-radius: 8px; padding: .35rem .7rem; cursor: pointer; }
+.psort.on { color: #0a090e; background: linear-gradient(90deg, #ff79c6, #ffb84d); border-color: transparent; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .7rem; }
+.post { display: block; text-align: left; padding: 0; border: 1px solid var(--line-2); border-radius: 13px; overflow: hidden; background: var(--panel); cursor: pointer; font: inherit; color: var(--text); transition: filter .12s ease, border-color .12s ease; }
+.post:hover { filter: brightness(1.06); border-color: var(--line-2); }
+.post-media { display: flex; aspect-ratio: 1; align-items: flex-start; justify-content: flex-end; padding: .5rem; background: linear-gradient(135deg, rgba(255, 121, 198, .3), rgba(255, 184, 77, .3)); background-size: cover; background-position: center; }
+.post-k { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #fff; background: rgba(0, 0, 0, .5); border-radius: 6px; padding: .15rem .4rem; }
+.post-nums { display: flex; justify-content: space-between; padding: .55rem .7rem; font-size: .8rem; color: var(--muted); font-weight: 600; }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } .grid { grid-template-columns: repeat(2, 1fr); } }
 /* Media Agent chat */
 .ma-chat { margin-top: 2rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
 .ma-chat-head {

@@ -4444,6 +4444,9 @@ let maApp = 'instagram';   // selected app in the switcher
 let maSec = 'analytics';   // selected section within the app panel
 let igAnalytics = null;    // cached analytics payload (per session)
 let igAnalyticsLoading = false;
+let igPosts = null;        // cached posts payload (per session)
+let igPostsLoading = false;
+let postsSort = 'recent';  // 'recent' | 'top'
 const IG_SECTIONS = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'posts', label: 'Posts' },
@@ -4532,6 +4535,7 @@ function renderSection() {
   const body = document.getElementById('secBody');
   if (!body) return;
   if (maSec === 'analytics') { renderAnalytics(body); return; }
+  if (maSec === 'posts') { renderPosts(body); return; }
   const label = (IG_SECTIONS.find((s) => s.key === maSec) || {}).label || 'This';
   body.innerHTML = '<div class="sec-soon"><p><b>' + esc(label) + '</b> is coming soon.</p>' +
     '<p class="sec-soon-s">We’re building this section next.</p></div>';
@@ -4609,6 +4613,59 @@ function analyticsChart(series) {
     '<path d="' + area + '" fill="url(#agF)"/>' +
     '<path d="' + line + '" fill="none" stroke="url(#agL)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' +
     '<circle cx="' + xs(last).toFixed(1) + '" cy="' + ys(vals[last]).toFixed(1) + '" r="4" fill="#ffb84d"/></svg>';
+}
+
+// ── Posts section (live Instagram media grid) ──
+function renderPosts(body) {
+  if (igPosts) { paintPosts(body, igPosts); return; }
+  body.innerHTML = '<div class="sec-loading">Loading posts…</div>';
+  if (igPostsLoading) return;
+  igPostsLoading = true;
+  apiFetch('/api/social/posts?platform=instagram')
+    .then((r) => (r.status === 429 ? { _err: 'You’ve hit today’s limit — try again tomorrow.' }
+      : r.status === 501 ? { _err: 'Posts isn’t configured on the server yet.' }
+      : r.json().catch(() => ({ _err: 'Couldn’t read the response.' }))))
+    .then((d) => { igPosts = d && d.ok ? d : { _err: (d && (d._err || d.error)) || 'Something went wrong.' }; })
+    .catch(() => { igPosts = { _err: 'Network error.' }; })
+    .finally(() => {
+      igPostsLoading = false;
+      const b = document.getElementById('secBody');
+      if (b && maSec === 'posts') paintPosts(b, igPosts);
+    });
+}
+
+function paintPosts(body, d) {
+  if (d._err) {
+    body.innerHTML = '<div class="sec-loading">' + esc(String(d._err)) +
+      ' <button type="button" class="an-retry" id="pRetry">Retry</button></div>';
+    const rt = document.getElementById('pRetry');
+    if (rt) rt.onclick = () => { igPosts = null; renderPosts(body); };
+    return;
+  }
+  const posts = (d.posts || []).slice();
+  if (!posts.length) {
+    body.innerHTML = '<div class="sec-soon"><p>No posts yet.</p>' +
+      '<p class="sec-soon-s">Posts you publish to Instagram will show up here.</p></div>';
+    return;
+  }
+  if (postsSort === 'top') posts.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+  const grid = posts.map((p) =>
+    '<button type="button" class="post" data-perma="' + esc(p.permalink || '') + '">' +
+      '<span class="post-media"' + (p.thumb ? ' style="background-image:url(' + esc(p.thumb) + ')"' : '') + '>' +
+        (p.media_type ? '<span class="post-k">' + esc(p.media_type) + '</span>' : '') + '</span>' +
+      '<span class="post-nums"><span>♥ ' + maNum(p.likes) + '</span><span>💬 ' + maNum(p.comments) + '</span></span>' +
+    '</button>').join('');
+  body.innerHTML =
+    '<div class="posts-head"><span class="posts-count">' + posts.length + ' post' + (posts.length === 1 ? '' : 's') + '</span>' +
+      '<div class="posts-sort">' +
+        '<button type="button" class="psort' + (postsSort === 'recent' ? ' on' : '') + '" data-sort="recent">Recent</button>' +
+        '<button type="button" class="psort' + (postsSort === 'top' ? ' on' : '') + '" data-sort="top">Top</button>' +
+      '</div></div>' +
+    '<div class="grid">' + grid + '</div>';
+  body.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { postsSort = b.dataset.sort; paintPosts(body, d); }; });
+  body.querySelectorAll('[data-perma]').forEach((b) => {
+    b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
+  });
 }
 
 // ── Media Agent · Instagram DM inbox ──
