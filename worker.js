@@ -1117,6 +1117,38 @@ async function instagramAnalytics(env, userId, debug) {
   return out;
 }
 
+// The user's Instagram posts (most recent first), normalized for the grid.
+// Likes/comments come free with the media list; per-post reach would need an
+// insight call each, so it's left for a detail view later.
+async function instagramPosts(env, userId, limit) {
+  const ident = { userId };
+  let igId = null;
+  try {
+    const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+    const d = info.data || {};
+    igId = d.id || d.ig_id || (d.data && d.data.id) || null;
+  } catch {}
+  if (!igId) return { posts: [] };
+  try {
+    const media = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
+      ig_user_id: igId, limit: Math.min(Math.max(limit || 48, 1), 96),
+      fields: "id,caption,media_type,media_product_type,media_url,thumbnail_url,permalink,like_count,comments_count,timestamp",
+    });
+    const posts = anMediaList(media.data).map((m) => ({
+      id: m.id,
+      caption: String(m.caption || "").replace(/\s+/g, " ").trim().slice(0, 140),
+      media_type: String(m.media_product_type || "").toUpperCase() === "REELS" ? "reel"
+        : String(m.media_type || "").toLowerCase() === "carousel_album" ? "carousel"
+        : String(m.media_type || "").toLowerCase(),
+      thumb: m.thumbnail_url || m.media_url || null,
+      permalink: m.permalink || null,
+      likes: anNum(m.like_count), comments: anNum(m.comments_count),
+      timestamp: m.timestamp || null,
+    })).filter((p) => p.id);
+    return { posts };
+  } catch { return { posts: [] }; }
+}
+
 // ── Media Agent brain: read-only action catalog ───────────────────────────
 // The agent gets ONE tool (run_action) and may only call slugs in this
 // allowlist — all read-only, so it can never post/delete on the live accounts.
@@ -2049,6 +2081,22 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, ...data });
       } catch {
         return Response.json({ error: "analytics unavailable" }, { status: 503 });
+      }
+    }
+
+    // The user's Instagram posts for the Posts tab (read-only). Instagram only.
+    if (url.pathname === "/api/social/posts" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
+      const platform = (url.searchParams.get("platform") || "instagram").toLowerCase();
+      if (platform !== "instagram") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      try {
+        const data = await instagramPosts(env, user.id, 48);
+        return Response.json({ ok: true, ...data });
+      } catch {
+        return Response.json({ error: "posts unavailable" }, { status: 503 });
       }
     }
 
