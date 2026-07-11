@@ -4,6 +4,31 @@ Reference for the Instagram/YouTube Media Agent (Composio integration). When the
 user asks "what's allowed / what are the rate limits / how does the auto-reply
 throttle," pull the answer from here. Figures dated 2026-07-11.
 
+## YouTube tools — verified working (live sweep 2026-07-11)
+
+Read tools tested live against a connected channel ("Cristian Anias", 11 subs /
+20 videos / 7,029 views). **All 6 reads PASS** — no permission walls:
+
+| Composio action | Args | Status | Returns |
+|---|---|---|---|
+| `YOUTUBE_LIST_CHANNELS` | `{mine:true}` | ✅ | channel id, `@handle`, title, thumbnails, `contentDetails.relatedPlaylists.uploads` |
+| `YOUTUBE_GET_CHANNEL_STATISTICS` | `{mine:true}` | ✅ | `subscriberCount`, `videoCount`, `viewCount` (under `channels[0].statistics` / `items[0].statistics`) |
+| `YOUTUBE_LIST_CHANNEL_VIDEOS` | `{mine:true, maxResults:N}` | ✅ | `items[]` = playlistItems; `snippet` has title/thumbnails/publishedAt/channelTitle; videoId is in `snippet.resourceId.videoId` |
+| `YOUTUBE_LIST_USER_PLAYLISTS` | `{}` | ✅ | `items[]` playlists with `snippet` |
+| `YOUTUBE_LIST_USER_SUBSCRIPTIONS` | `{mine:true, maxResults:N}` | ✅ | `items[]` subs with `snippet` + `contentDetails` |
+| `YOUTUBE_SEARCH_YOU_TUBE` | `{q, maxResults:N}` | ✅ | `items[]` with `id.videoId`, `snippet` |
+
+Write tools (tested in an earlier session, session `01P5kAxfLkGCXosjH3No4CBN`, PRs
+#274/#275 — results not durably saved, re-verify before relying):
+`YOUTUBE_UPLOAD_VIDEO` (used by `socialPublish`; upload file via `composioUploadFile`
+first, then execute with `videoFilePath`), `YOUTUBE_POST_COMMENT` (`{videoId, channelId, textOriginal}`),
+`YOUTUBE_CREATE_COMMENT_REPLY` (`{parentId, textOriginal}`), `YOUTUBE_UPDATE_COMMENT`,
+`YOUTUBE_DELETE_COMMENT`, `YOUTUBE_DELETE_VIDEO` (`{videoId, confirmDelete:true}`),
+`YOUTUBE_LIST_PLAYLIST_IMAGES` (arg is `parent`, NOT `playlistId`).
+
+No YouTube frontend built yet — the YouTube tile shows a "coming soon" placeholder.
+Reads above are the basis for a future Analytics / Videos / Playlists workspace.
+
 ## What the connected Instagram tool is ALLOWED to do
 
 Verified live on the test account (`el_torturador999`):
