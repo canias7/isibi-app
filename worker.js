@@ -2373,9 +2373,11 @@ async function handleRequest(request, env, ctx) {
         const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
         const d = (info.data && (info.data.data || info.data)) || {};
         out.me = d.username; out.igId = d.id || d.ig_id || null;
+        out.mediaCountInfo = d.media_count ?? null;
         const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
-          ig_user_id: out.igId, limit: 8, fields: "id,permalink",
+          ig_user_id: out.igId, limit: 8, fields: "id,permalink,media_type,timestamp",
         });
+        out.rawMedia = JSON.stringify(m.data).slice(0, 800);
         const media = anMediaList(m.data).slice(0, 8);
         out.mediaCount = media.length;
         let done = false;
