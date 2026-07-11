@@ -2251,17 +2251,22 @@ async function handleRequest(request, env, ctx) {
         }
         const c = await composioExecute(env, "INSTAGRAM_LIST_ALL_CONVERSATIONS", ident, {});
         const items = (c.data && (c.data.data || c.data.conversations || c.data.items)) || [];
-        const convs = [];
-        for (const it of items.slice(0, 12)) {
-          const cm = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: it.id });
-          const ml = msgsOf(cm.data);
-          const other = ml.map((x) => x.from).find((f) => f && f.username && f.username !== me);
-          const last = ml[0];
-          convs.push({
-            id: it.id, user: other ? other.username : "unknown", user_id: other ? other.id : null,
-            last: last ? (last.message || "").slice(0, 80) : "", at: it.updated_time,
-          });
-        }
+        // Fetch each conversation's messages in PARALLEL — doing them one-by-one
+        // meant ~14 sequential Composio calls and the tab hung on "Loading".
+        const convs = await Promise.all(items.slice(0, 12).map(async (it) => {
+          try {
+            const cm = await composioExecute(env, "INSTAGRAM_LIST_ALL_MESSAGES", ident, { conversation_id: it.id });
+            const ml = msgsOf(cm.data);
+            const other = ml.map((x) => x.from).find((f) => f && f.username && f.username !== me);
+            const last = ml[0];
+            return {
+              id: it.id, user: other ? other.username : "unknown", user_id: other ? other.id : null,
+              last: last ? (last.message || "").slice(0, 80) : "", at: it.updated_time,
+            };
+          } catch {
+            return { id: it.id, user: "unknown", user_id: null, last: "", at: it.updated_time };
+          }
+        }));
         return Response.json({ me, conversations: convs });
       } catch {
         return Response.json({ error: "dm unavailable" }, { status: 503 });
