@@ -2380,44 +2380,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP diagnostic — read-only YouTube tool sweep. Finds a connected YT
-    // account and runs each read action, reporting pass/fail + a data sample.
-    // Hash-gated. Reverted after use. No writes (no comments/deletes/uploads).
-    if (url.pathname === "/api/_diag_ytsweep" && request.method === "POST") {
-      const b = await request.json().catch(() => ({}));
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(b.key || ""))))]
-        .map((x) => x.toString(16).padStart(2, "0")).join("");
-      if (hash !== "ccaa367df0c4eb7d5d780fa926b0e1626befe8af9fea930c9ab8981a9df50ba9") {
-        return Response.json({ error: "nope" }, { status: 403 });
-      }
-      const out = { results: [] };
-      try {
-        // Find any active YouTube connection → use its user_id.
-        const cr = await composioFetch(env, `/connected_accounts?toolkit_slugs=youtube&statuses=ACTIVE&limit=5`);
-        const conns = (await cr.json().catch(() => ({}))).items || [];
-        if (!conns.length) { out.error = "no active YouTube account connected"; return Response.json(out); }
-        const uid = conns[0].user_id;
-        out.youtubeUser = uid;
-        const ident = { userId: uid };
-        const run = async (slug, args) => {
-          try {
-            const ex = await composioExecute(env, slug, ident, args || {});
-            out.results.push({ tool: slug, args, pass: ex.successful, http: ex.http,
-              error: ex.successful ? null : String(composioErrText(ex.error) || "").slice(0, 140),
-              sample: ex.successful ? JSON.stringify(ex.data).slice(0, 260) : null });
-            return ex.data;
-          } catch (e) { out.results.push({ tool: slug, args, pass: false, error: String(e && e.message || e).slice(0, 140) }); return null; }
-        };
-        await run("YOUTUBE_LIST_CHANNELS", { mine: true });
-        await run("YOUTUBE_GET_CHANNEL_STATISTICS", { mine: true });
-        await run("YOUTUBE_LIST_CHANNEL_VIDEOS", { mine: true, maxResults: 5 });
-        await run("YOUTUBE_LIST_USER_PLAYLISTS", {});
-        await run("YOUTUBE_LIST_USER_SUBSCRIPTIONS", { mine: true, maxResults: 5 });
-        await run("YOUTUBE_SEARCH_YOU_TUBE", { q: "lofi", maxResults: 3 });
-      } catch (e) { out.error = String(e && e.message || e); }
-      return Response.json(out);
-    }
-
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
     // per-user in user_autoreply (RLS own-row). The execution engine that acts
     // on this config is separate; here we only load/save the settings.
