@@ -2461,6 +2461,49 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // TEMP diagnostic — probe GET_VIDEO_DETAILS_BATCH arg formats to find the
+    // one that returns per-video statistics. Hash-gated. Reverted after use.
+    if (url.pathname === "/api/_diag_ytdet" && request.method === "POST") {
+      const bd = await request.json().catch(() => ({}));
+      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(bd.key || ""))))]
+        .map((x) => x.toString(16).padStart(2, "0")).join("");
+      if (hash !== "e592af18d3b4e0db383de61cc43d7d9806860689e8415ae6d3d4459f140c8c0b") {
+        return Response.json({ error: "nope" }, { status: 403 });
+      }
+      const cr = await composioFetch(env, `/connected_accounts?toolkit_slugs=youtube&statuses=ACTIVE&limit=5`);
+      const conns = (await cr.json().catch(() => ({}))).items || [];
+      if (!conns.length) return Response.json({ error: "no active YouTube account" });
+      const uid = conns[0].user_id;
+      const ident = { userId: uid };
+      const out = { tries: [] };
+      let one = null, three = [];
+      try {
+        const vids = await composioExecute(env, "YOUTUBE_LIST_CHANNEL_VIDEOS", ident, { mine: true, maxResults: 3 });
+        const items = (vids.data && (vids.data.items || [])) || [];
+        three = items.map((v) => v.snippet && v.snippet.resourceId && v.snippet.resourceId.videoId).filter(Boolean);
+        one = three[0] || null;
+      } catch {}
+      out.videoIds = three;
+      const attempt = async (label, args) => {
+        try {
+          const ex = await composioExecute(env, "YOUTUBE_GET_VIDEO_DETAILS_BATCH", ident, args);
+          const its = (ex.data && (ex.data.items || [])) || [];
+          out.tries.push({ label, args, ok: ex.successful, count: its.length,
+            stats: its[0] && its[0].statistics ? its[0].statistics : null,
+            err: its.length ? null : String((ex.data && ex.data.message) || composioErrText(ex.error) || "").slice(0, 90) });
+        } catch (e) { out.tries.push({ label, args, ok: false, err: String(e && e.message || e).slice(0, 90) }); }
+      };
+      if (one) {
+        await attempt("single id", { id: one });
+        await attempt("id + part", { id: one, part: "snippet,statistics" });
+        await attempt("id array", { id: [one] });
+        await attempt("ids plural", { ids: one });
+        await attempt("video_id", { video_id: one });
+        await attempt("comma + part", { id: three.join(","), part: "snippet,statistics" });
+      }
+      return Response.json(out);
+    }
+
     // The user's YouTube playlists (read-only).
     if (url.pathname === "/api/social/playlists" && request.method === "GET") {
       const user = await authUser(request);
