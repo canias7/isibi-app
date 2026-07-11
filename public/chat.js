@@ -5332,10 +5332,10 @@ async function openThread(c) {
     const d = await r.json().catch(() => ({}));
     msgs = d.messages || [];
   } catch {}
-  renderThread(c, msgs);
+  renderDmThread(c, msgs);
 }
 
-function renderThread(c, msgs) {
+function renderDmThread(c, msgs) {
   const t = document.getElementById('maDmThread');
   if (!t) return;
   t.innerHTML =
