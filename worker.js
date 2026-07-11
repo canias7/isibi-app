@@ -1149,6 +1149,50 @@ async function instagramPosts(env, userId, limit) {
   } catch { return { posts: [] }; }
 }
 
+// A merged feed of recent comments across the user's latest posts. Instagram
+// has no account-wide comment feed, so we pull the recent posts then their
+// comments and flatten. Bounded to a handful of posts to cap Composio calls.
+async function instagramComments(env, userId) {
+  const ident = { userId };
+  let igId = null;
+  try {
+    const info = await composioExecute(env, "INSTAGRAM_GET_USER_INFO", ident, {});
+    const d = info.data || {};
+    igId = d.id || d.ig_id || (d.data && d.data.id) || null;
+  } catch {}
+  if (!igId) return { comments: [] };
+  let media = [];
+  try {
+    const m = await composioExecute(env, "INSTAGRAM_GET_IG_USER_MEDIA", ident, {
+      ig_user_id: igId, limit: 8,
+      fields: "id,media_type,media_url,thumbnail_url,permalink",
+    });
+    media = anMediaList(m.data).slice(0, 8);
+  } catch {}
+  const out = [];
+  for (const post of media) {
+    try {
+      const c = await composioExecute(env, "INSTAGRAM_GET_IG_MEDIA_COMMENTS", ident, { ig_media_id: post.id });
+      const list = (c.data && (c.data.data || (c.data.comments && c.data.comments.data))) || [];
+      for (const cm of Array.isArray(list) ? list : []) {
+        if (!cm || !cm.id) continue;
+        out.push({
+          id: cm.id,
+          text: String(cm.text || "").replace(/\s+/g, " ").trim().slice(0, 300),
+          from: cm.username || (cm.from && cm.from.username) || null,
+          likes: anNum(cm.like_count),
+          timestamp: cm.timestamp || null,
+          post_id: post.id,
+          post_thumb: post.thumbnail_url || post.media_url || null,
+          post_permalink: post.permalink || null,
+        });
+      }
+    } catch {}
+  }
+  out.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+  return { comments: out.slice(0, 60) };
+}
+
 // ── Media Agent brain: read-only action catalog ───────────────────────────
 // The agent gets ONE tool (run_action) and may only call slugs in this
 // allowlist — all read-only, so it can never post/delete on the live accounts.
@@ -2097,6 +2141,22 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, ...data });
       } catch {
         return Response.json({ error: "posts unavailable" }, { status: 503 });
+      }
+    }
+
+    // Recent comments across the user's Instagram posts (read-only).
+    if (url.pathname === "/api/social/comments" && request.method === "GET") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      if (!(await useQuota(request, "analytics", 120))) return QUOTA_EXCEEDED();
+      const platform = (url.searchParams.get("platform") || "instagram").toLowerCase();
+      if (platform !== "instagram") return Response.json({ error: "unsupported platform" }, { status: 400 });
+      try {
+        const data = await instagramComments(env, user.id);
+        return Response.json({ ok: true, ...data });
+      } catch {
+        return Response.json({ error: "comments unavailable" }, { status: 503 });
       }
     }
 
