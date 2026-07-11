@@ -46,4 +46,4 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   the last declaration win, so every chat-thread repaint call actually hit the
   DM version, which no-ops when there's no DM panel (`#maDmThread` missing).
 - **Fix:** Renamed the Media Agent DM function (and its single caller) to
-  `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #___)
+  `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #348)
