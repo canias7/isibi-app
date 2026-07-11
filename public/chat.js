@@ -656,6 +656,92 @@ function renderRefList() {
   }
   const cnt = document.getElementById('cntRef');
   if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
+  renderRefChips();
+}
+
+// ── Reference chips in the composer ──
+// While references are attached (tag-binding context), the chatbox shows one
+// clickable @ImageN chip per image — tap to drop that tag at the cursor, so
+// writing "the character from @Image1…" never means memorizing the order.
+function renderRefChips() {
+  const composer = document.querySelector('#viewHome .composer');
+  if (!composer) return;
+  let bar = document.getElementById('refChips');
+  const want = refTagBinding() && refList.length;
+  if (!want) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'refChips';
+    bar.className = 'ref-chips';
+    composer.prepend(bar);
+  }
+  bar.innerHTML = '';
+  refList.forEach((src, i) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ref-chip';
+    chip.title = 'Insert @Image' + (i + 1) + ' into your message';
+    chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Image' + (i + 1);
+    chip.onclick = () => insertAtCursor('@Image' + (i + 1));
+    bar.appendChild(chip);
+  });
+}
+function insertAtCursor(tag) {
+  const input = document.getElementById('input');
+  if (!input) return;
+  const s = input.selectionStart ?? input.value.length;
+  const e = input.selectionEnd ?? s;
+  const before = input.value.slice(0, s), after = input.value.slice(e);
+  const lead = before && !/\s$/.test(before) ? ' ' : '';
+  const tail = after && !/^\s/.test(after) ? ' ' : '';
+  input.value = before + lead + tag + tail + after;
+  const pos = (before + lead + tag + tail).length;
+  input.setSelectionRange(pos, pos);
+  input.focus();
+  autoGrow(input);
+}
+
+// ── References in the chat thread ──
+// When a message is sent with reference images, the thread shows a strip of
+// small thumbnails under the user's bubble, each labeled with its @ImageN tag,
+// so the conversation records WHICH image each cited tag pointed at.
+function buildRefStrip(item) {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg-refs';
+  (item.imgs || []).forEach((src, i) => {
+    const s = document.createElement('span');
+    s.className = 'mr-slot';
+    s.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="mr-tag">@Image' + (i + 1) + '</span>';
+    wrap.appendChild(s);
+  });
+  return wrap;
+}
+// Downscale a reference for the persisted copy — full-size data URLs would
+// blow the localStorage chat budget (and the cross-device chat sync payload).
+function shrinkRef(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 168;
+      const k = Math.min(1, MAX / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(img.width * k));
+      c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.78));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+async function pushRefStrip() {
+  if (!refTagBinding() || !refList.length) return;
+  let imgs = null;
+  try { imgs = await Promise.all(refList.map(shrinkRef)); } catch {}
+  if (!imgs || !imgs.length) return;
+  const item = { t: 'refs', imgs, ts: Date.now() };
+  pushSaved(item);
+  threadAppend(buildRefStrip(item));
 }
 
 // Provider identity per model id: real logo where we have one, monogram otherwise.
@@ -1597,6 +1683,7 @@ function pushSaved(item) {
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
   if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory)); return; }
+  if (item.t === 'refs') { threadAppend(buildRefStrip(item)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
   div.textContent = item.text;
@@ -2729,7 +2816,7 @@ async function generateMedia(text, opts = {}) {
     addMsg('agent', '⚠️ Hold on — this chat is already generating. Start a new chat to run another.');
     return;
   }
-  if (opts.announce !== false) addMsg('user', text || '🎬 Lip-sync from the attached media');
+  if (opts.announce !== false) { addMsg('user', text || '🎬 Lip-sync from the attached media'); await pushRefStrip(); }
   // Remember what we generated with, so "make it slower" can revise it later.
   const originChat = activeChat();
   if (originChat && text && mode !== 'audio') { originChat.lastPrompt = text; persistStore(); touchSync(originChat.id); }
@@ -3247,6 +3334,7 @@ async function startDirector(text) {
   const history = directorHistory(); // prior turns only — capture before adding this one
   clearQDock(); // a fresh message supersedes any question still waiting
   addMsg('user', text);
+  await pushRefStrip();
   const thinking = addMsg('agent typing', 'isibi.ai is thinking');
   // isibi.ai's reply streams into a live bubble; the final text is re-delivered
   // through the normal path (persisted, stamped) when the stream ends.
