@@ -4901,12 +4901,20 @@ function paintComments(body, d) {
     return;
   }
   const comments = d.comments || [];
+  const cHead = '<div class="posts-head"><span class="posts-count">' + comments.length +
+    ' comment' + (comments.length === 1 ? '' : 's') + '</span>' +
+    '<div class="posts-ctrls"><button type="button" class="posts-add" id="cRefresh" title="Refresh" aria-label="Refresh comments">↻</button></div></div>';
+  const wireRefresh = () => {
+    const rf = document.getElementById('cRefresh');
+    if (rf) rf.onclick = () => { igComments = null; renderComments(body); };
+  };
   if (!comments.length) {
-    body.innerHTML = '<div class="sec-soon"><p>No comments yet.</p>' +
-      '<p class="sec-soon-s">Comments on your recent posts will show up here.</p></div>';
+    body.innerHTML = cHead + '<div class="sec-soon"><p>No comments yet.</p>' +
+      '<p class="sec-soon-s">Comments on your recent posts will show up here. Tap ↻ to refresh.</p></div>';
+    wireRefresh();
     return;
   }
-  body.innerHTML = '<div class="cmt-list">' + comments.map((c) =>
+  body.innerHTML = cHead + '<div class="cmt-list">' + comments.map((c) =>
     '<div class="cmt">' +
       '<span class="cmt-av">' + esc((c.from || '?').slice(0, 1).toUpperCase()) + '</span>' +
       '<span class="cmt-body"><span class="cmt-user">' + esc(c.from ? '@' + c.from : 'unknown') + '</span>' +
@@ -4924,6 +4932,7 @@ function paintComments(body, d) {
   body.querySelectorAll('[data-reply]').forEach((b) => {
     b.onclick = () => openCommentReply(b.dataset.reply, b);
   });
+  wireRefresh();
 }
 
 // Inline reply composer under a comment → posts a public reply to Instagram.
