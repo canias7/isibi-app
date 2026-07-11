@@ -4458,6 +4458,7 @@ const IG_SECTIONS = [
   { key: 'comments', label: 'Comments' },
   { key: 'triggers', label: 'Triggers' },
   { key: 'autoreply', label: 'Auto reply' },
+  { key: 'settings', label: 'Settings' },
 ];
 
 function renderMediaAgent() {
