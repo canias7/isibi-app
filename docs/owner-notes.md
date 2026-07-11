@@ -34,6 +34,23 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### YouTube Videos tab: deleted-video tombstones shown + no thumbnails on real videos
+- **Status:** ✅ fixed
+- **Reported:** 2026-07-11
+- **Where:** `worker.js` — `youtubeVideos()` (~line 1180) + the CSP `img-src` (~line 382)
+- **What:** (1) The Videos tab listed "Deleted video" placeholder cards (YouTube
+  keeps tombstones for deleted uploads in the channel list). (2) Real videos
+  showed empty boxes instead of thumbnails. (3) Owner also wants thumbs at full
+  quality.
+- **Cause:** (1) No tombstone filter. (2) The Content-Security-Policy `img-src`
+  didn't include `i.ytimg.com`, so the browser silently refused every YouTube
+  thumbnail (same would bite Instagram post thumbs via `cdninstagram/fbcdn`).
+  (3) Worker picked the 320px `medium` thumb first.
+- **Fix:** Filter tombstones server-side (title "Deleted video" AND no
+  thumbnails, so a legit video with that name survives); add
+  `*.ytimg.com`, `*.cdninstagram.com`, `*.fbcdn.net` to `img-src`; pick the
+  largest thumb available (maxres → standard → high → medium → default). (PR #___)
+
 ### White scrollbar after "Settings" tab in Media Agent panel
 - **Status:** ✅ fixed
 - **Reported:** 2026-07-11
