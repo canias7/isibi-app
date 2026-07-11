@@ -2411,8 +2411,13 @@ async function handleRequest(request, env, ctx) {
             id: post.id, permalink: post.permalink || null,
             http: c.http, successful: c.successful, error: c.error,
             commentCount: Array.isArray(list) ? list.length : 0,
-            sample: Array.isArray(list) && list[0] ? { text: String(list[0].text || "").slice(0, 60), from: list[0].username || (list[0].from && list[0].from.username) || null } : null,
+            raw: JSON.stringify(c.data).slice(0, 1500),
           });
+          // Also try INSTAGRAM_GET_POST_COMMENTS (older action) to compare shapes.
+          try {
+            const c2 = await composioExecute(env, "INSTAGRAM_GET_POST_COMMENTS", ident, { media_id: post.id });
+            out.posts[out.posts.length - 1].alt = { http: c2.http, successful: c2.successful, error: c2.error, raw: JSON.stringify(c2.data).slice(0, 800) };
+          } catch (e2) { out.posts[out.posts.length - 1].alt = { thrown: String(e2 && e2.message || e2) }; }
         }
       } catch (e) { out.error = String(e && e.message || e); }
       return Response.json(out);
