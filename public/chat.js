@@ -4574,7 +4574,7 @@ function paintAnalytics(body, d) {
   }
   const tiles = [
     ['Followers', d.followers], ['Reach · 30d', d.reach],
-    ['Impressions · 30d', d.impressions], ['Profile views', d.profile_views],
+    ['Views · 30d', d.views], ['Interactions · 30d', d.interactions],
   ].map(([l, v]) => '<div class="stat"><div class="stat-l">' + l + '</div><div class="stat-v">' + maNum(v) + '</div></div>').join('');
   const chart = analyticsChart(d.reach_series);
   const posts = (d.top_posts || []).map((p) =>
