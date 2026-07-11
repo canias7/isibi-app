@@ -2160,6 +2160,54 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
+    // per-user in user_autoreply (RLS own-row). The execution engine that acts
+    // on this config is separate; here we only load/save the settings.
+    if (url.pathname === "/api/social/autoreply" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/user_autoreply?select=dm_enabled,dm_prompt,comment_enabled,comment_prompt&limit=1`, {
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) throw 0;
+        const rows = await r.json().catch(() => []);
+        return Response.json((Array.isArray(rows) && rows[0]) ||
+          { dm_enabled: false, dm_prompt: "", comment_enabled: false, comment_prompt: "" });
+      } catch {
+        return Response.json({ error: "autoreply unavailable" }, { status: 503 });
+      }
+    }
+    if (url.pathname === "/api/social/autoreply" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const row = {
+        user_id: user.id,
+        dm_enabled: !!body.dm_enabled,
+        dm_prompt: String(body.dm_prompt || "").slice(0, 4000),
+        comment_enabled: !!body.comment_enabled,
+        comment_prompt: String(body.comment_prompt || "").slice(0, 4000),
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/user_autoreply?on_conflict=user_id`, {
+          method: "POST",
+          headers: {
+            apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "",
+            "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal",
+          },
+          body: JSON.stringify(row),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return Response.json({ error: "save failed" }, { status: 502 });
+        return Response.json({ ok: true });
+      } catch {
+        return Response.json({ error: "save failed" }, { status: 502 });
+      }
+    }
+
     // Media Agent brain — chat that inspects the user's IG/YT via Composio
     // tool-use (read-only). Rate-limited; no credit charge (like the director).
     if (url.pathname === "/api/agent" && request.method === "POST") {
