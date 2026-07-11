@@ -2461,57 +2461,6 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
-    // TEMP diagnostic — verify the YouTube write/read tools the built features
-    // use: GET_VIDEO_DETAILS_BATCH (Videos-tab view counts) and the real upload
-    // path (socialPublish → YOUTUBE_UPLOAD_VIDEO), uploaded PRIVATE then deleted
-    // so it leaves no trace. Hash-gated. Reverted after use.
-    if (url.pathname === "/api/_diag_ytwrite" && request.method === "POST") {
-      const b = await request.json().catch(() => ({}));
-      const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(b.key || ""))))]
-        .map((x) => x.toString(16).padStart(2, "0")).join("");
-      if (hash !== "2d123a7992baf796532d29150e5ea625c7620f7225fbd432c0bc2564c16ed59c") {
-        return Response.json({ error: "nope" }, { status: 403 });
-      }
-      // Find the YouTube-connected account.
-      const cr = await composioFetch(env, `/connected_accounts?toolkit_slugs=youtube&statuses=ACTIVE&limit=5`);
-      const conns = (await cr.json().catch(() => ({}))).items || [];
-      if (!conns.length) return Response.json({ error: "no active YouTube account" });
-      const uid = conns[0].user_id;
-      const ident = { userId: uid };
-      const out = { youtubeUser: uid };
-      // 1) READ: GET_VIDEO_DETAILS_BATCH on the channel's recent videos.
-      try {
-        const vids = await composioExecute(env, "YOUTUBE_LIST_CHANNEL_VIDEOS", ident, { mine: true, maxResults: 3 });
-        const items = (vids.data && (vids.data.items || [])) || [];
-        const ids = items.map((v) => v.snippet && v.snippet.resourceId && v.snippet.resourceId.videoId).filter(Boolean).join(",");
-        const det = await composioExecute(env, "YOUTUBE_GET_VIDEO_DETAILS_BATCH", ident, { id: ids });
-        const ditems = (det.data && (det.data.items || [])) || [];
-        out.details = {
-          pass: det.successful, http: det.http, error: det.successful ? null : String(composioErrText(det.error) || "").slice(0, 140),
-          count: ditems.length,
-          sampleStats: ditems[0] && ditems[0].statistics ? ditems[0].statistics : null,
-        };
-      } catch (e) { out.details = { pass: false, error: String(e && e.message || e).slice(0, 140) }; }
-      // 2) WRITE: real upload path, PRIVATE, then delete.
-      if (b.upload) {
-        try {
-          const pub = await socialPublish(env, uid, {
-            platform: "youtube",
-            media_url: "https://www.w3schools.com/html/mov_bbb.mp4",
-            title: "isibi upload test (auto-removed)",
-            description: "verification upload — deleted automatically",
-            privacy: "private",
-          });
-          out.upload = { ok: pub.ok, id: pub.id, step: pub.step || null, error: pub.error || null };
-          if (pub.ok && pub.id) {
-            const del = await composioExecute(env, "YOUTUBE_DELETE_VIDEO", ident, { videoId: String(pub.id), confirmDelete: true });
-            out.delete = { ok: del.successful, error: del.successful ? null : String(composioErrText(del.error) || "").slice(0, 140) };
-          }
-        } catch (e) { out.upload = { ok: false, error: String(e && e.message || e).slice(0, 160) }; }
-      }
-      return Response.json(out);
-    }
-
     // The user's YouTube playlists (read-only).
     if (url.pathname === "/api/social/playlists" && request.method === "GET") {
       const user = await authUser(request);
