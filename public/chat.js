@@ -4910,7 +4910,9 @@ function paintComments(body, d) {
     '<div class="cmt">' +
       '<span class="cmt-av">' + esc((c.from || '?').slice(0, 1).toUpperCase()) + '</span>' +
       '<span class="cmt-body"><span class="cmt-user">' + esc(c.from ? '@' + c.from : 'unknown') + '</span>' +
-        '<span class="cmt-text">' + agentFmt(c.text || '') + '</span></span>' +
+        '<span class="cmt-text">' + agentFmt(c.text || '') + '</span>' +
+        (c.id ? '<button type="button" class="cmt-reply-btn" data-reply="' + esc(c.id) + '">↩ Reply</button>' : '') +
+      '</span>' +
       (c.post_permalink
         ? '<button type="button" class="cmt-thumb" data-perma="' + esc(c.post_permalink) + '"' +
           (c.post_thumb ? ' style="background-image:url(' + esc(c.post_thumb) + ')"' : '') + ' title="Open post"></button>'
@@ -4919,6 +4921,49 @@ function paintComments(body, d) {
   body.querySelectorAll('[data-perma]').forEach((b) => {
     b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
   });
+  body.querySelectorAll('[data-reply]').forEach((b) => {
+    b.onclick = () => openCommentReply(b.dataset.reply, b);
+  });
+}
+
+// Inline reply composer under a comment → posts a public reply to Instagram.
+function openCommentReply(cid, btn) {
+  const cmt = btn.closest('.cmt');
+  if (!cmt || cmt.querySelector('.cmt-reply')) return;
+  const box = document.createElement('div');
+  box.className = 'cmt-reply';
+  box.innerHTML =
+    '<input type="text" class="cmt-reply-in" placeholder="Write a reply…" maxlength="300">' +
+    '<button type="button" class="ma-btn ma-btn-on cmt-reply-send">Send</button>' +
+    '<span class="cmt-reply-status" id="cmtReplyStatus"></span>';
+  cmt.appendChild(box);
+  const input = box.querySelector('.cmt-reply-in');
+  const send = box.querySelector('.cmt-reply-send');
+  const status = box.querySelector('.cmt-reply-status');
+  const setStatus = (t, kind) => { if (status) { status.textContent = t; status.className = 'cmt-reply-status' + (kind ? ' ' + kind : ''); } };
+  if (input) input.focus();
+  if (send) send.onclick = async () => {
+    const msg = (input.value || '').trim();
+    if (!msg) { setStatus('Type a reply first.', 'warn'); return; }
+    send.disabled = true; send.textContent = 'Sending…';
+    try {
+      const r = await apiFetch('/api/social/comment/reply', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment_id: cid, message: msg }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.ok) {
+        setStatus('Replied ✓', 'ok');
+        input.disabled = true; send.style.display = 'none';
+      } else {
+        setStatus(d.error ? 'Failed: ' + d.error : 'Couldn’t reply.', 'warn');
+        send.disabled = false; send.textContent = 'Send';
+      }
+    } catch {
+      setStatus('Network error.', 'warn');
+      send.disabled = false; send.textContent = 'Send';
+    }
+  };
 }
 
 // ── Auto reply section (prompt-driven, per channel: DM + Comments) ──

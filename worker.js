@@ -2359,6 +2359,27 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // Manually reply to one Instagram comment (user-initiated from the Comments
+    // tab). Posts a public reply via INSTAGRAM_POST_IG_COMMENT_REPLIES.
+    if (url.pathname === "/api/social/comment/reply" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.COMPOSIO_API_KEY) return Response.json({ error: "social not configured" }, { status: 501 });
+      const body = await request.json().catch(() => ({}));
+      const commentId = String(body.comment_id || "").trim();
+      const message = String(body.message || "").trim().slice(0, 300);
+      if (!commentId || !message) return Response.json({ ok: false, error: "missing comment or message" }, { status: 400 });
+      try {
+        const ex = await composioExecute(env, "INSTAGRAM_POST_IG_COMMENT_REPLIES", { userId: user.id }, {
+          ig_comment_id: commentId, message,
+        });
+        if (!ex.successful) return Response.json({ ok: false, error: composioErrText(ex.error) || "reply failed" }, { status: 502 });
+        return Response.json({ ok: true, id: (ex.data && (ex.data.id || (ex.data.data && ex.data.data.id))) || null });
+      } catch (e) {
+        return Response.json({ ok: false, error: String((e && e.message) || e) }, { status: 502 });
+      }
+    }
+
     // Auto-reply config (prompt-driven auto-replies to DMs/comments). Stored
     // per-user in user_autoreply (RLS own-row). The execution engine that acts
     // on this config is separate; here we only load/save the settings.
