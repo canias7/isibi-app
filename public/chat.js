@@ -61,6 +61,14 @@ const MODEL_OPTS = {
     resolutions: ['720p', '1080p'], defRes: '1080p',
     caps: { image: true, end: false, avatar: false },
   },
+  // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
+  // so both the single-image and first-&-last rows apply; no reference mode.
+  'luma/agent/ray/v3.2/text-to-video': {
+    durations: [5, 10], defDur: 5,
+    ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], defRatio: '16:9',
+    resolutions: ['540p', '720p', '1080p'], defRes: '720p',
+    caps: { image: true, flf: true },
+  },
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
@@ -122,6 +130,7 @@ const MODEL_LISTS = {
   video: [
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio' },
     { id: 'fal-ai/sora-2/text-to-video/pro', label: 'Sora 2 Pro', note: 'OpenAI' },
+    { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio' },
@@ -761,6 +770,7 @@ function providerOf(id) {
   if (/flux/.test(id)) return { logo: '/logos/flux.svg', name: 'Black Forest Labs', tint: '#f0585d' };
   if (/recraft/.test(id)) return { logo: '/logos/recraft.svg', name: 'Recraft', tint: '#7b6bff' };
   if (/krea/.test(id)) return { logo: '/logos/krea.svg', name: 'Krea', tint: '#ff5c8a' };
+  if (/^luma\/|\/ray\//.test(id)) return { mono: 'L', name: 'Luma', tint: '#3fe0d0' };
   return { mono: '·', name: '', tint: '#8a8a92' };
 }
 
@@ -2253,6 +2263,7 @@ function updateSendLock() {
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
   'fal-ai/sora-2/text-to-video/pro':              { s: { '720p': 0.30, '1080p': 0.50 } },
+  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },

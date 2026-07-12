@@ -34,6 +34,19 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Added Luma Ray 3.2 to the video roster (owner request, 2026-07-12)
+- **Status:** ✅ done
+- **Where:** `worker.js` (allowlist, VIDEO_USD, isRay field handling),
+  `public/chat.js` (MODEL_OPTS, menu row, providerOf, VIDEO_PRICE), `docs/MODELS.md`
+- **What:** fal endpoint `luma/agent/ray/v3.2/text-to-video` (+ `/image-to-video`
+  via the standard suffix swap). 5s/10s ("Ns" string), 540p/720p/1080p, six
+  ratios, image + first-&-last frames (`image_url`/`end_image_url`), no
+  reference mode, no audio. fal pricing → per-sec: 540p $0.10 · 720p $0.20 ·
+  1080p $0.40 (t2v rates used for both paths — never undercharge). HDR/EXR and
+  keyframes exist on the API but are NOT exposed yet (HDR doubles cost).
+- **Untested on a real render** — fal balance still empty; verify on the live
+  sweep when topped up.
+
 ### Builder: reference images must be visibly defined as @Image1, @Image2…
 - **Status:** ✅ done
 - **Reported:** 2026-07-11
