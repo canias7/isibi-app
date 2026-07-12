@@ -117,7 +117,7 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -136,6 +136,7 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds }
       const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : maxTier;
       usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
+    if (hdr) usd *= 2; // Ray HDR render — fal bills double
   }
   return Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
@@ -1646,6 +1647,11 @@ async function handleRequest(request, env, ctx) {
           ? body.quality
           : null;
 
+      // Ray (Luma) HDR render: 2× fal price. Only valid at 720p/1080p and 5s —
+      // anything else is ignored (never sent to fal, never charged).
+      const wantHdr = body.hdr === true && model.startsWith("luma/") &&
+        (quality === "720p" || quality === "1080p") && (duration == null || duration === 5);
+
       // Image mode: how many variations to generate (per-image billing, so
       // only forwarded when explicitly above 1; the UI defaults to 1).
       const num = Number.isInteger(body.num) && body.num >= 1 && body.num <= 4 ? body.num : null;
@@ -1780,6 +1786,7 @@ async function handleRequest(request, env, ctx) {
 
         // Video endpoints that accept a resolution.
         if (quality && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
+        if (wantHdr) input.hdr = true;
       } else if ((image || avatar) && IMAGE_EDIT[model]) {
         // Image editing: route to the model's edit / image-to-image endpoint.
         // Size comes from the source image, so no aspect_ratio here.
@@ -1850,6 +1857,7 @@ async function handleRequest(request, env, ctx) {
         // anything else charges it, so old clients never undercharge.
         director: body.director === "off" ? "off" : "on",
         audioSeconds,
+        hdr: wantHdr,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never

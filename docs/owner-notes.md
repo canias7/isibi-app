@@ -46,6 +46,11 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   keyframes exist on the API but are NOT exposed yet (HDR doubles cost).
 - **Untested on a real render** — fal balance still empty; verify on the live
   sweep when topped up.
+- **HDR toggle added (owner request):** Settings panel shows an "HDR · 2× price"
+  Off/On section for models with `opts.hdr` (Ray only). Guardrails both ways:
+  turning HDR on bumps 540p→720p and 10s→5s; picking 540p/10s turns HDR off.
+  Price quote doubles live; worker validates independently (`wantHdr` — wrong
+  combos are neither sent to fal nor charged) and `creditCost` bills 2×.
 
 ### Builder: reference images must be visibly defined as @Image1, @Image2…
 - **Status:** ✅ done
