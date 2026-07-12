@@ -309,6 +309,28 @@ async function sbFFText(src, text, opts = {}) {
   }, opts.onProgress);
 }
 
+// Burn a QR code (a PNG data URL) into the video's bottom-right corner — the
+// QR becomes real pixels, so downloads and re-shares carry it forever. Sized
+// relative to the video (≈22% of its height) with a small margin.
+async function sbFFQr(src, qrPngDataUrl, opts = {}) {
+  const inName = 'in.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  const qrBytes = await sbFFBytes(qrPngDataUrl);
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    await ff.writeFile('qr.png', qrBytes);
+    // scale2ref sizes the QR off the video itself (even dimensions for yuv420).
+    const graph = '[1:v][0:v]scale2ref=w=\'trunc(main_h*0.11)*2\':h=\'trunc(main_h*0.11)*2\'[qr][v];' +
+      '[v][qr]overlay=W-w-16:H-h-16,fps=30';
+    const pre = ['-i', inName, '-i', 'qr.png'];
+    let data = await sbFFRunRead(ff, [...pre, '-filter_complex', graph, ...SB_VENC, ...SB_AENC, ...SB_FAST]);
+    if (!data) data = await sbFFRunRead(ff, [...pre, '-filter_complex', graph, '-an', ...SB_VENC, ...SB_FAST]);
+    try { await ff.deleteFile(inName); await ff.deleteFile('qr.png'); await ff.deleteFile('out.mp4'); } catch (e) {}
+    if (!data) throw new Error('qr burn produced no output');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }, opts.onProgress);
+}
+
 // Read a media file's duration, video dimensions and audio presence straight
 // from ffmpeg's own report (decoder-independent). `logbuf` is a live array the
 // caller fills from an ff 'log' listener.

@@ -2347,6 +2347,53 @@ async function saveOutput(u, kind) {
   return trySave(u, kind, 3);
 }
 
+// ── Product-URL ads: QR burn ──
+// Videos born from a "From product URL" chat get a scannable QR (→ the product
+// page) burned into the bottom-right corner before saving — the QR is real
+// pixels, so downloads and re-shares carry the link forever.
+function qrPngFor(text) {
+  try {
+    if (typeof qrcode !== 'function') return null; // vendor lib missing
+    const qr = qrcode(0, 'M');
+    qr.addData(String(text));
+    qr.make();
+    const n = qr.getModuleCount(), quiet = 4, scale = 8;
+    const size = (n + quiet * 2) * scale;
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, size, size);
+    g.fillStyle = '#000';
+    for (let r = 0; r < n; r++) for (let col = 0; col < n; col++) {
+      if (qr.isDark(r, col)) g.fillRect((quiet + col) * scale, (quiet + r) * scale, scale, scale);
+    }
+    return c.toDataURL('image/png');
+  } catch { return null; }
+}
+// Burn + save the marked copy (base64 path, same as Studio films). Returns
+// {url} on success, null on ANY failure — the caller falls back to the normal
+// unburned save, so the QR can never cost the user their render.
+async function saveVideoWithQr(u, productUrl, origin) {
+  try {
+    if (typeof sbFFQr !== 'function' || typeof sbFFSupported !== 'function' || !sbFFSupported()) return null;
+    const png = qrPngFor(productUrl);
+    if (!png) return null;
+    setGenText(origin, 'Stamping the product QR…');
+    const blob = await sbFFQr(u, png, { url: u });
+    // The worker caps a base64 video upload (~29 MB of blob) — over it, skip.
+    if (!blob || blob.size > 29_000_000) return null;
+    const b64 = await new Promise((ok, err) => {
+      const r = new FileReader();
+      r.onload = () => { const s = String(r.result); ok(s.slice(s.indexOf(',') + 1)); };
+      r.onerror = () => err(new Error('read failed'));
+      r.readAsDataURL(blob);
+    });
+    setGenText(origin, 'Saving to your gallery…');
+    const res = await trySave(null, 'video', 3, { kind: 'video', data: b64 });
+    return res && res.url ? res : null;
+  } catch { return null; }
+}
+
 // Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
 // a JPEG data URI. Used for FREE accounts, whose images can't be saved (so the
 // server-side mark never runs) — they still get a watermarked copy on the temp
@@ -3243,7 +3290,15 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       const finals = [];
       let saveFailed = false;
       let blocked = null;
+      // A product-URL chat stamps its product-page QR into videos before saving.
+      const originChat = chatStore.chats.find((c) => c.id === origin);
+      const productUrl = kind === 'video' && originChat ? originChat.productUrl : null;
       for (const u of urls) {
+        if (productUrl) {
+          const burned = await saveVideoWithQr(u, productUrl, origin);
+          if (burned && burned.url) { finals.push(burned.url); continue; }
+          setGenText(origin, 'Saving to your gallery…'); // burn skipped/failed — normal path
+        }
         const { url: perm, block } = await saveOutput(u, kind);
         if (perm) finals.push(perm);
         else if (block) { // paid gate — don't queue a doomed retry
@@ -4427,9 +4482,19 @@ function renderLanding() {
       clearImageInputsExcept('image');
       renderAttach('image');
     }
+    // Reaching here on a urlScan preset means the scan succeeded (failures
+    // returned above) — remember the link for the QR burn.
+    const scannedUrl = lpPreset && lpPreset.urlScan
+      ? (text.match(/https?:\/\/\S+/) || [])[0] || null : null;
     lpIn.value = '';
     clearLpPreset();
     newChat();
+    // Product-URL chats remember their link — videos born here get the
+    // product-page QR burned in before saving (saveVideoWithQr).
+    if (scannedUrl) {
+      const oc = activeChat();
+      if (oc) { oc.productUrl = scannedUrl; persistStore(); }
+    }
     showView('home');
     const input = document.getElementById('input');
     if (input) { input.value = outgoing; autoGrow(input); }
