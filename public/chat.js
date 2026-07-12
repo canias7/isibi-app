@@ -63,14 +63,16 @@ const MODEL_OPTS = {
   },
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
-  // hdr: optional native-HDR render at 2× price (720p/1080p, 5s only).
+  // hdr: native-HDR render (2× price; +EXR sidecar 3×; 720p/1080p, 5s only).
+  // loop: seamless-loop render (free; 5s, non-HDR, no end frame).
+  // v2v: attach a video clip to re-render it (video-to-video, edit-mode dial).
   // kf: up to 64 keyframe images pinned along the timeline (evenly spaced).
   'luma/agent/ray/v3.2/text-to-video': {
     durations: [5, 10], defDur: 5,
     ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], defRatio: '16:9',
     resolutions: ['540p', '720p', '1080p'], defRes: '720p',
-    hdr: true,
-    caps: { image: true, flf: true, kf: 64 },
+    hdr: true, loop: true, v2v: true,
+    caps: { image: true, flf: true, kf: 64, clip: true },
   },
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
@@ -211,6 +213,8 @@ function onAttach(kind, inputEl) {
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
     if (kind === 'image') clearImageInputsExcept('image');
     else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
+    // A clip flips Ray into video-to-video, which bills its own rates.
+    if (kind === 'clip') updateSendPrice();
   };
   reader.readAsDataURL(file);
 }
@@ -377,6 +381,7 @@ function clearAttach(ev, kind) {
     renderExtraImages();
   }
   if (kind === 'audio') { awDur = 0; awPeaks = null; updateSendPrice(); } // reset lip-sync price
+  if (kind === 'clip') updateSendPrice(); // dropping the clip exits v2v billing
   renderAttach(kind);
 }
 
@@ -1225,6 +1230,14 @@ function playPreview(url, btn) {
 
 // HDR render toggle (models with opts.hdr — Ray 3.2). 2× price; 720p/1080p 5s only.
 let hdrOn = false;
+// EXR sidecar export (requires HDR; 3× price total).
+let exrOn = false;
+// Seamless-loop render (free; 5s, non-HDR, no end frame).
+let loopOn = false;
+// Video-to-video edit mode when a clip is attached: 'auto' lets the model
+// derive conditioning from the source; adhere/flex/reimagine dial how far the
+// re-render may stray from it.
+let editMode = 'auto';
 
 // One "Settings" panel groups every option (aspect ratio / resolution /
 // duration / images / voice) into sections, filtered to what the current model
@@ -1241,13 +1254,15 @@ function buildOptMenus() {
   if (opts.ratios) ratio = opts.defRatio;
   if (opts.nums) numImages = 1;
   if (opts.voices) voice = opts.defVoice;
-  hdrOn = false;
+  hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto';
 
   const sections = [];
   if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
   if (opts.resolutions) sections.push(settingSection('Resolution', 'quality', opts.resolutions.map((q) => ({ value: q, label: q }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
-  if (opts.hdr) sections.push(settingSection('HDR · 2× price', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
+  if (opts.hdr) sections.push(settingSection('HDR', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On · 2×' }, { value: 'exr', label: 'On + EXR · 3×' }]));
+  if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
+  if (opts.v2v) sections.push(settingSection('Clip edit mode', 'editMode', [{ value: 'auto', label: 'Auto' }, { value: 'adhere', label: 'Adhere' }, { value: 'flex', label: 'Flex' }, { value: 'reimagine', label: 'Reimagine' }]));
   if (opts.nums) sections.push(settingSection('Images', 'num', opts.nums.map((n) => ({ value: n, label: n === 1 ? '1 image' : n + ' images' }))));
   if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: v })), true));
 
@@ -1283,7 +1298,7 @@ function buildOptMenus() {
 // A settings section: a label + selectable chips. Long lists (>6) collapse
 // behind a "View all" toggle.
 function settingSection(label, kind, items, isVoice) {
-  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: hdrOn ? 'on' : 'off' }[kind];
+  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode }[kind];
   const collapsible = items.length > 6;
   const chips = items.map((it) => {
     const active = String(it.value) === String(cur) ? ' active' : '';
@@ -1308,15 +1323,26 @@ function pickSetting(chip) {
   else if (kind === 'duration') duration = Number(val);
   else if (kind === 'num') numImages = Number(val);
   else if (kind === 'voice') voice = val;
-  else if (kind === 'hdr') hdrOn = val === 'on';
-  // HDR runs 720p/1080p at 5s only — turning it on corrects incompatible picks,
-  // and picking an incompatible value turns it off. Chips re-sync globally so
-  // a correction in one section repaints the other.
-  if (hdrOn) {
-    if (kind === 'hdr') { if (quality === '540p') quality = '720p'; if (duration === 10) duration = 5; }
-    else if (quality === '540p' || duration === 10) hdrOn = false;
+  else if (kind === 'hdr') { hdrOn = val !== 'off'; exrOn = val === 'exr'; }
+  else if (kind === 'loop') loopOn = val === 'on';
+  else if (kind === 'editMode') editMode = val;
+  // Constraint web (fal): HDR runs 720p/1080p at 5s only; EXR requires HDR;
+  // loop is 5s standard-dynamic-range only (so HDR and loop are exclusive).
+  // Turning something on corrects the conflicting picks; picking a conflicting
+  // value turns it off. Chips re-sync globally so corrections repaint everywhere.
+  if (kind === 'hdr' && hdrOn) {
+    if (quality === '540p') quality = '720p';
+    if (duration === 10) duration = 5;
+    loopOn = false;
+  } else if (kind === 'loop' && loopOn) {
+    if (duration === 10) duration = 5;
+    hdrOn = false; exrOn = false;
+  } else if (hdrOn && (quality === '540p' || duration === 10)) {
+    hdrOn = false; exrOn = false;
+  } else if (loopOn && duration === 10) {
+    loopOn = false;
   }
-  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: hdrOn ? 'on' : 'off' };
+  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
@@ -1332,7 +1358,9 @@ function updateSettingsSummary() {
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
   if (opts.durations) parts.push(duration + 's');
-  if (opts.hdr && hdrOn) parts.push('HDR');
+  if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
+  if (opts.loop && loopOn) parts.push('Loop');
+  if (opts.v2v && editMode !== 'auto' && attachments.clip) parts.push(editMode);
   if (opts.nums && numImages > 1) parts.push('×' + numImages);
   if (opts.voices) parts.push(voice);
   el.textContent = parts.length ? parts.join(' · ') : 'Settings';
@@ -2331,7 +2359,7 @@ function updateSendLock() {
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
   'fal-ai/sora-2/text-to-video/pro':              { s: { '720p': 0.30, '1080p': 0.50 } },
-  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 } },
+  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },
@@ -2392,10 +2420,12 @@ function estimatePrice(textForAudio) {
     return fmtPrice(usd);
   }
   if (p.flat != null) return fmtPrice(p.flat);
-  const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
+  // Video-to-video (Ray, clip attached) bills its own higher rates.
+  const tbl = p.v2s && attachments.clip && (currentOpts() || {}).v2v ? p.v2s : p.s;
+  const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
-  // HDR render (Ray) doubles fal's price.
-  const hdrX = hdrOn && (currentOpts() || {}).hdr ? 2 : 1;
+  // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
+  const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
   return fmtPrice(rate * (duration || 5) * hdrX);
 }
 function updateSendPrice() {
@@ -2936,6 +2966,9 @@ async function generateMedia(text, opts = {}) {
         ratio: currentOpts().ratios ? ratio : undefined,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
         hdr: kind === 'video' && hdrOn && currentOpts().hdr ? true : undefined,
+        exr: kind === 'video' && exrOn && currentOpts().hdr ? true : undefined,
+        loop: kind === 'video' && loopOn && currentOpts().loop ? true : undefined,
+        editMode: kind === 'video' && currentOpts().v2v && attachments.clip && editMode !== 'auto' ? editMode : undefined,
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
@@ -3107,6 +3140,11 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // boot-resume. Another tab that already delivered this job wins the claim;
     // we stop without clearing so the winner's record management stands.
     if (!claimDelivery(statusUrl)) { jobBumpTries(origin); pauseGen(origin); return; } // bump so a dead claim doesn't re-poll forever
+    // HDR + EXR runs return a pro sidecar file alongside the video — hand the
+    // link over in chat (it's a pro-pipeline file; fal links expire in days).
+    if (out.exr_file && out.exr_file.url) {
+      deliverAgent(origin, '🎞 EXR sidecar ready (pro HDR frame data): ' + out.exr_file.url + ' — download it soon, the link expires in a few days.');
+    }
     if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');

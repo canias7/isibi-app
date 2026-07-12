@@ -79,6 +79,8 @@ best at, and 1–10 ratings per capability.
 - **Anime / stylized** → Hailuo 2.3 Pro
 - **Native HDR / color-grade headroom** → Ray 3.2 (Luma; the "reasoning" video model — drafts, self-critiques, re-renders)
 - **Storyboard control (up to 64 timed keyframes)** → Ray 3.2
+- **Seamless loops** → Ray 3.2 (free toggle; 5s, non-HDR)
+- **Re-render an existing video** (video-to-video, adhere/flex/reimagine dial) → Ray 3.2
 - **Cheapest / fastest drafts** → Seedance Mini/Fast, Gemini Omni Flash, Grok
 - **Make a photo talk/sing** → OmniHuman
 - **Dub / re-voice a video** → Kling LipSync
