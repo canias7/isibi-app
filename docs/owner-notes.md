@@ -51,6 +51,13 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   turning HDR on bumps 540p→720p and 10s→5s; picking 540p/10s turns HDR off.
   Price quote doubles live; worker validates independently (`wantHdr` — wrong
   combos are neither sent to fal nor charged) and `creditCost` bills 2×.
+- **Keyframes added (owner request, full 64):** new "Keyframes" attach row,
+  Ray-only (`caps.kf: 64`) — up to 64 images, numbered tiles in a 2-up grid,
+  attach order = playback order, mutually exclusive with the other image inputs.
+  Worker rides the i2v endpoint: `keyframes` + `keyframe_indexes` spaced evenly
+  across the clip (24fps: 0–120 for 5s, 0–240 for 10s). No timeline UI yet —
+  even spacing is the v1; a drag-to-time timeline is the future upgrade
+  (pairs with the preset system). No extra charge (fal bills by video length).
 
 ### Builder: reference images must be visibly defined as @Image1, @Image2…
 - **Status:** ✅ done

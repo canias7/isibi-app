@@ -1627,6 +1627,10 @@ async function handleRequest(request, env, ctx) {
       const refs = Array.isArray(body.refs)
         ? body.refs.slice(0, 9).map(dataImage).filter(Boolean)
         : [];
+      // Ray timeline keyframes (≤64, Luma only) — order is playback order.
+      const kfs = model.startsWith("luma/") && Array.isArray(body.keyframes)
+        ? body.keyframes.slice(0, 64).map(dataImage).filter(Boolean)
+        : [];
 
       let endpoint = model;
       const input = { prompt };
@@ -1724,6 +1728,16 @@ async function handleRequest(request, env, ctx) {
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
+        } else if (isRay && kfs.length) {
+          // Timeline keyframes ride the i2v endpoint. Indexes are 24fps frame
+          // positions (0–120 for 5s, 0–240 for 10s); with no timeline UI yet,
+          // pins are spaced evenly across the clip in attach order.
+          endpoint = i2v;
+          input.keyframes = kfs;
+          const maxIdx = duration === 10 ? 240 : 120;
+          input.keyframe_indexes = kfs.length === 1
+            ? [0]
+            : kfs.map((_, i) => Math.round((i * maxIdx) / (kfs.length - 1)));
         } else if (first && last) {
           // First & last frame. Veo has a dedicated endpoint; every other family
           // pins the two frames as start+end on their image-to-video endpoint.

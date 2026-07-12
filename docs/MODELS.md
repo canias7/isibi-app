@@ -78,6 +78,7 @@ best at, and 1–10 ratings per capability.
 - **Most control** (first + last frame, references) → Seedance 2.0
 - **Anime / stylized** → Hailuo 2.3 Pro
 - **Native HDR / color-grade headroom** → Ray 3.2 (Luma; the "reasoning" video model — drafts, self-critiques, re-renders)
+- **Storyboard control (up to 64 timed keyframes)** → Ray 3.2
 - **Cheapest / fastest drafts** → Seedance Mini/Fast, Gemini Omni Flash, Grok
 - **Make a photo talk/sing** → OmniHuman
 - **Dub / re-voice a video** → Kling LipSync

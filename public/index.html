@@ -214,6 +214,7 @@
         <input type="file" id="fileFfirst" accept="image/*" hidden data-change="attach" data-attach="ffirst" />
         <input type="file" id="fileFlast" accept="image/*" hidden data-change="attach" data-attach="flast" />
         <input type="file" id="fileRef" accept="image/*" multiple hidden data-change="attach-ref" />
+    <input type="file" id="fileKf" accept="image/*" multiple hidden data-change="attach-kf" />
         <div class="ap-row" id="rowImage">
           <button class="ap-head" data-act="ap-row" data-row="image"><span class="ap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg></span><span class="ap-label"><span class="ap-title" data-info="image">Image</span><b class="ap-count" id="cntImage"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
@@ -262,6 +263,13 @@
           <div class="ap-body">
             <div class="ap-extra" id="refImages"></div>
             <button class="attach-btn ap-add" id="btnRef" data-act="file" data-file="fileRef" aria-label="Add reference image"><span class="plus-big">+</span><span class="slot-count">0/3</span></button>
+          </div>
+        </div>
+        <div class="ap-row" id="rowKf" style="display:none">
+          <button class="ap-head" data-act="ap-row" data-row="kf"><span class="ap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M7 7v10M12 7v10M17 7v10"/></svg></span><span class="ap-label"><span class="ap-title" data-info="kf">Keyframes</span><b class="ap-count" id="cntKf"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+          <div class="ap-body">
+            <div class="ap-extra" id="kfImages"></div>
+            <button class="attach-btn ap-add" id="btnKf" data-act="file" data-file="fileKf" aria-label="Add keyframe"><span class="plus-big">+</span><span class="slot-count">0/64</span></button>
           </div>
         </div>
       </div>
