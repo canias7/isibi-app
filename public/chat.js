@@ -2373,13 +2373,14 @@ function qrPngFor(text) {
 // Burn + save the marked copy (base64 path, same as Studio films). Returns
 // {url} on success, null on ANY failure — the caller falls back to the normal
 // unburned save, so the QR can never cost the user their render.
-async function saveVideoWithQr(u, productUrl, origin) {
+async function saveVideoWithQr(u, qr, origin) {
   try {
     if (typeof sbFFQr !== 'function' || typeof sbFFSupported !== 'function' || !sbFFSupported()) return null;
-    const png = qrPngFor(productUrl);
+    const png = qrPngFor(qr.url);
     if (!png) return null;
-    setGenText(origin, 'Stamping the product QR…');
-    const blob = await sbFFQr(u, png, { url: u });
+    setGenText(origin, 'Stamping the QR…');
+    // Timed window (start/end seconds) or whole video when unset.
+    const blob = await sbFFQr(u, png, { url: u, start: qr.start, end: qr.end });
     // The worker caps a base64 video upload (~29 MB of blob) — over it, skip.
     if (!blob || blob.size > 29_000_000) return null;
     const b64 = await new Promise((ok, err) => {
@@ -2392,6 +2393,51 @@ async function saveVideoWithQr(u, productUrl, origin) {
     const res = await trySave(null, 'video', 3, { kind: 'video', data: b64 });
     return res && res.url ? res : null;
   } catch { return null; }
+}
+
+// Parse a QR instruction out of a chat message — natural phrasings like
+// "add a QR to <url> for the last 3 seconds", "put a qr code from second 3 to
+// 4", "qr at the end", "no qr". Returns { want, remove, url, start, end,
+// clean } where `clean` is the message with the QR clause stripped (so it
+// never bleeds into the generation prompt). `durSec` is the clip length, used
+// to resolve "last N" / "at the end". Timing is null → whole video.
+function parseQrDirective(text, durSec) {
+  const src = String(text || '');
+  if (!/\bqr\b|qr[\s-]?code/i.test(src)) return { want: false, remove: false, clean: src };
+  const remove = /\b(no|without|remove|drop|delete|no more)\b[^.,\n]*\bqr/i.test(src) ||
+    /\bqr[^.,\n]*\b(off|removed?|gone)\b/i.test(src);
+  // A URL anywhere in the message is the QR target (falls back to chat.productUrl later).
+  const urlM = src.match(/https?:\/\/[^\s]+/i);
+  const url = urlM ? urlM[0].replace(/[).,]+$/, '') : null;
+  // Timing windows.
+  let start = null, end = null;
+  const d = Number.isFinite(durSec) && durSec > 0 ? durSec : null;
+  let m;
+  if ((m = src.match(/from\s+(?:second\s+)?(\d+(?:\.\d+)?)\s*s?\s*(?:to|-|until|through|till)\s*(?:second\s+)?(\d+(?:\.\d+)?)/i))) {
+    start = +m[1]; end = +m[2];
+  } else if ((m = src.match(/last\s+(\d+(?:\.\d+)?)\s*(?:s\b|sec|second)/i)) && d) {
+    end = d; start = Math.max(0, d - +m[1]);
+  } else if ((m = src.match(/first\s+(\d+(?:\.\d+)?)\s*(?:s\b|sec|second)/i))) {
+    start = 0; end = +m[1];
+  } else if (/at\s+the\s+end|final\s+(?:few\s+)?second|ending/i.test(src) && d) {
+    end = d; start = Math.max(0, d - 3);
+  } else if (/at\s+the\s+(?:start|beginning|top)/i.test(src)) {
+    start = 0; end = 3;
+  } else if ((m = src.match(/at\s+(?:second\s+)?(\d+(?:\.\d+)?)\s*s?\b/i))) {
+    start = +m[1]; end = d || (+m[1] + 2); // from that second onward (to end, or a short flash)
+  }
+  if (start != null && end != null && end <= start) { const t2 = start; start = end; end = t2; }
+  // Strip the QR-mentioning segment(s) so the instruction never bleeds into the
+  // generation prompt: drop any URL first (splitting on its dots would scatter
+  // it), then split on sentence/comma breaks and drop pieces naming a QR.
+  const clean = src.replace(/https?:\/\/[^\s]+/gi, ' ')
+    .split(/[,.\n]+/)
+    .map((s) => s.trim())
+    .filter((s) => s && !/\bqr\b|qr[\s-]?code/i.test(s))
+    .join('. ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return { want: !remove, remove, url, start, end, clean };
 }
 
 // Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
@@ -3290,12 +3336,22 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       const finals = [];
       let saveFailed = false;
       let blocked = null;
-      // A product-URL chat stamps its product-page QR into videos before saving.
+      // QR burn (video only): a per-message directive (chat.qr from a
+      // conversational instruction) wins; a product-URL chat auto-burns the
+      // product link whole-video as the fallback. `off` suppresses both.
       const originChat = chatStore.chats.find((c) => c.id === origin);
-      const productUrl = kind === 'video' && originChat ? originChat.productUrl : null;
+      let qr = null;
+      if (kind === 'video' && originChat) {
+        const d = originChat.qr;
+        if (d && d.off) qr = null;
+        else if (d && d.url) qr = d;
+        else if (d && d.want && !d.url) {
+          deliverAgent(origin, 'ℹ️ I couldn’t add the QR — tell me the link it should point to (paste the URL) and I’ll stamp it on the next one.');
+        } else if (originChat.productUrl) qr = { url: originChat.productUrl };
+      }
       for (const u of urls) {
-        if (productUrl) {
-          const burned = await saveVideoWithQr(u, productUrl, origin);
+        if (qr) {
+          const burned = await saveVideoWithQr(u, qr, origin);
           if (burned && burned.url) { finals.push(burned.url); continue; }
           setGenText(origin, 'Saving to your gallery…'); // burn skipped/failed — normal path
         }
@@ -3817,11 +3873,26 @@ function send(fromButton) {
   }
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
-  if (promptless) { generateMedia(text); return; }
+  // Conversational QR control (video only): pull any "add/put a QR … from Xs to
+  // Ys / no qr" instruction out of the message, record it on this chat for the
+  // burn step, and send the CLEANED text to the model so the words "qr code"
+  // never end up in the generation prompt.
+  let sendText = text;
+  if (mode === 'video' && /\bqr\b|qr[\s-]?code/i.test(text)) {
+    const chat = activeChat();
+    const q = parseQrDirective(text, currentOpts() && currentOpts().durations ? duration : null);
+    if (chat) {
+      if (q.remove) chat.qr = { off: true };
+      else if (q.want) chat.qr = { url: q.url || chat.productUrl || null, start: q.start, end: q.end, want: true };
+      persistStore();
+    }
+    if (q.clean) sendText = q.clean;
+  }
+  if (promptless) { generateMedia(sendText); return; }
   // Raw prompting — words go to the model exactly as typed — when the user turned
   // the orchestrator off OR they don't have the add-on (or its budget is spent).
-  if (directorMode === 'off' || !orchActive()) { generateMedia(text); return; }
-  startDirector(text);
+  if (directorMode === 'off' || !orchActive()) { generateMedia(sendText); return; }
+  startDirector(sendText);
 }
 
 // ── Auth gate ────────────────────────────────────────
