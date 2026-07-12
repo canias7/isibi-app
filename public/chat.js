@@ -64,12 +64,13 @@ const MODEL_OPTS = {
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
   // hdr: optional native-HDR render at 2× price (720p/1080p, 5s only).
+  // kf: up to 64 keyframe images pinned along the timeline (evenly spaced).
   'luma/agent/ray/v3.2/text-to-video': {
     durations: [5, 10], defDur: 5,
     ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], defRatio: '16:9',
     resolutions: ['540p', '720p', '1080p'], defRes: '720p',
     hdr: true,
-    caps: { image: true, flf: true },
+    caps: { image: true, flf: true, kf: 64 },
   },
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
@@ -171,6 +172,8 @@ const attachments = { image: null, avatar: null, end: null, audio: null, clip: n
 const extraImages = [];
 // Veo reference-to-video images (its own row, capped per model at caps.ref).
 const refList = [];
+// Ray keyframes (≤64 images pinned along the clip's timeline, evenly spaced).
+const kfList = [];
 const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
   avatar: '<span class="plus-big">+</span>',
@@ -383,7 +386,7 @@ function updateAttachVisibility() {
   closeApInfo(); // rows are about to be re-shown/hidden — a tooltip pointing at one mustn't linger
   const caps = (currentOpts() && currentOpts().caps) || {};
   // No slots for this model → hide the whole panel, don't leave an empty box.
-  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref);
+  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref || caps.kf);
   const panel = document.getElementById('attachPanel');
   if (panel) panel.style.display = anySlot ? '' : 'none';
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
@@ -406,6 +409,12 @@ function updateAttachVisibility() {
   if (!caps.ref) refList.length = 0;
   else if (refList.length > caps.ref) refList.length = caps.ref;
   renderRefList();
+  // Keyframes row (Ray: ≤64 timeline-pinned images).
+  const rowKf = document.getElementById('rowKf');
+  if (rowKf) rowKf.style.display = caps.kf ? '' : 'none';
+  if (!caps.kf) kfList.length = 0;
+  else if (kfList.length > caps.kf) kfList.length = caps.kf;
+  renderKfList();
   // Multi-image slots follow the model's cap (Seedance refs take up to 9).
   const cap = caps.maxImages || 1;
   if (!caps.image) extraImages.length = 0;
@@ -430,6 +439,7 @@ const AP_INFO = {
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
+  kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {
   const pop = document.getElementById('apInfoPop');
@@ -623,6 +633,7 @@ function clearImageInputsExcept(keep) {
     if (attachments.flast) { attachments.flast = null; renderAttach('flast'); }
   }
   if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
+  if (keep !== 'kf' && kfList.length) { kfList.length = 0; renderKfList(); }
 }
 
 // Reference-to-video images (Veo ≤3, Seedance ≤9): its own row, capped at caps.ref.
@@ -668,6 +679,45 @@ function renderRefList() {
   const cnt = document.getElementById('cntRef');
   if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
   renderRefChips();
+}
+
+// ── Keyframes (Ray): ≤64 images pinned along the clip's timeline ──
+// Order = playback order; the worker spaces them evenly across the duration.
+function kfCap() { return ((currentOpts() || {}).caps || {}).kf || 0; }
+function onAttachKf(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  const cap = kfCap();
+  files.forEach((file) => {
+    if (kfList.length >= cap) return;
+    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { if (kfList.length < cap) { kfList.push(reader.result); clearImageInputsExcept('kf'); renderKfList(); } };
+    reader.readAsDataURL(file);
+  });
+}
+function removeKf(i) { kfList.splice(i, 1); renderKfList(); }
+function renderKfList() {
+  const host = document.getElementById('kfImages');
+  if (!host) return;
+  host.innerHTML = '';
+  kfList.forEach((src, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" />' +
+      '<span class="slot-tag">' + (i + 1) + '</span>' +
+      '<span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeKf(i);
+    host.appendChild(d);
+  });
+  const add = document.getElementById('btnKf');
+  const cap = kfCap();
+  if (add) {
+    add.style.display = kfList.length < cap ? '' : 'none';
+    add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + kfList.length + '/' + cap + '</span>';
+  }
+  const cnt = document.getElementById('cntKf');
+  if (cnt) cnt.textContent = kfList.length ? '· ' + kfList.length : '';
 }
 
 // ── Reference chips in the composer ──
@@ -2878,6 +2928,7 @@ async function generateMedia(text, opts = {}) {
         first: attachments.ffirst || undefined, // Veo first-&-last-frame
         last: attachments.flast || undefined,
         refs: refList.length ? refList.slice() : undefined, // Veo reference-to-video
+        keyframes: kfList.length ? kfList.slice() : undefined, // Ray timeline keyframes
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
@@ -6269,6 +6320,7 @@ const CHANGE_ACTIONS = {
   'attach': (e, el) => onAttach(el.dataset.attach, el),
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
+  'attach-kf': (e, el) => onAttachKf(el),
   'sb-project': (e, el) => sbSwitchProject(el.value),
   'sb-transition': (e, el) => sbSetTransition(el.value),
 };
