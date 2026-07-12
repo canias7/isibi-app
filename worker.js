@@ -1703,6 +1703,11 @@ async function handleRequest(request, env, ctx) {
         const isVeo = model.includes("veo");
         const isSora = model.includes("sora");
         const isRay = model.startsWith("luma/");
+        const isGemini = model.includes("gemini-omni");
+        // A clip attached to an editing model routes to that model's edit
+        // endpoint. `bareEdit` marks endpoints that take only prompt+video (no
+        // duration/ratio/resolution) so the gen params below are suppressed.
+        let bareEdit = false;
 
         // The image-to-video endpoint id — Veo's base id has no "/text-to-video"
         // segment to swap, so it gets the suffix appended instead.
@@ -1735,6 +1740,24 @@ async function handleRequest(request, env, ctx) {
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
+        } else if (isGemini && clip) {
+          // Gemini Omni Flash conversational edit — the instruction rewrites the
+          // attached clip (swap/relight/stabilize/bg). Prompt + video only.
+          endpoint = model + "/edit";
+          input.video_url = clip;
+          bareEdit = true;
+        } else if (isKlingO3 && clip) {
+          // Kling o3 edit — re-render the clip; optional style/appearance images
+          // ride along as @ImageN refs, and the source audio is kept by default.
+          endpoint = model.replace("/text-to-video", "/video-to-video/edit");
+          input.video_url = clip;
+          if (refs.length) input.image_urls = refs.slice(0, 4);
+          bareEdit = true;
+        } else if (isVeo && clip) {
+          // Veo 3.1 extend — continue/lengthen the clip, driven by the prompt.
+          endpoint = model + "/extend-video";
+          input.video_url = clip;
+          bareEdit = true;
         } else if (isRay && clip) {
           // Video-to-video: re-render the attached clip. auto_controls lets the
           // model derive conditioning from the source unless the user picked an
@@ -1813,21 +1836,21 @@ async function handleRequest(request, env, ctx) {
           input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
         }
 
-        if (duration) {
+        if (duration && !bareEdit) {
           // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
           if (isVeo || isRay) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
         }
 
-        // Kling image-to-video has no aspect_ratio; Ray video-to-video inherits
-        // the source clip's framing, so it has none either.
+        // Kling image-to-video has no aspect_ratio; Ray video-to-video (and the
+        // bare edit endpoints) inherit the source clip's framing, so no ratio.
         const isKlingI2V = isKling && endpoint.includes("/image-to-video");
         const isRayV2V = isRay && endpoint.includes("/video-to-video");
-        if (ratio && !isKlingI2V && !isRayV2V) input.aspect_ratio = ratio;
+        if (ratio && !isKlingI2V && !isRayV2V && !bareEdit) input.aspect_ratio = ratio;
 
-        // Video endpoints that accept a resolution.
-        if (quality && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
+        // Video endpoints that accept a resolution (edit endpoints take the source's).
+        if (quality && !bareEdit && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
         if (wantHdr) input.hdr = true;
         if (wantExr) input.exr_export = true;
         // Loop: t2v/i2v only, and never alongside an end frame (fal rejects it).

@@ -49,14 +49,21 @@ and fixed, and add a preference line whenever the owner signals one.
   on-device trims). **KEPT `public/ffmpeg-edit.js`** — the QR burn depends on it
   (its `sbFF*` helpers). Dead studio CSS in styles.css left in place (harmless;
   sweep later if desired).
-- **Next: wire AI video EDITING into the Builder.** Definition matters (owner's
-  correction): editing = VIDEO in → video out. reference-to-video = generation.
-  Real editors in the roster: **Ray 3.2** (restyle, video-to-video — ALREADY
-  works when you attach a clip) + **Kling LipSync** (ALREADY works). Add
-  candidates (video-in edit endpoints, verify on fal first): **Gemini Omni
-  Flash edit** (conversational swap/relight/stabilize/bg), **Kling o3 edit**,
-  **Veo extend**. Not-in-roster editors worth knowing: Happy Horse 1.0, Kling
-  o1, VOID (object removal).
+- **AI video editing wired into the Builder (done 2026-07-12).** The pattern:
+  attach a Video clip to an editing model → the worker routes to that model's
+  edit endpoint (`bareEdit` flag suppresses duration/ratio/resolution for the
+  prompt+video-only endpoints). Wired + fal-verified endpoints:
+  - **Gemini Omni Flash** → `google/gemini-omni-flash/edit` (prompt + video_url;
+    conversational swap/relight/stabilize/bg). Regional note: fal blocks editing
+    uploaded videos for EEA/Switzerland/UK users.
+  - **Kling o3 Pro** → `.../o3/pro/video-to-video/edit` (prompt + video_url +
+    optional style `image_urls` ≤4 + keep_audio; elements/shot_type not exposed).
+  - **Veo 3.1** → `fal-ai/veo3.1/extend-video` (prompt + video_url; continue/lengthen).
+  - **Ray 3.2** video-to-video + **Kling LipSync** already worked.
+  Each got `caps.clip:true` + an EDIT/EXTEND tag in the picker. Pricing reuses
+  the model's existing per-second rate (edit endpoints belong to models already
+  in VIDEO_USD) — PROVISIONAL, verify on the fal sweep. Not-in-roster editors
+  still available if wanted: Happy Horse 1.0, Kling o1, VOID (object removal).
 
 ## Bug log
 

@@ -45,15 +45,17 @@ const MODEL_OPTS = {
   'google/gemini-omni-flash': {
     durations: range(3, 10), defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
-    caps: { image: false, end: false, avatar: false },
+    // clip: attach a video → conversational edit (swap/relight/stabilize/bg).
+    caps: { image: false, end: false, avatar: false, clip: true },
   },
   'fal-ai/veo3.1': {
     durations: [4, 6, 8], defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     resolutions: ['720p', '1080p', '4k'], defRes: '720p',
     // Veo 3.1's three image-input endpoints as separate rows: image-to-video
-    // (1), first-&-last frame (2), reference-to-video (≤3).
-    caps: { image: true, end: false, avatar: false, flf: true, ref: 3 },
+    // (1), first-&-last frame (2), reference-to-video (≤3). clip → extend an
+    // existing clip (continue/lengthen it).
+    caps: { image: true, end: false, avatar: false, flf: true, ref: 3, clip: true },
   },
   'fal-ai/sora-2/text-to-video/pro': {
     durations: [4, 8, 12, 16, 20], defDur: 4,
@@ -78,7 +80,8 @@ const MODEL_OPTS = {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
     // o3 i2v takes image_url + end_image_url; no reference/elements mode.
-    caps: { image: true, flf: true },
+    // clip → video-to-video edit (re-render the clip, keeps source audio).
+    caps: { image: true, flf: true, clip: true },
   },
   // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
   // fal does expose image-to-video (image_url = first frame); no end frame or
@@ -133,18 +136,18 @@ let mode = 'video';
 
 const MODEL_LISTS = {
   video: [
-    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio' },
+    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend' },
     { id: 'fal-ai/sora-2/text-to-video/pro', label: 'Sora 2 Pro', note: 'OpenAI' },
-    { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR' },
+    { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio' },
-    { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest' },
+    { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest · edit' },
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio' },
     { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
     { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
-    { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio' },
+    { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
   ],
