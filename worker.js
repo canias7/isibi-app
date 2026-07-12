@@ -13,6 +13,7 @@ const VIDEO_MODELS = new Set([
   "google/gemini-omni-flash",
   "fal-ai/veo3.1",
   "fal-ai/sora-2/text-to-video/pro",
+  "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/minimax/hailuo-2.3/pro/text-to-video",
   "fal-ai/bytedance/omnihuman",
@@ -77,6 +78,7 @@ const CREDIT_USD = 0.008;
 const VIDEO_USD = {
   "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
   "fal-ai/sora-2/text-to-video/pro":              { s: { "720p": 0.30, "1080p": 0.50 }, d: 10 },
+  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, d: 5 },
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
   "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
   "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
@@ -1683,6 +1685,7 @@ async function handleRequest(request, env, ctx) {
         const isGrok = model.includes("grok-imagine");
         const isVeo = model.includes("veo");
         const isSora = model.includes("sora");
+        const isRay = model.startsWith("luma/");
 
         // The image-to-video endpoint id — Veo's base id has no "/text-to-video"
         // segment to swap, so it gets the suffix appended instead.
@@ -1735,7 +1738,7 @@ async function handleRequest(request, env, ctx) {
           endpoint = i2v;
           input[startField] = image;
           // A standalone end frame only applies to families whose i2v accepts one.
-          if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
+          if (end && (isSeedance || isKlingV3 || isKlingO3 || isRay)) input.end_image_url = end;
         }
 
         // Reconcile @ImageN reference tags with the ACTUAL generation. Seedance
@@ -1765,8 +1768,8 @@ async function handleRequest(request, env, ctx) {
         }
 
         if (duration) {
-          // Veo wants "8s"; Seedance/Kling want a string enum; the rest an integer.
-          if (isVeo) input.duration = duration + "s";
+          // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
+          if (isVeo || isRay) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
         }
@@ -1776,7 +1779,7 @@ async function handleRequest(request, env, ctx) {
         if (ratio && !isKlingI2V) input.aspect_ratio = ratio;
 
         // Video endpoints that accept a resolution.
-        if (quality && (isSeedance || isGrok || isVeo || isSora)) input.resolution = quality;
+        if (quality && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
       } else if ((image || avatar) && IMAGE_EDIT[model]) {
         // Image editing: route to the model's edit / image-to-image endpoint.
         // Size comes from the source image, so no aspect_ratio here.

@@ -21,6 +21,7 @@ best at, and 1–10 ratings per capability.
 |---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
 | **Veo 3.1** | 10 | 8 | 8 | 9 | 10 | 8 | 9 | 5 |
 | **Sora 2 Pro** | 9 | 10 | 9 | 8 | 8 | 8 | 9 | 4 |
+| **Ray 3.2** (Luma) | 9 | 9 | 8 | 8 | — | 8 | 9 | 6 |
 | **Seedance 2.0** | 8 | 8 | 9 | 7 | 9 | 10 | 8 | 6 |
 | **Seedance 2.0 Fast** | 7 | 7 | 8 | 7 | 8 | 9 | 8 | 8 |
 | **Seedance 2.0 Mini** | 6 | 6 | 7 | 6 | 7 | 8 | 7 | 9 |
@@ -76,6 +77,7 @@ best at, and 1–10 ratings per capability.
 - **Highest resolution / 4K** → Veo 3.1 & Seedance 2.0
 - **Most control** (first + last frame, references) → Seedance 2.0
 - **Anime / stylized** → Hailuo 2.3 Pro
+- **Native HDR / color-grade headroom** → Ray 3.2 (Luma; the "reasoning" video model — drafts, self-critiques, re-renders)
 - **Cheapest / fastest drafts** → Seedance Mini/Fast, Gemini Omni Flash, Grok
 - **Make a photo talk/sing** → OmniHuman
 - **Dub / re-voice a video** → Kling LipSync
