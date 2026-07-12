@@ -1098,21 +1098,41 @@ function renderPresetsInto(body, rerender) {
   body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; rerender(); }; });
   body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });
 }
-// Clicking a preset card drops its starter prompt into the Home chatbox below
-// (owner's call, 2026-07-12) — the user edits it there and sends; no Builder
-// handoff until they do. The card's kind also picks the matching mode so the
-// send runs as video/image/audio accordingly.
+// Clicking a preset card pins it as a removable CHIP in the Home chatbox
+// (owner's call, 2026-07-12 — like "3D object generation ×"): the user types
+// just their idea, and the preset's prompt rides along as creative direction
+// when they send. × unpins. The card's kind also picks the matching mode.
+let lpPreset = null;
 function usePreset(it) {
   if (!it) return;
   if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
+  lpPreset = it;
+  renderLpChip();
   const box = document.getElementById('lpInput');
-  if (!box) return;
-  box.value = it.prompt;
-  if (typeof autoGrow === 'function') autoGrow(box);
-  box.focus();
-  // Put the cursor at the start — the editable [bracket] bit is usually there.
-  box.setSelectionRange(0, 0);
-  box.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  if (box) {
+    box.placeholder = 'Your idea — the “' + it.label + '” preset shapes it…';
+    box.focus();
+    box.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+}
+function clearLpPreset() {
+  lpPreset = null;
+  renderLpChip();
+  const box = document.getElementById('lpInput');
+  if (box) box.placeholder = 'Describe a video, image, or a voice line — isibi takes it from here…';
+}
+function renderLpChip() {
+  const host = document.getElementById('lpChipHost');
+  const hint = document.getElementById('lpHint');
+  if (!host) return;
+  host.innerHTML = '';
+  if (hint) hint.style.display = lpPreset ? 'none' : '';
+  if (!lpPreset) return;
+  const chip = document.createElement('span');
+  chip.className = 'lp-chip';
+  chip.innerHTML = '<b>' + esc(lpPreset.label) + '</b><button type="button" class="lp-chip-x" aria-label="Remove preset">×</button>';
+  chip.querySelector('.lp-chip-x').onclick = clearLpPreset;
+  host.appendChild(chip);
 }
 
 function toggleEffortMenu(e) {
@@ -4273,7 +4293,8 @@ function renderLanding() {
           '<textarea id="lpInput" rows="1" placeholder="Describe a video, image, or a voice line — isibi takes it from here…"></textarea>' +
         '</div>' +
         '<div class="composer-row">' +
-          '<span class="lp-compose-hint">Starts a fresh chat in the Builder</span>' +
+          '<span id="lpChipHost"></span>' +
+          '<span class="lp-compose-hint" id="lpHint">Starts a fresh chat in the Builder</span>' +
           '<button type="button" class="send" id="lpSend" aria-label="Send">' +
             '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' +
           '</button>' +
@@ -4283,16 +4304,24 @@ function renderLanding() {
 
   // Home chatbox: sending spins up a FRESH chat in the Builder and fires the
   // message through the normal send path (orchestrator and all) — the user
-  // lands mid-conversation, not on a prefilled input.
+  // lands mid-conversation, not on a prefilled input. A pinned preset chip
+  // rides along as creative direction for the director.
+  lpPreset = null; // view re-rendered — chip host is fresh
   const lpIn = view.querySelector('#lpInput');
   const lpGo = () => {
     const text = (lpIn.value || '').trim();
-    if (!text) return;
+    if (!text && !lpPreset) return;
+    const outgoing = lpPreset
+      ? (text
+        ? text + '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt
+        : lpPreset.prompt)
+      : text;
     lpIn.value = '';
+    clearLpPreset();
     newChat();
     showView('home');
     const input = document.getElementById('input');
-    if (input) { input.value = text; autoGrow(input); }
+    if (input) { input.value = outgoing; autoGrow(input); }
     send(false);
   };
   view.querySelector('#lpSend').onclick = lpGo;
