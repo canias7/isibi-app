@@ -161,9 +161,12 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   a FRESH chat, switches to the Builder, and fires the message through the
   normal send path (orchestrator included) — the user lands mid-conversation.
 - **Preset cards re-wired (2026-07-12, supersedes the display-only interim):**
-  clicking a card drops its starter prompt into the HOME chatbox (not the
-  Builder) + switches mode to the card's kind; cursor parks at the start where
-  the editable [bracket] usually sits. User edits there and sends.
+  clicking a card pins it as a removable amber CHIP in the Home chatbox
+  (reference: a "3D object generation ×" pill the owner showed) + switches mode
+  to the card's kind. The user types just their idea; on send the preset's
+  prompt rides along as "Creative direction — follow this preset: …" for the
+  director. × unpins; chip clears after send and on view re-render. Sending
+  with only a chip (no typed idea) sends the raw preset prompt.
 
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)
