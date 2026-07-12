@@ -167,6 +167,14 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   prompt rides along as "Creative direction — follow this preset: …" for the
   director. × unpins; chip clears after send and on view re-render. Sending
   with only a chip (no typed idea) sends the raw preset prompt.
+- **Cards fully wired (owner: "actual thing behind the screen", 2026-07-12):**
+  every one of the 19 presets is now a real RIG — a director-grade prompt
+  (rewritten, ~70-100 words each, craft language + guardrails) PLUS a pinned
+  model/ratio/duration/resolution matched to MODELS.md strengths (e.g. UGC
+  testimonial → Seedance 2.0 · 9:16 · 10s; Sale announcement → GPT Image 2 ·
+  1:1; Floating product → Ray 3.2 · 1:1 · 5s; Epic establishing → Veo 3.1).
+  `applyPresetRig()` applies it at send time, validating every value against
+  the model's real options so a stale rig can't produce an invalid job.
 
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)
