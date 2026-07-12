@@ -175,6 +175,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   1:1; Floating product → Ray 3.2 · 1:1 · 5s; Epic establishing → Veo 3.1).
   `applyPresetRig()` applies it at send time, validating every value against
   the model's real options so a stale rig can't produce an invalid job.
+- **Two new Marketing cards (owner's references, 2026-07-12):**
+  (1) **Product Animation** — exploded-view rig: components separate in
+  synchronized suspension, camera drifts through, parts reassemble into the
+  hero shot (reference: a camera-lens exploded-view card the owner liked).
+  (2) **From product URL** (`urlScan: true`) — pin chip, paste a store link,
+  send: `lpGo` scans it via the existing `/api/product/scan`, the product's
+  image auto-attaches as the start image, its name/price/desc feed the
+  director, and the ad preset runs 9:16. Chip shows "Reading the page…"
+  during the scan; bad links keep the text and explain in the placeholder.
+- **⚠ Model picks are PROVISIONAL:** owner said (2026-07-12) they will dictate
+  the right model per preset later — treat the current assignments as
+  placeholders and expect a revision pass when the owner provides their list.
 
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)

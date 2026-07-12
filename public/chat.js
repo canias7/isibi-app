@@ -1046,6 +1046,12 @@ const PRESET_CATS = [
     { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.',
       model: 'fal-ai/flux-2-pro', ratio: '3:4',
       prompt: 'Editorial lifestyle photograph of [your product] being used naturally in a bright, aspirational setting — soft morning window light, warm neutral palette, styled surfaces with tasteful props, a hint of human presence (hands, a sleeve). Shallow depth of field keeps the product tack-sharp with its label legible while the scene falls into a creamy blur. Magazine quality, natural shadows, no text or watermarks.' },
+    { label: 'Product Animation', kind: 'video', desc: 'Show your product in motion.',
+      model: 'bytedance/seedance-2.0/text-to-video', ratio: '16:9', dur: 10, res: '720p',
+      prompt: 'Photoreal exploded-view product animation of [your product]: the product hangs centered in a rich dark gradient void, then separates into its individual components in slow synchronized motion — every part suspended mid-air in perfect formation, rotating subtly, dramatic rim light tracing each piece against the glow. The camera drifts slowly through the suspended field, then every component glides back along its own path and reassembles seamlessly into the intact product, ending on a locked hero shot with the label clean and readable for the final second. Premium engineering-ad aesthetic, tasteful motion blur, no text or watermarks; parts move rigidly and never deform.' },
+    { label: 'From product URL', kind: 'video', desc: 'Paste a store link — isibi does the rest.',
+      urlScan: true, model: 'bytedance/seedance-2.0/text-to-video', ratio: '9:16', dur: 10, res: '720p',
+      prompt: 'Premium photoreal vertical social ad built around the attached product image — the product is the hero and must faithfully match the attachment: container, colors, label. Open on a tight appetizing detail of the product, then one elegant continuous camera move pulls back to reveal it centered in a styled scene that matches its category and vibe, warm premium lighting with a soft rim, subtle atmosphere. Settle into a final hero framing with the label clean and readable for the last two seconds. Ad-grade and concrete, no on-screen text or watermarks; the product stays intact and undeformed.' },
   ] },
   { key: 'cinematic', label: 'Cinematic', items: [
     { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.',
@@ -1150,7 +1156,9 @@ function usePreset(it) {
   renderLpChip();
   const box = document.getElementById('lpInput');
   if (box) {
-    box.placeholder = 'Your idea — the “' + it.label + '” preset shapes it…';
+    box.placeholder = it.urlScan
+      ? 'Paste the product page URL — isibi reads it and builds the ad…'
+      : 'Your idea — the “' + it.label + '” preset shapes it…';
     box.focus();
     box.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }
@@ -4367,17 +4375,58 @@ function renderLanding() {
   // rides along as creative direction for the director.
   lpPreset = null; // view re-rendered — chip host is fresh
   const lpIn = view.querySelector('#lpInput');
-  const lpGo = () => {
+  let lpBusy = false; // a URL scan is in flight — don't double-fire
+  const lpGo = async () => {
+    if (lpBusy) return;
     const text = (lpIn.value || '').trim();
     if (!text && !lpPreset) return;
-    const outgoing = lpPreset
+    let outgoing = lpPreset
       ? (text
         ? text + '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt
         : lpPreset.prompt)
       : text;
+    // "From product URL" preset: scan the pasted store page server-side, then
+    // build the ad around the REAL product — its image rides along as the
+    // generation's start image, its facts go to the director.
+    let scanImage = null;
+    if (lpPreset && lpPreset.urlScan) {
+      const m = text.match(/https?:\/\/\S+/);
+      if (!m) { lpIn.placeholder = 'That needs a product link — paste the full URL (https://…)'; return; }
+      const chipLabel = document.querySelector('.lp-chip b');
+      if (chipLabel) chipLabel.textContent = 'Reading the page…';
+      lpIn.disabled = true; lpBusy = true;
+      let data = null;
+      try {
+        const res = await apiFetch('/api/product/scan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: m[0] }),
+        });
+        if (res.ok) data = await res.json();
+      } catch {}
+      lpIn.disabled = false; lpBusy = false;
+      if (!data || !(data.name || data.image)) {
+        if (chipLabel) chipLabel.textContent = lpPreset.label;
+        lpIn.placeholder = 'Couldn’t read that link — try another product URL…';
+        lpIn.value = text;
+        return;
+      }
+      scanImage = data.image || null;
+      const rest = text.replace(m[0], '').trim();
+      const facts = 'The product (from its store page): ' + (data.name || 'unknown') +
+        (data.price ? ' · ' + data.price + (data.currency ? ' ' + data.currency : '') : '') +
+        (data.desc ? '. ' + String(data.desc).slice(0, 300) : '');
+      outgoing = (rest ? rest + '\n\n' : '') + facts +
+        '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt;
+    }
     // The rig behind the card: pin the preset's best model + settings so the
     // generation actually runs the way the card promises.
     applyPresetRig(lpPreset);
+    // Attach AFTER the rig lands (the settings rebuild clears unsupported slots).
+    if (scanImage) {
+      attachments.image = scanImage;
+      clearImageInputsExcept('image');
+      renderAttach('image');
+    }
     lpIn.value = '';
     clearLpPreset();
     newChat();
