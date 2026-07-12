@@ -1028,39 +1028,79 @@ function toggleDirMenu(e) {
   renderEffortLock();
 })();
 
-// Preset categories shown as top tabs on the Home page. Each card drops a
-// ready-to-edit starter prompt into the composer (and sets the mode).
+// Preset categories shown as top tabs on the Home page. Each card is a full
+// RIG, not just a label: a director-grade prompt plus the model/ratio/duration/
+// resolution it runs best on — applied automatically when the pinned chip is
+// sent (applyPresetRig). Model picks follow docs/MODELS.md family strengths.
 const PRESET_CATS = [
   { key: 'marketing', label: 'Marketing', items: [
-    { label: 'Product hero ad', kind: 'video', desc: 'Slick 360° commercial of your product.', prompt: 'Cinematic product commercial of [your product] on a clean seamless backdrop, slow 360° turntable, dramatic key light with soft rim, glossy reflections, shallow depth of field, premium tech-ad aesthetic, 4K.' },
-    { label: 'UGC testimonial', kind: 'video', desc: 'Authentic selfie-style hype.', prompt: 'Handheld selfie-style UGC video of a person enthusiastically showing [your product] to the camera in natural daylight, casual and authentic, talking to camera, vertical 9:16.' },
-    { label: 'Sale announcement', kind: 'image', desc: 'Bold promo graphic with a headline.', prompt: 'Bold promotional graphic announcing a sale for [your product], big punchy headline reading "50% OFF", vibrant brand colors, clean modern layout, high contrast, social-ready.' },
-    { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.', prompt: 'Lifestyle photograph of [your product] in use in a bright, aspirational setting, natural light, editorial styling, soft shadows, magazine quality.' },
+    { label: 'Product hero ad', kind: 'video', desc: 'Slick 360° commercial of your product.',
+      model: 'bytedance/seedance-2.0/text-to-video', ratio: '16:9', dur: 8, res: '720p',
+      prompt: 'Premium photoreal product commercial of [your product] on a seamless dark studio backdrop. One continuous shot: the product on a slow 360° turntable, dramatic key light with a soft warm rim, glossy reflections gliding across its surface, shallow depth of field, a subtle sheen of atmosphere. Mid-rotation a gentle push-in tightens toward the label until it reads clean and sharp, then the turn completes into a still, centered hero packshot held for the final second. High-end tech-ad aesthetic, tasteful motion blur, no on-screen text or watermarks; the product stays intact and undeformed throughout.' },
+    { label: 'UGC testimonial', kind: 'video', desc: 'Authentic selfie-style hype.',
+      model: 'bytedance/seedance-2.0/text-to-video', ratio: '9:16', dur: 10, res: '720p',
+      prompt: 'Handheld selfie-style UGC video, vertical 9:16: a relatable person in a bright everyday room holds [your product] up to the camera and talks to the lens with genuine enthusiasm, natural daylight from a window, slight handheld sway, casual authentic energy — like a friend recommending it. They gesture at the product once, glance at it, then back to camera with a nod and a smile. Phone-camera realism, natural skin tones, no on-screen text or watermarks; the product label stays readable whenever it faces the lens.' },
+    { label: 'Sale announcement', kind: 'image', desc: 'Bold promo graphic with a headline.',
+      model: 'openai/gpt-image-2', ratio: '1:1',
+      prompt: 'Bold square promotional graphic announcing a sale for [your product]: a big punchy headline reading "50% OFF" in heavy modern type, the product featured prominently below it, vibrant brand colors with high contrast, clean geometric layout with clear hierarchy — headline, product, small supporting line "this week only". Flat studio lighting on the product, crisp edges, social-feed ready; all text spelled exactly as written.' },
+    { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.',
+      model: 'fal-ai/flux-2-pro', ratio: '3:4',
+      prompt: 'Editorial lifestyle photograph of [your product] being used naturally in a bright, aspirational setting — soft morning window light, warm neutral palette, styled surfaces with tasteful props, a hint of human presence (hands, a sleeve). Shallow depth of field keeps the product tack-sharp with its label legible while the scene falls into a creamy blur. Magazine quality, natural shadows, no text or watermarks.' },
   ] },
   { key: 'cinematic', label: 'Cinematic', items: [
-    { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.', prompt: 'Sweeping cinematic drone shot over [location] at golden hour, volumetric light, anamorphic lens flares, epic scale, filmic color grade, 24fps.' },
-    { label: 'Slow-mo hero', kind: 'video', desc: 'Dramatic slow-motion close-up.', prompt: 'Ultra slow-motion cinematic close-up of [subject], dramatic side lighting, shallow depth of field, dust particles drifting in the air, moody film grain.' },
-    { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.', prompt: 'Film-noir cinematic still, [subject] in a rain-slicked neon alley at night, high-contrast chiaroscuro lighting, teal and amber palette, atmospheric haze.' },
+    { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.',
+      model: 'fal-ai/veo3.1', ratio: '16:9', dur: 8, res: '720p',
+      prompt: 'Sweeping cinematic aerial establishing shot over [location] at golden hour: the camera glides forward and slowly rises, volumetric god-rays cutting through haze, long warm shadows stretching across the landscape, anamorphic lens flares kissing the frame edges. Epic scale with layered depth — foreground silhouettes, midground detail, glowing horizon. Filmic color grade with rich ambers and deep teals, gentle wind movement in trees or water, 24fps motion cadence, no text or watermarks.' },
+    { label: 'Slow-mo hero', kind: 'video', desc: 'Dramatic slow-motion close-up.',
+      model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
+      prompt: 'Ultra slow-motion cinematic close-up of [subject], locked-off camera: dramatic single-source side lighting carves the form out of darkness, dust particles drift and glint through the beam, micro-movements read in exquisite detail — fabric settling, hair lifting, a slow turn toward the light. Shallow depth of field, moody high-contrast grade with soft film grain, one continuous shot with no cuts, no text or watermarks.' },
+    { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.',
+      model: 'fal-ai/flux-2-pro', ratio: '16:9',
+      prompt: 'Film-noir cinematic still: [subject] in a rain-slicked neon alley at night, hard chiaroscuro lighting splitting the face between shadow and a cyan-magenta neon glow, wet asphalt mirroring the signs, steam rising from a grate, atmospheric haze catching the light. Teal and amber palette, deep blacks with detail preserved, anamorphic framing with foreground bokeh, subtle film grain — a single frame that implies a whole story.' },
   ] },
   { key: 'product', label: 'Product', items: [
-    { label: 'Studio pack shot', kind: 'image', desc: 'Clean e-commerce white-bg shot.', prompt: 'Clean studio product photograph of [your product] on white seamless, soft even lighting, crisp reflections, centered composition, e-commerce ready.' },
-    { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.', prompt: '[Your product] floating and slowly rotating in a dark studio void, dramatic rim lighting, soft reflections gliding across the surface, premium look.' },
-    { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.', prompt: 'Extreme macro photograph of [your product] showing fine texture and material detail, razor-thin depth of field, controlled specular highlights.' },
+    { label: 'Studio pack shot', kind: 'image', desc: 'Clean e-commerce white-bg shot.',
+      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '1:1',
+      prompt: 'Clean studio product photograph of [your product] on pure white seamless: soft even wraparound lighting with a gentle top key, crisp natural reflection beneath the product, every edge sharp and true to form, label perfectly legible and undistorted. Centered composition with balanced negative space, true-to-life color, e-commerce catalog standard — no props, no text, no watermarks, no shadows harsher than a soft contact shadow.' },
+    { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.',
+      model: 'luma/agent/ray/v3.2/text-to-video', ratio: '1:1', dur: 5, res: '720p',
+      prompt: '[Your product] floating weightlessly in a dark premium studio void, slowly rotating in place: dramatic rim lighting traces its silhouette, soft specular reflections glide across the surface as it turns, faint particles drift in the depth behind it. The rotation is smooth and continuous, the camera locked, the mood expensive and calm. The label passes through full legibility mid-turn. Deep blacks, controlled highlights, no text or watermarks; the product stays rigid and undeformed.' },
+    { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.',
+      model: 'fal-ai/flux-2-pro', ratio: '1:1',
+      prompt: 'Extreme macro photograph of [your product]: razor-thin depth of field isolating one exquisite detail — surface texture, material grain, an edge where two materials meet — with controlled specular highlights tracing the form. The rest falls into smooth darkness. Lighting is a single soft key with a whisper of rim, colors true to the product, detail rendered at the threshold of what a real macro lens resolves. No text or watermarks.' },
   ] },
   { key: 'social', label: 'Social', items: [
-    { label: 'Reel intro', kind: 'video', desc: 'Fast vertical hook with text.', prompt: 'Fast-paced vertical 9:16 social intro, punchy text animation reading "NEW DROP", energetic camera moves, trendy quick transitions, bold brand colors.' },
-    { label: 'Story background', kind: 'image', desc: '9:16 background with text room.', prompt: 'Eye-catching 9:16 story background with abstract gradient shapes and space for text, on-brand pink and amber palette, modern and clean.' },
-    { label: 'Carousel cover', kind: 'image', desc: 'Scroll-stopping post cover.', prompt: 'Scroll-stopping square social post cover for [topic], bold headline text, high-contrast layout, clean modern design.' },
+    { label: 'Reel intro', kind: 'video', desc: 'Fast vertical hook with text.',
+      model: 'bytedance/seedance-2.0/fast/text-to-video', ratio: '9:16', dur: 5, res: '720p',
+      prompt: 'Fast-paced vertical 9:16 social intro for [your brand]: 3 quick cuts — a whip-pan into the product, a punch-in beat, then bold kinetic text slamming in reading exactly "NEW DROP" with a subtle shake on impact. Energetic handheld feel, trendy speed-ramps between cuts, bold saturated brand colors, hard flash frames on the transitions. The text stays pinned and spelled exactly as written; ends on product + text locked for the final beat. No watermarks.' },
+    { label: 'Story background', kind: 'image', desc: '9:16 background with text room.',
+      model: 'fal-ai/recraft/v3/text-to-image', ratio: '9:16',
+      prompt: 'Eye-catching vertical 9:16 story background: abstract flowing gradient shapes in a pink-to-amber palette over near-black, soft grain, gentle glow where the shapes overlap, generous calm negative space through the middle third left intentionally empty for text overlay. Modern, clean, on-brand design — no text, no logos, no watermarks, nothing busy near the center.' },
+    { label: 'Carousel cover', kind: 'image', desc: 'Scroll-stopping post cover.',
+      model: 'openai/gpt-image-2', ratio: '1:1',
+      prompt: 'Scroll-stopping square social post cover about [topic]: one bold headline reading exactly "[your headline]" in heavy condensed type filling the upper half, a single striking visual anchoring the lower half, high-contrast two-tone palette with one accent color, clean margins, strong visual hierarchy built to be read in under a second on a phone. All text spelled exactly as written; no watermarks.' },
   ] },
   { key: 'portrait', label: 'Portrait', items: [
-    { label: 'Studio headshot', kind: 'image', desc: 'Corporate-clean headshot.', prompt: 'Professional studio headshot portrait, soft key light with subtle rim, neutral background, sharp eyes, natural skin tones, corporate-clean.' },
-    { label: 'Cinematic portrait', kind: 'image', desc: 'Moody single-light portrait.', prompt: 'Cinematic character portrait, dramatic single-source lighting, shallow depth of field, moody color grade, subtle film grain.' },
-    { label: 'Fashion editorial', kind: 'image', desc: 'Magazine-cover styling.', prompt: 'High-fashion editorial portrait, bold styling, studio strobe lighting, striking pose, magazine cover quality.' },
+    { label: 'Studio headshot', kind: 'image', desc: 'Corporate-clean headshot.',
+      model: 'fal-ai/flux-2-pro', ratio: '3:4',
+      prompt: 'Professional studio headshot portrait of [subject]: soft wrapped key light with a subtle rim separating them from a neutral seamless background, eyes tack-sharp and engaged with the camera, natural authentic skin texture (no plastic smoothing), relaxed confident expression, shoulders angled slightly. Corporate-clean grade, true skin tones, gentle falloff — LinkedIn-ready. No text or watermarks.' },
+    { label: 'Cinematic portrait', kind: 'image', desc: 'Moody single-light portrait.',
+      model: 'fal-ai/krea-2/turbo', ratio: '3:4',
+      prompt: 'Cinematic character portrait of [subject]: one dramatic single-source light raking across the face from the side, half in shadow, catchlight alive in the near eye, shallow depth of field melting the background into darkness. Moody teal-shadow amber-highlight grade, subtle film grain, imperfect and human — a frame from a film that doesn’t exist. No text or watermarks.' },
+    { label: 'Fashion editorial', kind: 'image', desc: 'Magazine-cover styling.',
+      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '3:4',
+      prompt: 'High-fashion editorial portrait of [subject]: bold styling and a striking deliberate pose, hard studio strobe with a crisp shadow thrown on a colored seamless backdrop, fabric caught mid-movement, jewelry and textures rendered sharp. Confident magazine-cover composition with headroom for a masthead, saturated yet controlled palette, skin real and luminous. No text or watermarks.' },
   ] },
   { key: 'anime', label: 'Anime', items: [
-    { label: 'Anime key art', kind: 'image', desc: 'Vibrant cel-shaded hero art.', prompt: 'Vibrant anime illustration of [character], dynamic pose, cel-shaded, detailed background, studio-quality key art.' },
-    { label: 'Chibi sticker', kind: 'image', desc: 'Cute flat-color sticker.', prompt: 'Cute chibi anime sticker of [character], thick outline, flat colors, expressive face, simple background.' },
-    { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.', prompt: 'Anime-style animated scene of [subject] with gentle ambient motion, hair and clothes swaying, soft parallax background; preserve the art style exactly, no smoothing.' },
+    { label: 'Anime key art', kind: 'image', desc: 'Vibrant cel-shaded hero art.',
+      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '3:4',
+      prompt: 'Vibrant anime key-art illustration of [character]: dynamic three-quarter action pose with strong silhouette, clean confident linework, cel shading with two-step shadows and bright rim light, expressive eyes, hair and clothing caught mid-motion. A detailed but softly-blurred background pushes the character forward; saturated studio-quality palette with atmospheric light effects. No text or watermarks.' },
+    { label: 'Chibi sticker', kind: 'image', desc: 'Cute flat-color sticker.',
+      model: 'fal-ai/recraft/v3/text-to-image', ratio: '1:1',
+      prompt: 'Cute chibi anime sticker of [character]: oversized head and tiny body, huge expressive eyes, one clear exaggerated emotion, thick clean outline with a white sticker border, flat bright colors with minimal two-tone shading, simple empty background ready for a transparent cutout. Kawaii, instantly readable at small size. No text or watermarks.' },
+    { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.',
+      model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
+      prompt: 'Anime-style animated scene of [subject] with gentle ambient motion: hair and clothes swaying in a soft breeze, blinking and small natural movements, background elements drifting in subtle parallax — petals, clouds, or light particles. The art style is preserved exactly with no smoothing or realism drift, colors stay flat and cel-shaded, camera locked or drifting almost imperceptibly. One continuous calm shot, no text or watermarks.' },
   ] },
 ];
 let presetCat = 'marketing';
@@ -1120,6 +1160,25 @@ function clearLpPreset() {
   renderLpChip();
   const box = document.getElementById('lpInput');
   if (box) box.placeholder = 'Describe a video, image, or a voice line — isibi takes it from here…';
+}
+// The machinery behind a preset card: apply its rig — mode, model, and the
+// settings it runs best on — right before the send fires. Every value is
+// validated against what the model actually supports, so a stale rig can
+// never produce an invalid generation.
+function applyPresetRig(it) {
+  if (!it) return;
+  if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
+  if (it.model && MODEL_LISTS[mode] && MODEL_LISTS[mode].some((m) => m.id === it.model) && model !== it.model) {
+    selectedModels[mode] = it.model;
+    buildMenu();      // commits `model` + repaints the picker label
+    buildOptMenus();  // resets settings to the new model's defaults
+  }
+  const opts = currentOpts() || {};
+  if (it.ratio && opts.ratios && opts.ratios.includes(it.ratio)) ratio = it.ratio;
+  if (it.dur && opts.durations && opts.durations.includes(it.dur)) duration = it.dur;
+  if (it.res && opts.resolutions && opts.resolutions.includes(it.res)) quality = it.res;
+  updateSettingsSummary();
+  updateSendPrice();
 }
 function renderLpChip() {
   const host = document.getElementById('lpChipHost');
@@ -4316,6 +4375,9 @@ function renderLanding() {
         ? text + '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt
         : lpPreset.prompt)
       : text;
+    // The rig behind the card: pin the preset's best model + settings so the
+    // generation actually runs the way the card promises.
+    applyPresetRig(lpPreset);
     lpIn.value = '';
     clearLpPreset();
     newChat();
