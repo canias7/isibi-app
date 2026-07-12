@@ -155,11 +155,15 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 ### Home page got a chatbox (owner request, 2026-07-12)
 - **Status:** ✅ done
 - **Where:** `public/chat.js` `renderLanding()`; `public/styles.css` `.lp-compose`
-- **What:** A composer sits under the Home greeting (same panel style as the
-  Builder's). Typing + Enter/send starts a FRESH chat, switches to the Builder,
-  and fires the message through the normal send path (orchestrator included) —
-  the user lands mid-conversation, not on a prefilled input. Hint line says
-  "Starts a fresh chat in the Builder." Preset cards below stay display-only.
+- **What:** A composer on the Home page (same panel style as the Builder's),
+  docked at the BOTTOM (owner: "put it on the bottom" — sticky, pins low on
+  short pages, stays in view over a scrolling grid). Typing + Enter/send starts
+  a FRESH chat, switches to the Builder, and fires the message through the
+  normal send path (orchestrator included) — the user lands mid-conversation.
+- **Preset cards re-wired (2026-07-12, supersedes the display-only interim):**
+  clicking a card drops its starter prompt into the HOME chatbox (not the
+  Builder) + switches mode to the card's kind; cursor parks at the start where
+  the editable [bracket] usually sits. User edits there and sends.
 
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)

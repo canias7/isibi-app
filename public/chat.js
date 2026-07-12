@@ -1096,18 +1096,23 @@ function renderPresetsInto(body, rerender) {
   }).join('');
   body.innerHTML = '<div class="pt-tabs">' + tabs + '</div><div class="pt-grid">' + cards + '</div>';
   body.querySelectorAll('.pt-tab').forEach((t) => { t.onclick = () => { presetCat = t.dataset.cat; rerender(); }; });
-  // Preset cards are display-only for now (owner's call, 2026-07-11): clicking
-  // used to hand the prompt off to the Builder chatbox. The plan is to generate
-  // right here on the Home page instead — when that lands, re-wire the cards
-  // (see usePreset below).
+  body.querySelectorAll('.pt-card').forEach((card) => { card.onclick = () => usePreset(cat.items[+card.dataset.i]); });
 }
-// Kept for the upcoming generate-on-Home flow; currently unwired.
+// Clicking a preset card drops its starter prompt into the Home chatbox below
+// (owner's call, 2026-07-12) — the user edits it there and sends; no Builder
+// handoff until they do. The card's kind also picks the matching mode so the
+// send runs as video/image/audio accordingly.
 function usePreset(it) {
   if (!it) return;
   if (it.kind && it.kind !== mode && typeof setMode === 'function') setMode(it.kind);
-  if (typeof showView === 'function') showView('home'); // land in the Builder chatbox with the prompt loaded
-  const input = document.getElementById('input');
-  if (input) { input.value = it.prompt; if (typeof autoGrow === 'function') autoGrow(input); input.focus(); }
+  const box = document.getElementById('lpInput');
+  if (!box) return;
+  box.value = it.prompt;
+  if (typeof autoGrow === 'function') autoGrow(box);
+  box.focus();
+  // Put the cursor at the start — the editable [bracket] bit is usually there.
+  box.setSelectionRange(0, 0);
+  box.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
 function toggleEffortMenu(e) {
