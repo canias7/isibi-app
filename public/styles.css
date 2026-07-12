@@ -243,9 +243,11 @@
        keep the send button pinned to the right of whatever line it lands on. */
     .composer-row .send { margin-left: auto; }
     .composer #input::placeholder, .composer #lpInput::placeholder { color: #5c5c66; }
-    /* Home-page chatbox: the Builder composer's look, sitting under the greeting.
+    /* Home-page chatbox: the Builder composer's look, docked at the BOTTOM of
+       the landing (owner's call). margin-top:auto pins it low on short pages;
+       sticky keeps it in view while the preset grid scrolls behind it.
        Sending starts a fresh chat in the Builder with the message already sent. */
-    .lp-compose { margin: 0 auto 2.6rem; width: 100%; }
+    .lp-compose { margin: auto auto 0; width: 100%; position: sticky; bottom: 0; padding-top: 1.4rem; }
     .lp-compose .composer { gap: .6rem; }
     .lp-compose-hint { color: var(--muted); font-size: .8rem; }
     .send {
@@ -2373,7 +2375,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 
 /* ── Home landing / dashboard ── */
 .view-landing.active { flex-direction: column; overflow-y: auto; padding: 2.6rem 2rem 3rem; }
-.lp-page { width: 100%; max-width: 1400px; margin: 0 auto; }
+/* Flex column filling the view so the bottom-docked chatbox (.lp-compose,
+   margin-top:auto) pins to the bottom even when the page content is short. */
+.lp-page { width: 100%; max-width: 1400px; margin: 0 auto; display: flex; flex-direction: column; flex: 1 0 auto; }
 .lp-hero { margin-bottom: 1.8rem; }
 .lp-hero h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -.01em; }
 .lp-hero p { color: var(--muted); font-size: .95rem; margin-top: .35rem; }
