@@ -6579,7 +6579,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', studio: 'Studio', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
 function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
@@ -6594,36 +6594,13 @@ function showView(name) {
   if (name === 'mediaAgent') renderMediaAgent();
   if (name === 'integrations') renderIntegrations();
   if (name === 'settings') renderSettings();
-  document.querySelectorAll('.side-item[data-view], .nav-dd-item[data-view]').forEach((i) =>
+  document.querySelectorAll('.side-item[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
-  const lbl = document.getElementById('navDdLabel');
-  if (lbl) lbl.textContent = VIEW_LABELS[name] || 'Home';
-  // Studio hides the sidebar and navigates via the topbar dropdown; every other
-  // view keeps the normal sidebar (with its nav) and no dropdown.
-  const isStudio = name === 'studio';
-  const sb = document.querySelector('.sidebar');
-  if (sb) sb.style.display = isStudio ? 'none' : '';
-  const dd = document.getElementById('navDd');
-  if (dd) dd.style.display = isStudio ? '' : 'none';
-  // The full-width bar only exists to hold the Studio dropdown; the logo lives
-  // in the sidebar on every other view.
-  const tb = document.querySelector('.topbar');
-  if (tb) tb.style.display = isStudio ? 'flex' : 'none';
   // Chat history is Home-only.
   const chats = document.getElementById('homeChats');
   if (chats) chats.style.display = name === 'home' ? '' : 'none';
-  const menu = document.getElementById('navDdMenu');
-  if (menu) menu.classList.remove('open');
-}
-function toggleNavMenu(e) {
-  e.stopPropagation();
-  const menu = document.getElementById('navDdMenu');
-  if (menu) menu.classList.toggle('open');
 }
 document.addEventListener('click', (e) => {
-  const dd = document.getElementById('navDd');
-  const menu = document.getElementById('navDdMenu');
-  if (menu && menu.classList.contains('open') && dd && !dd.contains(e.target)) menu.classList.remove('open');
   const prof = document.getElementById('signOutRow');
   const pop = document.getElementById('profilePop');
   if (pop && pop.classList.contains('open') && prof && !prof.contains(e.target)) pop.classList.remove('open');
@@ -6636,22 +6613,17 @@ function toggleProfileMenu(e) {
   if (pop) pop.classList.toggle('open');
 }
 
-// ── Studio lives in studio.js (shot-based projects) ──
-
 // ── Declarative event wiring (CSP-safe) ───────────────────────────────────
 // The HTML carries data-act / data-change / data-input / data-keydown hooks
 // instead of inline on* handlers, so the CSP can drop script-src 'unsafe-inline'.
 // Listeners are attached directly to each element (not document-delegated) to
-// preserve the stopPropagation() semantics the menu toggles rely on. Handlers
-// are resolved from these tables at click time, so studio.js globals referenced
-// below are fine even though studio.js loads after this file.
+// preserve the stopPropagation() semantics the menu toggles rely on.
 const CLICK_ACTIONS = {
   'view': (e, el) => showView(el.dataset.view),
   'new-chat': () => newChat(),
   'credits': () => openCredits(),
   'credits-topup': () => openCredits(true),
   'profile-menu': (e) => toggleProfileMenu(e),
-  'nav-menu': (e) => toggleNavMenu(e),
   'sign-out': () => doSignOut(),
   'effort-menu': (e) => toggleEffortMenu(e),
   'set-effort': (e, el) => setEffort(el.dataset.effort),
@@ -6669,38 +6641,19 @@ const CLICK_ACTIONS = {
   'gal-sort': () => toggleGalSort(),
   'gal-upgrade': () => openCredits(),
   'scroll-down': () => { const box = document.getElementById('messages'); if (box) scrollThreadBottom(box.parentElement, true); },
-  'studio-send': () => studioSend(),
-  'sb-adj': (e, el) => sbToggleAdjust(el.dataset.tool),
-  'sb-prev': () => sbPrevShot(),
-  'sb-play': () => sbTogglePlay(),
-  'sb-next': () => sbNextShot(),
-  'sb-fs': () => sbFullscreenPreview(),
-  'sb-playall': () => sbPlayAll(),
-  'sb-split': () => sbSplitAtPlayhead(),
-  'sb-add-title': () => sbAddTitle(),
-  'sb-voice': () => sbToggleVoiceRecord(),
-  'sb-voice-remove': () => sbRemoveVoice(),
-  'sb-fade': () => sbToggleFade(),
-  'sb-save': () => sbSaveToGallery(),
-  'sb-music-remove': () => sbRemoveMusic(),
-  'sb-export': () => sbExport(),
 };
 const CHANGE_ACTIONS = {
   'attach': (e, el) => onAttach(el.dataset.attach, el),
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
   'attach-kf': (e, el) => onAttachKf(el),
-  'sb-project': (e, el) => sbSwitchProject(el.value),
-  'sb-transition': (e, el) => sbSetTransition(el.value),
 };
 const INPUT_ACTIONS = {
   'search': () => renderChatList(),
   'autogrow': (e, el) => autoGrow(el),
-  'sb-zoom': (e, el) => sbSetZoom(parseFloat(el.value)),
 };
 const KEYDOWN_ACTIONS = {
   'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },
-  'studio-send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); studioSend(); } },
   'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
 };
 function wireActions(root) {

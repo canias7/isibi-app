@@ -3,7 +3,7 @@
 > **Read `docs/owner-notes.md` at the start of every session** — it's the owner's
 > running bug log + how-they-like-things-done preferences. Keep it updated.
 
-Zephyr — an AI image/video/voice generator at https://isibi.ai — dark studio design, glass panels, pink → amber accents (#ff79c6 / #ffb84d, `--split` gradient on buttons/active states) over a near-black `#08070c`, Space Grotesk wordmark. (The old LaserFlow beam on the home thread was removed 2026-07-05.) Root (`/`) opens straight into the Zephyr chatbox behind a Supabase login gate; the workspace has Home/Projects/Gallery/Studio views (single page, view-switched).
+Zephyr — an AI image/video/voice generator at https://isibi.ai — dark studio design, glass panels, pink → amber accents (#ff79c6 / #ffb84d, `--split` gradient on buttons/active states) over a near-black `#08070c`, Space Grotesk wordmark. (The old LaserFlow beam on the home thread was removed 2026-07-05.) Root (`/`) opens straight into the Zephyr chatbox behind a Supabase login gate; the workspace has Home/Builder/Gallery/Products/Avatar/Media Agent views (single page, view-switched). **Studio (the iMovie-style video editor) was removed 2026-07-12** — the platform is AI-native, so all video editing is moving into the Builder chatbox (attach a clip → say the change → an AI edit model does it). The on-device ffmpeg engine (`public/ffmpeg-edit.js`) was KEPT — the QR-burn feature runs on it.
 
 ## Structure
 

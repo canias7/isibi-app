@@ -58,24 +58,6 @@
     </div>
   </div>
 
-  <!-- Full-width bar is Studio-only now (the logo lives at the top of the sidebar). -->
-  <header class="topbar" style="display:none">
-    <!-- Studio-only nav dropdown (the workspace sidebar is hidden there) -->
-    <div class="nav-dd" id="navDd" style="display:none">
-      <button class="nav-dd-btn" data-act="nav-menu" aria-label="Menu">
-        <span class="nav-dd-icon">☰</span><b id="navDdLabel">Studio</b><span class="nav-dd-caret">▾</span>
-      </button>
-      <div class="nav-dd-menu" id="navDdMenu">
-        <button class="nav-dd-item" data-view="landing" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg></span><span>Home</span></button>
-        <button class="nav-dd-item" data-view="home" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 12-12"/><path d="M15 5l4 4"/><path d="M18 2l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"/></svg></span><span>Builder</span></button>
-        <button class="nav-dd-item" data-view="gallery" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span><span>Gallery</span></button>
-        <button class="nav-dd-item active" data-view="studio" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg></span><span>Studio</span></button>
-        <button class="nav-dd-item" data-view="products" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span><span>Products</span></button>
-        <button class="nav-dd-item" data-view="avatar" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></span><span>Avatar</span></button>
-        <button class="nav-dd-item" data-view="mediaAgent" data-act="view"><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg></span><span>Media Agent</span></button>
-      </div>
-    </div>
-  </header>
 
   <div class="shell">
     <aside class="sidebar">
@@ -91,9 +73,6 @@
         </div>
         <div class="side-item" data-view="gallery" data-act="view">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span><span>Gallery</span>
-        </div>
-        <div class="side-item" data-view="studio" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg></span><span>Studio</span>
         </div>
         <div class="side-item" data-view="products" data-act="view">
           <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span><span>Products</span>
@@ -348,92 +327,6 @@
       <!-- Settings page (built by renderSettings) -->
       <div id="viewSettings" class="view view-settings"></div>
 
-      <div id="viewStudio" class="view view-studio">
-        <!-- 1/4 · isibi.ai editor chat -->
-        <aside class="studio-chat">
-          <div class="studio-chat-head">
-            <img class="logo-mark" src="/logo.png" alt="isibi" />
-            <div>
-              <div class="cname">isibi.ai · Editor</div>
-            </div>
-          </div>
-          <div class="studio-thread" id="studioMessages"></div>
-          <div class="studio-composer">
-            <textarea id="studioInput" rows="1" placeholder="e.g. cut this in half, trim the first 5s…"
-              data-keydown="studio-send"></textarea>
-            <button class="send studio-send" data-act="studio-send" aria-label="Send">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-            </button>
-          </div>
-        </aside>
-
-        <!-- 3/4 · iMovie-style editor -->
-        <section class="studio-editor">
-          <div class="editor-top">
-            <!-- storyboard: the project's shots, in order -->
-            <div class="editor-media">
-              <div class="media-tabs">
-                <select id="sbProjectSel" class="sb-project" data-change="sb-project" aria-label="Project"></select>
-              </div>
-              <div class="mb-tabs" id="sbBrowserTabs"></div>
-              <div class="media-body" id="sbList"></div>
-              <div class="media-body mb-browser" id="sbBrowser" hidden></div>
-              <div class="sb-actions" id="sbActions">
-                <button class="sb-btn" data-act="file" data-file="studioFile">⬇ Import</button>
-                <input type="file" id="studioFile" accept="video/*,image/*,audio/*" hidden />
-              </div>
-            </div>
-
-            <!-- viewer / preview -->
-            <div class="editor-preview">
-              <div class="preview-toolbar">
-                <span class="pt-title">My Movie</span>
-                <div class="pt-spacer"></div>
-                <button class="pt-icon" data-act="sb-adj" data-tool="text" title="Text on this clip"><b style="font-family:'Space Grotesk',sans-serif">T</b></button>
-                <button class="pt-icon" data-act="sb-adj" data-tool="crop" title="Crop &amp; Ken Burns">🔍</button>
-                <button class="pt-icon" data-act="sb-adj" data-tool="filter" title="Filters">🎨</button>
-                <button class="pt-icon" data-act="sb-adj" data-tool="adjust" title="Color">🎚</button>
-                <button class="pt-icon" data-act="sb-adj" data-tool="speed" title="Speed">⏩</button>
-                <button class="pt-icon" data-act="sb-adj" data-tool="volume" title="Clip volume">🔊</button>
-              </div>
-              <div class="adjust-panel" id="sbAdjustPanel" hidden></div>
-              <div class="preview-stage" id="previewStage">
-                <div class="preview-empty">
-                  <div class="preview-empty-text">Import a video, photo or music track to preview it here</div>
-                </div>
-              </div>
-              <div class="preview-controls">
-                <button class="pc-btn" title="Previous shot" data-act="sb-prev">⏮</button>
-                <button class="pc-btn pc-play" title="Play / pause" data-act="sb-play">▶</button>
-                <button class="pc-btn" title="Next shot" data-act="sb-next">⏭</button>
-                <span class="timecode" id="studioTimecode">00:00 / 00:00</span>
-                <div class="pc-spacer"></div>
-                <button class="pc-btn" title="Full screen" data-act="sb-fs">⤢</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- timeline -->
-          <div class="editor-timeline">
-            <div class="timeline-bar">
-              <div class="timeline-tools">
-                <button class="tl-tool" data-act="sb-playall" title="Play the whole film">▶ Play</button>
-                <button class="tl-tool" data-act="sb-split" title="Split the selected clip at the playhead">✂ Split</button>
-                <button class="tl-tool tl-save" id="sbSaveBtn" data-act="sb-save" title="Save the film to your gallery">⬆ Save</button>
-                <button class="tl-tool tl-export" id="sbExportBtn" data-act="sb-export">Export</button>
-              </div>
-              <div class="tl-right">
-                <span class="tl-settings" id="sbTotalDur"></span>
-                <input type="range" id="sbZoom" class="tl-zoom" min="1" max="6" step="0.5" value="1" title="Zoom the timeline" data-input="sb-zoom" aria-label="Zoom timeline" />
-              </div>
-            </div>
-            <div class="timeline-track" id="timelineTrack">
-              <div class="timeline-empty">Describe your film to isibi.ai — or import a video — and its shots land here.</div>
-            </div>
-          </div>
-        </section>
-      </div>
-
     </main>
   </div>
 
@@ -441,6 +334,5 @@
   <script src="/vendor/qrcode.js"></script>
   <script src="/chat.js"></script>
   <script src="/ffmpeg-edit.js"></script>
-  <script src="/studio.js"></script>
 </body>
 </html>
