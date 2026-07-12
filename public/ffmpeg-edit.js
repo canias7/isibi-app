@@ -320,13 +320,19 @@ async function sbFFQr(src, qrPngDataUrl, opts = {}) {
     await ff.writeFile(inName, bytes);
     await ff.writeFile('qr.png', qrBytes);
     // scale2ref sizes the QR off the video itself (even dimensions for yuv420).
+    // Corner (opts.pos: tl/tr/bl/br/c) sets the overlay x:y; default bottom-right.
+    const XY = {
+      tl: '16:16', tr: 'W-w-16:16', bl: '16:H-h-16', br: 'W-w-16:H-h-16',
+      c: '(W-w)/2:(H-h)/2',
+    };
+    const xy = XY[opts.pos] || XY.br;
     // A timed window (opts.start/end seconds) gates the overlay via enable=;
     // otherwise the QR shows for the whole clip. Commas inside between() are
     // escaped so the filtergraph parser doesn't read them as chain separators.
     const timed = Number.isFinite(opts.start) && Number.isFinite(opts.end) && opts.end > opts.start;
     const enable = timed ? ':enable=between(t\\,' + opts.start + '\\,' + opts.end + ')' : '';
     const graph = '[1:v][0:v]scale2ref=w=\'trunc(main_h*0.11)*2\':h=\'trunc(main_h*0.11)*2\'[qr][v];' +
-      '[v][qr]overlay=W-w-16:H-h-16' + enable + ',fps=30';
+      '[v][qr]overlay=' + xy + enable + ',fps=30';
     const pre = ['-i', inName, '-i', 'qr.png'];
     let data = await sbFFRunRead(ff, [...pre, '-filter_complex', graph, ...SB_VENC, ...SB_AENC, ...SB_FAST]);
     if (!data) data = await sbFFRunRead(ff, [...pre, '-filter_complex', graph, '-an', ...SB_VENC, ...SB_FAST]);

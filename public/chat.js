@@ -2379,8 +2379,8 @@ async function saveVideoWithQr(u, qr, origin) {
     const png = qrPngFor(qr.url);
     if (!png) return null;
     setGenText(origin, 'Stamping the QR…');
-    // Timed window (start/end seconds) or whole video when unset.
-    const blob = await sbFFQr(u, png, { url: u, start: qr.start, end: qr.end });
+    // Timed window (start/end seconds) or whole video when unset; corner via pos.
+    const blob = await sbFFQr(u, png, { url: u, start: qr.start, end: qr.end, pos: qr.pos });
     // The worker caps a base64 video upload (~29 MB of blob) — over it, skip.
     if (!blob || blob.size > 29_000_000) return null;
     const b64 = await new Promise((ok, err) => {
@@ -2427,6 +2427,16 @@ function parseQrDirective(text, durSec) {
     start = +m[1]; end = d || (+m[1] + 2); // from that second onward (to end, or a short flash)
   }
   if (start != null && end != null && end <= start) { const t2 = start; start = end; end = t2; }
+  // Corner/position — "top-left", "bottom left corner", "center". Codes:
+  // tl/tr/bl/br/c. Default (null) → bottom-right in the burn.
+  let pos = null;
+  const cm = src.match(/\b(top|upper|bottom|lower)[\s-]*(left|right)\b/i);
+  if (cm) pos = (/top|upper/i.test(cm[1]) ? 't' : 'b') + (/left/i.test(cm[2]) ? 'l' : 'r');
+  else if (/\b(center|centre|middle)\b/i.test(src)) pos = 'c';
+  else if (/\btop\b/i.test(src)) pos = 'tr';
+  else if (/\bbottom\b/i.test(src)) pos = 'br';
+  else if (/\bleft\b/i.test(src)) pos = 'bl';
+  else if (/\bright\b/i.test(src)) pos = 'br';
   // Strip the QR-mentioning segment(s) so the instruction never bleeds into the
   // generation prompt: drop any URL first (splitting on its dots would scatter
   // it), then split on sentence/comma breaks and drop pieces naming a QR.
@@ -2437,7 +2447,7 @@ function parseQrDirective(text, durSec) {
     .join('. ')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  return { want: !remove, remove, url, start, end, clean };
+  return { want: !remove, remove, url, start, end, pos, clean };
 }
 
 // Burn the "✦ isibi.ai" mark into an image client-side (bottom-right), returning
@@ -3883,7 +3893,18 @@ function send(fromButton) {
     const q = parseQrDirective(text, currentOpts() && currentOpts().durations ? duration : null);
     if (chat) {
       if (q.remove) chat.qr = { off: true };
-      else if (q.want) chat.qr = { url: q.url || chat.productUrl || null, start: q.start, end: q.end, want: true };
+      else if (q.want) {
+        // Merge onto any prior QR so a follow-up tweak ("move it top-left")
+        // keeps the earlier url/timing/position it didn't restate.
+        const prev = chat.qr && !chat.qr.off ? chat.qr : {};
+        chat.qr = {
+          url: q.url || prev.url || chat.productUrl || null,
+          start: q.start != null ? q.start : prev.start,
+          end: q.end != null ? q.end : prev.end,
+          pos: q.pos || prev.pos || null,
+          want: true,
+        };
+      }
       persistStore();
     }
     if (q.clean) sendText = q.clean;
