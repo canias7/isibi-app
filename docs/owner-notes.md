@@ -33,6 +33,11 @@ and fixed, and add a preference line whenever the owner signals one.
   templates (fixed choreography skeleton + product description/world filled
   from the attached image). Home cards stay display-only (PR #349) meanwhile.
 
+- **Declined (2026-07-12):** Luma **Reframe** (video + Photon image outpaint-to-new-ratio,
+  on fal) — offered, owner said no. Don't re-pitch unless they bring it up.
+  Runway integration also discussed: not on fal (needs its own API pipeline) — neither
+  added nor declined, just informed.
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
