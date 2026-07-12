@@ -4262,6 +4262,7 @@ function renderLanding() {
     '<div class="lp-page">' +
       '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
         '<p>Pick a starting point and make it yours.</p></div>' +
+      '<div class="lp-presets" id="landingPresets"></div>' +
       '<div class="lp-compose"><div class="composer">' +
         '<div class="composer-top">' +
           '<textarea id="lpInput" rows="1" placeholder="Describe a video, image, or a voice line — isibi takes it from here…"></textarea>' +
@@ -4273,7 +4274,6 @@ function renderLanding() {
           '</button>' +
         '</div>' +
       '</div></div>' +
-      '<div class="lp-presets" id="landingPresets"></div>' +
     '</div>';
 
   // Home chatbox: sending spins up a FRESH chat in the Builder and fires the
