@@ -21,6 +21,18 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## Parked (owner said hold — do not build until re-opened)
+
+- **Home preset system (2026-07-12):** the 8-preset lineup (Blitz Motion +
+  Bag Drop / Morning Ritual / Street Take / Perfect Loop / Retro Rewind /
+  Shelf Wars / Week One) is ON HOLD per the owner — "forget about them for
+  now." Keep the assets: Blitz Motion has an owner-approved sample prompt
+  (Tropical Elixir style, 12s 9:16, @image_1 product reference, 10-cut
+  choreography, ends on readable-label packshot) and a model pick
+  (Seedance 2.0 · 12s · 9:16 · 1080p). Presets = director instruction
+  templates (fixed choreography skeleton + product description/world filled
+  from the attached image). Home cards stay display-only (PR #349) meanwhile.
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
