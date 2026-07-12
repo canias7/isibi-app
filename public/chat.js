@@ -4262,8 +4262,37 @@ function renderLanding() {
     '<div class="lp-page">' +
       '<div class="lp-hero"><h1>' + greet + ', ' + esc(name) + '</h1>' +
         '<p>Pick a starting point and make it yours.</p></div>' +
+      '<div class="lp-compose"><div class="composer">' +
+        '<div class="composer-top">' +
+          '<textarea id="lpInput" rows="1" placeholder="Describe a video, image, or a voice line — isibi takes it from here…"></textarea>' +
+        '</div>' +
+        '<div class="composer-row">' +
+          '<span class="lp-compose-hint">Starts a fresh chat in the Builder</span>' +
+          '<button type="button" class="send" id="lpSend" aria-label="Send">' +
+            '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>' +
+          '</button>' +
+        '</div>' +
+      '</div></div>' +
       '<div class="lp-presets" id="landingPresets"></div>' +
     '</div>';
+
+  // Home chatbox: sending spins up a FRESH chat in the Builder and fires the
+  // message through the normal send path (orchestrator and all) — the user
+  // lands mid-conversation, not on a prefilled input.
+  const lpIn = view.querySelector('#lpInput');
+  const lpGo = () => {
+    const text = (lpIn.value || '').trim();
+    if (!text) return;
+    lpIn.value = '';
+    newChat();
+    showView('home');
+    const input = document.getElementById('input');
+    if (input) { input.value = text; autoGrow(input); }
+    send(false);
+  };
+  view.querySelector('#lpSend').onclick = lpGo;
+  lpIn.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); lpGo(); } });
+  lpIn.addEventListener('input', () => autoGrow(lpIn));
 
   const host = view.querySelector('#landingPresets');
   const rerender = () => renderPresetsInto(host, rerender);

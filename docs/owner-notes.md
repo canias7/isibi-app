@@ -21,6 +21,23 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## Parked (owner said hold — do not build until re-opened)
+
+- **Home preset system (2026-07-12):** the 8-preset lineup (Blitz Motion +
+  Bag Drop / Morning Ritual / Street Take / Perfect Loop / Retro Rewind /
+  Shelf Wars / Week One) is ON HOLD per the owner — "forget about them for
+  now." Keep the assets: Blitz Motion has an owner-approved sample prompt
+  (Tropical Elixir style, 12s 9:16, @image_1 product reference, 10-cut
+  choreography, ends on readable-label packshot) and a model pick
+  (Seedance 2.0 · 12s · 9:16 · 1080p). Presets = director instruction
+  templates (fixed choreography skeleton + product description/world filled
+  from the attached image). Home cards stay display-only (PR #349) meanwhile.
+
+- **Declined (2026-07-12):** Luma **Reframe** (video + Photon image outpaint-to-new-ratio,
+  on fal) — offered, owner said no. Don't re-pitch unless they bring it up.
+  Runway integration also discussed: not on fal (needs its own API pipeline) — neither
+  added nor declined, just informed.
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
@@ -134,6 +151,15 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   couple px → browser painted a tiny default (white) vertical scrollbar.
 - **Fix:** `overflow-y: hidden` + hidden scrollbars on `.sec-tabs` (same idiom
   as `.studio-thread`); tabs still scroll by wheel/touch if they overflow. (PR #___)
+
+### Home page got a chatbox (owner request, 2026-07-12)
+- **Status:** ✅ done
+- **Where:** `public/chat.js` `renderLanding()`; `public/styles.css` `.lp-compose`
+- **What:** A composer sits under the Home greeting (same panel style as the
+  Builder's). Typing + Enter/send starts a FRESH chat, switches to the Builder,
+  and fires the message through the normal send path (orchestrator included) —
+  the user lands mid-conversation, not on a prefilled input. Hint line says
+  "Starts a fresh chat in the Builder." Preset cards below stay display-only.
 
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)

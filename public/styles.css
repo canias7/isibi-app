@@ -228,7 +228,7 @@
       box-shadow: 0 20px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.10);
       backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%);
     }
-    .composer #input {
+    .composer #input, .composer #lpInput {
       flex: 1; background: none; border: none; outline: none;
       color: var(--text); font-size: .95rem; font-family: inherit; min-width: 0;
       padding: .45rem 0 1.2rem;
@@ -242,7 +242,12 @@
        above that). Four wide controls won't fit 780px, so let them wrap and
        keep the send button pinned to the right of whatever line it lands on. */
     .composer-row .send { margin-left: auto; }
-    .composer #input::placeholder { color: #5c5c66; }
+    .composer #input::placeholder, .composer #lpInput::placeholder { color: #5c5c66; }
+    /* Home-page chatbox: the Builder composer's look, sitting under the greeting.
+       Sending starts a fresh chat in the Builder with the message already sent. */
+    .lp-compose { margin: 0 auto 2.6rem; width: 100%; }
+    .lp-compose .composer { gap: .6rem; }
+    .lp-compose-hint { color: var(--muted); font-size: .8rem; }
     .send {
       flex-shrink: 0; background: var(--split); color: #0a0a0b;
       border: none; border-radius: 50%; width: 48px; height: 48px;
