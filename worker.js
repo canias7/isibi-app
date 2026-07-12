@@ -78,7 +78,8 @@ const CREDIT_USD = 0.008;
 const VIDEO_USD = {
   "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
   "fal-ai/sora-2/text-to-video/pro":              { s: { "720p": 0.30, "1080p": 0.50 }, d: 10 },
-  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, d: 5 },
+  // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
+  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, d: 5 },
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
   "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
   "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
@@ -117,7 +118,7 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -131,12 +132,13 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
     else {
       // Unknown quality never undercharges: fall back to def, else the highest
       // listed tier (not 720p, which could be cheaper than what fal renders).
-      const tiers = Object.values(p.s).filter((n) => typeof n === "number");
+      const tbl = v2v && p.v2s ? p.v2s : p.s; // clip re-render bills its own rates
+      const tiers = Object.values(tbl).filter((n) => typeof n === "number");
       const maxTier = tiers.length ? Math.max(...tiers) : 0.4;
-      const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : maxTier;
+      const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : maxTier;
       usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
-    if (hdr) usd *= 2; // Ray HDR render — fal bills double
+    if (hdr) usd *= exr ? 3 : 2; // Ray HDR render bills 2×; the EXR sidecar 3×
   }
   return Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
@@ -1651,10 +1653,15 @@ async function handleRequest(request, env, ctx) {
           ? body.quality
           : null;
 
-      // Ray (Luma) HDR render: 2× fal price. Only valid at 720p/1080p and 5s —
-      // anything else is ignored (never sent to fal, never charged).
+      // Ray (Luma) HDR render: 2× fal price (EXR sidecar on top: 3×). Only valid
+      // at 720p/1080p and 5s — anything else is ignored (never sent, never charged).
       const wantHdr = body.hdr === true && model.startsWith("luma/") &&
         (quality === "720p" || quality === "1080p") && (duration == null || duration === 5);
+      const wantExr = wantHdr && body.exr === true;
+      // Ray seamless loop: free; 5s standard-dynamic-range only (no HDR), and
+      // fal rejects it alongside an end frame — checked again at input build.
+      const wantLoop = body.loop === true && model.startsWith("luma/") && !wantHdr &&
+        (duration == null || duration === 5);
 
       // Image mode: how many variations to generate (per-image billing, so
       // only forwarded when explicitly above 1; the UI defaults to 1).
@@ -1728,6 +1735,25 @@ async function handleRequest(request, env, ctx) {
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
+        } else if (isRay && clip) {
+          // Video-to-video: re-render the attached clip. auto_controls lets the
+          // model derive conditioning from the source unless the user picked an
+          // edit-strength dial (adhere/flex/reimagine — sent at mid intensity).
+          // Keyframes may ride along (mutually exclusive with start_image_url).
+          endpoint = model.replace("/text-to-video", "/video-to-video");
+          input.video_url = clip;
+          const em = typeof body.editMode === "string" ? body.editMode : "";
+          if (/^(adhere|flex|reimagine)$/.test(em)) input.edit_strength = em + "_2";
+          else input.auto_controls = true;
+          if (kfs.length) {
+            input.keyframes = kfs;
+            const maxIdx = duration === 10 ? 240 : 120;
+            input.keyframe_indexes = kfs.length === 1
+              ? [0]
+              : kfs.map((_, i) => Math.round((i * maxIdx) / (kfs.length - 1)));
+          } else if (image) {
+            input.start_image_url = image;
+          }
         } else if (isRay && kfs.length) {
           // Timeline keyframes ride the i2v endpoint. Indexes are 24fps frame
           // positions (0–120 for 5s, 0–240 for 10s); with no timeline UI yet,
@@ -1794,13 +1820,18 @@ async function handleRequest(request, env, ctx) {
           else input.duration = duration;
         }
 
-        // Kling image-to-video is the only video endpoint without aspect_ratio.
+        // Kling image-to-video has no aspect_ratio; Ray video-to-video inherits
+        // the source clip's framing, so it has none either.
         const isKlingI2V = isKling && endpoint.includes("/image-to-video");
-        if (ratio && !isKlingI2V) input.aspect_ratio = ratio;
+        const isRayV2V = isRay && endpoint.includes("/video-to-video");
+        if (ratio && !isKlingI2V && !isRayV2V) input.aspect_ratio = ratio;
 
         // Video endpoints that accept a resolution.
         if (quality && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
         if (wantHdr) input.hdr = true;
+        if (wantExr) input.exr_export = true;
+        // Loop: t2v/i2v only, and never alongside an end frame (fal rejects it).
+        if (wantLoop && !isRayV2V && !input.end_image_url && !input.keyframes) input.loop = true;
       } else if ((image || avatar) && IMAGE_EDIT[model]) {
         // Image editing: route to the model's edit / image-to-image endpoint.
         // Size comes from the source image, so no aspect_ratio here.
@@ -1872,6 +1903,8 @@ async function handleRequest(request, env, ctx) {
         director: body.director === "off" ? "off" : "on",
         audioSeconds,
         hdr: wantHdr,
+        exr: wantExr,
+        v2v: !!(model.startsWith("luma/") && clip),
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never

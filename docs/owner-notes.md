@@ -51,6 +51,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   turning HDR on bumps 540p→720p and 10s→5s; picking 540p/10s turns HDR off.
   Price quote doubles live; worker validates independently (`wantHdr` — wrong
   combos are neither sent to fal nor charged) and `creditCost` bills 2×.
+- **Loop / EXR / video-to-video added (owner: "add all of those", 2026-07-12):**
+  (1) **Seamless loop** — free Off/On in Settings; 5s SDR only, exclusive with
+  HDR, dropped server-side alongside end frames/keyframes. (2) **EXR** — the
+  HDR section is now Off / On·2× / On+EXR·3×; sidecar link is delivered as a
+  chat message after the render (fal links expire in days). (3) **Video-to-video**
+  — attaching a Video clip on Ray routes to `/video-to-video` (re-render the
+  clip); "Clip edit mode" section: Auto (auto_controls) or adhere/flex/reimagine
+  (sent at mid intensity `_2`); keyframes may combine; no aspect_ratio (source
+  framing wins); billed at its own higher rates (`v2s`: 540p $0.144 · 720p
+  $0.216 · 1080p $0.432 per sec) in both quote and charge. Granular v2v
+  `controls` (pose/depth/face/trajectory) exist on fal but are folded into
+  Auto for v1.
 - **Keyframes added (owner request, full 64):** new "Keyframes" attach row,
   Ray-only (`caps.kf: 64`) — up to 64 images, numbered tiles in a 2-up grid,
   attach order = playback order, mutually exclusive with the other image inputs.
