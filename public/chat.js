@@ -63,10 +63,12 @@ const MODEL_OPTS = {
   },
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
+  // hdr: optional native-HDR render at 2× price (720p/1080p, 5s only).
   'luma/agent/ray/v3.2/text-to-video': {
     durations: [5, 10], defDur: 5,
     ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], defRatio: '16:9',
     resolutions: ['540p', '720p', '1080p'], defRes: '720p',
+    hdr: true,
     caps: { image: true, flf: true },
   },
   'fal-ai/kling-video/o3/pro/text-to-video': {
@@ -1171,6 +1173,9 @@ function playPreview(url, btn) {
   previewAudio.play().catch(() => { btn.classList.remove('playing'); btn.textContent = '▶'; });
 }
 
+// HDR render toggle (models with opts.hdr — Ray 3.2). 2× price; 720p/1080p 5s only.
+let hdrOn = false;
+
 // One "Settings" panel groups every option (aspect ratio / resolution /
 // duration / images / voice) into sections, filtered to what the current model
 // supports. Values reset to this model's defaults on each rebuild.
@@ -1186,11 +1191,13 @@ function buildOptMenus() {
   if (opts.ratios) ratio = opts.defRatio;
   if (opts.nums) numImages = 1;
   if (opts.voices) voice = opts.defVoice;
+  hdrOn = false;
 
   const sections = [];
   if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
   if (opts.resolutions) sections.push(settingSection('Resolution', 'quality', opts.resolutions.map((q) => ({ value: q, label: q }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
+  if (opts.hdr) sections.push(settingSection('HDR · 2× price', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
   if (opts.nums) sections.push(settingSection('Images', 'num', opts.nums.map((n) => ({ value: n, label: n === 1 ? '1 image' : n + ' images' }))));
   if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: v })), true));
 
@@ -1226,7 +1233,7 @@ function buildOptMenus() {
 // A settings section: a label + selectable chips. Long lists (>6) collapse
 // behind a "View all" toggle.
 function settingSection(label, kind, items, isVoice) {
-  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice }[kind];
+  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: hdrOn ? 'on' : 'off' }[kind];
   const collapsible = items.length > 6;
   const chips = items.map((it) => {
     const active = String(it.value) === String(cur) ? ' active' : '';
@@ -1251,7 +1258,17 @@ function pickSetting(chip) {
   else if (kind === 'duration') duration = Number(val);
   else if (kind === 'num') numImages = Number(val);
   else if (kind === 'voice') voice = val;
-  chip.parentElement.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', c === chip));
+  else if (kind === 'hdr') hdrOn = val === 'on';
+  // HDR runs 720p/1080p at 5s only — turning it on corrects incompatible picks,
+  // and picking an incompatible value turns it off. Chips re-sync globally so
+  // a correction in one section repaints the other.
+  if (hdrOn) {
+    if (kind === 'hdr') { if (quality === '540p') quality = '720p'; if (duration === 10) duration = 5; }
+    else if (quality === '540p' || duration === 10) hdrOn = false;
+  }
+  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: hdrOn ? 'on' : 'off' };
+  const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
+  if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
   updateSendPrice();
 }
@@ -1265,6 +1282,7 @@ function updateSettingsSummary() {
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
   if (opts.durations) parts.push(duration + 's');
+  if (opts.hdr && hdrOn) parts.push('HDR');
   if (opts.nums && numImages > 1) parts.push('×' + numImages);
   if (opts.voices) parts.push(voice);
   el.textContent = parts.length ? parts.join(' · ') : 'Settings';
@@ -2325,7 +2343,10 @@ function estimatePrice(textForAudio) {
   }
   if (p.flat != null) return fmtPrice(p.flat);
   const rate = p.s[quality] != null ? p.s[quality] : p.s.def != null ? p.s.def : p.s['720p'];
-  return rate == null ? '' : fmtPrice(rate * (duration || 5));
+  if (rate == null) return '';
+  // HDR render (Ray) doubles fal's price.
+  const hdrX = hdrOn && (currentOpts() || {}).hdr ? 2 : 1;
+  return fmtPrice(rate * (duration || 5) * hdrX);
 }
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
@@ -2863,6 +2884,7 @@ async function generateMedia(text, opts = {}) {
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
+        hdr: kind === 'video' && hdrOn && currentOpts().hdr ? true : undefined,
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
