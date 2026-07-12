@@ -196,6 +196,19 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   normal unburned save on ANY failure (free tier/no storage → temp link, no
   QR — burned copies can't persist without gallery storage). Untested against
   a real render (fal balance) — verify in the sweep.
+- **Conversational QR control (owner request, 2026-07-12):** the user can now
+  direct the QR in plain chat — "put a qr code from second 3 to 4", "add a QR to
+  <url> for the last 3 seconds", "qr at the end", "no qr". `parseQrDirective()`
+  (client-side) extracts want/remove, URL (falls back to `chat.productUrl`), and
+  a timing window (from-to / last-N / first-N / at-the-end / at-the-start / at-
+  second-N, resolved against the clip `duration`), and returns a CLEANED message
+  (QR clause + URL stripped) so "qr code" never enters the generation prompt.
+  `send()` stashes it on `chat.qr`; the burn step honors it (timed window via
+  ffmpeg `enable=between(t,a,b)` in `sbFFQr`), product-URL auto-burn is the
+  fallback, `off` suppresses. Model-agnostic (post-process on whatever mp4 fal
+  returns — Seedance/Veo/Ray all identical). Want-but-no-URL → asks for the link.
+  Parser unit-tested; timed burn verified in ffmpeg only by construction (live
+  render pending fal balance).
 - **⚠ Model picks are PROVISIONAL:** owner said (2026-07-12) they will dictate
   the right model per preset later — treat the current assignments as
   placeholders and expect a revision pass when the owner provides their list.
