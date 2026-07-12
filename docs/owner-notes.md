@@ -38,6 +38,26 @@ and fixed, and add a preference line whenever the owner signals one.
   Runway integration also discussed: not on fal (needs its own API pipeline) — neither
   added nor declined, just informed.
 
+## Direction (2026-07-12): AI-native, Studio retired
+
+- **Vision:** the whole platform is "talk to isibi, it makes/edits." Everything
+  is chatbox-driven. Studio (the traditional iMovie editor) was the odd one out.
+- **Studio DROPPED (owner: "drop the studio and the video editor thing", chose
+  "pure AI, drop it all"):** removed the Studio view, sidebar nav, Studio-only
+  topbar/dropdown, all `sb-*`/`studio-*` handlers, and deleted `public/studio.js`
+  (~3.4k lines: shot planning, timeline, manual tools, film stitching, free
+  on-device trims). **KEPT `public/ffmpeg-edit.js`** — the QR burn depends on it
+  (its `sbFF*` helpers). Dead studio CSS in styles.css left in place (harmless;
+  sweep later if desired).
+- **Next: wire AI video EDITING into the Builder.** Definition matters (owner's
+  correction): editing = VIDEO in → video out. reference-to-video = generation.
+  Real editors in the roster: **Ray 3.2** (restyle, video-to-video — ALREADY
+  works when you attach a clip) + **Kling LipSync** (ALREADY works). Add
+  candidates (video-in edit endpoints, verify on fal first): **Gemini Omni
+  Flash edit** (conversational swap/relight/stabilize/bg), **Kling o3 edit**,
+  **Veo extend**. Not-in-roster editors worth knowing: Happy Horse 1.0, Kling
+  o1, VOID (object removal).
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
