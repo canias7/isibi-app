@@ -135,6 +135,15 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** `overflow-y: hidden` + hidden scrollbars on `.sec-tabs` (same idiom
   as `.studio-thread`); tabs still scroll by wheel/touch if they overflow. (PR #___)
 
+### Home page got a chatbox (owner request, 2026-07-12)
+- **Status:** ✅ done
+- **Where:** `public/chat.js` `renderLanding()`; `public/styles.css` `.lp-compose`
+- **What:** A composer sits under the Home greeting (same panel style as the
+  Builder's). Typing + Enter/send starts a FRESH chat, switches to the Builder,
+  and fires the message through the normal send path (orchestrator included) —
+  the user lands mid-conversation, not on a prefilled input. Hint line says
+  "Starts a fresh chat in the Builder." Preset cards below stay display-only.
+
 ### Home-page preset cards must not hand off to the Builder (interim)
 - **Status:** ✅ done (interim behavior)
 - **Reported:** 2026-07-11
