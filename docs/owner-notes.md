@@ -209,6 +209,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   returns — Seedance/Veo/Ray all identical). Want-but-no-URL → asks for the link.
   Parser unit-tested; timed burn verified in ffmpeg only by construction (live
   render pending fal balance).
+- **QR position by voice (owner request, 2026-07-12):** the user can also say
+  where — "qr top-left", "bottom-left corner", "center". `parseQrDirective`
+  returns `pos` (tl/tr/bl/br/c); `sbFFQr` maps it to the overlay x:y (default
+  bottom-right). `send()` MERGES a new directive onto the prior `chat.qr` so a
+  follow-up tweak ("move it top-left") keeps the earlier url/timing. Matters for
+  social: bottom-right collides with Reels/TikTok action buttons, so bottom-left
+  or top is the clean spot on 9:16.
+- **QR is BURNED CLIENT-SIDE, not by the model or server:** the generation model
+  (Seedance/Veo/Ray) never sees "QR" — the instruction is stripped from the
+  prompt. The Worker only proxies fal + saves. The QR is stamped in the user's
+  BROWSER via on-device ffmpeg (ffmpeg.wasm) after the video returns, then the
+  burned copy is uploaded to save. Fully model-agnostic.
 - **⚠ Model picks are PROVISIONAL:** owner said (2026-07-12) they will dictate
   the right model per preset later — treat the current assignments as
   placeholders and expect a revision pass when the owner provides their list.
