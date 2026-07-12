@@ -184,6 +184,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   image auto-attaches as the start image, its name/price/desc feed the
   director, and the ad preset runs 9:16. Chip shows "Reading the page…"
   during the scan; bad links keep the text and explain in the placeholder.
+- **QR burned into product-URL videos (owner request, 2026-07-12):** videos
+  generated in a "From product URL" chat get a scannable QR (→ the product
+  page) burned into the bottom-right corner BEFORE saving — real pixels, so
+  downloads/re-shares carry the link forever. Pipeline: vendored MIT
+  `qrcode-generator` (`public/vendor/qrcode.js`, CSP-safe) → `qrPngFor()`
+  canvas PNG → `sbFFQr()` in ffmpeg-edit.js (on-device ffmpeg overlay via
+  scale2ref at ~22% of video height, same encode args as the caption burner) →
+  base64 `/api/save` (Studio-film path, 29 MB cap). `chat.productUrl` marks
+  the chat at send; the burn hooks the delivery loop and falls back to the
+  normal unburned save on ANY failure (free tier/no storage → temp link, no
+  QR — burned copies can't persist without gallery storage). Untested against
+  a real render (fal balance) — verify in the sweep.
 - **⚠ Model picks are PROVISIONAL:** owner said (2026-07-12) they will dictate
   the right model per preset later — treat the current assignments as
   placeholders and expect a revision pass when the owner provides their list.
