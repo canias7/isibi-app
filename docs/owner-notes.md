@@ -67,15 +67,25 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
-- **Public marketing landing (2026-07-12):** logged-out visitors now see a
-  marketing page BEFORE the auth gate (owner picked option 1). In-page
-  `#marketing` section (no new URLs / Worker routing / Supabase redirect
-  changes). Hero: "Generate the impossible" + a static replica of the Home
-  screen ("the home page right there" — owner's words) + CTAs. Then features
-  grid, Plus/Pro/Max pricing, final CTA, footer. Boot: signed-in → `enterApp`;
-  logged-out → `showMarketing()`; CTAs (`data-mkt`) → `openAuthFrom()` opens the
-  gate; gate "← Back" (`#authHome`) → back to landing. v1 built + pushed to the
-  branch; **held from main pending the owner's design review.**
+- **Public marketing landing (2026-07-12, redesigned 2026-07-13):** logged-out
+  visitors see a marketing page BEFORE the auth gate (owner picked option 1).
+  In-page `#marketing` section (no new URLs / Worker routing / Supabase redirect
+  changes). Boot: signed-in → `enterApp`; logged-out → `showMarketing()`; CTAs
+  (`data-mkt`) → `openAuthFrom()` opens the gate; gate "← Back" (`#authHome`) →
+  back to landing. **Design = Morphic style** (owner: "i kinda want it like that
+  one" → https://godly.design/site/morphic/): dark cinematic, compact
+  left-aligned hero ("Generate the impossible."), filmstrip of output under the
+  hero, two-tone section headings (bold white line + muted grey line), model
+  ticker, Home-screen replica + 3 captions, preset card rail, six "acts"
+  feature grid, Plus/Pro/Max pricing, giant "Your premiere starts tonight."
+  close, ghost "isibi" wordmark in the footer — all in isibi's pink→amber.
+  **Media slots (owner will supply the images/videos):** drop files at
+  `public/mkt/f1.jpg` … `f14.jpg` (filmstrip: row 1 = f1–f7, row 2 = f8–f14,
+  16:9, ~600px wide is plenty) and `public/mkt/p1.jpg` … `p8.jpg` (preset
+  cards, 16:10). Styled placeholder gradients show until a file lands — no
+  code change needed to swap them in. Videos: say the word and specific
+  filmstrip cells get wired to `<video>` (files as `/mkt/f{n}.mp4`).
+  **Held from main pending the owner's design review.**
 
 ## Bug log
 

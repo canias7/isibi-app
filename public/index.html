@@ -27,77 +27,291 @@
 <body data-agent="isibi.ai">
 
   <!-- Public marketing landing — the first thing a logged-out visitor sees.
-       CTAs reveal the auth gate; after sign-in the app takes over. -->
+       CTAs reveal the auth gate; after sign-in the app takes over.
+       Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
+       and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
   <div id="marketing" class="mkt" style="display:none">
     <header class="mkt-nav">
       <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
       <nav class="mkt-links">
+        <a href="#mkt-studio">The app</a>
+        <a href="#mkt-presets">Presets</a>
         <a href="#mkt-features">Features</a>
         <a href="#mkt-pricing">Pricing</a>
         <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
-        <button class="mkt-cta" data-mkt="start" type="button">Get started</button>
+        <button class="mkt-cta" data-mkt="start" type="button">Start creating</button>
       </nav>
     </header>
 
     <section class="mkt-hero">
-      <span class="mkt-badge">✦ AI video · images · voice — one chatbox</span>
-      <h1 class="mkt-h1">Generate the <span class="mkt-grad">impossible</span>.</h1>
-      <p class="mkt-sub">Describe it in plain words. isibi turns it into a scroll-stopping video, a crisp image, or a natural voiceover — powered by the world's best AI models, no skills needed.</p>
-      <div class="mkt-cta-row">
-        <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start creating — it's free</button>
-        <button class="mkt-ghost" data-mkt="signin" type="button">I have an account</button>
+      <div class="mkt-hero-grid">
+        <div class="mkt-hero-main">
+          <div class="mkt-badge"><b>✦</b> AI video · images · voice — one chatbox</div>
+          <h1 class="mkt-h1">Generate the<br /><span class="mkt-grad">impossible</span>.</h1>
+        </div>
+        <div class="mkt-hero-side">
+          <p class="mkt-sub">Say what you want to see. isibi picks the right frontier model, writes the pro-grade prompt, and hands you the finished video, image, or voiceover — no timeline, no jargon, no crew.</p>
+          <div class="mkt-cta-row">
+            <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start for free</button>
+            <button class="mkt-ghost mkt-big" data-mkt="signin" type="button">I have an account</button>
+          </div>
+          <p class="mkt-free-note"><b>20 free credits</b> on signup · no card required</p>
+        </div>
       </div>
+    </section>
 
-      <!-- The home page, right there -->
-      <div class="mkt-showcase" data-mkt="start" role="button" tabindex="0" aria-label="Open isibi">
-        <div class="mkt-frame">
-          <div class="mkt-frame-bar"><span></span><span></span><span></span><b>isibi.ai</b></div>
-          <div class="mkt-app">
-            <div class="mkt-app-greet">Good morning, <span class="mkt-grad">you</span></div>
-            <div class="mkt-app-sub">Pick a starting point and make it yours.</div>
-            <div class="mkt-app-tabs"><b>Marketing</b><span>Cinematic</span><span>Product</span><span>Social</span><span>Portrait</span><span>Anime</span></div>
-            <div class="mkt-app-grid">
-              <div class="mkt-card"><div class="mkt-thumb t0"></div><div class="mkt-card-t">Product hero ad</div><div class="mkt-card-s">Slick 360° commercial.</div></div>
-              <div class="mkt-card"><div class="mkt-thumb t1"></div><div class="mkt-card-t">UGC testimonial</div><div class="mkt-card-s">Authentic selfie-style hype.</div></div>
-              <div class="mkt-card"><div class="mkt-thumb t2"></div><div class="mkt-card-t">From product URL</div><div class="mkt-card-s">Paste a link — we do the rest.</div></div>
+    <!-- Filmstrip — two drifting rows of real output. Files: /mkt/f1.jpg … f14.jpg -->
+    <section class="mkt-strip" aria-label="Made with isibi">
+      <div class="mkt-strip-head"><span class="mkt-strip-lbl">✦ Made with isibi</span><span class="mkt-strip-note">straight from the chatbox</span></div>
+      <div class="mkt-strip-row">
+        <div class="mkt-strip-track" aria-hidden="true">
+          <div class="mkt-cell mkt-c1"><span class="mkt-cell-img" style="background-image:url('/mkt/f1.jpg')"></span></div>
+          <div class="mkt-cell mkt-c2"><span class="mkt-cell-img" style="background-image:url('/mkt/f2.jpg')"></span></div>
+          <div class="mkt-cell mkt-c3"><span class="mkt-cell-img" style="background-image:url('/mkt/f3.jpg')"></span></div>
+          <div class="mkt-cell mkt-c4"><span class="mkt-cell-img" style="background-image:url('/mkt/f4.jpg')"></span></div>
+          <div class="mkt-cell mkt-c5"><span class="mkt-cell-img" style="background-image:url('/mkt/f5.jpg')"></span></div>
+          <div class="mkt-cell mkt-c6"><span class="mkt-cell-img" style="background-image:url('/mkt/f6.jpg')"></span></div>
+          <div class="mkt-cell mkt-c7"><span class="mkt-cell-img" style="background-image:url('/mkt/f7.jpg')"></span></div>
+          <div class="mkt-cell mkt-c1"><span class="mkt-cell-img" style="background-image:url('/mkt/f1.jpg')"></span></div>
+          <div class="mkt-cell mkt-c2"><span class="mkt-cell-img" style="background-image:url('/mkt/f2.jpg')"></span></div>
+          <div class="mkt-cell mkt-c3"><span class="mkt-cell-img" style="background-image:url('/mkt/f3.jpg')"></span></div>
+          <div class="mkt-cell mkt-c4"><span class="mkt-cell-img" style="background-image:url('/mkt/f4.jpg')"></span></div>
+          <div class="mkt-cell mkt-c5"><span class="mkt-cell-img" style="background-image:url('/mkt/f5.jpg')"></span></div>
+          <div class="mkt-cell mkt-c6"><span class="mkt-cell-img" style="background-image:url('/mkt/f6.jpg')"></span></div>
+          <div class="mkt-cell mkt-c7"><span class="mkt-cell-img" style="background-image:url('/mkt/f7.jpg')"></span></div>
+        </div>
+      </div>
+      <div class="mkt-strip-row mkt-rev">
+        <div class="mkt-strip-track" aria-hidden="true">
+          <div class="mkt-cell mkt-c8"><span class="mkt-cell-img" style="background-image:url('/mkt/f8.jpg')"></span></div>
+          <div class="mkt-cell mkt-c9"><span class="mkt-cell-img" style="background-image:url('/mkt/f9.jpg')"></span></div>
+          <div class="mkt-cell mkt-c10"><span class="mkt-cell-img" style="background-image:url('/mkt/f10.jpg')"></span></div>
+          <div class="mkt-cell mkt-c11"><span class="mkt-cell-img" style="background-image:url('/mkt/f11.jpg')"></span></div>
+          <div class="mkt-cell mkt-c12"><span class="mkt-cell-img" style="background-image:url('/mkt/f12.jpg')"></span></div>
+          <div class="mkt-cell mkt-c13"><span class="mkt-cell-img" style="background-image:url('/mkt/f13.jpg')"></span></div>
+          <div class="mkt-cell mkt-c14"><span class="mkt-cell-img" style="background-image:url('/mkt/f14.jpg')"></span></div>
+          <div class="mkt-cell mkt-c8"><span class="mkt-cell-img" style="background-image:url('/mkt/f8.jpg')"></span></div>
+          <div class="mkt-cell mkt-c9"><span class="mkt-cell-img" style="background-image:url('/mkt/f9.jpg')"></span></div>
+          <div class="mkt-cell mkt-c10"><span class="mkt-cell-img" style="background-image:url('/mkt/f10.jpg')"></span></div>
+          <div class="mkt-cell mkt-c11"><span class="mkt-cell-img" style="background-image:url('/mkt/f11.jpg')"></span></div>
+          <div class="mkt-cell mkt-c12"><span class="mkt-cell-img" style="background-image:url('/mkt/f12.jpg')"></span></div>
+          <div class="mkt-cell mkt-c13"><span class="mkt-cell-img" style="background-image:url('/mkt/f13.jpg')"></span></div>
+          <div class="mkt-cell mkt-c14"><span class="mkt-cell-img" style="background-image:url('/mkt/f14.jpg')"></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- model marquee -->
+    <div class="mkt-marquee-wrap">
+      <p class="mkt-marquee-lbl">14 frontier models · one place · picked for you</p>
+      <div class="mkt-marquee" aria-label="Veo 3.1, Sora 2, Ray 3.2, Seedance 2.0, Kling, Hailuo 2.3, Flux 2 Pro, Seedream 4, GPT-Image 2, Recraft V3, Krea 2, ElevenLabs">
+        <div class="mkt-marquee-track" aria-hidden="true">
+          <span>Veo 3.1</span><i>✦</i><span>Sora 2</span><i>✦</i><span>Ray 3.2</span><i>✦</i><span>Seedance 2.0</span><i>✦</i><span>Kling</span><i>✦</i><span>Hailuo 2.3</span><i>✦</i><span>Flux 2 Pro</span><i>✦</i><span>Seedream 4</span><i>✦</i><span>GPT-Image 2</span><i>✦</i><span>Recraft V3</span><i>✦</i><span>Krea 2</span><i>✦</i><span>ElevenLabs</span><i>✦</i>
+          <span>Veo 3.1</span><i>✦</i><span>Sora 2</span><i>✦</i><span>Ray 3.2</span><i>✦</i><span>Seedance 2.0</span><i>✦</i><span>Kling</span><i>✦</i><span>Hailuo 2.3</span><i>✦</i><span>Flux 2 Pro</span><i>✦</i><span>Seedream 4</span><i>✦</i><span>GPT-Image 2</span><i>✦</i><span>Recraft V3</span><i>✦</i><span>Krea 2</span><i>✦</i><span>ElevenLabs</span><i>✦</i>
+        </div>
+      </div>
+    </div>
+
+    <!-- The app — home replica -->
+    <section class="mkt-studio" id="mkt-studio">
+      <div class="mkt-sec-head">
+        <h2 class="mkt-h2"><b>One chatbox.</b> <span>The whole studio.</span></h2>
+        <p class="mkt-h2-sub">You talk — isibi directs, shoots, edits, and publishes. This is the whole app:</p>
+      </div>
+      <div class="mkt-stage">
+        <div class="mkt-screen" data-mkt="start" role="button" tabindex="0" aria-label="Open isibi and start creating">
+          <div class="mkt-chrome">
+            <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
+            <span class="mkt-url">isibi.ai</span><i></i>
+          </div>
+          <div class="mkt-appwrap">
+            <aside class="mkt-side" aria-hidden="true">
+              <div class="mkt-side-logo"><img class="logo-mark" src="/logo.png" alt="" /><span>isibi</span></div>
+              <div class="mkt-side-lbl">Workspace</div>
+              <div class="mkt-side-item mkt-on"><i></i>Home</div>
+              <div class="mkt-side-item"><i></i>Builder</div>
+              <div class="mkt-side-item"><i></i>Gallery</div>
+              <div class="mkt-side-item"><i></i>Products</div>
+              <div class="mkt-side-item"><i></i>Avatar</div>
+              <div class="mkt-side-item"><i></i>Media Agent</div>
+              <div class="mkt-side-lbl">Chats</div>
+              <div class="mkt-side-new">+ New chat</div>
+              <div class="mkt-side-chat">Launch teaser, v2</div>
+              <div class="mkt-side-chat">Espresso ad — QR at 0:03</div>
+            </aside>
+            <div class="mkt-home" aria-hidden="true">
+              <div class="mkt-greet">Good morning, <em>you</em></div>
+              <div class="mkt-greet-sub">Pick a starting point and make it yours.</div>
+              <div class="mkt-tabs"><b>Marketing</b><span>Cinematic</span><span>Product</span><span>Social</span><span>Portrait</span><span>Anime</span></div>
+              <div class="mkt-cards">
+                <div class="mkt-card"><div class="mkt-thumb mkt-t0"><span class="mkt-play"></span></div><div class="mkt-card-t">Product hero ad</div><div class="mkt-card-s">Slick 360° commercial.</div></div>
+                <div class="mkt-card"><div class="mkt-thumb mkt-t1"><span class="mkt-play"></span></div><div class="mkt-card-t">UGC testimonial</div><div class="mkt-card-s">Authentic selfie-style hype.</div></div>
+                <div class="mkt-card"><div class="mkt-thumb mkt-t2"><span class="mkt-urlpill">https://yourstore.com/product…</span></div><div class="mkt-card-t">From product URL</div><div class="mkt-card-s">Paste a link — isibi does the rest.</div></div>
+              </div>
+              <div class="mkt-chatbox">
+                <span class="mkt-chip">Product hero ad <i>✕</i></span>
+                <span class="mkt-ph">Your idea — the preset shapes it…</span>
+                <span class="mkt-caret"></span>
+                <span class="mkt-send">↑</span>
+              </div>
             </div>
-            <div class="mkt-app-box"><span class="mkt-app-chip">Product hero ad ✕</span><span class="mkt-app-ph">Your idea — the preset shapes it…</span><span class="mkt-app-send">↑</span></div>
           </div>
         </div>
-        <div class="mkt-showcase-hint">↑ this is your home screen — click to jump in</div>
+        <p class="mkt-stage-hint">↑ <b>This is the whole app.</b> One chatbox — click it to jump in.</p>
+      </div>
+      <div class="mkt-trio">
+        <div class="mkt-trio-item"><b>Anything from a prompt.</b> Video, image, or voice — the director casts the right model for every shot.</div>
+        <div class="mkt-trio-item"><b>Paste a link, get the ad.</b> isibi reads your product page and builds the commercial around your actual product.</div>
+        <div class="mkt-trio-item"><b>Edit by talking.</b> Attach a clip and say the change — "make it golden hour" — done.</div>
+      </div>
+    </section>
+
+    <!-- Presets carousel. Files: /mkt/p1.jpg … p8.jpg -->
+    <section class="mkt-presets" id="mkt-presets">
+      <div class="mkt-sec-head">
+        <h2 class="mkt-h2"><b>Presets.</b> <span>Built for speed.</span></h2>
+        <p class="mkt-h2-sub">Start from a proven recipe — every card carries a full model rig behind it.</p>
+      </div>
+      <div class="mkt-rail" tabindex="0" aria-label="Preset gallery — scroll for more">
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g1"><span class="mkt-cell-img" style="background-image:url('/mkt/p1.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Marketing</span><div class="mkt-pname">Product hero ad</div><div class="mkt-pdesc">Slick 360° studio commercial.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g2"><span class="mkt-cell-img" style="background-image:url('/mkt/p2.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Marketing</span><div class="mkt-pname">From product URL</div><div class="mkt-pdesc">Paste a link — isibi builds the ad.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g3"><span class="mkt-cell-img" style="background-image:url('/mkt/p3.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Social</span><div class="mkt-pname">UGC testimonial</div><div class="mkt-pdesc">Authentic selfie-style hype.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g4"><span class="mkt-cell-img" style="background-image:url('/mkt/p4.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Product</span><div class="mkt-pname">Exploded view</div><div class="mkt-pdesc">Your product, blown apart beautifully.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g5"><span class="mkt-cell-img" style="background-image:url('/mkt/p5.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Cinematic</span><div class="mkt-pname">Cinematic teaser</div><div class="mkt-pdesc">Trailer-grade drama in seconds.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g6"><span class="mkt-cell-img" style="background-image:url('/mkt/p6.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Anime</span><div class="mkt-pname">Anime opening</div><div class="mkt-pdesc">Full opening-credits energy.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g7"><span class="mkt-cell-img" style="background-image:url('/mkt/p7.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Portrait</span><div class="mkt-pname">Portrait in motion</div><div class="mkt-pdesc">Editorial faces, alive.</div></div></div>
+        <div class="mkt-pcard" data-mkt="start" role="button" tabindex="0"><div class="mkt-pthumb mkt-g8"><span class="mkt-cell-img" style="background-image:url('/mkt/p8.jpg')"></span></div><div class="mkt-pmeta"><span class="mkt-pkind">Marketing</span><div class="mkt-pname">Logo reveal</div><div class="mkt-pdesc">Your mark, unveiled in light.</div></div></div>
       </div>
     </section>
 
     <section class="mkt-features" id="mkt-features">
-      <h2 class="mkt-h2">Everything you need to make it move</h2>
+      <div class="mkt-sec-head">
+        <h2 class="mkt-h2"><b>Say it.</b> <span>It's made.</span></h2>
+        <p class="mkt-h2-sub">Everything below happens in plain words — you talk, isibi does the rest.</p>
+      </div>
+
       <div class="mkt-feat-grid">
-        <div class="mkt-feat"><div class="mkt-feat-ic">💬</div><h3>Just describe it</h3><p>Type what you want. isibi picks the right model, writes the prompt, and generates — video, image, or voice.</p></div>
-        <div class="mkt-feat"><div class="mkt-feat-ic">🔗</div><h3>Product link → ad</h3><p>Paste any store URL. isibi reads the product and builds an ad around it — no typing a description.</p></div>
-        <div class="mkt-feat"><div class="mkt-feat-ic">🎬</div><h3>Edit by talking</h3><p>Attach a clip and say the change — restyle it, extend it, swap the background. No timeline, no tools.</p></div>
-        <div class="mkt-feat"><div class="mkt-feat-ic">📱</div><h3>QR codes in your video</h3><p>Burn a scannable link to your product right into the ad — "put a QR from second 3 to 4." Done.</p></div>
-        <div class="mkt-feat"><div class="mkt-feat-ic">⚡</div><h3>14 top models</h3><p>Veo, Sora, Ray, Seedance, Kling and more — the best of every provider, in one place, picked for you.</p></div>
-        <div class="mkt-feat"><div class="mkt-feat-ic">📣</div><h3>Post it everywhere</h3><p>Publish straight to Instagram and YouTube, track your analytics, auto-reply to comments — all built in.</p></div>
+        <div class="mkt-feat mkt-wide">
+          <div class="mkt-feat-no">ACT 01</div>
+          <h3>Say it. It's made.</h3>
+          <p>Describe the shot like you'd tell a friend. isibi's director picks the best model for the job, writes the professional prompt, and generates — video, image, or voice.</p>
+          <div class="mkt-feat-art mkt-mini-chat">
+            <div class="mkt-mini-user">a chrome falcon landing on a rain-slicked neon rooftop, slow motion</div>
+            <div class="mkt-mini-bot"><span class="mkt-mini-tag mkt-hot">Veo 3.1</span><span class="mkt-mini-tag">16:9 · 8s</span><span class="mkt-mini-tag">cinematic grade</span><span class="mkt-mini-tag mkt-ok">✓ prompt written — rolling</span></div>
+          </div>
+        </div>
+
+        <div class="mkt-feat">
+          <div class="mkt-feat-no">ACT 02</div>
+          <h3>Paste a link. Get the ad.</h3>
+          <p>Drop any product URL. isibi reads the page — name, shots, price — and builds the commercial around your actual product.</p>
+          <div class="mkt-feat-art mkt-mini-url"><span class="mkt-u">https://yourstore.com/espresso-kit</span><span class="mkt-a">→</span><span class="mkt-r2">finished ad</span></div>
+        </div>
+
+        <div class="mkt-feat">
+          <div class="mkt-feat-no">ACT 03</div>
+          <h3>Edit video by talking.</h3>
+          <p>Attach a clip and say the change. No timeline, no keyframes — the edit model does it.</p>
+          <div class="mkt-feat-art">
+            <div class="mkt-mini-edit"><div class="mkt-mini-frame mkt-cold"></div><span class="mkt-mini-arrow">→</span><div class="mkt-mini-frame mkt-warm"></div></div>
+            <div class="mkt-mini-say">"<b>make it golden hour</b>" — done.</div>
+          </div>
+        </div>
+
+        <div class="mkt-feat">
+          <div class="mkt-feat-no">ACT 04</div>
+          <h3>QR codes, burned in.</h3>
+          <p>"Put a QR to my store from second 3 to 4." Scannable, on beat, in the final file — viewers point and buy.</p>
+          <div class="mkt-feat-art mkt-mini-qr">
+            <div class="mkt-qr"></div>
+            <div class="mkt-mini-tl"><div class="mkt-bar"><i></i></div><div class="mkt-ticks"><span>0s</span><b>3s — 4s</b><span>8s</span></div></div>
+          </div>
+        </div>
+
+        <div class="mkt-feat">
+          <div class="mkt-feat-no">ACT 05</div>
+          <h3>14 frontier models.</h3>
+          <p>The best of every lab, in one place — and you never have to choose. The director casts the right one per shot.</p>
+          <div class="mkt-feat-art mkt-mini-models"><span class="mkt-hot">Veo 3.1</span><span>Sora 2</span><span>Ray 3.2</span><span>Seedance 2.0</span><span>Kling</span><span>Flux 2 Pro</span><span>+ 8 more</span></div>
+        </div>
+
+        <div class="mkt-feat mkt-wide">
+          <div class="mkt-feat-no">ACT 06</div>
+          <h3>Publish. Track. Auto-engage.</h3>
+          <p>The built-in Media Agent posts straight to Instagram and YouTube, tracks your analytics, and answers comments in your voice — while you make the next one.</p>
+          <div class="mkt-feat-art mkt-mini-social">
+            <div class="mkt-mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="mkt-mini-reply"><b>Media Agent</b> · replied to 12 comments on your reel — "Link's in the bio ✦" · reach up 38% this week</div>
+          </div>
+        </div>
+
+        <div class="mkt-feat mkt-feat-cta">
+          <div class="mkt-feat-no">CREDITS ROLL</div>
+          <h3>All of it — one chatbox.</h3>
+          <button class="mkt-cta" data-mkt="start" type="button">Start free ↗</button>
+        </div>
       </div>
     </section>
 
     <section class="mkt-pricing" id="mkt-pricing">
-      <h2 class="mkt-h2">Plans for every scale</h2>
-      <p class="mkt-h2-sub">Start free. Upgrade when you're ready to ship at volume.</p>
+      <div class="mkt-sec-head mkt-center">
+        <h2 class="mkt-h2"><b>Simple plans.</b> <span>Serious output.</span></h2>
+        <p class="mkt-h2-sub">Every plan gets every model and every feature — pick the volume you ship at.</p>
+      </div>
+      <div class="mkt-free-badge">✦ Start free — 20 credits on signup, no card required</div>
+
       <div class="mkt-price-grid">
-        <div class="mkt-plan"><div class="mkt-plan-n">Plus</div><div class="mkt-plan-p">$24.99<small>/mo</small></div><div class="mkt-plan-d">Monthly credits · 10&nbsp;GB gallery</div><button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Plus</button></div>
-        <div class="mkt-plan mkt-plan-hot"><div class="mkt-plan-tag">Most popular</div><div class="mkt-plan-n">Pro</div><div class="mkt-plan-p">$49.99<small>/mo</small></div><div class="mkt-plan-d">More credits · 50&nbsp;GB gallery</div><button class="mkt-cta mkt-plan-cta" data-mkt="start" type="button">Choose Pro</button></div>
-        <div class="mkt-plan"><div class="mkt-plan-n">Max</div><div class="mkt-plan-p">$99.99<small>/mo</small></div><div class="mkt-plan-d">Most credits · 100&nbsp;GB gallery</div><button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Max</button></div>
+        <div class="mkt-plan">
+          <div class="mkt-plan-n">Plus</div>
+          <div class="mkt-plan-p">$24.99<small>/mo</small></div>
+          <div class="mkt-plan-d">For steady creators.</div>
+          <ul class="mkt-plan-list">
+            <li>Monthly credits at the best rate</li>
+            <li>10 GB cloud gallery</li>
+            <li>All 14 models, every feature</li>
+          </ul>
+          <button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Plus</button>
+        </div>
+        <div class="mkt-plan mkt-plan-hot">
+          <div class="mkt-plan-tag">Most popular</div>
+          <div class="mkt-plan-n">Pro</div>
+          <div class="mkt-plan-p">$49.99<small>/mo</small></div>
+          <div class="mkt-plan-d">For brands shipping weekly.</div>
+          <ul class="mkt-plan-list">
+            <li>2× the monthly credits</li>
+            <li>50 GB cloud gallery</li>
+            <li>All 14 models, every feature</li>
+          </ul>
+          <button class="mkt-cta mkt-plan-cta" data-mkt="start" type="button">Choose Pro</button>
+        </div>
+        <div class="mkt-plan">
+          <div class="mkt-plan-n">Max</div>
+          <div class="mkt-plan-p">$99.99<small>/mo</small></div>
+          <div class="mkt-plan-d">For teams shipping daily.</div>
+          <ul class="mkt-plan-list">
+            <li>The most monthly credits</li>
+            <li>100 GB cloud gallery</li>
+            <li>All 14 models, every feature</li>
+          </ul>
+          <button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Max</button>
+        </div>
       </div>
     </section>
 
     <section class="mkt-final">
-      <h2 class="mkt-h2">Ready to generate the impossible?</h2>
-      <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start creating — it's free</button>
+      <h2 class="mkt-final-h">Your premiere<br />starts <span class="mkt-grad">tonight</span>.</h2>
+      <p class="mkt-final-s">First 20 credits are on us. The first scroll-stop is on you.</p>
+      <div class="mkt-cta-row">
+        <button class="mkt-cta mkt-big" data-mkt="start" type="button">Generate the impossible — free</button>
+      </div>
     </section>
 
     <footer class="mkt-foot">
-      <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
-      <div class="mkt-foot-links"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><span>© isibi.ai</span></div>
+      <div class="mkt-foot-row">
+        <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
+        <div class="mkt-foot-links"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><span>© isibi.ai</span></div>
+      </div>
+      <div class="mkt-ghostword" aria-hidden="true">isibi</div>
     </footer>
   </div>
 
