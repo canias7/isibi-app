@@ -33,6 +33,16 @@ and fixed, and add a preference line whenever the owner signals one.
   templates (fixed choreography skeleton + product description/world filled
   from the attached image). Home cards stay display-only (PR #349) meanwhile.
 
+- **Voice/audio lane on the landing filmstrip (built + REMOVED twice, 2026-07-13):**
+  a third drifting row of playable waveform tiles under the two image/video rows
+  on the "Made with isibi" strip. Round 1: compact (186×76) → owner "came out
+  very ugly, delete that" → reverted. Round 2: re-added bigger (300×118),
+  merged, then owner said "wrong chat, delete the voice thing" → reverted off
+  `main` again. **Not a design rejection the 2nd time — it was merged to the
+  wrong project/chat.** Fully off `main`. If it's genuinely wanted here later,
+  confirm scope with the owner first; the bigger 300×118 version is what they'd
+  approved visually.
+
 - **Declined (2026-07-12):** Luma **Reframe** (video + Photon image outpaint-to-new-ratio,
   on fal) — offered, owner said no. Don't re-pitch unless they bring it up.
   Runway integration also discussed: not on fal (needs its own API pipeline) — neither
@@ -70,23 +80,6 @@ and fixed, and add a preference line whenever the owner signals one.
 _(empty)_
 
 ## Shipped
-
-- **Voice lane on the marketing landing (owner request, 2026-07-13 → merged):**
-  a **third drifting row** for audio/voice under the two image/video rows on the
-  "Made with isibi" filmstrip, Wispr-Flow style. **Playable waveform tiles** —
-  pink→amber ▶ play button (with glow), animated equalizer waveform
-  (`--purple`→`--neon`), voice-name/duration label; click plays one clip at a
-  time, waveform brightens + speeds up on hover/play, drift + hover-pause reuse
-  the strip mechanics. **Sizing:** first shipped compact (186×76), owner said
-  "very ugly" → reverted, then re-added **bigger, 300×118** ("bigger size pls")
-  → approved + merged. Where: `public/index.html` (`.mkt-vrow`/`#mktVoice`, 7
-  cards), `public/styles.css` (`.mkt-vcell`/`.mkt-wave`/`@keyframes mkt-wv`),
-  `public/chat.js` (`initVoiceLane()`, called at boot beside
-  `initDemoCarousel()`). CSP already allows `media-src 'self'`.
-  - **Audio = placeholder tones** synthesized locally (`/mkt/a1.wav … a3.wav`,
-    cycled across the 7 cards; zero credits, no offline TTS here). **Real voices
-    drop in:** replace the files or point `data-audio` at `/mkt/a1.mp3 …`, one
-    line per card in index.html; labels are `.mkt-vmeta` text.
 
 - **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
   "main" 2026-07-13 → merged):** logged-out
