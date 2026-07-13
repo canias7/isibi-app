@@ -414,12 +414,19 @@ function briefErr(d) {
 function harden(res, request) {
   const h = new Headers(res.headers);
   // The vendored marketing demos under /mkt/demo* are self-contained pages the
-  // landing embeds in an <iframe> (demo carousel). They must be same-origin
-  // framable, so relax the clickjacking guard for those paths ONLY (still blocks
-  // cross-origin framing); the app + auth keep DENY / frame-ancestors 'none'.
+  // landing embeds in an <iframe> (demo carousel). Two relaxations for those
+  // paths ONLY: (1) same-origin framable (still blocks cross-origin framing);
+  // (2) allow inline scripts — the vendored SPA demos ship React SSR hydration
+  // scripts + a small router-spoof shim inline, which strict script-src blocks.
+  // These are fixed, self-authored files with no user-input reflection, so
+  // 'unsafe-inline' here carries no injection risk. The app + auth + API keep
+  // the strict policy (DENY / frame-ancestors 'none' / no inline scripts).
   let sameOriginFrame = false;
   try { sameOriginFrame = new URL(request.url).pathname.startsWith("/mkt/demo"); } catch {}
-  h.set("Content-Security-Policy", sameOriginFrame ? CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : CSP);
+  const demoCSP = CSP
+    .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+    .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'");
+  h.set("Content-Security-Policy", sameOriginFrame ? demoCSP : CSP);
   h.set("X-Content-Type-Options", "nosniff");
   h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
   h.set("Referrer-Policy", "strict-origin-when-cross-origin");
