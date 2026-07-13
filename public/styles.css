@@ -3387,7 +3387,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* a true semicircle over the chatbox: tiles positioned on a half-circle
    (x = R·cosθ, y = −R·sinθ at 180/135/90/45/0°), centered on the column so the
    dome sits symmetric over the box below. */
-.mkt-picks{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:.7rem;margin:3.4rem 0 -1.15rem}
+.mkt-picks{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;gap:.7rem;margin:3.9rem 0 -1.7rem}
 .mkt-pick{display:flex;flex-direction:column;align-items:center;gap:.4rem;width:64px;flex:0 0 auto;
   background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font-family:inherit}
 .mkt-pick .pk{position:relative;width:54px;height:54px;border-radius:18px;display:grid;place-items:center;
