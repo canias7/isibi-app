@@ -117,7 +117,9 @@
       <canvas class="mkt-rain" id="mktRain" aria-hidden="true"></canvas>
       <div class="mkt-deep-inner">
         <span class="mkt-eyebrow">under the hood</span>
-        <p class="mkt-breath-line"><b>You speak in words.</b> <span>It thinks in numbers.</span></p>
+        <!-- Rotating pipeline lines — chat.js cycles these (tokenize → embed →
+             diffuse → infer → render). First one inline for the no-JS case. -->
+        <p class="mkt-breath-line" id="mktDeepLine"><b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span></p>
       </div>
     </section>
 

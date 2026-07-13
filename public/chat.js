@@ -6488,6 +6488,7 @@ function initAuthGate() {
   });
   initDemoCarousel();
   initNumberRain();
+  initDeepLine();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
@@ -6590,6 +6591,37 @@ function initNumberRain() {
     new IntersectionObserver((ents) => {
       ents.forEach((e) => (e.isIntersecting ? start() : stop()));
     }, { threshold: 0.04 }).observe(c);
+  } else { start(); }
+}
+
+// Marketing: the rotating pipeline line over the digit rain — the actual
+// generation pipeline, one stage at a time (fade/blur out, next fades in).
+// Pauses off-screen; under reduced-motion the text still advances (it's
+// content) but swaps instantly with no blur.
+function initDeepLine() {
+  const el = document.getElementById('mktDeepLine');
+  if (!el) return;
+  const LINES = [
+    '<b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span>',
+    '<b>Embedded.</b> <span>Meaning, mapped into latent space.</span>',
+    '<b>Diffused.</b> <span>Pure noise, denoised into frames.</span>',
+    '<b>Inferred.</b> <span>Billions of parameters. One forward pass.</span>',
+    '<b>Rendered.</b> <span>Pixels land back in your chat.</span>',
+  ];
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let i = 0, timer = null;
+  const advance = () => {
+    i = (i + 1) % LINES.length;
+    if (reduce) { el.innerHTML = LINES[i]; return; }
+    el.classList.add('mkt-swap');
+    setTimeout(() => { el.innerHTML = LINES[i]; el.classList.remove('mkt-swap'); }, 520);
+  };
+  const start = () => { if (!timer) timer = setInterval(advance, 3600); };
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((ents) => {
+      ents.forEach((e) => (e.isIntersecting ? start() : stop()));
+    }, { threshold: 0.2 }).observe(el);
   } else { start(); }
 }
 

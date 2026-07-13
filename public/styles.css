@@ -3509,7 +3509,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-eyebrow{display:inline-block;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 .mkt-breath-line{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
-  font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0}
+  font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0;
+  transition:opacity .5s ease,transform .5s ease,filter .5s ease}
+.mkt-breath-line.mkt-swap{opacity:0;transform:translateY(12px);filter:blur(8px)}
 .mkt-breath-line b{font-weight:700;color:var(--text)}
 .mkt-breath-line span{font-weight:700;color:rgba(237,234,243,.36)}
 
