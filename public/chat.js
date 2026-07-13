@@ -6537,7 +6537,9 @@ function initNumberRain() {
   const ctx = c.getContext('2d');
   if (!ctx) return;
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const CELL = 18, dpr = Math.min(2, window.devicePixelRatio || 1);
+  // Decorative, faint, edge-masked layer → render at 1x (retina 2x would repaint
+  // 4x the pixels every frame for no visible gain, which is what felt laggy).
+  const CELL = 18, dpr = 1, FONT = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
   let cols = [], w = 0, h = 0;
   const digit = () => (Math.random() * 10) | 0;
   function resize() {
@@ -6547,6 +6549,7 @@ function initNumberRain() {
     c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.textAlign = 'center';
+    ctx.font = FONT;   // set once — resetting it every frame stalls the paint
     const n = Math.max(6, Math.floor(w / 24));
     cols = new Array(n).fill(0).map((_, i) => ({
       x: (i + 0.5) * (w / n),
@@ -6561,7 +6564,6 @@ function initNumberRain() {
   function paint(t) {
     ctx.fillStyle = 'rgba(8,7,12,0.20)';   // fade prior frame → soft trails
     ctx.fillRect(0, 0, w, h);
-    ctx.font = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
     const rush = t < burstUntil; // stage change → the rain briefly accelerates
     for (const col of cols) {
       if (t >= col.next) {
