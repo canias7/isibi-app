@@ -3387,23 +3387,22 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* a true semicircle over the chatbox: tiles positioned on a half-circle
    (x = R·cosθ, y = −R·sinθ at 180/135/90/45/0°), centered on the column so the
    dome sits symmetric over the box below. */
-.mkt-picks{position:relative;width:100%;height:248px;margin:1rem 0 0}
+.mkt-picks{position:relative;width:100%;height:158px;margin:.9rem 0 0}
 .mkt-pick{position:absolute;left:50%;bottom:0;width:64px;
   display:flex;flex-direction:column;align-items:center;gap:.4rem;
   background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font-family:inherit;
   transform:translateX(calc(-50% + var(--ax,0px))) translateY(var(--ay,0px)) rotate(var(--ar,0deg))}
-.mkt-pick:nth-child(1){--ax:-168px;--ay:0px;--ar:-20deg}
-.mkt-pick:nth-child(2){--ax:-119px;--ay:-112px;--ar:-10deg}
-.mkt-pick:nth-child(3){--ax:0px;--ay:-158px;--ar:0deg}
-.mkt-pick:nth-child(4){--ax:119px;--ay:-112px;--ar:10deg}
-.mkt-pick:nth-child(5){--ax:168px;--ay:0px;--ar:20deg}
+.mkt-pick:nth-child(1){--ax:-112px;--ay:0px;--ar:-18deg}
+.mkt-pick:nth-child(2){--ax:-58px;--ay:-50px;--ar:-9deg}
+.mkt-pick:nth-child(3){--ax:0px;--ay:-70px;--ar:0deg}
+.mkt-pick:nth-child(4){--ax:58px;--ay:-50px;--ar:9deg}
+.mkt-pick:nth-child(5){--ax:112px;--ay:0px;--ar:18deg}
 @media (max-width:560px){
-  .mkt-picks{height:200px}
-  .mkt-pick:nth-child(1){--ax:-128px;--ay:0px}
-  .mkt-pick:nth-child(2){--ax:-91px;--ay:-86px}
-  .mkt-pick:nth-child(3){--ax:0px;--ay:-120px}
-  .mkt-pick:nth-child(4){--ax:91px;--ay:-86px}
-  .mkt-pick:nth-child(5){--ax:128px;--ay:0px}
+  .mkt-picks{height:150px}
+  .mkt-pick:nth-child(1){--ax:-100px}
+  .mkt-pick:nth-child(2){--ax:-52px}
+  .mkt-pick:nth-child(4){--ax:52px}
+  .mkt-pick:nth-child(5){--ax:100px}
 }
 .mkt-pick .pk{position:relative;width:54px;height:54px;border-radius:18px;display:grid;place-items:center;
   border:1px solid var(--line-2);color:var(--muted);
