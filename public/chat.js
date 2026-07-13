@@ -6506,19 +6506,17 @@ function initLeadHero() {
   const wordEl = document.getElementById('leadWord');
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const CATS = {
-    video:   { word: 'film',   panel: 'film',    ph: 'a neon tiger prowling a rainy Tokyo alley, cinematic' },
-    image:   { word: 'design', panel: 'film',    ph: 'a moody product hero — serum bottle on wet stone' },
+    media:   { word: 'create', panel: 'film',    ph: 'a neon tiger prowling a rainy Tokyo alley, cinematic' },
     voice:   { word: 'voice',  panel: 'voice',   ph: 'a warm, unhurried voiceover for a meditation app' },
     website: { word: 'build',  panel: 'website', ph: '' },
   };
 
-  // build the vertical filmstrip (reuse .mkt-cell/.mkt-cN + /mkt/f*.jpg, badge for video)
-  const cell = (n) => '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span><span class="lp-badge">▶ 0:06</span></div>';
+  // build the vertical filmstrip — two columns (reuse .mkt-cell/.mkt-cN + /mkt/f*.jpg)
+  const cell = (n) => '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
   const col = (arr) => { const one = arr.map(cell).join(''); return one + one; }; // doubled for a seamless -50% loop
   const cols = Array.prototype.slice.call(stage.querySelectorAll('.lp-col'));
-  if (cols[0]) cols[0].innerHTML = col([1, 4, 7, 10, 13]);
-  if (cols[1]) cols[1].innerHTML = col([2, 5, 8, 11, 14]);
-  if (cols[2]) cols[2].innerHTML = col([3, 6, 9, 12, 1]);
+  if (cols[0]) cols[0].innerHTML = col([1, 3, 5, 7, 9, 11, 13]);
+  if (cols[1]) cols[1].innerHTML = col([2, 4, 6, 8, 10, 12, 14]);
   const wave = stage.querySelector('.lp-wave');
   if (wave) { let s = ''; for (let i = 0; i < 13; i++) s += '<i style="animation-delay:' + (i * 0.08) + 's"></i>'; wave.innerHTML = s; }
 
@@ -6551,13 +6549,12 @@ function initLeadHero() {
     const cfg = CATS[cat]; if (!cfg) return;
     chips.forEach((ch) => ch.classList.toggle('mkt-on', ch.dataset.cat === cat));
     wordEl.textContent = cfg.word;
-    stage.classList.toggle('cat-video', cat === 'video');
     panels.forEach((p) => p.classList.toggle('mkt-on', p.dataset.panel === cfg.panel));
     if (cat === 'website') layoutWeb();
     else type(cfg.ph);
   };
   chips.forEach((ch) => ch.addEventListener('click', () => setCat(ch.dataset.cat)));
-  setCat('video');
+  setCat('media');
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
