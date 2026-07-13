@@ -115,21 +115,23 @@
         <h2 class="mkt-h2"><b>One chatbox.</b> <span>It builds the whole thing.</span></h2>
         <p class="mkt-h2-sub">Websites, games, videos, images, voice — describe it, isibi builds it. This is a real site it made from one prompt — scroll it, click it, it works:</p>
       </div>
-      <div class="mkt-stage">
+      <!-- Demo carousel: each demo is its own <iframe> present at parse time (so
+           its script runs); dots toggle which is visible + the chrome URL. Add a
+           demo by dropping another <iframe> here and un-hiding its dot. -->
+      <div class="mkt-stage" id="mktDemos">
         <div class="mkt-screen">
           <div class="mkt-chrome">
             <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
-            <span class="mkt-url">impossible.store</span><i></i>
+            <span class="mkt-url" id="mktDemoUrl">impossible.store</span><i></i>
           </div>
           <div class="mb-body">
-            <iframe class="mb-demo" src="/mkt/demo/" title="A website isibi built from one prompt — browse it live"
-                    loading="lazy"></iframe>
+            <iframe class="mb-demo mb-on" data-url="impossible.store" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe>
+            <iframe class="mb-demo" data-url="seaward.io" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live" hidden></iframe>
           </div>
         </div>
-        <div class="mkt-demo-dots" aria-hidden="true">
-          <span class="mkt-demo-dot mkt-on"></span>
-          <span class="mkt-demo-dot"></span>
-          <span class="mkt-demo-dot"></span>
+        <div class="mkt-demo-dots" role="tablist" aria-label="Website demos">
+          <button class="mkt-demo-dot mkt-on" type="button" aria-label="Demo 1: IMPOSSIBLE store"></button>
+          <button class="mkt-demo-dot" type="button" aria-label="Demo 2: Seaward platform"></button>
         </div>
         <p class="mkt-stage-hint">↑ <b>A full website from one sentence — try it.</b> <button class="mkt-hint-cta" data-mkt="start" type="button">Build yours →</button></p>
       </div>

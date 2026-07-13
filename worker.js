@@ -413,12 +413,12 @@ function briefErr(d) {
 
 function harden(res, request) {
   const h = new Headers(res.headers);
-  // The vendored marketing demo under /mkt/demo/ is a self-contained page the
-  // landing embeds in an <iframe>. It must be same-origin framable, so relax the
-  // clickjacking guard for that path ONLY (still blocks cross-origin framing);
-  // the app + auth keep DENY / frame-ancestors 'none'.
+  // The vendored marketing demos under /mkt/demo* are self-contained pages the
+  // landing embeds in an <iframe> (demo carousel). They must be same-origin
+  // framable, so relax the clickjacking guard for those paths ONLY (still blocks
+  // cross-origin framing); the app + auth keep DENY / frame-ancestors 'none'.
   let sameOriginFrame = false;
-  try { sameOriginFrame = new URL(request.url).pathname.startsWith("/mkt/demo/"); } catch {}
+  try { sameOriginFrame = new URL(request.url).pathname.startsWith("/mkt/demo"); } catch {}
   h.set("Content-Security-Policy", sameOriginFrame ? CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : CSP);
   h.set("X-Content-Type-Options", "nosniff");
   h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
