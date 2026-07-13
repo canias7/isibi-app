@@ -1,6 +1,6 @@
 const DEFAULT_MODELS = {
   video: 'bytedance/seedance-2.0/fast/text-to-video',
-  image: 'fal-ai/bytedance/seedream/v4/text-to-image',
+  image: 'fal-ai/nano-banana-pro',
   audio: 'fal-ai/elevenlabs/tts/eleven-v3',
 };
 
@@ -105,19 +105,14 @@ const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1
 // Image models that support editing (attach an image). MULTI ones take more
 // than one image (so they also get the +Avatar reference picker).
 const IMAGE_EDIT_MODELS = new Set([
-  'google/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
-  'fal-ai/flux-2-pro', 'fal-ai/gemini-3-pro-image-preview',
-  'fal-ai/bytedance/seedream/v4/text-to-image', 'fal-ai/flux/dev', 'fal-ai/recraft/v3/text-to-image',
+  'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
 ]);
 const IMAGE_MULTI_MODELS = new Set([
-  'google/nano-banana-2', 'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
-  'fal-ai/flux-2-pro', 'fal-ai/gemini-3-pro-image-preview', 'fal-ai/bytedance/seedream/v4/text-to-image',
+  'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
 ]);
 // Models whose fal schema accepts num_images (verified against the OpenAPI docs).
 const IMAGE_NUM_MODELS = new Set([
-  'fal-ai/flux/dev', 'fal-ai/bytedance/seedream/v4/text-to-image',
-  'fal-ai/nano-banana-pro', 'openai/gpt-image-2', 'fal-ai/krea-2/turbo',
-  'xai/grok-imagine-image', 'fal-ai/gemini-3-pro-image-preview',
+  'fal-ai/nano-banana-pro', 'openai/gpt-image-2',
 ]);
 // Audio (voice) generation: no frames/ratio/resolution — a voice + the words to speak.
 // audio:true surfaces the "+ Audio" upload picker (e.g. a clip to clone from later).
@@ -152,16 +147,8 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
   ],
   image: [
-    { id: 'fal-ai/flux-2-pro', label: 'FLUX 2 Pro', note: 'flagship' },
-    { id: 'fal-ai/gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image', note: 'Google' },
-    { id: 'fal-ai/bytedance/seedream/v4/text-to-image', label: 'Seedream v4', note: 'ByteDance' },
-    { id: 'fal-ai/recraft/v3/text-to-image', label: 'Recraft v3', note: 'design' },
-    { id: 'google/nano-banana-2', label: 'Nano Banana 2' },
-    { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro' },
+    { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro', note: 'Google · flagship' },
     { id: 'openai/gpt-image-2', label: 'GPT Image 2', note: 'typography' },
-    { id: 'fal-ai/flux/dev', label: 'FLUX.1 Dev' },
-    { id: 'fal-ai/krea-2/turbo', label: 'Krea 2 Turbo', note: 'fastest' },
-    { id: 'xai/grok-imagine-image', label: 'Grok Imagine' },
   ],
   audio: [
     { id: 'fal-ai/elevenlabs/tts/eleven-v3', label: 'ElevenLabs v3', note: 'expressive' },
@@ -1047,7 +1034,7 @@ const PRESET_CATS = [
       model: 'openai/gpt-image-2', ratio: '1:1',
       prompt: 'Bold square promotional graphic announcing a sale for [your product]: a big punchy headline reading "50% OFF" in heavy modern type, the product featured prominently below it, vibrant brand colors with high contrast, clean geometric layout with clear hierarchy — headline, product, small supporting line "this week only". Flat studio lighting on the product, crisp edges, social-feed ready; all text spelled exactly as written.' },
     { label: 'Lifestyle shot', kind: 'image', desc: 'Aspirational product-in-use photo.',
-      model: 'fal-ai/flux-2-pro', ratio: '3:4',
+      model: 'fal-ai/nano-banana-pro', ratio: '3:4',
       prompt: 'Editorial lifestyle photograph of [your product] being used naturally in a bright, aspirational setting — soft morning window light, warm neutral palette, styled surfaces with tasteful props, a hint of human presence (hands, a sleeve). Shallow depth of field keeps the product tack-sharp with its label legible while the scene falls into a creamy blur. Magazine quality, natural shadows, no text or watermarks.' },
     { label: 'Product Animation', kind: 'video', desc: 'Show your product in motion.',
       model: 'bytedance/seedance-2.0/text-to-video', ratio: '16:9', dur: 10, res: '720p',
@@ -1064,18 +1051,18 @@ const PRESET_CATS = [
       model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
       prompt: 'Ultra slow-motion cinematic close-up of [subject], locked-off camera: dramatic single-source side lighting carves the form out of darkness, dust particles drift and glint through the beam, micro-movements read in exquisite detail — fabric settling, hair lifting, a slow turn toward the light. Shallow depth of field, moody high-contrast grade with soft film grain, one continuous shot with no cuts, no text or watermarks.' },
     { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.',
-      model: 'fal-ai/flux-2-pro', ratio: '16:9',
+      model: 'fal-ai/nano-banana-pro', ratio: '16:9',
       prompt: 'Film-noir cinematic still: [subject] in a rain-slicked neon alley at night, hard chiaroscuro lighting splitting the face between shadow and a cyan-magenta neon glow, wet asphalt mirroring the signs, steam rising from a grate, atmospheric haze catching the light. Teal and amber palette, deep blacks with detail preserved, anamorphic framing with foreground bokeh, subtle film grain — a single frame that implies a whole story.' },
   ] },
   { key: 'product', label: 'Product', items: [
     { label: 'Studio pack shot', kind: 'image', desc: 'Clean e-commerce white-bg shot.',
-      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '1:1',
+      model: 'fal-ai/nano-banana-pro', ratio: '1:1',
       prompt: 'Clean studio product photograph of [your product] on pure white seamless: soft even wraparound lighting with a gentle top key, crisp natural reflection beneath the product, every edge sharp and true to form, label perfectly legible and undistorted. Centered composition with balanced negative space, true-to-life color, e-commerce catalog standard — no props, no text, no watermarks, no shadows harsher than a soft contact shadow.' },
     { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.',
       model: 'luma/agent/ray/v3.2/text-to-video', ratio: '1:1', dur: 5, res: '720p',
       prompt: '[Your product] floating weightlessly in a dark premium studio void, slowly rotating in place: dramatic rim lighting traces its silhouette, soft specular reflections glide across the surface as it turns, faint particles drift in the depth behind it. The rotation is smooth and continuous, the camera locked, the mood expensive and calm. The label passes through full legibility mid-turn. Deep blacks, controlled highlights, no text or watermarks; the product stays rigid and undeformed.' },
     { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.',
-      model: 'fal-ai/flux-2-pro', ratio: '1:1',
+      model: 'fal-ai/nano-banana-pro', ratio: '1:1',
       prompt: 'Extreme macro photograph of [your product]: razor-thin depth of field isolating one exquisite detail — surface texture, material grain, an edge where two materials meet — with controlled specular highlights tracing the form. The rest falls into smooth darkness. Lighting is a single soft key with a whisper of rim, colors true to the product, detail rendered at the threshold of what a real macro lens resolves. No text or watermarks.' },
   ] },
   { key: 'social', label: 'Social', items: [
@@ -1083,7 +1070,7 @@ const PRESET_CATS = [
       model: 'bytedance/seedance-2.0/fast/text-to-video', ratio: '9:16', dur: 5, res: '720p',
       prompt: 'Fast-paced vertical 9:16 social intro for [your brand]: 3 quick cuts — a whip-pan into the product, a punch-in beat, then bold kinetic text slamming in reading exactly "NEW DROP" with a subtle shake on impact. Energetic handheld feel, trendy speed-ramps between cuts, bold saturated brand colors, hard flash frames on the transitions. The text stays pinned and spelled exactly as written; ends on product + text locked for the final beat. No watermarks.' },
     { label: 'Story background', kind: 'image', desc: '9:16 background with text room.',
-      model: 'fal-ai/recraft/v3/text-to-image', ratio: '9:16',
+      model: 'fal-ai/nano-banana-pro', ratio: '9:16',
       prompt: 'Eye-catching vertical 9:16 story background: abstract flowing gradient shapes in a pink-to-amber palette over near-black, soft grain, gentle glow where the shapes overlap, generous calm negative space through the middle third left intentionally empty for text overlay. Modern, clean, on-brand design — no text, no logos, no watermarks, nothing busy near the center.' },
     { label: 'Carousel cover', kind: 'image', desc: 'Scroll-stopping post cover.',
       model: 'openai/gpt-image-2', ratio: '1:1',
@@ -1091,21 +1078,21 @@ const PRESET_CATS = [
   ] },
   { key: 'portrait', label: 'Portrait', items: [
     { label: 'Studio headshot', kind: 'image', desc: 'Corporate-clean headshot.',
-      model: 'fal-ai/flux-2-pro', ratio: '3:4',
+      model: 'fal-ai/nano-banana-pro', ratio: '3:4',
       prompt: 'Professional studio headshot portrait of [subject]: soft wrapped key light with a subtle rim separating them from a neutral seamless background, eyes tack-sharp and engaged with the camera, natural authentic skin texture (no plastic smoothing), relaxed confident expression, shoulders angled slightly. Corporate-clean grade, true skin tones, gentle falloff — LinkedIn-ready. No text or watermarks.' },
     { label: 'Cinematic portrait', kind: 'image', desc: 'Moody single-light portrait.',
-      model: 'fal-ai/krea-2/turbo', ratio: '3:4',
+      model: 'fal-ai/nano-banana-pro', ratio: '3:4',
       prompt: 'Cinematic character portrait of [subject]: one dramatic single-source light raking across the face from the side, half in shadow, catchlight alive in the near eye, shallow depth of field melting the background into darkness. Moody teal-shadow amber-highlight grade, subtle film grain, imperfect and human — a frame from a film that doesn’t exist. No text or watermarks.' },
     { label: 'Fashion editorial', kind: 'image', desc: 'Magazine-cover styling.',
-      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '3:4',
+      model: 'fal-ai/nano-banana-pro', ratio: '3:4',
       prompt: 'High-fashion editorial portrait of [subject]: bold styling and a striking deliberate pose, hard studio strobe with a crisp shadow thrown on a colored seamless backdrop, fabric caught mid-movement, jewelry and textures rendered sharp. Confident magazine-cover composition with headroom for a masthead, saturated yet controlled palette, skin real and luminous. No text or watermarks.' },
   ] },
   { key: 'anime', label: 'Anime', items: [
     { label: 'Anime key art', kind: 'image', desc: 'Vibrant cel-shaded hero art.',
-      model: 'fal-ai/bytedance/seedream/v4/text-to-image', ratio: '3:4',
+      model: 'fal-ai/nano-banana-pro', ratio: '3:4',
       prompt: 'Vibrant anime key-art illustration of [character]: dynamic three-quarter action pose with strong silhouette, clean confident linework, cel shading with two-step shadows and bright rim light, expressive eyes, hair and clothing caught mid-motion. A detailed but softly-blurred background pushes the character forward; saturated studio-quality palette with atmospheric light effects. No text or watermarks.' },
     { label: 'Chibi sticker', kind: 'image', desc: 'Cute flat-color sticker.',
-      model: 'fal-ai/recraft/v3/text-to-image', ratio: '1:1',
+      model: 'fal-ai/nano-banana-pro', ratio: '1:1',
       prompt: 'Cute chibi anime sticker of [character]: oversized head and tiny body, huge expressive eyes, one clear exaggerated emotion, thick clean outline with a white sticker border, flat bright colors with minimal two-tone shading, simple empty background ready for a transparent cutout. Kawaii, instantly readable at small size. No text or watermarks.' },
     { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.',
       model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
@@ -2571,16 +2558,8 @@ const VIDEO_PRICE = {
   'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_PRICE = { // $ per image
-  'fal-ai/flux-2-pro': 0.03,
-  'fal-ai/gemini-3-pro-image-preview': 0.15,
-  'fal-ai/bytedance/seedream/v4/text-to-image': 0.03,
-  'fal-ai/recraft/v3/text-to-image': 0.04,
-  'google/nano-banana-2': 0.08,
   'fal-ai/nano-banana-pro': 0.15,
   'openai/gpt-image-2': 0.12, // token-billed; high quality 1024² lands about here
-  'fal-ai/flux/dev': 0.025,
-  'fal-ai/krea-2/turbo': 0.008,
-  'xai/grok-imagine-image': 0.022,
 };
 const AUDIO_PRICE = { // $ per 1,000 characters spoken
   'fal-ai/elevenlabs/tts/eleven-v3': 0.10,
