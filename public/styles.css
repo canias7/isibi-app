@@ -3569,7 +3569,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* The cascade. Each card's iframe renders at a fixed DESKTOP width (--fw) then
    scales down by --sc, so the site keeps its full layout instead of collapsing
    to a phone view. Card visual width = --fw * --sc; body height follows 16:9. */
-.mb-cascade{--fw:1200px;--sc:.36;position:relative;
+.mb-cascade{--fw:1200px;--sc:.44;position:relative;
   width:calc(var(--fw) * var(--sc) + 132px);height:calc(var(--fw) * var(--sc) * 9 / 16 + 152px);
   max-width:100%;margin:0 auto}
 .mb-slot{position:absolute;width:calc(var(--fw) * var(--sc));border-radius:12px;overflow:hidden;
@@ -3598,9 +3598,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   /* stack: copy on top, cascade below (a touch smaller) */
   .mkt-split{flex-direction:column;align-items:stretch}
   .mkt-split-copy{flex:auto;max-width:none}
-  .mb-cascade{--sc:.3}
+  .mb-cascade{--sc:.36}
 }
-@media (max-width:460px){ .mb-cascade{--fw:1100px;--sc:.26} }
+@media (max-width:460px){ .mb-cascade{--fw:1100px;--sc:.3} }
 .mkt-hint-cta{border:none;padding:0;cursor:pointer;font:inherit;font-weight:700;
   background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
 .mkt-hint-cta:hover{filter:brightness(1.15)}
