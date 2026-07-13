@@ -3509,11 +3509,17 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-eyebrow{display:inline-block;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 .mkt-breath-line{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
-  font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0;
-  transition:opacity .5s ease,transform .5s ease,filter .5s ease}
-.mkt-breath-line.mkt-swap{opacity:0;transform:translateY(12px);filter:blur(8px)}
+  font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0}
+@media (max-width:900px){ .mkt-breath-line{min-height:2.4em} } /* lines may wrap → no jitter */
 .mkt-breath-line b{font-weight:700;color:var(--text)}
 .mkt-breath-line span{font-weight:700;color:rgba(237,234,243,.36)}
+/* pipeline progress — five slim segments, active fills with the gradient */
+.mkt-deep-steps{display:flex;justify-content:center;gap:.45rem;margin-top:1.3rem}
+.mkt-deep-step{width:28px;height:3px;border-radius:99px;border:none;padding:0;cursor:pointer;
+  background:rgba(255,255,255,.13);transition:background .4s ease,box-shadow .4s ease}
+.mkt-deep-step:hover{background:rgba(255,255,255,.3)}
+.mkt-deep-step.mkt-on{background:var(--split);box-shadow:0 0 10px rgba(255,121,198,.5)}
+.mkt-deep-step.mkt-on:hover{background:var(--split)}
 
 /* three captions under the replica (Morphic) */
 .mkt-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;

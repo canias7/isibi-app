@@ -118,8 +118,16 @@
       <div class="mkt-deep-inner">
         <span class="mkt-eyebrow">under the hood</span>
         <!-- Rotating pipeline lines — chat.js cycles these (tokenize → embed →
-             diffuse → infer → render). First one inline for the no-JS case. -->
+             diffuse → infer → render), decoding each new line out of random
+             digits. First one inline for the no-JS case. -->
         <p class="mkt-breath-line" id="mktDeepLine"><b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span></p>
+        <div class="mkt-deep-steps" id="mktDeepSteps" role="tablist" aria-label="Generation pipeline stages">
+          <button class="mkt-deep-step mkt-on" type="button" aria-label="Stage 1: Tokenized"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 2: Embedded"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 3: Diffused"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 4: Inferred"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 5: Rendered"></button>
+        </div>
       </div>
     </section>
 
