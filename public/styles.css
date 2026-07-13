@@ -3379,7 +3379,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* ==========================================================================
    The app — home replica in the spotlight
    ========================================================================== */
-.mkt-studio{max-width:1180px;margin:0 auto;overflow:hidden;
+.mkt-studio{max-width:1360px;margin:0 auto;overflow:hidden;
   padding:clamp(3.2rem,8vh,6rem) clamp(1.1rem,4vw,3rem) 0}
 .mkt-stage{position:relative;max-width:1080px;margin:0 auto;perspective:1500px;text-align:left}
 .mkt-stage::before{/* floor glow */
@@ -3509,8 +3509,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    center — the CSS transition on the slots IS the animation. Each demo is its
    own iframe present at parse time, so its real React bundle runs live
    (nav/cart/FAQ/signup all work inside the framed site). ===== */
-.mb-deck{position:relative;height:600px;margin:0 auto;perspective:1900px}
-.mb-slot{position:absolute;top:10px;left:50%;width:960px;max-width:94%;
+.mb-deck{position:relative;height:720px;margin:0 auto;perspective:2100px}
+.mb-slot{position:absolute;top:10px;left:50%;width:1140px;max-width:95%;
   transform:translateX(-50%);   /* base = dead center; pos-* override below */
   border-radius:16px;overflow:hidden;border:1px solid var(--line-2);
   background:linear-gradient(180deg,#121017,#0b0a10);box-shadow:0 30px 70px rgba(0,0,0,.6);
