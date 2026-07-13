@@ -3549,6 +3549,12 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-builtfrom-line::before{content:"\201C"}
 .mkt-builtfrom-line::after{content:"\201D"}
 .mkt-builtfrom-line.mkt-bf-swap{opacity:0;transform:translateY(8px);filter:blur(5px)}
+/* the prompt shown inside a composer mock matching the top video-generator box,
+   but sized for the split's left column and allowed to wrap. */
+.mkt-composer-demo{margin:.9rem 0 1.5rem;max-width:none;padding:0}
+.mkt-composer-demo .mkt-fauxinput{white-space:normal;overflow:visible;align-items:flex-start;
+  padding:.35rem 0 1.15rem;font-size:1.02rem;line-height:1.5;font-weight:600;color:var(--text)}
+.mkt-composer-demo .mkt-typebox-caret{align-self:center}
 
 /* three captions under the replica (Morphic) */
 .mkt-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;
@@ -3569,12 +3575,12 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* The cascade. Each card's iframe renders at a fixed DESKTOP width (--fw) then
    scales down by --sc, so the site keeps its full layout instead of collapsing
    to a phone view. Card visual width = --fw * --sc; body height follows 16:9. */
-.mb-cascade{--fw:1200px;--sc:.44;position:relative;
-  width:calc(var(--fw) * var(--sc) + 132px);height:calc(var(--fw) * var(--sc) * 9 / 16 + 152px);
+.mb-cascade{--fw:1200px;--sc:.5;position:relative;
+  width:calc(var(--fw) * var(--sc) + 128px);height:calc(var(--fw) * var(--sc) * 9 / 16 + 150px);
   max-width:100%;margin:0 auto}
 .mb-slot{position:absolute;width:calc(var(--fw) * var(--sc));border-radius:12px;overflow:hidden;
   border:1px solid var(--line-2);background:#0d0b12;box-shadow:0 24px 60px rgba(0,0,0,.6);
-  transition:transform .52s cubic-bezier(.5,.05,.2,1),opacity .42s ease,filter .42s ease,box-shadow .42s ease;
+  transition:transform .6s cubic-bezier(.34,1.32,.5,1),opacity .5s ease,filter .5s ease,box-shadow .5s ease;
   will-change:transform,opacity,filter}
 /* shrink the chrome too, so the whole card reads as a small website */
 .mb-slot .mkt-chrome{padding:.34rem .55rem;gap:.32rem}
@@ -3586,11 +3592,12 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   width:var(--fw);height:calc(var(--fw) * 9 / 16);
   transform:scale(var(--sc));transform-origin:top left}
 .mb-grab{position:absolute;inset:0;border:0;padding:0;margin:0;background:transparent}
-/* cascade positions: front (p1) interactive, p2/p3 tucked back + dimmed */
-.mb-slot.mb-p1{left:132px;top:152px;z-index:3;opacity:1;transform:rotate(0deg);
+/* cascade positions — scale adds depth (front comes toward you); the springy
+   easing gives the switch a little settle. front (p1) interactive, p2/p3 back. */
+.mb-slot.mb-p1{left:128px;top:150px;z-index:3;opacity:1;transform:scale(1) rotate(0deg);
   box-shadow:0 -1px 0 rgba(255,255,255,.1) inset,0 34px 80px rgba(0,0,0,.66),0 14px 44px rgba(255,121,198,.14)}
-.mb-slot.mb-p2{left:66px;top:76px;z-index:2;opacity:.82;filter:saturate(.9) brightness(.8);transform:rotate(-1.5deg)}
-.mb-slot.mb-p3{left:0;top:0;z-index:1;opacity:.5;filter:saturate(.75) brightness(.58);transform:rotate(-3deg)}
+.mb-slot.mb-p2{left:64px;top:75px;z-index:2;opacity:.82;filter:saturate(.9) brightness(.78);transform:scale(.95) rotate(-2deg)}
+.mb-slot.mb-p3{left:0;top:0;z-index:1;opacity:.48;filter:saturate(.72) brightness(.55);transform:scale(.9) rotate(-4deg)}
 .mb-slot.mb-p1 .mb-grab{pointer-events:none}
 .mb-slot.mb-p2 .mb-grab,.mb-slot.mb-p3 .mb-grab{pointer-events:auto;cursor:pointer}
 .mb-slot.mb-p2:hover,.mb-slot.mb-p3:hover{opacity:.94;filter:none}
@@ -3598,9 +3605,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   /* stack: copy on top, cascade below (a touch smaller) */
   .mkt-split{flex-direction:column;align-items:stretch}
   .mkt-split-copy{flex:auto;max-width:none}
-  .mb-cascade{--sc:.36}
+  .mb-cascade{--sc:.42}
 }
-@media (max-width:460px){ .mb-cascade{--fw:1100px;--sc:.3} }
+@media (max-width:460px){ .mb-cascade{--fw:1100px;--sc:.32} }
 .mkt-hint-cta{border:none;padding:0;cursor:pointer;font:inherit;font-weight:700;
   background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
 .mkt-hint-cta:hover{filter:brightness(1.15)}
