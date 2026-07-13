@@ -6487,7 +6487,6 @@ function initAuthGate() {
     closeAuth();
   });
   initDemoCarousel();
-  initNumberRain();
   initDeepLine();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
@@ -6525,85 +6524,10 @@ function initDemoCarousel() {
   layout();
 }
 
-// Marketing: the "under the hood" digit rain. A simple matrix-style fall of
-// faint 0-9 digits in isibi's pink/amber, behind the breather line. Kept cheap
-// — one canvas, ~column-per-24px, steps by a cell on a per-column timer (so the
-// trails read as distinct falling numbers), only runs while on-screen, and
-// honours reduced-motion by drawing a single static frame.
-let _rainBurst = null; // set by initNumberRain; initDeepLine fires it per stage
-function initNumberRain() {
-  const c = document.getElementById('mktRain');
-  if (!c) return;
-  const ctx = c.getContext('2d');
-  if (!ctx) return;
-  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // Decorative, faint, edge-masked layer → render at 1x (retina 2x would repaint
-  // 4x the pixels every frame for no visible gain, which is what felt laggy).
-  const CELL = 18, dpr = 1, FONT = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
-  let cols = [], w = 0, h = 0;
-  const digit = () => (Math.random() * 10) | 0;
-  function resize() {
-    const r = c.getBoundingClientRect();
-    w = r.width; h = r.height;
-    if (!w || !h) return;
-    c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.textAlign = 'center';
-    ctx.font = FONT;   // set once — resetting it every frame stalls the paint
-    const n = Math.max(6, Math.floor(w / 24));
-    cols = new Array(n).fill(0).map((_, i) => ({
-      x: (i + 0.5) * (w / n),
-      row: -Math.floor(Math.random() * (h / CELL)),
-      step: 55 + Math.random() * 120,   // ms per fallen cell — varied speeds
-      next: 0,
-      amber: Math.random() < 0.5,
-    }));
-  }
-  let burstUntil = 0;
-  _rainBurst = () => { burstUntil = performance.now() + 700; };
-  function paint(t) {
-    ctx.fillStyle = 'rgba(8,7,12,0.20)';   // fade prior frame → soft trails
-    ctx.fillRect(0, 0, w, h);
-    const rush = t < burstUntil; // stage change → the rain briefly accelerates
-    for (const col of cols) {
-      if (t >= col.next) {
-        const y = col.row * CELL;
-        ctx.fillStyle = col.amber ? 'rgba(255,184,77,0.85)' : 'rgba(255,121,198,0.85)';
-        ctx.fillText(digit(), col.x, y);
-        col.row++;
-        if (y > h + CELL) { col.row = -1 - Math.floor(Math.random() * 6); col.amber = Math.random() < 0.5; }
-        col.next = t + (rush ? col.step * 0.3 : col.step);
-      }
-    }
-  }
-  let running = false, raf = 0;
-  const loop = (t) => { if (!running) return; paint(t); raf = requestAnimationFrame(loop); };
-  const start = () => { if (running || reduce) return; resize(); running = true; raf = requestAnimationFrame(loop); };
-  const stop = () => { running = false; if (raf) cancelAnimationFrame(raf); };
-  let rt;
-  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (running) resize(); }, 150); });
-  if (reduce) {   // static: one calm scatter of digits, no motion
-    resize();
-    ctx.font = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
-    cols.forEach((col) => {
-      for (let y = CELL; y < h; y += CELL * 3) {
-        ctx.fillStyle = col.amber ? 'rgba(255,184,77,0.4)' : 'rgba(255,121,198,0.4)';
-        ctx.fillText(digit(), col.x, y + (col.row % 3) * CELL);
-      }
-    });
-    return;
-  }
-  if ('IntersectionObserver' in window) {
-    new IntersectionObserver((ents) => {
-      ents.forEach((e) => (e.isIntersecting ? start() : stop()));
-    }, { threshold: 0.04 }).observe(c);
-  } else { start(); }
-}
-
-// Marketing: the rotating pipeline line over the digit rain — the actual
-// generation pipeline, one stage at a time. Each new line DECODES out of
-// random digits (characters flicker 0-9 and settle left→right), the stage
-// segment under it fills, and the rain gets a brief burst of speed. Pauses
+// Marketing: the rotating pipeline line — the actual generation pipeline, one
+// stage at a time (tokenize → embed → diffuse → infer → render). Each new line
+// gently blur-fades out and the next fades in (no moving numbers), the stage
+// segment under it fills, and the segments are clickable to jump. Pauses
 // off-screen; under reduced-motion the text advances with instant swaps.
 function initDeepLine() {
   const el = document.getElementById('mktDeepLine');
@@ -6619,33 +6543,15 @@ function initDeepLine() {
   ];
   const steps = Array.prototype.slice.call(document.querySelectorAll('#mktDeepSteps .mkt-deep-step'));
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const rnd = () => String((Math.random() * 10) | 0);
-  let i = 0, timer = null, raf = 0;
-  // Decode: both parts render at full length immediately, but every character
-  // past the reveal point flickers through random digits until its turn.
-  const decode = (line) => {
-    if (raf) cancelAnimationFrame(raf);
-    const t0 = performance.now(), DUR = 850;
-    const frame = (t) => {
-      const p = Math.min(1, (t - t0) / DUR);
-      const build = (txt) => {
-        const reveal = Math.floor(p * txt.length);
-        let out = '';
-        for (let k = 0; k < txt.length; k++) out += (k < reveal || txt[k] === ' ') ? txt[k] : rnd();
-        return out;
-      };
-      bEl.textContent = build(line.b);
-      sEl.textContent = build(line.s);
-      raf = p < 1 ? requestAnimationFrame(frame) : 0;
-    };
-    raf = requestAnimationFrame(frame);
-  };
+  let i = 0, timer = null, swapT = null;
+  const paint = () => { steps.forEach((d, k) => d.classList.toggle('mkt-on', k === i));
+    bEl.textContent = LINES[i].b; sEl.textContent = LINES[i].s; };
   const show = (n, animate) => {
     i = ((n % LINES.length) + LINES.length) % LINES.length;
-    steps.forEach((d, k) => d.classList.toggle('mkt-on', k === i));
-    if (!animate || reduce) { bEl.textContent = LINES[i].b; sEl.textContent = LINES[i].s; return; }
-    if (_rainBurst) _rainBurst();
-    decode(LINES[i]);
+    if (!animate || reduce) { paint(); return; }
+    el.classList.add('mkt-swap');   // fade+blur out, swap text, fade back in
+    clearTimeout(swapT);
+    swapT = setTimeout(() => { paint(); el.classList.remove('mkt-swap'); }, 560);
   };
   const start = () => { if (!timer) timer = setInterval(() => show(i + 1, true), 3800); };
   const stop = () => { if (timer) { clearInterval(timer); timer = null; } };

@@ -3497,23 +3497,23 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 
-/* "Under the hood" breather — a short line over a faint rain of digits. Quiet
-   and simple: lots of air, subtle motion, the numbers masked to fade at the
-   edges so there's no hard rectangle. */
+/* "Under the hood" breather — a short line that gently cycles the pipeline over
+   a calm, still isibi glow. Quiet and simple: lots of air, no moving numbers. */
 .mkt-deep{position:relative;max-width:1080px;margin:0 auto;overflow:hidden;text-align:center;
   padding:clamp(5rem,15vh,9.5rem) 1.5rem}
-.mkt-rain{position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:.55;pointer-events:none;
-  -webkit-mask-image:radial-gradient(72% 82% at 50% 50%,#000 28%,transparent 80%);
-          mask-image:radial-gradient(72% 82% at 50% 50%,#000 28%,transparent 80%)}
+.mkt-deep::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:radial-gradient(58% 68% at 50% 44%,rgba(255,121,198,.10),rgba(255,184,77,.05) 46%,transparent 74%)}
 .mkt-deep-inner{position:relative;z-index:1}
 .mkt-eyebrow{display:inline-block;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 /* Reserve two lines' height always + center within it, so the rotating
    pipeline line (1 line on some stages, 2 on others) never reflows the builder
-   heading and demo below it. */
+   heading and demo below it. Gentle fade between stages, no scramble. */
 .mkt-breath-line{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
   font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0;
-  min-height:2.6em;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0 .38em}
+  min-height:2.6em;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:0 .38em;
+  transition:opacity .55s ease,transform .55s ease,filter .55s ease}
+.mkt-breath-line.mkt-swap{opacity:0;transform:translateY(10px);filter:blur(6px)}
 .mkt-breath-line b{font-weight:700;color:var(--text)}
 .mkt-breath-line span{font-weight:700;color:rgba(237,234,243,.36)}
 /* pipeline progress — five slim segments, active fills with the gradient */
