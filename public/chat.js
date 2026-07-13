@@ -121,12 +121,12 @@ const MODEL_LISTS = {
   video: [
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend' },
     { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
-    { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
-    { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio' },
-    { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio' },
-    { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest · edit' },
-    { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
-    { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio' },
+    { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
+    { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
+    { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio', group: 'seedance' },
+    { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest · edit', group: 'kling' },
+    { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio', group: 'kling' },
+    { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio', group: 'kling' },
     { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
@@ -141,6 +141,12 @@ const MODEL_LISTS = {
     { id: 'fal-ai/elevenlabs/tts/turbo-v2.5', label: 'ElevenLabs Turbo', note: 'fast' },
     { id: 'fal-ai/elevenlabs/tts/multilingual-v2', label: 'ElevenLabs Multilingual', note: '29 langs' },
   ],
+};
+// Families collapsed into one picker row (hover → side flyout with the variants).
+// `variant` derives the short name shown on the parent when one is selected.
+const GROUP_META = {
+  seedance: { label: 'Seedance 2.0', variant: (l) => l.replace(/^Seedance 2\.0\s*/, '').trim() || 'Standard' },
+  kling:    { label: 'Kling',        variant: (l) => l.replace(/^Kling\s*/, '').trim() },
 };
 
 const modelMenu = document.getElementById('modelMenu');
@@ -821,6 +827,7 @@ function modelChips(id) {
 
 function buildMenu() {
   if (!modelMenu) return;
+  if (typeof hideFlyoutNow === 'function') hideFlyoutNow();
   modelMenu.innerHTML = '';
   model = selectedModels[mode] || DEFAULT_MODELS[mode];
 
@@ -841,43 +848,114 @@ function buildMenu() {
   section.textContent = '✦ Featured models';
   modelMenu.appendChild(section);
 
+  // Render rows, collapsing families (group) into one parent row that opens a
+  // side flyout on hover; everything else renders as a normal row.
+  const emitted = new Set();
   MODEL_LISTS[mode].forEach((m) => {
-    const prov = providerOf(m.id);
-    const d = document.createElement('div');
-    d.className = 'model-item m-row' + (m.id === model ? ' selected' : '');
-    d.dataset.model = m.id;
-    d.dataset.label = m.label;
-    d.dataset.search = (m.label + ' ' + prov.name + ' ' + (m.note || '')).toLowerCase();
-
-    const notes = (m.note || '').split('·').map((t) => t.trim()).filter(Boolean);
-    const hasAudio = notes.includes('audio');
-    const badges = notes
-      .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax'].includes(t))
-      .map((t) => t === 'newest'
-        ? '<span class="m-badge">NEW</span>'
-        : '<span class="m-tag' + (/cheap/i.test(t) ? ' cheap' : '') + '">' + t.toUpperCase() + '</span>')
-      .join('');
-    const chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
-
-    d.style.setProperty('--prov', prov.tint || '#8a8a92');
-    const icoInner = prov.logo
-      ? '<img class="m-logo" src="' + prov.logo + '" alt="" draggable="false">'
-      : '<b>' + (prov.mono || '·') + '</b>';
-    d.innerHTML =
-      '<span class="m-ico">' + icoInner + '</span>'
-      + '<span class="m-main">'
-      +   '<span class="m-title">' + m.label + (hasAudio ? ' <span class="spk">🔊</span>' : '') + badges + '</span>'
-      +   (chips ? '<span class="m-chips">' + chips + '</span>' : '')
-      + '</span>'
-      + '<span class="check">✓</span>';
-    d.onclick = () => pickModel(d);
-    modelMenu.appendChild(d);
+    if (m.group) {
+      if (emitted.has(m.group)) return;
+      emitted.add(m.group);
+      modelMenu.appendChild(buildGroupRow(m.group, MODEL_LISTS[mode].filter((x) => x.group === m.group)));
+    } else {
+      modelMenu.appendChild(buildModelRow(m, false));
+    }
   });
   // Guard against a selected id that isn't in this mode's list (e.g. a persisted
   // pick from another mode) — fall back to the default rather than throwing.
   const cur = MODEL_LISTS[mode].find((m) => m.id === model) || MODEL_LISTS[mode].find((m) => m.id === DEFAULT_MODELS[mode]) || MODEL_LISTS[mode][0];
   document.getElementById('modelLabel').textContent = cur ? cur.label : 'Auto';
 }
+
+// One picker row for a single model. `variant` → rendered inside a group flyout.
+function buildModelRow(m, variant) {
+  const prov = providerOf(m.id);
+  const d = document.createElement('div');
+  d.className = 'model-item m-row' + (variant ? ' m-variant' : '') + (m.id === model ? ' selected' : '');
+  d.dataset.model = m.id;
+  d.dataset.label = m.label;
+  d.dataset.search = (m.label + ' ' + prov.name + ' ' + (m.note || '')).toLowerCase();
+  const notes = (m.note || '').split('·').map((t) => t.trim()).filter(Boolean);
+  const hasAudio = notes.includes('audio');
+  const badges = notes
+    .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax', 'Luma'].includes(t))
+    .map((t) => t === 'newest'
+      ? '<span class="m-badge">NEW</span>'
+      : '<span class="m-tag' + (/cheap/i.test(t) ? ' cheap' : '') + '">' + t.toUpperCase() + '</span>')
+    .join('');
+  const chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
+  d.style.setProperty('--prov', prov.tint || '#8a8a92');
+  const icoInner = prov.logo
+    ? '<img class="m-logo" src="' + prov.logo + '" alt="" draggable="false">'
+    : '<b>' + (prov.mono || '·') + '</b>';
+  d.innerHTML =
+    '<span class="m-ico">' + icoInner + '</span>'
+    + '<span class="m-main">'
+    +   '<span class="m-title">' + m.label + (hasAudio ? ' <span class="spk">🔊</span>' : '') + badges + '</span>'
+    +   (chips ? '<span class="m-chips">' + chips + '</span>' : '')
+    + '</span>'
+    + '<span class="check">✓</span>';
+  d.onclick = () => pickModel(d);
+  return d;
+}
+
+// Collapsed family row: shows the family + which variant is active; hover (or
+// tap) opens a side flyout listing the variants.
+function buildGroupRow(key, variants) {
+  const meta = GROUP_META[key] || { label: key };
+  const prov = providerOf(variants[0].id);
+  const active = variants.find((v) => v.id === model);
+  const d = document.createElement('div');
+  d.className = 'model-item m-row m-group' + (active ? ' selected' : '');
+  d.dataset.group = key;
+  d.dataset.search = (meta.label + ' ' + prov.name + ' ' + variants.map((v) => v.label).join(' ')).toLowerCase();
+  d.style.setProperty('--prov', prov.tint || '#8a8a92');
+  const icoInner = prov.logo
+    ? '<img class="m-logo" src="' + prov.logo + '" alt="" draggable="false">'
+    : '<b>' + (prov.mono || '·') + '</b>';
+  const activeShort = active ? (meta.variant ? meta.variant(active.label) : active.label) : '';
+  d.innerHTML =
+    '<span class="m-ico">' + icoInner + '</span>'
+    + '<span class="m-main">'
+    +   '<span class="m-title">' + meta.label + (activeShort ? ' <span class="m-active">' + activeShort + '</span>' : '') + '</span>'
+    +   '<span class="m-chips"><span class="m-chip m-count">' + variants.length + ' models</span></span>'
+    + '</span>'
+    + '<span class="m-caret">›</span>';
+  d.addEventListener('mouseenter', () => showFlyout(d, variants));
+  d.addEventListener('mouseleave', hideFlyoutSoon);
+  d.onclick = (e) => { e.stopPropagation(); showFlyout(d, variants); };
+  return d;
+}
+
+// Shared side flyout for family variants, positioned next to the hovered row.
+let _flyout, _flyoutHideT;
+function getFlyout() {
+  if (!_flyout) {
+    _flyout = document.createElement('div');
+    _flyout.className = 'model-flyout';
+    _flyout.addEventListener('mouseenter', () => clearTimeout(_flyoutHideT));
+    _flyout.addEventListener('mouseleave', hideFlyoutSoon);
+    document.body.appendChild(_flyout);
+  }
+  return _flyout;
+}
+function showFlyout(groupRow, variants) {
+  const fly = getFlyout();
+  clearTimeout(_flyoutHideT);
+  fly.innerHTML = '';
+  variants.forEach((m) => fly.appendChild(buildModelRow(m, true)));
+  fly.style.visibility = 'hidden';
+  fly.style.display = 'block';
+  const r = groupRow.getBoundingClientRect();
+  const fw = fly.offsetWidth, fh = fly.offsetHeight;
+  let left = r.right + 6;
+  if (left + fw > window.innerWidth - 8) left = Math.max(8, r.left - fw - 6);
+  const top = Math.max(8, Math.min(r.top, window.innerHeight - fh - 8));
+  fly.style.left = left + 'px';
+  fly.style.top = top + 'px';
+  fly.style.visibility = 'visible';
+}
+function hideFlyoutSoon() { clearTimeout(_flyoutHideT); _flyoutHideT = setTimeout(hideFlyoutNow, 180); }
+function hideFlyoutNow() { clearTimeout(_flyoutHideT); if (_flyout) _flyout.style.display = 'none'; }
 
 function setMode(m) {
   mode = m;
@@ -1451,17 +1529,17 @@ function pickModel(el) {
   if (el.classList.contains('disabled')) return;
   model = el.dataset.model;
   selectedModels[mode] = model;
-  // Scope to the model menu — effort/director/img-src menus reuse .model-item
-  // and a document-wide toggle would wipe their checkmarks.
-  modelMenu.querySelectorAll('.model-item').forEach(i => i.classList.toggle('selected', i === el));
-  document.getElementById('modelLabel').textContent = el.dataset.label;
+  hideFlyoutNow();
   modelMenu.classList.remove('open');
+  buildMenu();       // repaint rows (incl. group parent's active-variant state) + label
   buildOptMenus();
 }
 
 if (modelMenu) {
-  document.addEventListener('click', () =>
-    document.querySelectorAll('.model-menu.open').forEach((m) => m.classList.remove('open')));
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.model-menu.open').forEach((m) => m.classList.remove('open'));
+    hideFlyoutNow();
+  });
 }
 
 // Keep aria-expanded on dropdown triggers in sync with their menu's open state.
