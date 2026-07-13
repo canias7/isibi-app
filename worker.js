@@ -13,7 +13,6 @@ const VIDEO_MODELS = new Set([
   "fal-ai/veo3.1",
   "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
-  "fal-ai/minimax/hailuo-2.3/pro/text-to-video",
   "fal-ai/bytedance/omnihuman",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
@@ -69,7 +68,6 @@ const VIDEO_USD = {
   "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, d: 5 },
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
-  "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
   "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
   "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
