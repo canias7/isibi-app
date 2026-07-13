@@ -3384,18 +3384,27 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* output pickers — small rounded-square tiles fanned in a gentle arc over the
    chatbox (per the owner's sketch). Icon squircle + small label; active tile
    lifts and fills with the gradient. Game/Music are SOON teasers. */
-/* centered so the arch sits symmetric over the chatbox below it */
-.mkt-picks{display:flex;align-items:flex-end;justify-content:center;gap:.6rem;
-  width:100%;margin:1.4rem 0 0;padding-top:2.4rem}
-.mkt-pick{display:flex;flex-direction:column;align-items:center;gap:.4rem;flex:0 0 64px;width:64px;
+/* a true semicircle over the chatbox: tiles positioned on a half-circle
+   (x = R·cosθ, y = −R·sinθ at 180/135/90/45/0°), centered on the column so the
+   dome sits symmetric over the box below. */
+.mkt-picks{position:relative;width:100%;height:248px;margin:1rem 0 0}
+.mkt-pick{position:absolute;left:50%;bottom:0;width:64px;
+  display:flex;flex-direction:column;align-items:center;gap:.4rem;
   background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font-family:inherit;
-  transform:translateY(var(--ay,0)) rotate(var(--ar,0deg))}
-/* the arc: middle tile highest, outer tiles lower + tilted outward */
-.mkt-pick:nth-child(1){--ay:0px;--ar:-14deg}
-.mkt-pick:nth-child(2){--ay:-26px;--ar:-7deg}
-.mkt-pick:nth-child(3){--ay:-38px;--ar:0deg}
-.mkt-pick:nth-child(4){--ay:-26px;--ar:7deg}
-.mkt-pick:nth-child(5){--ay:0px;--ar:14deg}
+  transform:translateX(calc(-50% + var(--ax,0px))) translateY(var(--ay,0px)) rotate(var(--ar,0deg))}
+.mkt-pick:nth-child(1){--ax:-168px;--ay:0px;--ar:-20deg}
+.mkt-pick:nth-child(2){--ax:-119px;--ay:-112px;--ar:-10deg}
+.mkt-pick:nth-child(3){--ax:0px;--ay:-158px;--ar:0deg}
+.mkt-pick:nth-child(4){--ax:119px;--ay:-112px;--ar:10deg}
+.mkt-pick:nth-child(5){--ax:168px;--ay:0px;--ar:20deg}
+@media (max-width:560px){
+  .mkt-picks{height:200px}
+  .mkt-pick:nth-child(1){--ax:-128px;--ay:0px}
+  .mkt-pick:nth-child(2){--ax:-91px;--ay:-86px}
+  .mkt-pick:nth-child(3){--ax:0px;--ay:-120px}
+  .mkt-pick:nth-child(4){--ax:91px;--ay:-86px}
+  .mkt-pick:nth-child(5){--ax:128px;--ay:0px}
+}
 .mkt-pick .pk{position:relative;width:54px;height:54px;border-radius:18px;display:grid;place-items:center;
   border:1px solid var(--line-2);color:var(--muted);
   background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
