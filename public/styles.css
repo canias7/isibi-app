@@ -3459,7 +3459,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-send{flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:var(--split);color:#14060d;
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem;
   box-shadow:0 4px 14px rgba(255,121,198,.35)}
-.mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:1.3rem 0 0;letter-spacing:.02em}
+.mkt-demo-dots{display:flex;justify-content:center;gap:.5rem;margin:1.1rem 0 0}
+.mkt-demo-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2);transition:background .2s,width .2s}
+.mkt-demo-dot.mkt-on{width:20px;border-radius:99px;background:var(--split)}
+.mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 
 /* three captions under the replica (Morphic) */
