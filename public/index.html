@@ -104,11 +104,11 @@
         <!-- Laurel crest above the box (Higgsfield-style), isibi gradient leaves -->
         <div class="mkt-crest">
           <svg class="mkt-laurel" viewBox="0 0 64 96" fill="none" aria-hidden="true">
-            <defs><linearGradient id="mktLaurel" x1="0" y1="1" x2="1" y2="0">
-              <stop offset="0" stop-color="#ff79c6"/><stop offset="1" stop-color="#ffb84d"/>
+            <defs><linearGradient id="mktLaurel" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#54545e"/><stop offset=".5" stop-color="#17171c"/><stop offset="1" stop-color="#333339"/>
             </linearGradient></defs>
             <path d="M50 90C34 80 27 52 33 10" stroke="url(#mktLaurel)" stroke-width="2.2" stroke-linecap="round"/>
-            <g fill="url(#mktLaurel)">
+            <g fill="url(#mktLaurel)" stroke="rgba(255,255,255,0.16)" stroke-width="0.5">
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(46 76) rotate(-52)"/>
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(39 62) rotate(-44)"/>
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(34 48) rotate(-36)"/>
@@ -120,7 +120,7 @@
           <span class="mkt-crest-txt">✦ made from one sentence ✦</span>
           <svg class="mkt-laurel mkt-laurel-r" viewBox="0 0 64 96" fill="none" aria-hidden="true">
             <path d="M50 90C34 80 27 52 33 10" stroke="url(#mktLaurel)" stroke-width="2.2" stroke-linecap="round"/>
-            <g fill="url(#mktLaurel)">
+            <g fill="url(#mktLaurel)" stroke="rgba(255,255,255,0.16)" stroke-width="0.5">
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(46 76) rotate(-52)"/>
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(39 62) rotate(-44)"/>
               <path d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(34 48) rotate(-36)"/>
@@ -130,14 +130,18 @@
             </g>
           </svg>
         </div>
-        <!-- Straight chatbox (front page only): just the text line + send. No
-             mode selector, no model pill. -->
-        <div class="composer mkt-composer-simple" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
+        <!-- Straight chatbox (front page only): text line on top + send button
+             bottom-right, same size as the real composer but no mode/model. -->
+        <div class="composer" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
              aria-label="Start creating — describe what you want">
-          <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
-          <span class="send" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-          </span>
+          <div class="composer-top">
+            <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+          </div>
+          <div class="composer-row">
+            <span class="send" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </span>
+          </div>
         </div>
       </div>
     </section>
