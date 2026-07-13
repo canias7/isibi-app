@@ -36,12 +36,6 @@ const MODEL_OPTS = {
   'bytedance/seedance-2.0/mini/text-to-video': { ...SEEDANCE_OPTS, caps: { image: true, flf: true } },
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
   'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
-  'xai/grok-imagine-video/text-to-video': {
-    durations: range(1, 15), defDur: 6,
-    ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3'], defRatio: '16:9',
-    resolutions: ['480p', '720p'], defRes: '720p',
-    caps: { image: true, end: false, avatar: false },
-  },
   'google/gemini-omni-flash': {
     durations: range(3, 10), defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
@@ -56,12 +50,6 @@ const MODEL_OPTS = {
     // (1), first-&-last frame (2), reference-to-video (≤3). clip → extend an
     // existing clip (continue/lengthen it).
     caps: { image: true, end: false, avatar: false, flf: true, ref: 3, clip: true },
-  },
-  'fal-ai/sora-2/text-to-video/pro': {
-    durations: [4, 8, 12, 16, 20], defDur: 4,
-    ratios: ['16:9', '9:16'], defRatio: '16:9',
-    resolutions: ['720p', '1080p'], defRes: '1080p',
-    caps: { image: true, end: false, avatar: false },
   },
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
@@ -132,7 +120,6 @@ let mode = 'video';
 const MODEL_LISTS = {
   video: [
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend' },
-    { id: 'fal-ai/sora-2/text-to-video/pro', label: 'Sora 2 Pro', note: 'OpenAI' },
     { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio' },
@@ -141,7 +128,6 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio' },
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio' },
     { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
-    { id: 'xai/grok-imagine-video/text-to-video', label: 'Grok Imagine', note: 'audio' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
@@ -2543,7 +2529,6 @@ function updateSendLock() {
 // Video: $/sec by resolution (audio-on rates where the model does audio).
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
-  'fal-ai/sora-2/text-to-video/pro':              { s: { '720p': 0.30, '1080p': 0.50 } },
   'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
@@ -2552,7 +2537,6 @@ const VIDEO_PRICE = {
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
   'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
-  'xai/grok-imagine-video/text-to-video':         { s: { '480p': 0.05, '720p': 0.07, def: 0.07 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
   'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment

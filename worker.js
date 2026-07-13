@@ -9,10 +9,8 @@ const VIDEO_MODELS = new Set([
   "bytedance/seedance-2.0/mini/text-to-video",
   "fal-ai/kling-video/v3/pro/text-to-video",
   "fal-ai/kling-video/v3/standard/text-to-video",
-  "xai/grok-imagine-video/text-to-video",
   "google/gemini-omni-flash",
   "fal-ai/veo3.1",
-  "fal-ai/sora-2/text-to-video/pro",
   "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/minimax/hailuo-2.3/pro/text-to-video",
@@ -63,7 +61,6 @@ const SUPABASE_ANON_KEY =
 const CREDIT_USD = 0.008;
 const VIDEO_USD = {
   "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
-  "fal-ai/sora-2/text-to-video/pro":              { s: { "720p": 0.30, "1080p": 0.50 }, d: 10 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
   "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, d: 5 },
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
@@ -73,7 +70,6 @@ const VIDEO_USD = {
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
   "fal-ai/minimax/hailuo-2.3/pro/text-to-video":  { flat: 0.49 },
-  "xai/grok-imagine-video/text-to-video":         { s: { "480p": 0.05, "720p": 0.07, def: 0.07 }, d: 6 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
   "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
   "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
