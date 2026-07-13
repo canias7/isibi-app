@@ -3379,7 +3379,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* ==========================================================================
    The app — home replica in the spotlight
    ========================================================================== */
-.mkt-studio{max-width:1180px;margin:0 auto;
+.mkt-studio{max-width:1180px;margin:0 auto;overflow:hidden;
   padding:clamp(3.2rem,8vh,6rem) clamp(1.1rem,4vw,3rem) 0}
 .mkt-stage{position:relative;max-width:1080px;margin:0 auto;perspective:1500px;text-align:left}
 .mkt-stage::before{/* floor glow */
@@ -3509,25 +3509,27 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    center — the CSS transition on the slots IS the animation. Each demo is its
    own iframe present at parse time, so its real React bundle runs live
    (nav/cart/FAQ/signup all work inside the framed site). ===== */
-.mb-deck{position:relative;height:470px;margin:0 auto;perspective:1600px}
-.mb-slot{position:absolute;top:8px;left:50%;width:700px;max-width:92%;margin-left:-350px;
+.mb-deck{position:relative;height:600px;margin:0 auto;perspective:1900px}
+.mb-slot{position:absolute;top:10px;left:50%;width:960px;max-width:94%;
+  transform:translateX(-50%);   /* base = dead center; pos-* override below */
   border-radius:16px;overflow:hidden;border:1px solid var(--line-2);
   background:linear-gradient(180deg,#121017,#0b0a10);box-shadow:0 30px 70px rgba(0,0,0,.6);
   transition:transform .62s cubic-bezier(.55,.02,.2,1),opacity .5s ease,
     box-shadow .5s ease,filter .5s ease;will-change:transform,opacity,filter}
 .mb-slot .mb-body{aspect-ratio:16/9}
 
-/* center — front, upright, live (grab layer off so the iframe is clickable) */
-.mb-slot.pos-c{transform:translateX(0) scale(1);z-index:3;opacity:1;
+/* center — front, upright, full-size, live (grab layer off → iframe clickable) */
+.mb-slot.pos-c{transform:translateX(-50%) scale(1);z-index:3;opacity:1;
   box-shadow:0 -1px 0 rgba(255,255,255,.12) inset,0 44px 100px rgba(0,0,0,.68),
     0 20px 70px rgba(255,121,198,.16),0 8px 34px rgba(255,184,77,.1)}
 .mb-slot.pos-c .mb-grab{pointer-events:none}
-/* side peeks — smaller, tilted, dimmed; the grab layer catches the click */
-.mb-slot.pos-l{transform:translateX(-60%) scale(.8) rotate(-5deg);z-index:1;
-  opacity:.6;filter:saturate(.82) brightness(.68)}
-.mb-slot.pos-r{transform:translateX(60%) scale(.8) rotate(5deg);z-index:1;
-  opacity:.6;filter:saturate(.82) brightness(.68)}
-.mb-slot.pos-l:hover,.mb-slot.pos-r:hover{opacity:.82;filter:saturate(.95) brightness(.86)}
+/* side peeks — tucked behind, tilted, dimmed; they bleed off the edges. The
+   grab layer catches the click to bring one forward. */
+.mb-slot.pos-l{transform:translateX(-92%) scale(.78) rotate(-6deg);z-index:1;
+  opacity:.5;filter:saturate(.8) brightness(.6)}
+.mb-slot.pos-r{transform:translateX(-8%) scale(.78) rotate(6deg);z-index:1;
+  opacity:.5;filter:saturate(.8) brightness(.6)}
+.mb-slot.pos-l:hover,.mb-slot.pos-r:hover{opacity:.72;filter:saturate(.95) brightness(.8)}
 .mb-slot.pos-l .mb-grab,.mb-slot.pos-r .mb-grab{pointer-events:auto;cursor:pointer}
 
 .mb-body{position:relative;aspect-ratio:16/9;overflow:hidden;background:#0d0b12}
