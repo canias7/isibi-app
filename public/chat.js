@@ -6506,26 +6506,36 @@ function initDemoCarousel() {
   if (slots.length < 2) return;
   const N = slots.length;
   const builtFrom = document.getElementById('mktBuiltFrom');
-  let front = 0;
-  const layout = () => {
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let front = 0, typeTimer = null;
+  // retype the prompt letter-by-letter (like the top composer) on each switch
+  const typePrompt = (text, animate) => {
+    if (!builtFrom) return;
+    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
+    if (!animate || reduce) { builtFrom.textContent = text; return; }
+    let k = 0;
+    const step = () => {
+      builtFrom.textContent = text.slice(0, ++k);
+      if (k < text.length) typeTimer = setTimeout(step, 16 + Math.random() * 22);
+    };
+    builtFrom.textContent = '';
+    step();
+  };
+  const layout = (animate) => {
     slots.forEach((s, n) => {
       const rel = (n - front + N) % N;   // 0 = front, 1 = mid, 2 = back
       s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
       s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3');
     });
-    // swap the "built from one line" prompt to the front card's sentence
     const prompt = slots[front] && slots[front].getAttribute('data-prompt');
-    if (builtFrom && prompt && builtFrom.textContent !== prompt) {
-      builtFrom.classList.add('mkt-bf-swap');
-      setTimeout(() => { builtFrom.textContent = prompt; builtFrom.classList.remove('mkt-bf-swap'); }, 240);
-    }
+    if (prompt && builtFrom && builtFrom.textContent !== prompt) typePrompt(prompt, animate);
   };
-  const go = (i) => { front = ((i % N) + N) % N; layout(); };
+  const go = (i) => { front = ((i % N) + N) % N; layout(true); };
   slots.forEach((s, n) => {
     const grab = s.querySelector('.mb-grab');
     if (grab) grab.addEventListener('click', () => go(n));
   });
-  layout();
+  layout(false);
 }
 
 // Marketing: the "type your idea" chatbox under the filmstrip. When idle it

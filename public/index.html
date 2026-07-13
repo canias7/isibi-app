@@ -168,9 +168,20 @@
         <div class="mkt-split-copy">
           <span class="mkt-eyebrow">meet the website builder</span>
           <h2 class="mkt-h2"><b>Dream it. Deploy it.</b> <span>From a thought to a live site.</span></h2>
-          <div class="mkt-builtfrom">
-            <span class="mkt-builtfrom-lbl">this whole live website came from one line →</span>
-            <p class="mkt-builtfrom-line" id="mktBuiltFrom">a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup</p>
+          <span class="mkt-builtfrom-lbl">this whole live website came from one line ↓</span>
+          <!-- The prompt sits inside a mock of the top video-generator composer;
+               initDemoCarousel retypes it as the front demo changes. -->
+          <div class="mkt-composer mkt-composer-demo">
+            <div class="composer" data-mkt="start" role="button" tabindex="0" aria-label="Start creating">
+              <div class="composer-top">
+                <div class="mkt-fauxinput"><span id="mktBuiltFrom">a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup</span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+              </div>
+              <div class="composer-row">
+                <span class="send" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                </span>
+              </div>
+            </div>
           </div>
           <button class="mkt-cta" data-mkt="start" type="button">Build yours →</button>
         </div>
