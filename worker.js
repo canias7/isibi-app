@@ -411,11 +411,17 @@ function briefErr(d) {
   return undefined;
 }
 
-function harden(res) {
+function harden(res, request) {
   const h = new Headers(res.headers);
-  h.set("Content-Security-Policy", CSP);
+  // The vendored marketing demo under /mkt/demo/ is a self-contained page the
+  // landing embeds in an <iframe>. It must be same-origin framable, so relax the
+  // clickjacking guard for that path ONLY (still blocks cross-origin framing);
+  // the app + auth keep DENY / frame-ancestors 'none'.
+  let sameOriginFrame = false;
+  try { sameOriginFrame = new URL(request.url).pathname.startsWith("/mkt/demo/"); } catch {}
+  h.set("Content-Security-Policy", sameOriginFrame ? CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'") : CSP);
   h.set("X-Content-Type-Options", "nosniff");
-  h.set("X-Frame-Options", "DENY");
+  h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
   h.set("Referrer-Policy", "strict-origin-when-cross-origin");
   h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
@@ -1553,7 +1559,7 @@ function agentSystemPrompt(connected) {
 
 export default {
   async fetch(request, env, ctx) {
-    return harden(await handleRequest(request, env, ctx));
+    return harden(await handleRequest(request, env, ctx), request);
   },
   // Cron trigger (see wrangler.jsonc): drive the DM auto-reply engine.
   async scheduled(event, env, ctx) {
