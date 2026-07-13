@@ -96,6 +96,29 @@
           <div class="mkt-cell mkt-c14"><span class="mkt-cell-img" style="background-image:url('/mkt/f14.jpg')"></span></div>
         </div>
       </div>
+      <!-- A faithful mock of the real isibi composer under the two output rows.
+           Clicking any clip above pastes its prompt in (preset-style) and sets
+           the matching mode; the box itself starts sign-up. Purely a hook — it's
+           the front page, so it doesn't generate. -->
+      <div class="mkt-composer">
+        <div class="composer" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
+             aria-label="Start creating — describe what you want">
+          <div class="composer-top">
+            <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+          </div>
+          <div class="composer-row">
+            <div class="mode-switch" role="group" aria-label="Generation mode" aria-hidden="true">
+              <span class="mode-btn" data-mktmode="Voice">Audio</span>
+              <span class="mode-btn" data-mktmode="Image">Image</span>
+              <span class="mode-btn active" data-mktmode="Video">Video</span>
+            </div>
+            <span class="opt-btn mkt-optghost">Model: <b>Auto</b> ▾</span>
+            <span class="send" aria-hidden="true">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </span>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- model marquee -->
@@ -108,26 +131,6 @@
         </div>
       </div>
     </div>
-
-    <!-- A quiet "under the hood" beat between the filmstrip and the website
-         demo — a calm still glow behind a short line that gently cycles the
-         real generation pipeline. No moving numbers; lets the page breathe. -->
-    <section class="mkt-deep" id="mkt-essay">
-      <div class="mkt-deep-inner">
-        <span class="mkt-eyebrow">under the hood</span>
-        <!-- Rotating pipeline lines — chat.js gently fades between these
-             (tokenize → embed → diffuse → infer → render). First one inline
-             for the no-JS case. -->
-        <p class="mkt-breath-line" id="mktDeepLine"><b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span></p>
-        <div class="mkt-deep-steps" id="mktDeepSteps" role="tablist" aria-label="Generation pipeline stages">
-          <button class="mkt-deep-step mkt-on" type="button" aria-label="Stage 1: Tokenized"></button>
-          <button class="mkt-deep-step" type="button" aria-label="Stage 2: Embedded"></button>
-          <button class="mkt-deep-step" type="button" aria-label="Stage 3: Diffused"></button>
-          <button class="mkt-deep-step" type="button" aria-label="Stage 4: Inferred"></button>
-          <button class="mkt-deep-step" type="button" aria-label="Stage 5: Rendered"></button>
-        </div>
-      </div>
-    </section>
 
     <!-- The app — real sites isibi built, embedded live and fully browsable -->
     <section class="mkt-studio" id="mkt-studio">
