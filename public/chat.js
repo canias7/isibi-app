@@ -71,10 +71,6 @@ const MODEL_OPTS = {
     // clip → video-to-video edit (re-render the clip, keeps source audio).
     caps: { image: true, flf: true, clip: true },
   },
-  // Hailuo has no exposed duration/ratio/resolution — a prompt is all it takes.
-  // fal does expose image-to-video (image_url = first frame); no end frame or
-  // reference, so a single Image slot is the whole image-input surface.
-  'fal-ai/minimax/hailuo-2.3/pro/text-to-video': { caps: { image: true, end: false, avatar: false } },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
   // LipSync = a source clip + voice.
@@ -127,10 +123,9 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest · edit', group: 'kling' },
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio', group: 'kling' },
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio', group: 'kling' },
-    { id: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video', label: 'Hailuo 2.3 Pro', note: 'MiniMax' },
+    { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync', group: 'kling' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
-    { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync' },
   ],
   image: [
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro', note: 'Google · flagship' },
@@ -1112,7 +1107,7 @@ const PRESET_CATS = [
       model: 'fal-ai/veo3.1', ratio: '16:9', dur: 8, res: '720p',
       prompt: 'Sweeping cinematic aerial establishing shot over [location] at golden hour: the camera glides forward and slowly rises, volumetric god-rays cutting through haze, long warm shadows stretching across the landscape, anamorphic lens flares kissing the frame edges. Epic scale with layered depth — foreground silhouettes, midground detail, glowing horizon. Filmic color grade with rich ambers and deep teals, gentle wind movement in trees or water, 24fps motion cadence, no text or watermarks.' },
     { label: 'Slow-mo hero', kind: 'video', desc: 'Dramatic slow-motion close-up.',
-      model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
+      model: 'fal-ai/veo3.1',
       prompt: 'Ultra slow-motion cinematic close-up of [subject], locked-off camera: dramatic single-source side lighting carves the form out of darkness, dust particles drift and glint through the beam, micro-movements read in exquisite detail — fabric settling, hair lifting, a slow turn toward the light. Shallow depth of field, moody high-contrast grade with soft film grain, one continuous shot with no cuts, no text or watermarks.' },
     { label: 'Noir scene', kind: 'image', desc: 'Neon rain-slicked film noir.',
       model: 'fal-ai/nano-banana-pro', ratio: '16:9',
@@ -1159,7 +1154,7 @@ const PRESET_CATS = [
       model: 'fal-ai/nano-banana-pro', ratio: '1:1',
       prompt: 'Cute chibi anime sticker of [character]: oversized head and tiny body, huge expressive eyes, one clear exaggerated emotion, thick clean outline with a white sticker border, flat bright colors with minimal two-tone shading, simple empty background ready for a transparent cutout. Kawaii, instantly readable at small size. No text or watermarks.' },
     { label: 'Anime scene', kind: 'video', desc: 'Gently animated anime shot.',
-      model: 'fal-ai/minimax/hailuo-2.3/pro/text-to-video',
+      model: 'fal-ai/veo3.1',
       prompt: 'Anime-style animated scene of [subject] with gentle ambient motion: hair and clothes swaying in a soft breeze, blinking and small natural movements, background elements drifting in subtle parallax — petals, clouds, or light particles. The art style is preserved exactly with no smoothing or realism drift, colors stay flat and cel-shaded, camera locked or drifting almost imperceptibly. One continuous calm shot, no text or watermarks.' },
   ] },
 ];
@@ -2614,7 +2609,6 @@ const VIDEO_PRICE = {
   'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 } },
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
-  'fal-ai/minimax/hailuo-2.3/pro/text-to-video':  { flat: 0.49 },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
   'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment
