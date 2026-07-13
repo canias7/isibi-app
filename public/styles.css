@@ -3384,16 +3384,18 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* output pickers — small rounded-square tiles fanned in a gentle arc over the
    chatbox (per the owner's sketch). Icon squircle + small label; active tile
    lifts and fills with the gradient. Game/Music are SOON teasers. */
-.mkt-picks{display:flex;align-items:flex-end;gap:.6rem;margin:1.4rem 0 0;padding-top:1.5rem}
-.mkt-pick{display:flex;flex-direction:column;align-items:center;gap:.4rem;flex:0 0 auto;
+/* centered so the arch sits symmetric over the chatbox below it */
+.mkt-picks{display:flex;align-items:flex-end;justify-content:center;gap:.6rem;
+  width:100%;margin:1.4rem 0 0;padding-top:2.4rem}
+.mkt-pick{display:flex;flex-direction:column;align-items:center;gap:.4rem;flex:0 0 64px;width:64px;
   background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font-family:inherit;
   transform:translateY(var(--ay,0)) rotate(var(--ar,0deg))}
 /* the arc: middle tile highest, outer tiles lower + tilted outward */
-.mkt-pick:nth-child(1){--ay:0px;--ar:-8deg}
-.mkt-pick:nth-child(2){--ay:-14px;--ar:-4deg}
-.mkt-pick:nth-child(3){--ay:-21px;--ar:0deg}
-.mkt-pick:nth-child(4){--ay:-14px;--ar:4deg}
-.mkt-pick:nth-child(5){--ay:0px;--ar:8deg}
+.mkt-pick:nth-child(1){--ay:0px;--ar:-14deg}
+.mkt-pick:nth-child(2){--ay:-26px;--ar:-7deg}
+.mkt-pick:nth-child(3){--ay:-38px;--ar:0deg}
+.mkt-pick:nth-child(4){--ay:-26px;--ar:7deg}
+.mkt-pick:nth-child(5){--ay:0px;--ar:14deg}
 .mkt-pick .pk{position:relative;width:54px;height:54px;border-radius:18px;display:grid;place-items:center;
   border:1px solid var(--line-2);color:var(--muted);
   background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
@@ -3401,7 +3403,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   transition:transform .3s cubic-bezier(.34,1.45,.5,1),box-shadow .3s ease,
     border-color .3s ease,background .3s ease,color .3s ease}
 .mkt-pick .pk svg{width:21px;height:21px}
-.mkt-pick .pl{font-size:.58rem;font-weight:600;letter-spacing:.02em;transition:color .3s ease}
+.mkt-pick .pl{font-size:.58rem;font-weight:600;letter-spacing:.02em;white-space:nowrap;transition:color .3s ease}
 .mkt-pick:hover .pk{transform:translateY(-4px);border-color:rgba(255,255,255,.32);color:var(--text)}
 .mkt-pick:focus-visible{outline:none}
 .mkt-pick:focus-visible .pk{border-color:var(--neon);box-shadow:0 0 0 3px rgba(255,121,198,.35)}
