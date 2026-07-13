@@ -3963,11 +3963,11 @@ function hideMarketing() {
   const mkt = document.getElementById('marketing');
   if (mkt) mkt.style.display = 'none';
 }
-// A marketing CTA opens the gate over the landing, in the right mode
-// ("start" → create account, "signin" → sign in).
+// A marketing CTA opens the auth popup OVER the landing, in the right mode
+// ("start" → create account, "signin" → sign in). The landing stays visible,
+// dimmed behind the modal backdrop.
 function openAuthFrom(mode) {
   if (typeof setAuthMode === 'function') setAuthMode(mode === 'start' ? 'up' : 'in');
-  hideMarketing();
   showAuthGate();
 }
 
@@ -6439,8 +6439,18 @@ function initAuthGate() {
     el.addEventListener('click', go);
     if (el.getAttribute('role') === 'button') el.addEventListener('keydown', go);
   });
+  // The popup closes three ways — ✕, backdrop click, Esc — all back to the landing.
+  const closeAuth = () => { hideAuthGate(); showMarketing(); };
   const back = document.getElementById('authHome');
-  if (back) back.addEventListener('click', () => { hideAuthGate(); showMarketing(); });
+  if (back) back.addEventListener('click', closeAuth);
+  const gateEl = document.getElementById('authGate');
+  if (gateEl) gateEl.addEventListener('click', (e) => { if (e.target === gateEl) closeAuth(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !gateEl) return;
+    if (getComputedStyle(gateEl).display === 'none') return;
+    if (window.Auth && Auth.isSignedIn()) return; // mid-session re-auth: don't dismiss
+    closeAuth();
+  });
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();

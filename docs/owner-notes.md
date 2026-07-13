@@ -91,6 +91,14 @@ _(empty)_
   code change needed to swap them in. Videos: say the word and specific
   filmstrip cells get wired to `<video>` (files as `/mkt/f{n}.mp4`).
 
+- **Auth is a popup now (owner request, 2026-07-13):** the full-screen sign-in
+  page (login-bg video background) is gone. Sign up / sign in open as a centered
+  modal OVER the marketing landing (dimmed + blurred backdrop). Closes via ✕
+  (top-right, was "← Back"), backdrop click, or Esc — all return to the landing
+  (Esc ignored for signed-in users so a mid-session re-auth can't be dismissed).
+  Gate hidden by default (inline display:none, like #marketing) so it can't
+  flash at boot. login-bg.jpg/.webm/.mp4 files kept in the repo (unused by auth).
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
