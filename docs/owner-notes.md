@@ -65,6 +65,32 @@ and fixed, and add a preference line whenever the owner signals one.
   in VIDEO_USD) — PROVISIONAL, verify on the fal sweep. Not-in-roster editors
   still available if wanted: Happy Horse 1.0, Kling o1, VOID (object removal).
 
+## In progress — awaiting owner sign-off (NOT merged to main)
+
+_(empty)_
+
+## Shipped
+
+- **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
+  "main" 2026-07-13 → merged):** logged-out
+  visitors see a marketing page BEFORE the auth gate (owner picked option 1).
+  In-page `#marketing` section (no new URLs / Worker routing / Supabase redirect
+  changes). Boot: signed-in → `enterApp`; logged-out → `showMarketing()`; CTAs
+  (`data-mkt`) → `openAuthFrom()` opens the gate; gate "← Back" (`#authHome`) →
+  back to landing. **Design = Morphic style** (owner: "i kinda want it like that
+  one" → https://godly.design/site/morphic/): dark cinematic, compact
+  left-aligned hero ("Generate the impossible."), filmstrip of output under the
+  hero, two-tone section headings (bold white line + muted grey line), model
+  ticker, Home-screen replica + 3 captions, preset card rail, six "acts"
+  feature grid, Plus/Pro/Max pricing, giant "Your premiere starts tonight."
+  close, ghost "isibi" wordmark in the footer — all in isibi's pink→amber.
+  **Media slots (owner will supply the images/videos):** drop files at
+  `public/mkt/f1.jpg` … `f14.jpg` (filmstrip: row 1 = f1–f7, row 2 = f8–f14,
+  16:9, ~600px wide is plenty) and `public/mkt/p1.jpg` … `p8.jpg` (preset
+  cards, 16:10). Styled placeholder gradients show until a file lands — no
+  code change needed to swap them in. Videos: say the word and specific
+  filmstrip cells get wired to `<video>` (files as `/mkt/f{n}.mp4`).
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_

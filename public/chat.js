@@ -3949,6 +3949,28 @@ function hideAuthGate() {
   if (shell) shell.inert = false;
 }
 
+// Public marketing landing (logged-out default). CTAs reveal the auth gate;
+// the gate's "← Back" returns here; signing in hides it for good.
+function showMarketing() {
+  const mkt = document.getElementById('marketing');
+  if (mkt) mkt.style.display = 'block';
+  const gate = document.getElementById('authGate');
+  if (gate) gate.style.display = 'none';
+  const shell = document.querySelector('.shell');
+  if (shell) shell.inert = true;
+}
+function hideMarketing() {
+  const mkt = document.getElementById('marketing');
+  if (mkt) mkt.style.display = 'none';
+}
+// A marketing CTA opens the gate over the landing, in the right mode
+// ("start" → create account, "signin" → sign in).
+function openAuthFrom(mode) {
+  if (typeof setAuthMode === 'function') setAuthMode(mode === 'start' ? 'up' : 'in');
+  hideMarketing();
+  showAuthGate();
+}
+
 // One flow: email + password → emailed code → in.
 // Modes: 'in' (sign in) · 'up' (create account) · 'reset' (forgot password).
 // Steps: 'creds' → 'code' → ('newpass' for reset).
@@ -4111,6 +4133,7 @@ async function resendAuthCode() {
 }
 
 function enterApp() {
+  hideMarketing();
   hideAuthGate();
   const email = Auth.email();
   const badge = document.getElementById('authEmailBadge');
@@ -6408,8 +6431,19 @@ function initAuthGate() {
   const resend = document.getElementById('authResend');
   if (resend) resend.addEventListener('click', resendAuthCode);
   renderAuthStep();
+  // Marketing CTAs (data-mkt="start"|"signin") open the gate; the gate's back
+  // button returns to the landing.
+  document.querySelectorAll('[data-mkt]').forEach((el) => {
+    const mode = el.getAttribute('data-mkt');
+    const go = (e) => { if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return; e.preventDefault(); openAuthFrom(mode); };
+    el.addEventListener('click', go);
+    if (el.getAttribute('role') === 'button') el.addEventListener('keydown', go);
+  });
+  const back = document.getElementById('authHome');
+  if (back) back.addEventListener('click', () => { hideAuthGate(); showMarketing(); });
+  // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
-  else showAuthGate();
+  else showMarketing();
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
