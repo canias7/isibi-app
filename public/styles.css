@@ -3381,15 +3381,33 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-composer-lead .mkt-fauxinput{white-space:normal;overflow:visible;align-items:flex-start;
   padding:.25rem 0 .35rem;font-size:1rem;line-height:1.5;font-weight:500}
 .mkt-composer-lead .mkt-typebox-caret{align-self:flex-start;margin-top:.15rem}
-/* chips */
-.mkt-lead-chips{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1.3rem}
-.mkt-lchip{display:inline-flex;align-items:center;gap:.5rem;padding:.5rem 1.05rem;border-radius:999px;cursor:pointer;
-  border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--muted);font-weight:600;font-size:.9rem;
-  font-family:inherit;transition:color .2s ease,border-color .2s ease,background .2s ease}
-.mkt-lchip .ld{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.6}
-.mkt-lchip:hover{color:var(--text)}
-.mkt-lchip.mkt-on{color:#14060d;border-color:transparent;background:var(--split)}
-.mkt-lchip.mkt-on .ld{background:#14060d;opacity:.55}
+/* output pickers — rounded-square tiles above the chatbox. Icon squircle +
+   small label; active tile lifts and fills with the gradient. Game/Music are
+   SOON teasers. */
+.mkt-picks{display:flex;align-items:flex-start;gap:.8rem;margin:1.5rem 0 0}
+.mkt-pick{display:flex;flex-direction:column;align-items:center;gap:.5rem;flex:0 0 auto;
+  background:none;border:0;padding:0;cursor:pointer;color:var(--muted);font-family:inherit}
+.mkt-pick .pk{position:relative;width:72px;height:72px;border-radius:23px;display:grid;place-items:center;
+  border:1px solid var(--line-2);color:var(--muted);
+  background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,.02));
+  box-shadow:0 10px 26px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.09);
+  transition:transform .3s cubic-bezier(.34,1.45,.5,1),box-shadow .3s ease,
+    border-color .3s ease,background .3s ease,color .3s ease}
+.mkt-pick .pk svg{width:27px;height:27px}
+.mkt-pick .pl{font-size:.64rem;font-weight:600;letter-spacing:.02em;transition:color .3s ease}
+.mkt-pick:hover .pk{transform:translateY(-4px);border-color:rgba(255,255,255,.32);color:var(--text)}
+.mkt-pick:focus-visible{outline:none}
+.mkt-pick:focus-visible .pk{border-color:var(--neon);box-shadow:0 0 0 3px rgba(255,121,198,.35)}
+.mkt-pick.mkt-on{color:var(--text)}
+.mkt-pick.mkt-on .pk{border-color:transparent;color:#14060d;background:var(--split);
+  transform:translateY(-4px) scale(1.05);
+  box-shadow:0 16px 36px rgba(255,121,198,.32),0 5px 16px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.5)}
+/* coming-soon tiles — visible but quiet */
+.mkt-pick.mkt-soon{cursor:default;opacity:.42}
+.mkt-pick.mkt-soon:hover .pk{transform:none;border-color:var(--line-2);color:var(--muted)}
+.pk-soon{position:absolute;top:-8px;right:-12px;padding:.14rem .42rem;border-radius:999px;
+  font-size:.5rem;font-weight:800;letter-spacing:.08em;font-style:normal;color:#14060d;
+  background:var(--split)}
 .mkt-lead-copy .mkt-free-note{margin-top:1.2rem}
 
 /* stage — panels stacked, one visible at a time */

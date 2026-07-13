@@ -51,6 +51,40 @@
         <span class="mkt-eyebrow">one chatbox · every kind of output</span>
         <h1 class="mkt-lead-h1">What do you want to <em id="leadWord">make</em>?</h1>
         <p class="mkt-lead-sub">Say it in one line. isibi picks the right model and hands you the finished thing — a video, an image, a voiceover, or a whole website.</p>
+        <!-- Output pickers — rounded-square tiles above the chatbox (per the
+             owner's sketch). 3 live kinds + Game/Music teased as SOON. -->
+        <div class="mkt-picks" id="leadChips" role="tablist" aria-label="Kind of output">
+          <button class="mkt-pick mkt-on" type="button" role="tab" data-cat="media" aria-label="Videos and images">
+            <span class="pk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="3.2"/><path d="M2.5 9h19M7.5 4.5 10 9m3.5-4.5L16 9"/><path d="m10.4 12.6 4.4 2.5-4.4 2.5z" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <span class="pl">Videos/Images</span>
+          </button>
+          <button class="mkt-pick" type="button" role="tab" data-cat="voice" aria-label="Voice">
+            <span class="pk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
+            </span>
+            <span class="pl">Voice</span>
+          </button>
+          <button class="mkt-pick" type="button" role="tab" data-cat="website" aria-label="Website">
+            <span class="pk">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.5 4 5.6 4 9s-1.4 6.5-4 9c-2.6-2.5-4-5.6-4-9s1.4-6.5 4-9z"/></svg>
+            </span>
+            <span class="pl">Website</span>
+          </button>
+          <button class="mkt-pick mkt-soon" type="button" disabled aria-label="Video game — coming soon">
+            <span class="pk"><i class="pk-soon">SOON</i>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 7h11a4.5 4.5 0 0 1 4.4 5.4l-.8 4a3 3 0 0 1-5.2 1.4L14 16h-4l-1.9 1.8a3 3 0 0 1-5.2-1.4l-.8-4A4.5 4.5 0 0 1 6.5 7z"/><path d="M8 10.2v3.6M6.2 12h3.6"/><circle cx="16" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="18.3" cy="13.2" r=".9" fill="currentColor" stroke="none"/></svg>
+            </span>
+            <span class="pl">Game</span>
+          </button>
+          <button class="mkt-pick mkt-soon" type="button" disabled aria-label="Music — coming soon">
+            <span class="pk"><i class="pk-soon">SOON</i>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.5L20 3v12.5"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15.5" r="2.6"/></svg>
+            </span>
+            <span class="pl">Music</span>
+          </button>
+        </div>
         <div class="mkt-composer mkt-composer-lead">
           <div class="composer" data-mkt="start" role="button" tabindex="0" aria-label="Start creating — describe what you want">
             <div class="composer-top">
@@ -62,11 +96,6 @@
               </span>
             </div>
           </div>
-        </div>
-        <div class="mkt-lead-chips" id="leadChips" role="tablist" aria-label="Kind of output">
-          <button class="mkt-lchip mkt-on" type="button" role="tab" data-cat="media"><span class="ld"></span>Videos/Images</button>
-          <button class="mkt-lchip" type="button" role="tab" data-cat="voice"><span class="ld"></span>Voice</button>
-          <button class="mkt-lchip" type="button" role="tab" data-cat="website"><span class="ld"></span>Website</button>
         </div>
         <p class="mkt-free-note"><b>20 free credits</b> on signup · no card required</p>
       </div>

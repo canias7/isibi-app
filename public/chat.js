@@ -6500,7 +6500,7 @@ function initAuthGate() {
 function initLeadHero() {
   const stage = document.getElementById('leadStage');
   if (!stage) return;
-  const chips = Array.prototype.slice.call(document.querySelectorAll('.mkt-lchip'));
+  const chips = Array.prototype.slice.call(document.querySelectorAll('.mkt-pick:not(.mkt-soon)'));
   const panels = Array.prototype.slice.call(stage.querySelectorAll('.lp-panel'));
   const phEl = document.getElementById('leadPh');
   const wordEl = document.getElementById('leadWord');
