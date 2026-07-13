@@ -6487,9 +6487,30 @@ function initAuthGate() {
     closeAuth();
   });
   initLeadHero();
+  initMktReveal();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
+}
+
+// Marketing: cards with [data-reveal] drift up as they scroll into view.
+// Stagger comes from the card's position within its own grid so each row
+// cascades left-to-right; reduced-motion users get everything visible via CSS.
+function initMktReveal() {
+  const cards = Array.prototype.slice.call(document.querySelectorAll('[data-reveal]'));
+  if (!cards.length) return;
+  if (!('IntersectionObserver' in window)) { cards.forEach((c) => c.classList.add('mkt-in')); return; }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((en) => {
+      if (!en.isIntersecting) return;
+      const el = en.target;
+      const kin = Array.prototype.indexOf.call(el.parentElement.children, el);
+      el.style.transitionDelay = (kin * 70) + 'ms';
+      el.classList.add('mkt-in');
+      io.unobserve(el);
+    });
+  }, { threshold: 0.2 });
+  cards.forEach((c) => io.observe(c));
 }
 
 // Marketing: the lead hero. A chatbox + chips on the left; the right stage
