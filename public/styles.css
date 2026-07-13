@@ -3460,8 +3460,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem;
   box-shadow:0 4px 14px rgba(255,121,198,.35)}
 .mkt-demo-dots{display:flex;justify-content:center;gap:.5rem;margin:1.1rem 0 0}
-.mkt-demo-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.2);transition:background .2s,width .2s}
+.mkt-demo-dot{width:7px;height:7px;padding:0;border:none;cursor:pointer;border-radius:50%;
+  background:rgba(255,255,255,.2);transition:background .2s,width .2s}
+.mkt-demo-dot:hover{background:rgba(255,255,255,.4)}
 .mkt-demo-dot.mkt-on{width:20px;border-radius:99px;background:var(--split)}
+.mkt-demo-dot.mkt-on:hover{background:var(--split)}
 .mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 

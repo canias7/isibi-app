@@ -6451,9 +6451,27 @@ function initAuthGate() {
     if (window.Auth && Auth.isSignedIn()) return; // mid-session re-auth: don't dismiss
     closeAuth();
   });
+  initDemoCarousel();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
+}
+
+// Marketing: the website-demo carousel. Each demo is its own <iframe> that's
+// present in the HTML (so its script runs on load); dots just toggle which one
+// is visible and update the browser-chrome URL. No dynamic navigation — that's
+// what keeps each vendored demo interactive.
+function initDemoCarousel() {
+  const urlEl = document.getElementById('mktDemoUrl');
+  const frames = Array.prototype.slice.call(document.querySelectorAll('#mktDemos .mb-demo'));
+  const dots = Array.prototype.slice.call(document.querySelectorAll('.mkt-demo-dot'));
+  if (frames.length < 2 || !dots.length) return;
+  const show = (i) => {
+    frames.forEach((f, n) => { f.hidden = n !== i; f.classList.toggle('mb-on', n === i); });
+    dots.forEach((d, n) => d.classList.toggle('mkt-on', n === i));
+    if (urlEl && frames[i]) urlEl.textContent = frames[i].getAttribute('data-url') || '';
+  };
+  dots.forEach((d, i) => { if (frames[i]) d.addEventListener('click', () => show(i)); });
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
