@@ -3497,10 +3497,15 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 
-/* Minimal breather — one line, lots of air. A palette-cleanser between the
-   filmstrip and the website demo so the page can breathe. */
-.mkt-breath{max-width:1080px;margin:0 auto;text-align:center;
+/* "Under the hood" breather — a short line over a faint rain of digits. Quiet
+   and simple: lots of air, subtle motion, the numbers masked to fade at the
+   edges so there's no hard rectangle. */
+.mkt-deep{position:relative;max-width:1080px;margin:0 auto;overflow:hidden;text-align:center;
   padding:clamp(5rem,15vh,9.5rem) 1.5rem}
+.mkt-rain{position:absolute;inset:0;width:100%;height:100%;z-index:0;opacity:.55;pointer-events:none;
+  -webkit-mask-image:radial-gradient(72% 82% at 50% 50%,#000 28%,transparent 80%);
+          mask-image:radial-gradient(72% 82% at 50% 50%,#000 28%,transparent 80%)}
+.mkt-deep-inner{position:relative;z-index:1}
 .mkt-eyebrow{display:inline-block;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
   color:var(--muted);opacity:.8;margin-bottom:1.1rem}
 .mkt-breath-line{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;

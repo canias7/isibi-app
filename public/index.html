@@ -109,12 +109,16 @@
       </div>
     </div>
 
-    <!-- A minimal breather between the loud filmstrip and the loud website
-         demo — one line, lots of air. Lets the page breathe and hinges the
-         story from single outputs (above) to a whole website (below). -->
-    <section class="mkt-breath" id="mkt-essay">
-      <span class="mkt-eyebrow">and it doesn't stop at a single clip</span>
-      <p class="mkt-breath-line"><b>One sentence in.</b> <span>A whole website out.</span></p>
+    <!-- A quiet "under the hood" beat between the filmstrip and the website
+         demo. Faint digits rain behind a short line — the reveal that plain
+         words become numbers. Lets the page breathe, with subtle motion. The
+         canvas is decorative (aria-hidden) and only animates while on-screen. -->
+    <section class="mkt-deep" id="mkt-essay">
+      <canvas class="mkt-rain" id="mktRain" aria-hidden="true"></canvas>
+      <div class="mkt-deep-inner">
+        <span class="mkt-eyebrow">under the hood</span>
+        <p class="mkt-breath-line"><b>You speak in words.</b> <span>It thinks in numbers.</span></p>
+      </div>
     </section>
 
     <!-- The app — real sites isibi built, embedded live and fully browsable -->

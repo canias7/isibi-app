@@ -6487,6 +6487,7 @@ function initAuthGate() {
     closeAuth();
   });
   initDemoCarousel();
+  initNumberRain();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
@@ -6521,6 +6522,75 @@ function initDemoCarousel() {
   });
   dots.forEach((d, n) => d.addEventListener('click', () => go(n)));
   layout();
+}
+
+// Marketing: the "under the hood" digit rain. A simple matrix-style fall of
+// faint 0-9 digits in isibi's pink/amber, behind the breather line. Kept cheap
+// — one canvas, ~column-per-24px, steps by a cell on a per-column timer (so the
+// trails read as distinct falling numbers), only runs while on-screen, and
+// honours reduced-motion by drawing a single static frame.
+function initNumberRain() {
+  const c = document.getElementById('mktRain');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  if (!ctx) return;
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CELL = 18, dpr = Math.min(2, window.devicePixelRatio || 1);
+  let cols = [], w = 0, h = 0;
+  const digit = () => (Math.random() * 10) | 0;
+  function resize() {
+    const r = c.getBoundingClientRect();
+    w = r.width; h = r.height;
+    if (!w || !h) return;
+    c.width = Math.floor(w * dpr); c.height = Math.floor(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textAlign = 'center';
+    const n = Math.max(6, Math.floor(w / 24));
+    cols = new Array(n).fill(0).map((_, i) => ({
+      x: (i + 0.5) * (w / n),
+      row: -Math.floor(Math.random() * (h / CELL)),
+      step: 55 + Math.random() * 120,   // ms per fallen cell — varied speeds
+      next: 0,
+      amber: Math.random() < 0.5,
+    }));
+  }
+  function paint(t) {
+    ctx.fillStyle = 'rgba(8,7,12,0.20)';   // fade prior frame → soft trails
+    ctx.fillRect(0, 0, w, h);
+    ctx.font = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
+    for (const col of cols) {
+      if (t >= col.next) {
+        const y = col.row * CELL;
+        ctx.fillStyle = col.amber ? 'rgba(255,184,77,0.85)' : 'rgba(255,121,198,0.85)';
+        ctx.fillText(digit(), col.x, y);
+        col.row++;
+        if (y > h + CELL) { col.row = -1 - Math.floor(Math.random() * 6); col.amber = Math.random() < 0.5; }
+        col.next = t + col.step;
+      }
+    }
+  }
+  let running = false, raf = 0;
+  const loop = (t) => { if (!running) return; paint(t); raf = requestAnimationFrame(loop); };
+  const start = () => { if (running || reduce) return; resize(); running = true; raf = requestAnimationFrame(loop); };
+  const stop = () => { running = false; if (raf) cancelAnimationFrame(raf); };
+  let rt;
+  window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { if (running) resize(); }, 150); });
+  if (reduce) {   // static: one calm scatter of digits, no motion
+    resize();
+    ctx.font = '600 ' + CELL + 'px "Space Grotesk", ui-monospace, monospace';
+    cols.forEach((col) => {
+      for (let y = CELL; y < h; y += CELL * 3) {
+        ctx.fillStyle = col.amber ? 'rgba(255,184,77,0.4)' : 'rgba(255,121,198,0.4)';
+        ctx.fillText(digit(), col.x, y + (col.row % 3) * CELL);
+      }
+    });
+    return;
+  }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((ents) => {
+      ents.forEach((e) => (e.isIntersecting ? start() : stop()));
+    }, { threshold: 0.04 }).observe(c);
+  } else { start(); }
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
