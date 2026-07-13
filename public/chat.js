@@ -6493,34 +6493,39 @@ function initAuthGate() {
   else showMarketing();
 }
 
-// Marketing: the big-screen + thumbnail-rail website demo. Three live iframes,
-// all present at parse time (so each React bundle runs — never swap iframe src
-// dynamically, scripts won't execute); the rail toggles which is visible and
-// keeps the chrome URL, the active thumb, and the "built from one line" quote
-// in sync with the shown site.
+// Marketing: the diagonal-cascade website demo. Three live iframes, all present
+// at parse time (so each React bundle runs — never swap iframe src dynamically,
+// scripts won't execute). Each renders at desktop width then scales down (CSS),
+// so it stays a full site, just small. Front card (mb-p1) is interactive;
+// clicking a tucked-back card brings it forward and the left-side one-line
+// prompt follows it.
 function initDemoCarousel() {
-  const wrap = document.getElementById('mbWrap');
-  if (!wrap) return;
-  const frames = Array.prototype.slice.call(wrap.querySelectorAll('.mb-demo'));
-  const thumbs = Array.prototype.slice.call(wrap.querySelectorAll('.mb-thumb'));
-  const urlEl = document.getElementById('mktDemoUrl');
+  const cascade = document.getElementById('mbCascade');
+  if (!cascade) return;
+  const slots = Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot'));
+  if (slots.length < 2) return;
+  const N = slots.length;
   const builtFrom = document.getElementById('mktBuiltFrom');
-  if (frames.length < 2 || !thumbs.length) return;
-  const show = (i) => {
-    frames.forEach((f, n) => { f.hidden = n !== i; f.classList.toggle('mb-on', n === i); });
-    thumbs.forEach((t, n) => {
-      t.classList.toggle('mkt-on', n === i);
-      t.setAttribute('aria-selected', n === i ? 'true' : 'false');
+  let front = 0;
+  const layout = () => {
+    slots.forEach((s, n) => {
+      const rel = (n - front + N) % N;   // 0 = front, 1 = mid, 2 = back
+      s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
+      s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3');
     });
-    if (urlEl && frames[i]) urlEl.textContent = frames[i].getAttribute('data-url') || '';
-    // swap the "built from one line" quote to the shown demo's prompt
-    const prompt = frames[i] && frames[i].getAttribute('data-prompt');
+    // swap the "built from one line" prompt to the front card's sentence
+    const prompt = slots[front] && slots[front].getAttribute('data-prompt');
     if (builtFrom && prompt && builtFrom.textContent !== prompt) {
       builtFrom.classList.add('mkt-bf-swap');
-      setTimeout(() => { builtFrom.textContent = prompt; builtFrom.classList.remove('mkt-bf-swap'); }, 260);
+      setTimeout(() => { builtFrom.textContent = prompt; builtFrom.classList.remove('mkt-bf-swap'); }, 240);
     }
   };
-  thumbs.forEach((t, n) => { if (frames[n]) t.addEventListener('click', () => show(n)); });
+  const go = (i) => { front = ((i % N) + N) % N; layout(); };
+  slots.forEach((s, n) => {
+    const grab = s.querySelector('.mb-grab');
+    if (grab) grab.addEventListener('click', () => go(n));
+  });
+  layout();
 }
 
 // Marketing: the "type your idea" chatbox under the filmstrip. When idle it
