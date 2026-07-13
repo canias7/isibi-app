@@ -3359,6 +3359,76 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-c14{background:radial-gradient(120% 130% at 10% 40%,rgba(255,110,160,.18),rgba(170,60,120,.1) 50%,#180e15 85%)}
 
 /* ==========================================================================
+   Lead hero — chatbox + chips on the left; the picked kind's output on the
+   right (vertical filmstrip for video/image, live demos for website).
+   ========================================================================== */
+.mkt-lead{position:relative;isolation:isolate;display:flex;align-items:center;
+  gap:clamp(1.5rem,4vw,3rem);min-height:min(90vh,900px);overflow:hidden;
+  padding-left:clamp(1.2rem,6vw,5rem)}
+.mkt-lead::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(42% 52% at 22% 40%,rgba(255,121,198,.14),transparent 70%),
+    radial-gradient(46% 52% at 80% 58%,rgba(255,184,77,.1),transparent 72%)}
+.mkt-lead-copy{flex:0 0 clamp(360px,38%,500px);padding:4.5rem 0 2rem}
+.mkt-lead-h1{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.03em;line-height:1.03;
+  font-size:clamp(2.3rem,4.6vw,3.7rem);margin:.35rem 0 0}
+.mkt-lead-h1 em{font-style:normal;background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mkt-lead-sub{color:rgba(237,234,243,.72);font-size:clamp(.98rem,1.4vw,1.12rem);line-height:1.6;
+  max-width:30rem;margin:1rem 0 0}
+/* the lead composer — the straight chatbox, full column width, wrapping text */
+.mkt-composer-lead{margin:1.3rem 0 0;max-width:none;padding:0}
+.mkt-composer-lead .mkt-fauxinput{white-space:normal;overflow:visible;align-items:flex-start;
+  padding:.4rem 0 1.1rem;font-size:1rem;line-height:1.5;font-weight:500}
+.mkt-composer-lead .mkt-typebox-caret{align-self:flex-start;margin-top:.15rem}
+/* chips */
+.mkt-lead-chips{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1.3rem}
+.mkt-lchip{display:inline-flex;align-items:center;gap:.5rem;padding:.5rem 1.05rem;border-radius:999px;cursor:pointer;
+  border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--muted);font-weight:600;font-size:.9rem;
+  font-family:inherit;transition:color .2s ease,border-color .2s ease,background .2s ease}
+.mkt-lchip .ld{width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.6}
+.mkt-lchip:hover{color:var(--text)}
+.mkt-lchip.mkt-on{color:#14060d;border-color:transparent;background:var(--split)}
+.mkt-lchip.mkt-on .ld{background:#14060d;opacity:.55}
+.mkt-lead-copy .mkt-free-note{margin-top:1.2rem}
+
+/* stage — panels stacked, one visible at a time */
+.mkt-lead-stage{flex:1;position:relative;align-self:stretch;overflow:hidden}
+.lp-panel{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .45s ease}
+.lp-panel.mkt-on{opacity:1;visibility:visible}
+
+/* vertical filmstrip (video/image) — reuses .mkt-cell/.mkt-cN, drifting slowly */
+.lp-film{display:flex;gap:.7rem;justify-content:flex-start;padding-left:1.4rem;
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 9%,#000 91%,transparent);
+          mask-image:linear-gradient(180deg,transparent,#000 9%,#000 91%,transparent)}
+.lp-col{display:flex;flex-direction:column;gap:.7rem;flex:0 0 auto;will-change:transform}
+.lp-col.lp-up{animation:mkt-vdrift 64s linear infinite}
+.lp-col.lp-down{animation:mkt-vdrift 74s linear infinite reverse}
+@keyframes mkt-vdrift{to{transform:translateY(-50%)}}
+.lp-film:hover .lp-col{animation-play-state:paused}
+.lp-col .mkt-cell{margin:0;width:min(268px,25vw)}
+.lp-badge{position:absolute;top:.4rem;left:.4rem;z-index:2;display:none;align-items:center;gap:.25rem;
+  padding:.16rem .5rem;border-radius:999px;font-size:.6rem;font-weight:700;color:#14060d;
+  background:linear-gradient(120deg,#ffce8a,var(--neon))}
+.mkt-lead-stage.cat-video .lp-badge{display:inline-flex}
+
+/* website — live demos, cascaded + a touch bigger */
+.lp-web{display:flex;align-items:center;justify-content:center;padding:1rem}
+.mb-cascade-lead{--sc:.58}
+
+/* voice placeholder */
+.lp-voice{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1.1rem;color:var(--muted)}
+.lp-wave{display:flex;align-items:center;gap:5px;height:120px}
+.lp-wave i{display:block;width:6px;border-radius:4px;background:var(--split);animation:mkt-vwav 1s ease-in-out infinite alternate}
+@keyframes mkt-vwav{from{height:16%}to{height:80%}}
+.lp-voice-note{font-size:.85rem;letter-spacing:.02em}
+
+@media (max-width:900px){
+  .mkt-lead{flex-direction:column;align-items:stretch;min-height:0;padding:5.5rem clamp(1.1rem,4vw,2rem) 2rem}
+  .mkt-lead-copy{flex:auto;padding:0}
+  .mkt-lead-stage{width:100%;min-height:440px;margin-top:1.6rem}
+  .mb-cascade-lead{--sc:.42}
+}
+
+/* ==========================================================================
    Model marquee
    ========================================================================== */
 .mkt-marquee-wrap{padding:2.6rem 0 .6rem;text-align:center}

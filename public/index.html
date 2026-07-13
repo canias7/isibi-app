@@ -34,114 +34,72 @@
     <header class="mkt-nav">
       <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
       <nav class="mkt-links">
-        <a href="#mkt-studio">The app</a>
+        <a href="#mkt-lead">The app</a>
         <a href="#mkt-pricing">Pricing</a>
         <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
         <button class="mkt-cta" data-mkt="start" type="button">Start creating</button>
       </nav>
     </header>
 
-    <section class="mkt-hero">
-      <div class="mkt-hero-grid">
-        <div class="mkt-hero-main">
-          <h1 class="mkt-h1">Generate the<br /><span class="mkt-grad">impossible</span>.</h1>
-        </div>
-        <div class="mkt-hero-side">
-          <p class="mkt-sub">Say what you want to see. isibi picks the right frontier model, writes the pro-grade prompt, and hands you the finished video, image, or voiceover — no timeline, no jargon, no crew.</p>
-          <div class="mkt-cta-row">
-            <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start for free</button>
-            <button class="mkt-ghost mkt-big" data-mkt="signin" type="button">I have an account</button>
+    <!-- Lead hero — a chatbox on the left; the right side shows real isibi output
+         for the picked kind: a vertical drifting filmstrip for video/image (same
+         cells as the old strip), and the live website demos for website. Chips
+         morph the right side, the headline word, and the prompt. Built/driven by
+         initLeadHero(); website iframes lazy-load on first pick. -->
+    <section class="mkt-lead" id="mkt-lead">
+      <div class="mkt-lead-copy">
+        <span class="mkt-eyebrow">one chatbox · every kind of output</span>
+        <h1 class="mkt-lead-h1">What do you want to <em id="leadWord">make</em>?</h1>
+        <p class="mkt-lead-sub">Say it in one line. isibi picks the right model and hands you the finished thing — a video, an image, a voiceover, or a whole website.</p>
+        <div class="mkt-composer mkt-composer-lead">
+          <div class="composer" data-mkt="start" role="button" tabindex="0" aria-label="Start creating — describe what you want">
+            <div class="composer-top">
+              <div class="mkt-fauxinput"><span id="leadPh"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+            </div>
+            <div class="composer-row">
+              <span class="send" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              </span>
+            </div>
           </div>
-          <p class="mkt-free-note"><b>20 free credits</b> on signup · no card required</p>
         </div>
+        <div class="mkt-lead-chips" id="leadChips" role="tablist" aria-label="Kind of output">
+          <button class="mkt-lchip mkt-on" type="button" role="tab" data-cat="video"><span class="ld"></span>Video</button>
+          <button class="mkt-lchip" type="button" role="tab" data-cat="image"><span class="ld"></span>Image</button>
+          <button class="mkt-lchip" type="button" role="tab" data-cat="voice"><span class="ld"></span>Voice</button>
+          <button class="mkt-lchip" type="button" role="tab" data-cat="website"><span class="ld"></span>Website</button>
+        </div>
+        <p class="mkt-free-note"><b>20 free credits</b> on signup · no card required</p>
       </div>
-    </section>
 
-    <!-- Filmstrip — two drifting rows of real output. Files: /mkt/f1.jpg … f14.jpg -->
-    <section class="mkt-strip" aria-label="Made with isibi">
-      <div class="mkt-strip-head"><span class="mkt-strip-lbl">✦ Made with isibi</span><span class="mkt-strip-note">straight from the chatbox</span></div>
-      <div class="mkt-strip-row">
-        <div class="mkt-strip-track" aria-hidden="true">
-          <div class="mkt-cell mkt-c1"><span class="mkt-cell-img" style="background-image:url('/mkt/f1.jpg')"></span></div>
-          <div class="mkt-cell mkt-c2"><span class="mkt-cell-img" style="background-image:url('/mkt/f2.jpg')"></span></div>
-          <div class="mkt-cell mkt-c3"><span class="mkt-cell-img" style="background-image:url('/mkt/f3.jpg')"></span></div>
-          <div class="mkt-cell mkt-c4"><span class="mkt-cell-img" style="background-image:url('/mkt/f4.jpg')"></span></div>
-          <div class="mkt-cell mkt-c5"><span class="mkt-cell-img" style="background-image:url('/mkt/f5.jpg')"></span></div>
-          <div class="mkt-cell mkt-c6"><span class="mkt-cell-img" style="background-image:url('/mkt/f6.jpg')"></span></div>
-          <div class="mkt-cell mkt-c7"><span class="mkt-cell-img" style="background-image:url('/mkt/f7.jpg')"></span></div>
-          <div class="mkt-cell mkt-c1"><span class="mkt-cell-img" style="background-image:url('/mkt/f1.jpg')"></span></div>
-          <div class="mkt-cell mkt-c2"><span class="mkt-cell-img" style="background-image:url('/mkt/f2.jpg')"></span></div>
-          <div class="mkt-cell mkt-c3"><span class="mkt-cell-img" style="background-image:url('/mkt/f3.jpg')"></span></div>
-          <div class="mkt-cell mkt-c4"><span class="mkt-cell-img" style="background-image:url('/mkt/f4.jpg')"></span></div>
-          <div class="mkt-cell mkt-c5"><span class="mkt-cell-img" style="background-image:url('/mkt/f5.jpg')"></span></div>
-          <div class="mkt-cell mkt-c6"><span class="mkt-cell-img" style="background-image:url('/mkt/f6.jpg')"></span></div>
-          <div class="mkt-cell mkt-c7"><span class="mkt-cell-img" style="background-image:url('/mkt/f7.jpg')"></span></div>
+      <div class="mkt-lead-stage" id="leadStage">
+        <!-- video/image: vertical drifting filmstrip (cells built by JS) -->
+        <div class="lp-panel lp-film mkt-on" data-panel="film">
+          <div class="lp-col lp-up"></div>
+          <div class="lp-col lp-down"></div>
+          <div class="lp-col lp-up"></div>
         </div>
-      </div>
-      <div class="mkt-strip-row mkt-rev">
-        <div class="mkt-strip-track" aria-hidden="true">
-          <div class="mkt-cell mkt-c8"><span class="mkt-cell-img" style="background-image:url('/mkt/f8.jpg')"></span></div>
-          <div class="mkt-cell mkt-c9"><span class="mkt-cell-img" style="background-image:url('/mkt/f9.jpg')"></span></div>
-          <div class="mkt-cell mkt-c10"><span class="mkt-cell-img" style="background-image:url('/mkt/f10.jpg')"></span></div>
-          <div class="mkt-cell mkt-c11"><span class="mkt-cell-img" style="background-image:url('/mkt/f11.jpg')"></span></div>
-          <div class="mkt-cell mkt-c12"><span class="mkt-cell-img" style="background-image:url('/mkt/f12.jpg')"></span></div>
-          <div class="mkt-cell mkt-c13"><span class="mkt-cell-img" style="background-image:url('/mkt/f13.jpg')"></span></div>
-          <div class="mkt-cell mkt-c14"><span class="mkt-cell-img" style="background-image:url('/mkt/f14.jpg')"></span></div>
-          <div class="mkt-cell mkt-c8"><span class="mkt-cell-img" style="background-image:url('/mkt/f8.jpg')"></span></div>
-          <div class="mkt-cell mkt-c9"><span class="mkt-cell-img" style="background-image:url('/mkt/f9.jpg')"></span></div>
-          <div class="mkt-cell mkt-c10"><span class="mkt-cell-img" style="background-image:url('/mkt/f10.jpg')"></span></div>
-          <div class="mkt-cell mkt-c11"><span class="mkt-cell-img" style="background-image:url('/mkt/f11.jpg')"></span></div>
-          <div class="mkt-cell mkt-c12"><span class="mkt-cell-img" style="background-image:url('/mkt/f12.jpg')"></span></div>
-          <div class="mkt-cell mkt-c13"><span class="mkt-cell-img" style="background-image:url('/mkt/f13.jpg')"></span></div>
-          <div class="mkt-cell mkt-c14"><span class="mkt-cell-img" style="background-image:url('/mkt/f14.jpg')"></span></div>
-        </div>
-      </div>
-      <!-- A faithful mock of the real isibi composer under the two output rows.
-           Clicking any clip above pastes its prompt in (preset-style) and sets
-           the matching mode; the box itself starts sign-up. Purely a hook — it's
-           the front page, so it doesn't generate. -->
-      <div class="mkt-composer">
-        <!-- Laurel crest above the box (Higgsfield-style), isibi gradient leaves -->
-        <div class="mkt-crest">
-          <svg class="mkt-laurel" viewBox="0 0 64 96" fill="none" aria-hidden="true">
-            <defs><linearGradient id="mktLaurel" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#54545e"/><stop offset=".5" stop-color="#17171c"/><stop offset="1" stop-color="#333339"/>
-            </linearGradient></defs>
-            <path d="M50 90C34 80 27 52 33 10" stroke="url(#mktLaurel)" stroke-width="2.2" stroke-linecap="round"/>
-            <g fill="url(#mktLaurel)" stroke="rgba(255,255,255,0.42)" stroke-width="0.7">
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(46 76) rotate(-52)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(39 62) rotate(-44)"/>
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(34 48) rotate(-36)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(32 34) rotate(-26)"/>
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(31 20) rotate(-16)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(32 8) rotate(-4)"/>
-            </g>
-          </svg>
-          <span class="mkt-crest-txt">no limits</span>
-          <svg class="mkt-laurel mkt-laurel-r" viewBox="0 0 64 96" fill="none" aria-hidden="true">
-            <path d="M50 90C34 80 27 52 33 10" stroke="url(#mktLaurel)" stroke-width="2.2" stroke-linecap="round"/>
-            <g fill="url(#mktLaurel)" stroke="rgba(255,255,255,0.42)" stroke-width="0.7">
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(46 76) rotate(-52)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(39 62) rotate(-44)"/>
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(34 48) rotate(-36)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(32 34) rotate(-26)"/>
-              <path fill="#141418" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(31 20) rotate(-16)"/>
-              <path fill="#f2f2f5" d="M0 0C-5-3.6-5-12.6 0-17C5-12.6 5-3.6 0 0Z" transform="translate(32 8) rotate(-4)"/>
-            </g>
-          </svg>
-        </div>
-        <!-- Straight chatbox (front page only): text line on top + send button
-             bottom-right, same size as the real composer but no mode/model. -->
-        <div class="composer" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
-             aria-label="Start creating — describe what you want">
-          <div class="composer-top">
-            <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+        <!-- website: the live demos, cascaded. iframes lazy-load (data-src). -->
+        <div class="lp-panel lp-web" data-panel="website">
+          <div class="mb-cascade mb-cascade-lead" id="mbCascade">
+            <div class="mb-slot" data-url="impossible.store" data-prompt="a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup">
+              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">impossible.store</span><i></i></div>
+              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring IMPOSSIBLE to front"></button></div>
+            </div>
+            <div class="mb-slot" data-url="seaward.io" data-prompt="a sleek maritime-intelligence platform with a request-access page">
+              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">seaward.io</span><i></i></div>
+              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring Seaward to front"></button></div>
+            </div>
+            <div class="mb-slot" data-url="gloopies.fun" data-prompt="a playful character brand for little yellow blobs, with an adopt button">
+              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">gloopies.fun</span><i></i></div>
+              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo3/" title="Gloopies — a character brand site isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring Gloopies to front"></button></div>
+            </div>
           </div>
-          <div class="composer-row">
-            <span class="send" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-            </span>
-          </div>
+        </div>
+        <!-- voice: placeholder until the real design is specced -->
+        <div class="lp-panel lp-voice" data-panel="voice">
+          <div class="lp-wave" aria-hidden="true"></div>
+          <span class="lp-voice-note">voice output — design coming</span>
         </div>
       </div>
     </section>
@@ -157,70 +115,6 @@
       </div>
     </div>
 
-    <!-- The app — real sites isibi built, embedded live and fully browsable.
-         Split: copy + the one-line prompt on the left; a diagonal cascade of
-         three SHRUNK live demos on the right (each renders at desktop width
-         then scales down, so it keeps its full layout — not a mobile reflow).
-         The front card is interactive; clicking a back card brings it forward
-         and the left-side prompt follows it. -->
-    <section class="mkt-studio" id="mkt-studio">
-      <div class="mkt-split" id="mktDemos">
-        <div class="mkt-split-copy">
-          <span class="mkt-eyebrow">meet the website builder</span>
-          <h2 class="mkt-h2"><b>Dream it. Deploy it.</b> <span>From a thought to a live site.</span></h2>
-          <span class="mkt-builtfrom-lbl">this whole live website came from one line ↓</span>
-          <!-- The prompt sits inside a mock of the top video-generator composer;
-               initDemoCarousel retypes it as the front demo changes. -->
-          <div class="mkt-composer mkt-composer-demo">
-            <div class="composer" data-mkt="start" role="button" tabindex="0" aria-label="Start creating">
-              <div class="composer-top">
-                <div class="mkt-fauxinput"><span id="mktBuiltFrom">a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup</span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
-              </div>
-              <div class="composer-row">
-                <span class="send" aria-hidden="true">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                </span>
-              </div>
-            </div>
-          </div>
-          <button class="mkt-cta" data-mkt="start" type="button">Build yours →</button>
-        </div>
-        <div class="mkt-split-demo">
-          <div class="mb-cascade" id="mbCascade">
-            <div class="mb-slot" data-url="impossible.store" data-prompt="a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup">
-              <div class="mkt-chrome">
-                <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
-                <span class="mkt-url">impossible.store</span><i></i>
-              </div>
-              <div class="mb-body">
-                <iframe class="mb-demo" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe>
-                <button class="mb-grab" type="button" aria-label="Bring IMPOSSIBLE to front"></button>
-              </div>
-            </div>
-            <div class="mb-slot" data-url="seaward.io" data-prompt="a sleek maritime-intelligence platform with a request-access page">
-              <div class="mkt-chrome">
-                <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
-                <span class="mkt-url">seaward.io</span><i></i>
-              </div>
-              <div class="mb-body">
-                <iframe class="mb-demo" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live"></iframe>
-                <button class="mb-grab" type="button" aria-label="Bring Seaward to front"></button>
-              </div>
-            </div>
-            <div class="mb-slot" data-url="gloopies.fun" data-prompt="a playful character brand for little yellow blobs, with an adopt button">
-              <div class="mkt-chrome">
-                <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
-                <span class="mkt-url">gloopies.fun</span><i></i>
-              </div>
-              <div class="mb-body">
-                <iframe class="mb-demo" src="/mkt/demo3/" title="Gloopies — a character brand site isibi built, browse it live"></iframe>
-                <button class="mb-grab" type="button" aria-label="Bring Gloopies to front"></button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <section class="mkt-pricing" id="mkt-pricing">
       <div class="mkt-sec-head mkt-center">
@@ -282,7 +176,7 @@
         <nav class="mkt-foot-cols" aria-label="Footer">
           <div class="mkt-foot-col">
             <div class="mkt-foot-hd">Explore</div>
-            <a href="#mkt-studio">The app</a>
+            <a href="#mkt-lead">The app</a>
                 <a href="#mkt-pricing">Pricing</a>
           </div>
           <div class="mkt-foot-col">

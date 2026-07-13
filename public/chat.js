@@ -6486,138 +6486,78 @@ function initAuthGate() {
     if (window.Auth && Auth.isSignedIn()) return; // mid-session re-auth: don't dismiss
     closeAuth();
   });
-  initDemoCarousel();
-  initTypebox();
+  initLeadHero();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
 
-// Marketing: the diagonal-cascade website demo. Three live iframes, all present
-// at parse time (so each React bundle runs — never swap iframe src dynamically,
-// scripts won't execute). Each renders at desktop width then scales down (CSS),
-// so it stays a full site, just small. Front card (mb-p1) is interactive;
-// clicking a tucked-back card brings it forward and the left-side one-line
-// prompt follows it.
-function initDemoCarousel() {
-  const cascade = document.getElementById('mbCascade');
-  if (!cascade) return;
-  const slots = Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot'));
-  if (slots.length < 2) return;
-  const N = slots.length;
-  const builtFrom = document.getElementById('mktBuiltFrom');
+// Marketing: the lead hero. A chatbox + chips on the left; the right stage
+// shows the picked kind's output — a vertical drifting filmstrip (same cells as
+// the old strip) for video/image, the live website demos (cascade) for website,
+// a placeholder for voice. Chips morph the stage, the headline word, and the
+// prompt (which retypes). Website iframes lazy-load on first pick.
+function initLeadHero() {
+  const stage = document.getElementById('leadStage');
+  if (!stage) return;
+  const chips = Array.prototype.slice.call(document.querySelectorAll('.mkt-lchip'));
+  const panels = Array.prototype.slice.call(stage.querySelectorAll('.lp-panel'));
+  const phEl = document.getElementById('leadPh');
+  const wordEl = document.getElementById('leadWord');
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let front = 0, typeTimer = null;
-  // retype the prompt letter-by-letter (like the top composer) on each switch
-  const typePrompt = (text, animate) => {
-    if (!builtFrom) return;
-    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null; }
-    if (!animate || reduce) { builtFrom.textContent = text; return; }
-    let k = 0;
-    const step = () => {
-      builtFrom.textContent = text.slice(0, ++k);
-      if (k < text.length) typeTimer = setTimeout(step, 16 + Math.random() * 22);
-    };
-    builtFrom.textContent = '';
-    step();
+  const CATS = {
+    video:   { word: 'film',   panel: 'film',    ph: 'a neon tiger prowling a rainy Tokyo alley, cinematic' },
+    image:   { word: 'design', panel: 'film',    ph: 'a moody product hero — serum bottle on wet stone' },
+    voice:   { word: 'voice',  panel: 'voice',   ph: 'a warm, unhurried voiceover for a meditation app' },
+    website: { word: 'build',  panel: 'website', ph: '' },
   };
-  const layout = (animate) => {
-    slots.forEach((s, n) => {
-      const rel = (n - front + N) % N;   // 0 = front, 1 = mid, 2 = back
-      s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
-      s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3');
-    });
-    const prompt = slots[front] && slots[front].getAttribute('data-prompt');
-    if (prompt && builtFrom && builtFrom.textContent !== prompt) typePrompt(prompt, animate);
-  };
-  const go = (i) => { front = ((i % N) + N) % N; layout(true); };
-  slots.forEach((s, n) => {
-    const grab = s.querySelector('.mb-grab');
-    if (grab) grab.addEventListener('click', () => go(n));
-  });
-  layout(false);
-}
 
-// Marketing: the "type your idea" chatbox under the filmstrip. When idle it
-// typewriters example prompts into the placeholder (type → hold → delete →
-// next). Clicking any filmstrip clip acts like a preset — it "pastes" that
-// clip's prompt into the box (and swaps the Video/Image/Voice chip), purely as
-// a hook; the box itself starts sign-up. Pauses off-screen; reduced-motion
-// shows a static example and pastes instantly.
-function initTypebox() {
-  const el = document.getElementById('mktTypeText');
-  if (!el) return;
-  const box = document.getElementById('mktTypebox');
-  const modeBtns = box ? Array.prototype.slice.call(box.querySelectorAll('.mode-btn')) : [];
-  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const IDLE = [
-    'a neon tiger prowling a rainy Tokyo alley…',
-    'a warm, cinematic ad for my coffee brand…',
-    'a founder intro to camera, studio-lit…',
-    'an 8-second reveal for my sneaker drop…',
-    'a calm voiceover for my meditation app…',
-  ];
-  // Per-clip presets, indexed to the filmstrip's f1…f14 tiles.
-  const PRESETS = [
-    ['Video', 'a neon tiger prowling a rainy Tokyo alley, cinematic'],
-    ['Video', 'slow-mo espresso pour, warm morning light'],
-    ['Image', 'album cover — chrome typography on black glass'],
-    ['Video', 'a founder intro to camera, soft studio key light'],
-    ['Image', 'product hero — matte serum bottle on wet stone'],
-    ['Video', 'drone shot pulling back over a foggy coastline'],
-    ['Voice', 'warm, unhurried voiceover for a meditation app'],
-    ['Video', 'an 8-second sneaker reveal, floating on set'],
-    ['Image', 'cyberpunk street market, neon puddles, 35mm'],
-    ['Video', 'a corgi astronaut bounding across the moon'],
-    ['Image', 'minimal skincare ad, soft pastel gradient'],
-    ['Video', 'handheld café b-roll, golden hour, shallow depth'],
-    ['Voice', 'energetic movie-trailer narration'],
-    ['Video', 'macro paint swirling into water, ultra slow-mo'],
-  ];
-  let picked = false, p = 0, ch = 0, deleting = false, timer = null, alive = false;
-  const setMode = (k) => modeBtns.forEach((btn) => btn.classList.toggle('active', btn.getAttribute('data-mktmode') === k));
-  // idle typewriter
-  const tick = () => {
-    const full = IDLE[p];
-    if (!deleting) {
-      el.textContent = full.slice(0, ++ch);
-      if (ch >= full.length) { deleting = true; timer = setTimeout(tick, 1700); return; }
-      timer = setTimeout(tick, 42 + Math.random() * 45);
-    } else {
-      el.textContent = full.slice(0, --ch);
-      if (ch <= 0) { deleting = false; p = (p + 1) % IDLE.length; timer = setTimeout(tick, 320); return; }
-      timer = setTimeout(tick, 24);
-    }
-  };
-  const start = () => { if (!alive && !picked && !reduce) { alive = true; tick(); } };
-  const stop = () => { alive = false; if (timer) { clearTimeout(timer); timer = null; } };
-  // paste a preset in, typed quickly, with a pulse on the box
-  const paste = (kind, text) => {
-    picked = true; stop(); setMode(kind);
-    if (box) { box.classList.remove('mkt-typebox-flash'); void box.offsetWidth; box.classList.add('mkt-typebox-flash'); }
-    if (reduce) { el.textContent = text; return; }
+  // build the vertical filmstrip (reuse .mkt-cell/.mkt-cN + /mkt/f*.jpg, badge for video)
+  const cell = (n) => '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span><span class="lp-badge">▶ 0:06</span></div>';
+  const col = (arr) => { const one = arr.map(cell).join(''); return one + one; }; // doubled for a seamless -50% loop
+  const cols = Array.prototype.slice.call(stage.querySelectorAll('.lp-col'));
+  if (cols[0]) cols[0].innerHTML = col([1, 4, 7, 10, 13]);
+  if (cols[1]) cols[1].innerHTML = col([2, 5, 8, 11, 14]);
+  if (cols[2]) cols[2].innerHTML = col([3, 6, 9, 12, 1]);
+  const wave = stage.querySelector('.lp-wave');
+  if (wave) { let s = ''; for (let i = 0; i < 13; i++) s += '<i style="animation-delay:' + (i * 0.08) + 's"></i>'; wave.innerHTML = s; }
+
+  // chatbox typewriter
+  let typeT = null;
+  const type = (text) => {
+    if (typeT) { clearTimeout(typeT); typeT = null; }
+    if (!text) { phEl.textContent = ''; return; }
+    if (reduce) { phEl.textContent = text; return; }
     let k = 0;
-    const type = () => {
-      el.textContent = text.slice(0, ++k);
-      if (k < text.length) timer = setTimeout(type, 22 + Math.random() * 22);
-    };
-    el.textContent = ''; type();
+    const step = () => { phEl.textContent = text.slice(0, ++k); if (k < text.length) typeT = setTimeout(step, 18 + Math.random() * 22); };
+    phEl.textContent = ''; step();
   };
-  // wire every filmstrip clip → paste its preset (dedupe by tile number)
-  document.querySelectorAll('.mkt-strip .mkt-cell').forEach((cell) => {
-    const img = cell.querySelector('.mkt-cell-img');
-    const m = img && (img.getAttribute('style') || '').match(/f(\d+)\.jpg/);
-    const preset = m && PRESETS[(+m[1] - 1) % PRESETS.length];
-    if (!preset) return;
-    cell.classList.add('mkt-cell-pick');
-    cell.addEventListener('click', () => { paste(preset[0], preset[1]); el.scrollIntoView && box && box.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
-  });
-  if (reduce) { el.textContent = IDLE[0]; return; }
-  if ('IntersectionObserver' in window) {
-    new IntersectionObserver((ents) => {
-      ents.forEach((e) => (e.isIntersecting ? start() : stop()));
-    }, { threshold: 0.2 }).observe(el);
-  } else { start(); }
+
+  // website cascade (front card interactive; clicking a back card brings it forward)
+  const cascade = document.getElementById('mbCascade');
+  const slots = cascade ? Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot')) : [];
+  const N = slots.length;
+  let front = 0;
+  const layoutWeb = () => {
+    slots.forEach((s, n) => { const rel = (n - front + N) % N;
+      s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
+      s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3'); });
+    const prompt = slots[front] && slots[front].getAttribute('data-prompt');
+    if (prompt) type(prompt);
+  };
+  slots.forEach((s, n) => { const g = s.querySelector('.mb-grab'); if (g) g.addEventListener('click', () => { front = n; layoutWeb(); }); });
+
+  const setCat = (cat) => {
+    const cfg = CATS[cat]; if (!cfg) return;
+    chips.forEach((ch) => ch.classList.toggle('mkt-on', ch.dataset.cat === cat));
+    wordEl.textContent = cfg.word;
+    stage.classList.toggle('cat-video', cat === 'video');
+    panels.forEach((p) => p.classList.toggle('mkt-on', p.dataset.panel === cfg.panel));
+    if (cat === 'website') layoutWeb();
+    else type(cfg.ph);
+  };
+  chips.forEach((ch) => ch.addEventListener('click', () => setCat(ch.dataset.cat)));
+  setCat('video');
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
