@@ -3470,16 +3470,22 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 @keyframes mkt-scroll{to{transform:translateX(-50%)}}
 
 /* ==========================================================================
-   Features + trust — small reveal-on-scroll cards between the hero and pricing
+   Features + trust — asymmetric bento grid between the hero and pricing.
+   6-col grid; cards span 2/3/4 so no row mirrors the last. Flagship cards
+   carry a small inline visual (prompt demo, chat bubbles, waveform, chips).
    ========================================================================== */
 .mkt-feats,.mkt-trust{max-width:1100px;margin:0 auto;
   padding:clamp(3.2rem,8vh,5.5rem) clamp(1.1rem,4vw,2rem) 0}
-.mkt-feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
-.mkt-trust-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-.mkt-feat,.mkt-trust-card{position:relative;display:flex;flex-direction:column;gap:.55rem;text-align:left;
-  padding:1.4rem 1.3rem 1.35rem;border-radius:16px;border:1px solid var(--line);background:var(--panel);
+.mkt-eyebrow{font-size:.68rem;font-weight:700;letter-spacing:.32em;text-transform:uppercase;
+  margin:0 0 .9rem;background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mkt-bento{display:grid;grid-template-columns:repeat(6,1fr);gap:1rem}
+.mkt-b2{grid-column:span 2}
+.mkt-b3{grid-column:span 3}
+.mkt-b4{grid-column:span 4}
+.mkt-feat{position:relative;display:flex;flex-direction:column;gap:.55rem;text-align:left;
+  padding:1.5rem 1.4rem 1.4rem;border-radius:16px;border:1px solid var(--line);background:var(--panel);
   transition:transform .3s,border-color .3s,box-shadow .3s}
-.mkt-feat:hover,.mkt-trust-card:hover{transform:translateY(-4px);border-color:var(--line-2);
+.mkt-feat:hover{transform:translateY(-4px);border-color:var(--line-2);
   box-shadow:0 18px 44px rgba(0,0,0,.45),0 8px 30px rgba(255,121,198,.08)}
 .mkt-feat-ic{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;
   border-radius:12px;border:1px solid rgba(255,121,198,.28);
@@ -3489,19 +3495,68 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-feat-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1rem;
   letter-spacing:.01em;margin:.15rem 0 0}
 .mkt-feat-p{color:var(--muted);font-size:.86rem;line-height:1.5;margin:0}
+/* inline visuals — every one sits at the card's foot */
+.mkt-dd,.mkt-tagrow,.mkt-chatlet,.mkt-linkrow,.mkt-wave,.mkt-thumbs{margin-top:auto;padding-top:1.1rem}
+.mkt-dd{display:flex;align-items:center;gap:.6rem}
+.mkt-dd-in,.mkt-dd-out{flex:1;font-size:.74rem;line-height:1.45;padding:.6rem .75rem;border-radius:10px;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);color:var(--muted)}
+.mkt-dd-out{border-color:rgba(255,121,198,.25);color:rgba(237,234,243,.8)}
+.mkt-dd-arr{flex:0 0 auto;background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:700}
+.mkt-tagrow{display:flex;flex-wrap:wrap;gap:.4rem;align-content:flex-end}
+.mkt-tag{font-size:.68rem;font-weight:600;padding:.32rem .62rem;border-radius:999px;
+  border:1px solid var(--line);color:rgba(237,234,243,.65);white-space:nowrap}
+.mkt-chatlet{display:flex;flex-direction:column;gap:.45rem}
+.mkt-bub{max-width:75%;font-size:.74rem;line-height:1.4;padding:.5rem .72rem;border-radius:12px}
+.mkt-bub-u{align-self:flex-end;border-bottom-right-radius:4px;color:rgba(237,234,243,.85);
+  border:1px solid rgba(255,121,198,.25);background:linear-gradient(135deg,rgba(255,121,198,.14),rgba(255,184,77,.12))}
+.mkt-bub-a{align-self:flex-start;border-bottom-left-radius:4px;color:var(--muted);
+  border:1px solid var(--line);background:rgba(255,255,255,.02)}
+.mkt-linkrow{display:flex;align-items:center;gap:.6rem}
+.mkt-linkpill{flex:1;min-width:0;font-size:.73rem;padding:.5rem .75rem;border-radius:999px;
+  border:1px solid var(--line);background:rgba(255,255,255,.02);color:var(--muted);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mkt-linkshot{flex:0 0 auto;width:48px;height:36px;border-radius:8px;border:1px solid rgba(255,121,198,.3);
+  background:
+    radial-gradient(60% 70% at 50% 42%,rgba(255,184,77,.5),transparent 70%),
+    linear-gradient(150deg,#1c1220,#120d18)}
+.mkt-wave{display:flex;align-items:flex-end;gap:3px;height:44px}
+.mkt-wave i{flex:1;max-width:5px;border-radius:2px;background:linear-gradient(180deg,#ff79c6,#ffb84d);
+  transform-origin:bottom;animation:mkt-wave 1.4s ease-in-out infinite}
+.mkt-wave i:nth-child(1){height:30%;animation-delay:0s}
+.mkt-wave i:nth-child(2){height:55%;animation-delay:.12s}
+.mkt-wave i:nth-child(3){height:80%;animation-delay:.24s}
+.mkt-wave i:nth-child(4){height:45%;animation-delay:.36s}
+.mkt-wave i:nth-child(5){height:95%;animation-delay:.48s}
+.mkt-wave i:nth-child(6){height:60%;animation-delay:.6s}
+.mkt-wave i:nth-child(7){height:35%;animation-delay:.72s}
+.mkt-wave i:nth-child(8){height:75%;animation-delay:.84s}
+.mkt-wave i:nth-child(9){height:50%;animation-delay:.96s}
+.mkt-wave i:nth-child(10){height:88%;animation-delay:1.08s}
+.mkt-wave i:nth-child(11){height:40%;animation-delay:1.2s}
+.mkt-wave i:nth-child(12){height:65%;animation-delay:1.32s}
+.mkt-wave i:nth-child(13){height:28%;animation-delay:1.44s}
+.mkt-wave i:nth-child(14){height:52%;animation-delay:1.56s}
+@keyframes mkt-wave{0%,100%{transform:scaleY(.55)}50%{transform:scaleY(1)}}
+.mkt-thumbs{display:grid;grid-template-columns:repeat(4,1fr);gap:.45rem}
+.mkt-thumbs i{aspect-ratio:4/3;border-radius:8px;border:1px solid var(--line)}
+.mkt-thumbs i:nth-child(1){background:linear-gradient(140deg,#241426,#160f1c)}
+.mkt-thumbs i:nth-child(2){background:linear-gradient(140deg,#101b26,#0d1219)}
+.mkt-thumbs i:nth-child(3){background:linear-gradient(140deg,#26190f,#181009)}
+.mkt-thumbs i:nth-child(4){background:linear-gradient(140deg,#12211a,#0d1712)}
 /* reveal: cards drift up as they scroll into view (JS adds .mkt-in; stagger via inline delay) */
 [data-reveal]{opacity:0;transform:translateY(18px);
   transition:opacity .6s ease,transform .6s cubic-bezier(.22,.9,.32,1)}
 [data-reveal].mkt-in{opacity:1;transform:none}
 @media (prefers-reduced-motion: reduce){
   [data-reveal]{opacity:1;transform:none;transition:none}
+  .mkt-wave i{animation:none}
 }
 @media (max-width: 900px){
-  .mkt-feat-grid{grid-template-columns:repeat(2,1fr)}
-  .mkt-trust-grid{grid-template-columns:repeat(2,1fr)}
+  .mkt-b4{grid-column:span 6}
+  .mkt-b3,.mkt-b2{grid-column:span 3}
 }
 @media (max-width: 520px){
-  .mkt-feat-grid,.mkt-trust-grid{grid-template-columns:1fr}
+  .mkt-b4,.mkt-b3,.mkt-b2{grid-column:span 6}
 }
 
 /* ==========================================================================
