@@ -3469,6 +3469,15 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   padding-top:.9rem;border-top:1px solid var(--line)}
 .mkt-trio-item b{display:block;color:var(--text);font-weight:600;margin-bottom:.2rem}
 
+/* Embedded demo — a real site isibi built, vendored under /mkt/demo/ and shown
+   in the frame, slowly auto-scrolling through the whole page on a loop. The
+   iframe is click-through (pointer-events:none) so the frame stays a signup CTA. */
+.mb-body{position:relative;aspect-ratio:16/9;overflow:hidden;background:#0d0b12}
+/* Show the hero; the site's own CSS animations (tilt/spin/marquee) give it life.
+   Fixed height renders the page; the frame clips to the hero at any width. */
+.mb-demo{position:absolute;top:0;left:0;width:100%;height:5820px;border:0;pointer-events:none}
+@media (max-width:640px){ .mb-body{aspect-ratio:4/5} }
+
 /* ==========================================================================
    Presets — horizontal rail (media slots /mkt/p*.jpg)
    ========================================================================== */
