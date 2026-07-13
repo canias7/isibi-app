@@ -315,14 +315,10 @@
     </footer>
   </div>
 
-  <div id="authGate" class="auth-gate">
-    <video class="auth-bg-video" autoplay muted loop playsinline
-           poster="/login-bg.jpg">
-      <source src="/login-bg.webm" type="video/webm" />
-      <source src="/login-bg.mp4" type="video/mp4" />
-    </video>
+  <!-- Auth popup — a modal over the marketing landing (backdrop/Esc/✕ close it). -->
+  <div id="authGate" class="auth-gate" style="display:none">
     <div class="auth-card">
-      <button id="authHome" class="auth-home" type="button" aria-label="Back to home">← Back</button>
+      <button id="authHome" class="auth-home" type="button" aria-label="Close">✕</button>
       <div class="auth-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
       <h1 id="authTitle" class="auth-title">Sign in to isibi.ai</h1>
       <p class="auth-sub" id="authSub">Create AI video, images, and voice.</p>
