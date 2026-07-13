@@ -6,7 +6,12 @@
   document.documentElement.style.scrollBehavior = "smooth";
 
   var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
-  var go = function (id) { var el = document.getElementById(id); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  // Scroll ONLY this window — scrollIntoView would also scroll the parent page
+  // to bring the iframe into view (the "double move").
+  var go = function (id) {
+    var el = document.getElementById(id); if (!el) return;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY, behavior: "smooth" });
+  };
 
   // ── toast ──
   var toast = document.createElement("div");
@@ -85,14 +90,17 @@
       e.preventDefault();
       var inp = f.querySelector("input");
       if (inp && inp.value) { say("You're on the list — drop address hits your inbox first ✦"); inp.value = ""; }
-      else if (inp) inp.focus();
+      else if (inp) inp.focus({ preventScroll: true });
     });
   });
   // "Join the crew" buttons scroll to the signup input
   $$("button").forEach(function (b) {
     if (/join the crew/i.test(b.textContent || "")) b.addEventListener("click", function () {
       var inp = document.querySelector('input[type="email"]');
-      if (inp) { inp.scrollIntoView({ behavior: "smooth", block: "center" }); setTimeout(function () { inp.focus(); }, 600); }
+      if (!inp) return;
+      var r = inp.getBoundingClientRect();
+      window.scrollTo({ top: r.top + window.scrollY - (window.innerHeight - r.height) / 2, behavior: "smooth" });
+      setTimeout(function () { inp.focus({ preventScroll: true }); }, 600);
     });
   });
 })();
