@@ -130,22 +130,14 @@
             </g>
           </svg>
         </div>
-        <div class="composer" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
+        <!-- Straight chatbox (front page only): just the text line + send. No
+             mode selector, no model pill. -->
+        <div class="composer mkt-composer-simple" id="mktTypebox" data-mkt="start" role="button" tabindex="0"
              aria-label="Start creating — describe what you want">
-          <div class="composer-top">
-            <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
-          </div>
-          <div class="composer-row">
-            <div class="mode-switch" role="group" aria-label="Generation mode" aria-hidden="true">
-              <span class="mode-btn" data-mktmode="Voice">Audio</span>
-              <span class="mode-btn" data-mktmode="Image">Image</span>
-              <span class="mode-btn active" data-mktmode="Video">Video</span>
-            </div>
-            <span class="opt-btn mkt-optghost">Model: <b>Auto</b> ▾</span>
-            <span class="send" aria-hidden="true">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-            </span>
-          </div>
+          <div class="mkt-fauxinput"><span id="mktTypeText"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
+          <span class="send" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          </span>
         </div>
       </div>
     </section>
