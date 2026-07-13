@@ -3381,7 +3381,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    ========================================================================== */
 .mkt-studio{max-width:1360px;margin:0 auto;overflow:hidden;
   padding:clamp(3.2rem,8vh,6rem) clamp(1.1rem,4vw,3rem) 0}
-.mkt-stage{position:relative;max-width:1080px;margin:0 auto;perspective:1500px;text-align:left}
+.mkt-stage{position:relative;max-width:1240px;margin:0 auto;perspective:1500px;text-align:left}
 .mkt-stage::before{/* floor glow */
   content:"";position:absolute;left:8%;right:8%;bottom:-6%;height:40%;z-index:-1;
   background:radial-gradient(50% 60% at 50% 100%,rgba(255,121,198,.2),rgba(255,184,77,.1) 45%,transparent 75%);
@@ -3488,12 +3488,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-send{flex:0 0 auto;width:32px;height:32px;border-radius:50%;background:var(--split);color:#14060d;
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1rem;
   box-shadow:0 4px 14px rgba(255,121,198,.35)}
-.mkt-demo-dots{display:flex;justify-content:center;gap:.5rem;margin:1.1rem 0 0}
-.mkt-demo-dot{width:7px;height:7px;padding:0;border:none;cursor:pointer;border-radius:50%;
-  background:rgba(255,255,255,.2);transition:background .2s,width .2s}
-.mkt-demo-dot:hover{background:rgba(255,255,255,.4)}
-.mkt-demo-dot.mkt-on{width:20px;border-radius:99px;background:var(--split)}
-.mkt-demo-dot.mkt-on:hover{background:var(--split)}
 .mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 
@@ -3565,44 +3559,39 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   padding-top:.9rem;border-top:1px solid var(--line)}
 .mkt-trio-item b{display:block;color:var(--text);font-weight:600;margin-bottom:.2rem}
 
-/* ===== Fanned deck — three live demos: one centered + interactive, two
-   peeking tilted on the sides. Clicking a side peek (or a dot) glides it to
-   center — the CSS transition on the slots IS the animation. Each demo is its
-   own iframe present at parse time, so its real React bundle runs live
+/* ===== Big screen + thumbnail rail — one large live demo (fully browsable) on
+   the left, three labeled thumbnails on the right that switch it. Each demo is
+   its own iframe present at parse time, so its real React bundle runs live
    (nav/cart/FAQ/signup all work inside the framed site). ===== */
-.mb-deck{position:relative;height:720px;margin:0 auto;perspective:2100px}
-.mb-slot{position:absolute;top:10px;left:50%;width:1140px;max-width:95%;
-  transform:translateX(-50%);   /* base = dead center; pos-* override below */
-  border-radius:16px;overflow:hidden;border:1px solid var(--line-2);
-  background:linear-gradient(180deg,#121017,#0b0a10);box-shadow:0 30px 70px rgba(0,0,0,.6);
-  transition:transform .62s cubic-bezier(.55,.02,.2,1),opacity .5s ease,
-    box-shadow .5s ease,filter .5s ease;will-change:transform,opacity,filter}
-.mb-slot .mb-body{aspect-ratio:16/9}
-
-/* center — front, upright, full-size, live (grab layer off → iframe clickable) */
-.mb-slot.pos-c{transform:translateX(-50%) scale(1);z-index:3;opacity:1;
-  box-shadow:0 -1px 0 rgba(255,255,255,.12) inset,0 44px 100px rgba(0,0,0,.68),
-    0 20px 70px rgba(255,121,198,.16),0 8px 34px rgba(255,184,77,.1)}
-.mb-slot.pos-c .mb-grab{pointer-events:none}
-/* side peeks — tucked behind, tilted, dimmed; they bleed off the edges. The
-   grab layer catches the click to bring one forward. */
-.mb-slot.pos-l{transform:translateX(-92%) scale(.78) rotate(-6deg);z-index:1;
-  opacity:.5;filter:saturate(.8) brightness(.6)}
-.mb-slot.pos-r{transform:translateX(-8%) scale(.78) rotate(6deg);z-index:1;
-  opacity:.5;filter:saturate(.8) brightness(.6)}
-.mb-slot.pos-l:hover,.mb-slot.pos-r:hover{opacity:.72;filter:saturate(.95) brightness(.8)}
-.mb-slot.pos-l .mb-grab,.mb-slot.pos-r .mb-grab{pointer-events:auto;cursor:pointer}
+.mb-wrap{display:flex;align-items:stretch;gap:1.5rem}
+.mb-big{flex:1;min-width:0;align-self:flex-start}
+.mb-rail{display:flex;flex-direction:column;justify-content:center;gap:1.1rem;flex:0 0 232px}
+.mb-thumb{display:block;padding:0;text-align:left;cursor:pointer;overflow:hidden;
+  border:1px solid var(--line-2);border-radius:13px;background:#0d0b12;
+  transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+.mb-thumb-shot{display:block;aspect-ratio:16/9;background-size:cover;background-position:top;
+  filter:saturate(.8) brightness(.62);transition:filter .25s ease}
+.mb-thumb-lbl{display:block;padding:.55rem .75rem;font-size:.72rem;letter-spacing:.03em;
+  color:var(--muted)}
+.mb-thumb-lbl b{color:var(--text);font-weight:700;letter-spacing:.06em}
+.mb-thumb:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.mb-thumb:hover .mb-thumb-shot{filter:saturate(.95) brightness(.85)}
+/* active — gradient ring + full-color shot */
+.mb-thumb.mkt-on{border-color:transparent;
+  box-shadow:0 0 0 2px #ff9ecb,0 0 22px rgba(255,121,198,.28),0 14px 34px rgba(0,0,0,.5)}
+.mb-thumb.mkt-on .mb-thumb-shot{filter:none}
+.mb-thumb.mkt-on .mb-thumb-lbl{color:var(--text)}
 
 .mb-body{position:relative;aspect-ratio:16/9;overflow:hidden;background:#0d0b12}
 .mb-demo{position:absolute;inset:0;width:100%;height:100%;border:0}
-.mb-grab{position:absolute;inset:0;border:0;padding:0;margin:0;background:transparent}
-@media (max-width:760px){
-  /* stack flat on phones: center only, side peeks hidden */
-  .mb-deck{height:auto}
-  .mb-slot{position:relative;left:auto;top:0;width:100%;max-width:100%;margin:0 auto;
-    transform:none!important;filter:none;opacity:1}
-  .mb-slot.pos-l,.mb-slot.pos-r{display:none}
-  .mb-slot .mb-body{aspect-ratio:4/5}
+.mb-demo[hidden]{display:none}
+@media (max-width:900px){
+  /* stack on phones: big screen, then the rail as a row of thumbs below */
+  .mb-wrap{flex-direction:column}
+  .mb-big .mb-body{aspect-ratio:4/5}
+  .mb-rail{flex-direction:row;flex:auto;gap:.7rem}
+  .mb-thumb{flex:1;min-width:0}
+  .mb-thumb-lbl{padding:.45rem .5rem;font-size:.62rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 }
 .mkt-hint-cta{border:none;padding:0;cursor:pointer;font:inherit;font-weight:700;
   background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
