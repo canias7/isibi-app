@@ -6487,6 +6487,7 @@ function initAuthGate() {
     closeAuth();
   });
   initDemoCarousel();
+  initVoiceLane();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
@@ -6527,6 +6528,47 @@ function initDemoCarousel() {
   deck.addEventListener('mouseenter', stop);
   deck.addEventListener('mouseleave', start);
   start();
+}
+
+// Voice lane on the landing: fill each card's waveform with bars, clone the set
+// once for a seamless drift, and wire click-to-play (one clip at a time).
+function initVoiceLane() {
+  const track = document.getElementById('mktVoice');
+  if (!track) return;
+  const heights = [40, 72, 26, 90, 55, 80, 34, 64, 48, 88, 30, 70, 52, 84, 38, 60];
+  // Paint the bars into every card that doesn't have them yet.
+  track.querySelectorAll('.mkt-vcell .mkt-wave').forEach((wave) => {
+    if (wave.childElementCount) return;
+    for (let i = 0; i < 16; i++) {
+      const b = document.createElement('i');
+      b.style.height = heights[i] + '%';
+      b.style.animationDelay = (i * 0.07).toFixed(2) + 's';
+      wave.appendChild(b);
+    }
+  });
+  // Duplicate the card set so translateX(-50%) loops seamlessly.
+  track.querySelectorAll('.mkt-vcell').forEach((c) => track.appendChild(c.cloneNode(true)));
+
+  let current = null; // { audio, cell }
+  const stop = () => {
+    if (!current) return;
+    current.audio.pause();
+    current.cell.classList.remove('is-playing');
+    current = null;
+  };
+  track.querySelectorAll('.mkt-vcell').forEach((cell) => {
+    cell.addEventListener('click', () => {
+      if (current && current.cell === cell) { stop(); return; }
+      stop();
+      const src = cell.getAttribute('data-audio');
+      if (!src) return;
+      const audio = new Audio(src);
+      audio.addEventListener('ended', stop);
+      audio.play().catch(() => {}); // 404 / autoplay block — card still animates on hover
+      cell.classList.add('is-playing');
+      current = { audio, cell };
+    });
+  });
 }
 
 // ── Gallery view: every generation across all (synced) chats ──

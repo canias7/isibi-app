@@ -3358,6 +3358,28 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-c13{background:radial-gradient(130% 120% at 90% 50%,rgba(255,220,160,.14),rgba(180,140,80,.08) 50%,#171408 85%)}
 .mkt-c14{background:radial-gradient(120% 130% at 10% 40%,rgba(255,110,160,.18),rgba(170,60,120,.1) 50%,#180e15 85%)}
 
+/* Voice lane — a third drifting row of playable audio cards (compact waveform
+   tiles). Reuses .mkt-strip-row / .mkt-strip-track for drift + hover-pause. */
+.mkt-vrow{margin-top:.6rem}
+.mkt-vcell{position:relative;flex:0 0 auto;width:186px;height:76px;margin-right:.6rem;
+  border-radius:12px;overflow:hidden;border:1px solid var(--line);
+  background:linear-gradient(160deg,#151019,#0f0d14);
+  display:flex;align-items:center;gap:.6rem;padding:0 .7rem;cursor:pointer;
+  transition:border-color .2s ease}
+.mkt-vcell:hover{border-color:rgba(255,121,198,.42)}
+.mkt-vplay{flex:0 0 auto;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--purple),var(--neon));color:#0b0a10}
+.mkt-vplay svg{width:11px;height:11px;margin-left:1px}
+.mkt-vcell.is-playing .mkt-vplay svg{margin-left:0}
+.mkt-wave{flex:1;display:flex;align-items:center;gap:2px;height:34px;overflow:hidden;margin-bottom:9px}
+.mkt-wave i{flex:1;min-width:2px;border-radius:2px;
+  background:linear-gradient(180deg,var(--purple),var(--neon));opacity:.6;
+  animation:mkt-wv 1.4s ease-in-out infinite}
+.mkt-vcell:hover .mkt-wave i,.mkt-vcell.is-playing .mkt-wave i{opacity:.95;animation-duration:1.1s}
+@keyframes mkt-wv{0%,100%{height:16%}50%{height:100%}}
+.mkt-vmeta{position:absolute;bottom:6px;left:45px;font-size:.6rem;letter-spacing:.02em;
+  color:var(--muted);white-space:nowrap;pointer-events:none}
+
 /* ==========================================================================
    Model marquee
    ========================================================================== */
