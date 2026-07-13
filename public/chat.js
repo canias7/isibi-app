@@ -6487,7 +6487,7 @@ function initAuthGate() {
     closeAuth();
   });
   initDemoCarousel();
-  initDeepLine();
+  initTypebox();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
@@ -6524,38 +6524,81 @@ function initDemoCarousel() {
   layout();
 }
 
-// Marketing: the rotating pipeline line — the actual generation pipeline, one
-// stage at a time (tokenize → embed → diffuse → infer → render). Each new line
-// gently blur-fades out and the next fades in (no moving numbers), the stage
-// segment under it fills, and the segments are clickable to jump. Pauses
-// off-screen; under reduced-motion the text advances with instant swaps.
-function initDeepLine() {
-  const el = document.getElementById('mktDeepLine');
+// Marketing: the "type your idea" chatbox under the filmstrip. When idle it
+// typewriters example prompts into the placeholder (type → hold → delete →
+// next). Clicking any filmstrip clip acts like a preset — it "pastes" that
+// clip's prompt into the box (and swaps the Video/Image/Voice chip), purely as
+// a hook; the box itself starts sign-up. Pauses off-screen; reduced-motion
+// shows a static example and pastes instantly.
+function initTypebox() {
+  const el = document.getElementById('mktTypeText');
   if (!el) return;
-  const bEl = el.querySelector('b'), sEl = el.querySelector('span');
-  if (!bEl || !sEl) return;
-  const LINES = [
-    { b: 'Tokenized.', s: 'Your sentence becomes 2,048 numbers.' },
-    { b: 'Embedded.', s: 'Meaning, mapped into latent space.' },
-    { b: 'Diffused.', s: 'Pure noise, denoised into frames.' },
-    { b: 'Inferred.', s: 'Billions of parameters. One forward pass.' },
-    { b: 'Rendered.', s: 'Pixels land back in your chat.' },
-  ];
-  const steps = Array.prototype.slice.call(document.querySelectorAll('#mktDeepSteps .mkt-deep-step'));
+  const box = document.getElementById('mktTypebox');
+  const modeBtns = box ? Array.prototype.slice.call(box.querySelectorAll('.mode-btn')) : [];
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let i = 0, timer = null, swapT = null;
-  const paint = () => { steps.forEach((d, k) => d.classList.toggle('mkt-on', k === i));
-    bEl.textContent = LINES[i].b; sEl.textContent = LINES[i].s; };
-  const show = (n, animate) => {
-    i = ((n % LINES.length) + LINES.length) % LINES.length;
-    if (!animate || reduce) { paint(); return; }
-    el.classList.add('mkt-swap');   // fade+blur out, swap text, fade back in
-    clearTimeout(swapT);
-    swapT = setTimeout(() => { paint(); el.classList.remove('mkt-swap'); }, 560);
+  const IDLE = [
+    'a neon tiger prowling a rainy Tokyo alley…',
+    'a warm, cinematic ad for my coffee brand…',
+    'a founder intro to camera, studio-lit…',
+    'an 8-second reveal for my sneaker drop…',
+    'a calm voiceover for my meditation app…',
+  ];
+  // Per-clip presets, indexed to the filmstrip's f1…f14 tiles.
+  const PRESETS = [
+    ['Video', 'a neon tiger prowling a rainy Tokyo alley, cinematic'],
+    ['Video', 'slow-mo espresso pour, warm morning light'],
+    ['Image', 'album cover — chrome typography on black glass'],
+    ['Video', 'a founder intro to camera, soft studio key light'],
+    ['Image', 'product hero — matte serum bottle on wet stone'],
+    ['Video', 'drone shot pulling back over a foggy coastline'],
+    ['Voice', 'warm, unhurried voiceover for a meditation app'],
+    ['Video', 'an 8-second sneaker reveal, floating on set'],
+    ['Image', 'cyberpunk street market, neon puddles, 35mm'],
+    ['Video', 'a corgi astronaut bounding across the moon'],
+    ['Image', 'minimal skincare ad, soft pastel gradient'],
+    ['Video', 'handheld café b-roll, golden hour, shallow depth'],
+    ['Voice', 'energetic movie-trailer narration'],
+    ['Video', 'macro paint swirling into water, ultra slow-mo'],
+  ];
+  let picked = false, p = 0, ch = 0, deleting = false, timer = null, alive = false;
+  const setMode = (k) => modeBtns.forEach((btn) => btn.classList.toggle('active', btn.getAttribute('data-mktmode') === k));
+  // idle typewriter
+  const tick = () => {
+    const full = IDLE[p];
+    if (!deleting) {
+      el.textContent = full.slice(0, ++ch);
+      if (ch >= full.length) { deleting = true; timer = setTimeout(tick, 1700); return; }
+      timer = setTimeout(tick, 42 + Math.random() * 45);
+    } else {
+      el.textContent = full.slice(0, --ch);
+      if (ch <= 0) { deleting = false; p = (p + 1) % IDLE.length; timer = setTimeout(tick, 320); return; }
+      timer = setTimeout(tick, 24);
+    }
   };
-  const start = () => { if (!timer) timer = setInterval(() => show(i + 1, true), 3800); };
-  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
-  steps.forEach((d, n) => d.addEventListener('click', () => { stop(); show(n, true); start(); }));
+  const start = () => { if (!alive && !picked && !reduce) { alive = true; tick(); } };
+  const stop = () => { alive = false; if (timer) { clearTimeout(timer); timer = null; } };
+  // paste a preset in, typed quickly, with a pulse on the box
+  const paste = (kind, text) => {
+    picked = true; stop(); setMode(kind);
+    if (box) { box.classList.remove('mkt-typebox-flash'); void box.offsetWidth; box.classList.add('mkt-typebox-flash'); }
+    if (reduce) { el.textContent = text; return; }
+    let k = 0;
+    const type = () => {
+      el.textContent = text.slice(0, ++k);
+      if (k < text.length) timer = setTimeout(type, 22 + Math.random() * 22);
+    };
+    el.textContent = ''; type();
+  };
+  // wire every filmstrip clip → paste its preset (dedupe by tile number)
+  document.querySelectorAll('.mkt-strip .mkt-cell').forEach((cell) => {
+    const img = cell.querySelector('.mkt-cell-img');
+    const m = img && (img.getAttribute('style') || '').match(/f(\d+)\.jpg/);
+    const preset = m && PRESETS[(+m[1] - 1) % PRESETS.length];
+    if (!preset) return;
+    cell.classList.add('mkt-cell-pick');
+    cell.addEventListener('click', () => { paste(preset[0], preset[1]); el.scrollIntoView && box && box.scrollIntoView({ block: 'center', behavior: 'smooth' }); });
+  });
+  if (reduce) { el.textContent = IDLE[0]; return; }
   if ('IntersectionObserver' in window) {
     new IntersectionObserver((ents) => {
       ents.forEach((e) => (e.isIntersecting ? start() : stop()));
