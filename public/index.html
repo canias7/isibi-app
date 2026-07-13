@@ -26,6 +26,81 @@
 </head>
 <body data-agent="isibi.ai">
 
+  <!-- Public marketing landing — the first thing a logged-out visitor sees.
+       CTAs reveal the auth gate; after sign-in the app takes over. -->
+  <div id="marketing" class="mkt" style="display:none">
+    <header class="mkt-nav">
+      <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
+      <nav class="mkt-links">
+        <a href="#mkt-features">Features</a>
+        <a href="#mkt-pricing">Pricing</a>
+        <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
+        <button class="mkt-cta" data-mkt="start" type="button">Get started</button>
+      </nav>
+    </header>
+
+    <section class="mkt-hero">
+      <span class="mkt-badge">✦ AI video · images · voice — one chatbox</span>
+      <h1 class="mkt-h1">Generate the <span class="mkt-grad">impossible</span>.</h1>
+      <p class="mkt-sub">Describe it in plain words. isibi turns it into a scroll-stopping video, a crisp image, or a natural voiceover — powered by the world's best AI models, no skills needed.</p>
+      <div class="mkt-cta-row">
+        <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start creating — it's free</button>
+        <button class="mkt-ghost" data-mkt="signin" type="button">I have an account</button>
+      </div>
+
+      <!-- The home page, right there -->
+      <div class="mkt-showcase" data-mkt="start" role="button" tabindex="0" aria-label="Open isibi">
+        <div class="mkt-frame">
+          <div class="mkt-frame-bar"><span></span><span></span><span></span><b>isibi.ai</b></div>
+          <div class="mkt-app">
+            <div class="mkt-app-greet">Good morning, <span class="mkt-grad">you</span></div>
+            <div class="mkt-app-sub">Pick a starting point and make it yours.</div>
+            <div class="mkt-app-tabs"><b>Marketing</b><span>Cinematic</span><span>Product</span><span>Social</span><span>Portrait</span><span>Anime</span></div>
+            <div class="mkt-app-grid">
+              <div class="mkt-card"><div class="mkt-thumb t0"></div><div class="mkt-card-t">Product hero ad</div><div class="mkt-card-s">Slick 360° commercial.</div></div>
+              <div class="mkt-card"><div class="mkt-thumb t1"></div><div class="mkt-card-t">UGC testimonial</div><div class="mkt-card-s">Authentic selfie-style hype.</div></div>
+              <div class="mkt-card"><div class="mkt-thumb t2"></div><div class="mkt-card-t">From product URL</div><div class="mkt-card-s">Paste a link — we do the rest.</div></div>
+            </div>
+            <div class="mkt-app-box"><span class="mkt-app-chip">Product hero ad ✕</span><span class="mkt-app-ph">Your idea — the preset shapes it…</span><span class="mkt-app-send">↑</span></div>
+          </div>
+        </div>
+        <div class="mkt-showcase-hint">↑ this is your home screen — click to jump in</div>
+      </div>
+    </section>
+
+    <section class="mkt-features" id="mkt-features">
+      <h2 class="mkt-h2">Everything you need to make it move</h2>
+      <div class="mkt-feat-grid">
+        <div class="mkt-feat"><div class="mkt-feat-ic">💬</div><h3>Just describe it</h3><p>Type what you want. isibi picks the right model, writes the prompt, and generates — video, image, or voice.</p></div>
+        <div class="mkt-feat"><div class="mkt-feat-ic">🔗</div><h3>Product link → ad</h3><p>Paste any store URL. isibi reads the product and builds an ad around it — no typing a description.</p></div>
+        <div class="mkt-feat"><div class="mkt-feat-ic">🎬</div><h3>Edit by talking</h3><p>Attach a clip and say the change — restyle it, extend it, swap the background. No timeline, no tools.</p></div>
+        <div class="mkt-feat"><div class="mkt-feat-ic">📱</div><h3>QR codes in your video</h3><p>Burn a scannable link to your product right into the ad — "put a QR from second 3 to 4." Done.</p></div>
+        <div class="mkt-feat"><div class="mkt-feat-ic">⚡</div><h3>14 top models</h3><p>Veo, Sora, Ray, Seedance, Kling and more — the best of every provider, in one place, picked for you.</p></div>
+        <div class="mkt-feat"><div class="mkt-feat-ic">📣</div><h3>Post it everywhere</h3><p>Publish straight to Instagram and YouTube, track your analytics, auto-reply to comments — all built in.</p></div>
+      </div>
+    </section>
+
+    <section class="mkt-pricing" id="mkt-pricing">
+      <h2 class="mkt-h2">Plans for every scale</h2>
+      <p class="mkt-h2-sub">Start free. Upgrade when you're ready to ship at volume.</p>
+      <div class="mkt-price-grid">
+        <div class="mkt-plan"><div class="mkt-plan-n">Plus</div><div class="mkt-plan-p">$24.99<small>/mo</small></div><div class="mkt-plan-d">Monthly credits · 10&nbsp;GB gallery</div><button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Plus</button></div>
+        <div class="mkt-plan mkt-plan-hot"><div class="mkt-plan-tag">Most popular</div><div class="mkt-plan-n">Pro</div><div class="mkt-plan-p">$49.99<small>/mo</small></div><div class="mkt-plan-d">More credits · 50&nbsp;GB gallery</div><button class="mkt-cta mkt-plan-cta" data-mkt="start" type="button">Choose Pro</button></div>
+        <div class="mkt-plan"><div class="mkt-plan-n">Max</div><div class="mkt-plan-p">$99.99<small>/mo</small></div><div class="mkt-plan-d">Most credits · 100&nbsp;GB gallery</div><button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Max</button></div>
+      </div>
+    </section>
+
+    <section class="mkt-final">
+      <h2 class="mkt-h2">Ready to generate the impossible?</h2>
+      <button class="mkt-cta mkt-big" data-mkt="start" type="button">Start creating — it's free</button>
+    </section>
+
+    <footer class="mkt-foot">
+      <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
+      <div class="mkt-foot-links"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><span>© isibi.ai</span></div>
+    </footer>
+  </div>
+
   <div id="authGate" class="auth-gate">
     <video class="auth-bg-video" autoplay muted loop playsinline
            poster="/login-bg.jpg">
@@ -33,6 +108,7 @@
       <source src="/login-bg.mp4" type="video/mp4" />
     </video>
     <div class="auth-card">
+      <button id="authHome" class="auth-home" type="button" aria-label="Back to home">← Back</button>
       <div class="auth-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
       <h1 id="authTitle" class="auth-title">Sign in to isibi.ai</h1>
       <p class="auth-sub" id="authSub">Create AI video, images, and voice.</p>

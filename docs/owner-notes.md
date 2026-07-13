@@ -65,6 +65,18 @@ and fixed, and add a preference line whenever the owner signals one.
   in VIDEO_USD) — PROVISIONAL, verify on the fal sweep. Not-in-roster editors
   still available if wanted: Happy Horse 1.0, Kling o1, VOID (object removal).
 
+## In progress — awaiting owner sign-off (NOT merged to main)
+
+- **Public marketing landing (2026-07-12):** logged-out visitors now see a
+  marketing page BEFORE the auth gate (owner picked option 1). In-page
+  `#marketing` section (no new URLs / Worker routing / Supabase redirect
+  changes). Hero: "Generate the impossible" + a static replica of the Home
+  screen ("the home page right there" — owner's words) + CTAs. Then features
+  grid, Plus/Pro/Max pricing, final CTA, footer. Boot: signed-in → `enterApp`;
+  logged-out → `showMarketing()`; CTAs (`data-mkt`) → `openAuthFrom()` opens the
+  gate; gate "← Back" (`#authHome`) → back to landing. v1 built + pushed to the
+  branch; **held from main pending the owner's design review.**
+
 ## Bug log
 
 _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
