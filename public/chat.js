@@ -6548,7 +6548,7 @@ function initLeadHero() {
   const setCat = (cat) => {
     const cfg = CATS[cat]; if (!cfg) return;
     chips.forEach((ch) => ch.classList.toggle('mkt-on', ch.dataset.cat === cat));
-    wordEl.textContent = cfg.word;
+    if (wordEl) wordEl.textContent = cfg.word;
     panels.forEach((p) => p.classList.toggle('mkt-on', p.dataset.panel === cfg.panel));
     if (cat === 'website') layoutWeb();
     else type(cfg.ph);
