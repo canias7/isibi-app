@@ -33,6 +33,13 @@ and fixed, and add a preference line whenever the owner signals one.
   templates (fixed choreography skeleton + product description/world filled
   from the attached image). Home cards stay display-only (PR #349) meanwhile.
 
+- **Voice/audio lane on the landing filmstrip (built + REMOVED 2026-07-13):**
+  added a third drifting row of playable compact waveform tiles under the two
+  image/video rows on the "Made with isibi" strip; owner saw it live and said
+  "came out very ugly, delete that" → fully reverted off `main` same day. Don't
+  rebuild the waveform-tile version. If a voice showcase comes back, it needs a
+  fresh design direction from the owner first.
+
 - **Declined (2026-07-12):** Luma **Reframe** (video + Photon image outpaint-to-new-ratio,
   on fal) — offered, owner said no. Don't re-pitch unless they bring it up.
   Runway integration also discussed: not on fal (needs its own API pipeline) — neither
@@ -70,29 +77,6 @@ and fixed, and add a preference line whenever the owner signals one.
 _(empty)_
 
 ## Shipped
-
-- **Voice lane on the marketing landing (owner request, 2026-07-13 → merged):**
-  the "Made with isibi" filmstrip had two drifting rows (image/video). Added a
-  **third line for audio/voice**, Wispr-Flow style — **compact waveform tiles**
-  (owner picked compact over wide pills), each with a pink→amber ▶ play button,
-  an animated equalizer waveform (isibi `--purple`→`--neon` gradient), and a
-  label (voice name · duration). **Playable** (owner picked playable over
-  decorative): click a card → its clip plays, one at a time; waveform brightens
-  + speeds up while playing/hovering, drifts + pauses-on-hover like the other
-  rows. Where: `public/index.html` (`.mkt-vrow`/`#mktVoice` row, 7 static
-  cards), `public/styles.css` (`.mkt-vcell`/`.mkt-wave`/`@keyframes mkt-wv`),
-  `public/chat.js` (`initVoiceLane()` fills the bars, clones the set for the
-  seamless drift, wires click-to-play; called at boot next to
-  `initDemoCarousel()`). CSP already allows `media-src 'self'`.
-  - **Audio files:** cards point at `/mkt/a1.wav … a3.wav` (cycled across the 7
-    cards). Those are **placeholder tones synthesized locally** (Node, zero
-    credits — no offline TTS engine here) so the play buttons work now.
-    **Real voices just drop in:** replace the files (or point `data-audio` at
-    `/mkt/a1.mp3 …`) — one line per card in index.html. Labels are placeholders
-    too (edit the `.mkt-vmeta` text).
-  - **TODO when owner supplies real clips:** swap the WAVs for real voice
-    samples + update the `.mkt-vmeta` labels. Owner may also want a different
-    card count (currently 7).
 
 - **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
   "main" 2026-07-13 → merged):** logged-out
