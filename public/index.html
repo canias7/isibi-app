@@ -109,6 +109,28 @@
       </div>
     </div>
 
+    <!-- A quiet "under the hood" beat between the filmstrip and the website
+         demo. Faint digits rain behind a short line — the reveal that plain
+         words become numbers. Lets the page breathe, with subtle motion. The
+         canvas is decorative (aria-hidden) and only animates while on-screen. -->
+    <section class="mkt-deep" id="mkt-essay">
+      <canvas class="mkt-rain" id="mktRain" aria-hidden="true"></canvas>
+      <div class="mkt-deep-inner">
+        <span class="mkt-eyebrow">under the hood</span>
+        <!-- Rotating pipeline lines — chat.js cycles these (tokenize → embed →
+             diffuse → infer → render), decoding each new line out of random
+             digits. First one inline for the no-JS case. -->
+        <p class="mkt-breath-line" id="mktDeepLine"><b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span></p>
+        <div class="mkt-deep-steps" id="mktDeepSteps" role="tablist" aria-label="Generation pipeline stages">
+          <button class="mkt-deep-step mkt-on" type="button" aria-label="Stage 1: Tokenized"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 2: Embedded"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 3: Diffused"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 4: Inferred"></button>
+          <button class="mkt-deep-step" type="button" aria-label="Stage 5: Rendered"></button>
+        </div>
+      </div>
+    </section>
+
     <!-- The app — real sites isibi built, embedded live and fully browsable -->
     <section class="mkt-studio" id="mkt-studio">
       <!-- Fanned deck: three live demos, one centered + interactive, two peeking
