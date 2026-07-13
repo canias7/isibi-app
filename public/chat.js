@@ -6493,42 +6493,34 @@ function initAuthGate() {
   else showMarketing();
 }
 
-// Marketing: the fanned-deck website demo. Three live iframes, all present at
-// parse time (so each React bundle runs); one sits centered + interactive, two
-// peek tilted on the sides. Clicking a side peek — or a dot — glides it to
-// center by swapping the pos-c/pos-l/pos-r classes; the CSS transition on the
-// slots is the animation. No auto-rotate — the center demo must stay put so its
-// buttons stay clickable; the visitor drives it with the peeks and dots.
+// Marketing: the big-screen + thumbnail-rail website demo. Three live iframes,
+// all present at parse time (so each React bundle runs — never swap iframe src
+// dynamically, scripts won't execute); the rail toggles which is visible and
+// keeps the chrome URL, the active thumb, and the "built from one line" quote
+// in sync with the shown site.
 function initDemoCarousel() {
-  const deck = document.getElementById('mbDeck');
-  if (!deck) return;
-  const slots = Array.prototype.slice.call(deck.querySelectorAll('.mb-slot'));
-  const dots = Array.prototype.slice.call(document.querySelectorAll('.mkt-demo-dot'));
-  if (slots.length < 2) return;
-  const N = slots.length;
+  const wrap = document.getElementById('mbWrap');
+  if (!wrap) return;
+  const frames = Array.prototype.slice.call(wrap.querySelectorAll('.mb-demo'));
+  const thumbs = Array.prototype.slice.call(wrap.querySelectorAll('.mb-thumb'));
+  const urlEl = document.getElementById('mktDemoUrl');
   const builtFrom = document.getElementById('mktBuiltFrom');
-  let center = 0;
-  const layout = () => {
-    slots.forEach((s, n) => {
-      const rel = (n - center + N) % N;   // 0 = center, N-1 = left peek, else right
-      s.classList.remove('pos-c', 'pos-l', 'pos-r');
-      s.classList.add(rel === 0 ? 'pos-c' : rel === N - 1 ? 'pos-l' : 'pos-r');
+  if (frames.length < 2 || !thumbs.length) return;
+  const show = (i) => {
+    frames.forEach((f, n) => { f.hidden = n !== i; f.classList.toggle('mb-on', n === i); });
+    thumbs.forEach((t, n) => {
+      t.classList.toggle('mkt-on', n === i);
+      t.setAttribute('aria-selected', n === i ? 'true' : 'false');
     });
-    dots.forEach((d, n) => d.classList.toggle('mkt-on', n === center));
-    // update the "built from one line" hook to the centered demo's prompt
-    const prompt = slots[center] && slots[center].getAttribute('data-prompt');
-    if (builtFrom && prompt) {
+    if (urlEl && frames[i]) urlEl.textContent = frames[i].getAttribute('data-url') || '';
+    // swap the "built from one line" quote to the shown demo's prompt
+    const prompt = frames[i] && frames[i].getAttribute('data-prompt');
+    if (builtFrom && prompt && builtFrom.textContent !== prompt) {
       builtFrom.classList.add('mkt-bf-swap');
       setTimeout(() => { builtFrom.textContent = prompt; builtFrom.classList.remove('mkt-bf-swap'); }, 260);
     }
   };
-  const go = (i) => { center = ((i % N) + N) % N; layout(); };
-  slots.forEach((s, n) => {
-    const grab = s.querySelector('.mb-grab');
-    if (grab) grab.addEventListener('click', () => go(n));
-  });
-  dots.forEach((d, n) => d.addEventListener('click', () => go(n)));
-  layout();
+  thumbs.forEach((t, n) => { if (frames[n]) t.addEventListener('click', () => show(n)); });
 }
 
 // Marketing: the "type your idea" chatbox under the filmstrip. When idle it
