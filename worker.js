@@ -27,31 +27,17 @@ const PROMPTLESS_VIDEO = new Set([
 ]);
 
 const IMAGE_MODELS = new Set([
-  "fal-ai/flux-2-pro",
-  "fal-ai/gemini-3-pro-image-preview",
-  "fal-ai/bytedance/seedream/v4/text-to-image",
-  "fal-ai/recraft/v3/text-to-image",
-  "google/nano-banana-2",
   "fal-ai/nano-banana-pro",
   "openai/gpt-image-2",
-  "fal-ai/flux/dev",
-  "fal-ai/krea-2/turbo",
-  "xai/grok-imagine-image",
 ]);
-const DEFAULT_IMAGE_MODEL = "fal-ai/bytedance/seedream/v4/text-to-image";
+const DEFAULT_IMAGE_MODEL = "fal-ai/nano-banana-pro";
 
 // Image editing: attaching an image in Image mode routes to the model's
 // edit / image-to-image endpoint. `multi` → image_urls[] vs a single image_url.
 // Models not listed here don't offer editing (the picker is hidden for them).
 const IMAGE_EDIT = {
-  "google/nano-banana-2":                        { endpoint: "fal-ai/nano-banana-2/edit",              multi: true },
   "fal-ai/nano-banana-pro":                      { endpoint: "fal-ai/nano-banana-pro/edit",            multi: true },
   "openai/gpt-image-2":                          { endpoint: "openai/gpt-image-2/edit",                multi: true },
-  "fal-ai/flux-2-pro":                           { endpoint: "fal-ai/flux-2-pro/edit",                 multi: true },
-  "fal-ai/gemini-3-pro-image-preview":           { endpoint: "fal-ai/gemini-3-pro-image-preview/edit", multi: true },
-  "fal-ai/bytedance/seedream/v4/text-to-image":  { endpoint: "fal-ai/bytedance/seedream/v4/edit",      multi: true },
-  "fal-ai/flux/dev":                             { endpoint: "fal-ai/flux/dev/image-to-image",         multi: false },
-  "fal-ai/recraft/v3/text-to-image":             { endpoint: "fal-ai/recraft/v3/image-to-image",       multi: false },
 };
 
 // Audio mode is voice generation (text-to-speech).
@@ -93,16 +79,8 @@ const VIDEO_USD = {
   "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
 };
 const IMAGE_USD = {
-  "fal-ai/flux-2-pro": 0.03,
-  "fal-ai/gemini-3-pro-image-preview": 0.15,
-  "fal-ai/bytedance/seedream/v4/text-to-image": 0.03,
-  "fal-ai/recraft/v3/text-to-image": 0.04,
-  "google/nano-banana-2": 0.08,
   "fal-ai/nano-banana-pro": 0.15,
   "openai/gpt-image-2": 0.12,
-  "fal-ai/flux/dev": 0.025,
-  "fal-ai/krea-2/turbo": 0.008,
-  "xai/grok-imagine-image": 0.022,
 };
 const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/eleven-v3": 0.10,
