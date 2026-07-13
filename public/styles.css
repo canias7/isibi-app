@@ -3497,17 +3497,16 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-stage-hint{text-align:center;color:var(--muted);font-size:.82rem;margin:.9rem 0 0;letter-spacing:.02em}
 .mkt-stage-hint b{color:var(--text);font-weight:600}
 
-/* Quiet editorial beat — restrained, left-aligned, text-forward. A breather
-   between the filmstrip and the website demo. */
-.mkt-essay{max-width:1080px;margin:0 auto;padding:clamp(3rem,7vh,5.5rem) clamp(1.1rem,4vw,3rem) 0;
-  border-top:1px solid var(--line)}
-.mkt-essay-head{margin-bottom:1.4rem}
+/* Minimal breather — one line, lots of air. A palette-cleanser between the
+   filmstrip and the website demo so the page can breathe. */
+.mkt-breath{max-width:1080px;margin:0 auto;text-align:center;
+  padding:clamp(5rem,15vh,9.5rem) 1.5rem}
 .mkt-eyebrow{display:inline-block;font-size:.72rem;letter-spacing:.2em;text-transform:uppercase;
-  color:var(--muted);margin-bottom:.9rem}
-.mkt-h2-sm{font-size:clamp(1.6rem,3.2vw,2.35rem)}
-.mkt-essay-lead{color:var(--muted);font-size:clamp(1rem,1.5vw,1.16rem);line-height:1.65;
-  max-width:46rem;margin:0}
-.mkt-essay-lead + .mkt-trio{margin-top:2.4rem}
+  color:var(--muted);opacity:.8;margin-bottom:1.1rem}
+.mkt-breath-line{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;
+  font-size:clamp(1.7rem,4.2vw,2.9rem);line-height:1.12;letter-spacing:-.03em;margin:0}
+.mkt-breath-line b{font-weight:700;color:var(--text)}
+.mkt-breath-line span{font-weight:700;color:rgba(237,234,243,.36)}
 
 /* three captions under the replica (Morphic) */
 .mkt-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;
