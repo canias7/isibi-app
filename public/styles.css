@@ -3520,6 +3520,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-deep-step:hover{background:rgba(255,255,255,.3)}
 .mkt-deep-step.mkt-on{background:var(--split);box-shadow:0 0 10px rgba(255,121,198,.5)}
 .mkt-deep-step.mkt-on:hover{background:var(--split)}
+/* website-builder intro — breathing room above the fanned deck */
+.mkt-builder-head{margin:clamp(1.5rem,5vh,3.5rem) auto 3rem;max-width:820px}
 
 /* three captions under the replica (Morphic) */
 .mkt-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:1.4rem;
