@@ -6506,6 +6506,7 @@ function initDemoCarousel() {
   const dots = Array.prototype.slice.call(document.querySelectorAll('.mkt-demo-dot'));
   if (slots.length < 2) return;
   const N = slots.length;
+  const builtFrom = document.getElementById('mktBuiltFrom');
   let center = 0;
   const layout = () => {
     slots.forEach((s, n) => {
@@ -6514,6 +6515,12 @@ function initDemoCarousel() {
       s.classList.add(rel === 0 ? 'pos-c' : rel === N - 1 ? 'pos-l' : 'pos-r');
     });
     dots.forEach((d, n) => d.classList.toggle('mkt-on', n === center));
+    // update the "built from one line" hook to the centered demo's prompt
+    const prompt = slots[center] && slots[center].getAttribute('data-prompt');
+    if (builtFrom && prompt) {
+      builtFrom.classList.add('mkt-bf-swap');
+      setTimeout(() => { builtFrom.textContent = prompt; builtFrom.classList.remove('mkt-bf-swap'); }, 260);
+    }
   };
   const go = (i) => { center = ((i % N) + N) % N; layout(); };
   slots.forEach((s, n) => {

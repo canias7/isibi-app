@@ -162,11 +162,11 @@
       <div class="mkt-sec-head mkt-center mkt-builder-head">
         <span class="mkt-eyebrow">meet the website builder</span>
         <h2 class="mkt-h2"><b>Dream it. Deploy it.</b> <span>From a thought to a live site.</span></h2>
-        <p class="mkt-builder-sub">Describe a website in one sentence — a store, a portfolio, a launch page — and isibi builds the whole thing: real pages, working navigation, a live cart, your words. <b>The three below aren't screenshots. They're real sites it built — click into any one and browse it.</b></p>
-        <div class="mkt-builder-feats">
-          <span>Real, working pages</span>
-          <span>Your copy &amp; brand</span>
-          <span>Live &amp; browsable — try it below</span>
+        <!-- The hook: the actual sentence that built the demo you're looking at,
+             updated by initDemoCarousel as the deck rotates. -->
+        <div class="mkt-builtfrom">
+          <span class="mkt-builtfrom-lbl">this entire live website came from one line ↓</span>
+          <p class="mkt-builtfrom-line" id="mktBuiltFrom">a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup</p>
         </div>
       </div>
       <!-- Fanned deck: three live demos, one centered + interactive, two peeking
@@ -175,7 +175,7 @@
            React bundle runs. Add one by dropping another .mb-slot + dot. -->
       <div class="mkt-stage" id="mktDemos">
         <div class="mb-deck" id="mbDeck">
-          <div class="mb-slot pos-c" data-url="impossible.store">
+          <div class="mb-slot pos-c" data-url="impossible.store" data-prompt="a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup">
             <div class="mkt-chrome">
               <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
               <span class="mkt-url">impossible.store</span><i></i>
@@ -185,7 +185,7 @@
               <button class="mb-grab" type="button" aria-label="Bring IMPOSSIBLE to front"></button>
             </div>
           </div>
-          <div class="mb-slot pos-l" data-url="seaward.io">
+          <div class="mb-slot pos-l" data-url="seaward.io" data-prompt="a sleek maritime-intelligence platform with a request-access page">
             <div class="mkt-chrome">
               <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
               <span class="mkt-url">seaward.io</span><i></i>
@@ -195,7 +195,7 @@
               <button class="mb-grab" type="button" aria-label="Bring Seaward to front"></button>
             </div>
           </div>
-          <div class="mb-slot pos-r" data-url="gloopies.fun">
+          <div class="mb-slot pos-r" data-url="gloopies.fun" data-prompt="a playful character brand for little yellow blobs, with an adopt button">
             <div class="mkt-chrome">
               <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
               <span class="mkt-url">gloopies.fun</span><i></i>
