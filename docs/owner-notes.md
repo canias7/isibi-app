@@ -67,7 +67,12 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
-- **Public marketing landing (2026-07-12, redesigned 2026-07-13):** logged-out
+_(empty)_
+
+## Shipped
+
+- **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
+  "main" 2026-07-13 → merged):** logged-out
   visitors see a marketing page BEFORE the auth gate (owner picked option 1).
   In-page `#marketing` section (no new URLs / Worker routing / Supabase redirect
   changes). Boot: signed-in → `enterApp`; logged-out → `showMarketing()`; CTAs
@@ -85,7 +90,6 @@ and fixed, and add a preference line whenever the owner signals one.
   cards, 16:10). Styled placeholder gradients show until a file lands — no
   code change needed to swap them in. Videos: say the word and specific
   filmstrip cells get wired to `<video>` (files as `/mkt/f{n}.mp4`).
-  **Held from main pending the owner's design review.**
 
 ## Bug log
 
