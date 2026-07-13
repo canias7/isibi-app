@@ -110,16 +110,14 @@
     </div>
 
     <!-- A quiet "under the hood" beat between the filmstrip and the website
-         demo. Faint digits rain behind a short line — the reveal that plain
-         words become numbers. Lets the page breathe, with subtle motion. The
-         canvas is decorative (aria-hidden) and only animates while on-screen. -->
+         demo — a calm still glow behind a short line that gently cycles the
+         real generation pipeline. No moving numbers; lets the page breathe. -->
     <section class="mkt-deep" id="mkt-essay">
-      <canvas class="mkt-rain" id="mktRain" aria-hidden="true"></canvas>
       <div class="mkt-deep-inner">
         <span class="mkt-eyebrow">under the hood</span>
-        <!-- Rotating pipeline lines — chat.js cycles these (tokenize → embed →
-             diffuse → infer → render), decoding each new line out of random
-             digits. First one inline for the no-JS case. -->
+        <!-- Rotating pipeline lines — chat.js gently fades between these
+             (tokenize → embed → diffuse → infer → render). First one inline
+             for the no-JS case. -->
         <p class="mkt-breath-line" id="mktDeepLine"><b>Tokenized.</b> <span>Your sentence becomes 2,048 numbers.</span></p>
         <div class="mkt-deep-steps" id="mktDeepSteps" role="tablist" aria-label="Generation pipeline stages">
           <button class="mkt-deep-step mkt-on" type="button" aria-label="Stage 1: Tokenized"></button>
@@ -135,7 +133,7 @@
     <section class="mkt-studio" id="mkt-studio">
       <div class="mkt-sec-head mkt-center mkt-builder-head">
         <span class="mkt-eyebrow">meet the website builder</span>
-        <h2 class="mkt-h2"><b>Build it by thinking about it.</b> <span>Your ideas, brought to life.</span></h2>
+        <h2 class="mkt-h2"><b>Dream it. Deploy it.</b> <span>From a thought to a live site.</span></h2>
       </div>
       <!-- Fanned deck: three live demos, one centered + interactive, two peeking
            tilted on the sides. Click a side peek (or a dot) to glide it to
