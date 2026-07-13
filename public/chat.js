@@ -6496,8 +6496,8 @@ function initAuthGate() {
 // parse time (so each React bundle runs); one sits centered + interactive, two
 // peek tilted on the sides. Clicking a side peek — or a dot — glides it to
 // center by swapping the pos-c/pos-l/pos-r classes; the CSS transition on the
-// slots is the animation. Auto-advances slowly, paused while the mouse is over
-// the deck so it never yanks the frame out from under someone browsing it.
+// slots is the animation. No auto-rotate — the center demo must stay put so its
+// buttons stay clickable; the visitor drives it with the peeks and dots.
 function initDemoCarousel() {
   const deck = document.getElementById('mbDeck');
   if (!deck) return;
@@ -6521,12 +6521,6 @@ function initDemoCarousel() {
   });
   dots.forEach((d, n) => d.addEventListener('click', () => go(n)));
   layout();
-  let timer = null;
-  const start = () => { if (!timer) timer = setInterval(() => go(center + 1), 6500); };
-  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
-  deck.addEventListener('mouseenter', stop);
-  deck.addEventListener('mouseleave', start);
-  start();
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
