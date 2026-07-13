@@ -3504,99 +3504,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-pdesc{color:var(--muted);font-size:.76rem;margin-top:.1rem}
 
 /* ==========================================================================
-   Features — the six acts
-   ========================================================================== */
-.mkt-features{position:relative;max-width:1180px;margin:0 auto;
-  padding:clamp(3.2rem,8vh,6rem) clamp(1.1rem,4vw,3rem) 0}
-.mkt-feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
-.mkt-feat{position:relative;overflow:hidden;padding:1.5rem 1.5rem 1.4rem;border-radius:16px;
-  border:1px solid var(--line);background:var(--panel);
-  transition:border-color .3s,transform .3s,box-shadow .3s;display:flex;flex-direction:column}
-.mkt-feat:hover{border-color:var(--line-2);transform:translateY(-4px);
-  box-shadow:0 20px 50px rgba(0,0,0,.45),0 8px 30px rgba(255,121,198,.08)}
-.mkt-feat.mkt-wide{grid-column:span 2}
-.mkt-feat-no{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:.78rem;
-  letter-spacing:.24em;margin-bottom:.9rem;
-  background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
-.mkt-feat h3{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.28rem;
-  letter-spacing:-.02em;margin:0 0 .45rem}
-.mkt-feat p{color:var(--muted);font-size:.92rem;margin:0 0 1rem;max-width:36rem}
-.mkt-feat-art{margin-top:auto}
-
-/* act 1 — chat mock */
-.mkt-mini-chat{display:flex;flex-direction:column;gap:.55rem;font-size:.82rem}
-.mkt-mini-user{align-self:flex-end;max-width:88%;padding:.55rem .85rem;border-radius:12px 12px 3px 12px;
-  background:linear-gradient(120deg,rgba(255,121,198,.2),rgba(255,184,77,.2));
-  border:1px solid rgba(255,150,160,.25);color:var(--text)}
-.mkt-mini-bot{align-self:flex-start;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;
-  padding:.55rem .7rem;border-radius:12px 12px 12px 3px;background:var(--panel-2);
-  border:1px solid var(--line)}
-.mkt-mini-tag{padding:.18rem .6rem;border-radius:999px;font-size:.7rem;font-weight:700;
-  border:1px solid var(--line-2);color:var(--text)}
-.mkt-mini-tag.mkt-hot{background:var(--split);border-color:transparent;color:#14060d}
-.mkt-mini-tag.mkt-ok{color:var(--neon);border-color:rgba(255,184,77,.4)}
-
-/* act 2 — url → ad */
-.mkt-mini-url{display:flex;align-items:center;gap:.55rem;font-size:.76rem;flex-wrap:wrap}
-.mkt-mini-url .mkt-u{padding:.4rem .7rem;border-radius:999px;border:1px solid var(--line-2);
-  background:rgba(8,7,12,.5);color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.mkt-mini-url .mkt-a{color:var(--neon);font-weight:800}
-.mkt-mini-url .mkt-r2{padding:.4rem .7rem;border-radius:999px;font-weight:700;color:#14060d;background:var(--split)}
-
-/* act 3 — edit by talking: two frames */
-.mkt-mini-edit{display:flex;align-items:center;gap:.55rem}
-.mkt-mini-frame{flex:1;height:58px;border-radius:9px;border:1px solid var(--line-2);position:relative;overflow:hidden}
-.mkt-mini-frame.mkt-cold{background:linear-gradient(160deg,#232b3f,#141a2b 70%)}
-.mkt-mini-frame.mkt-warm{background:linear-gradient(160deg,#4f2f4a,#c77b3a 130%)}
-.mkt-mini-frame::after{content:"";position:absolute;left:12%;bottom:16%;width:34%;height:38%;
-  border-radius:4px;background:rgba(255,255,255,.22)}
-.mkt-mini-arrow{color:var(--neon);font-weight:800;font-size:1.05rem}
-.mkt-mini-say{margin-top:.55rem;font-size:.76rem;color:var(--muted)}
-.mkt-mini-say b{color:var(--text);font-weight:600}
-
-/* act 4 — QR + timeline */
-.mkt-mini-qr{display:flex;gap:.9rem;align-items:center}
-.mkt-qr{flex:0 0 auto;width:64px;height:64px;border-radius:8px;background:#f5f2fa;position:relative;padding:6px}
-.mkt-qr::before{content:"";position:absolute;width:6px;height:6px;background:#14060d;
-  top:6px;left:6px;
-  box-shadow:6px 0 #14060d,12px 0 #14060d,0 6px #14060d,12px 6px #14060d,0 12px #14060d,6px 12px #14060d,12px 12px #14060d,
-  40px 0 #14060d,46px 0 #14060d,34px 6px #14060d,46px 6px #14060d,34px 12px #14060d,40px 12px #14060d,46px 12px #14060d,
-  0 40px #14060d,6px 40px #14060d,12px 40px #14060d,0 46px #14060d,12px 46px #14060d,
-  22px 2px #14060d,22px 14px #14060d,28px 8px #14060d,20px 22px #14060d,32px 20px #14060d,26px 26px #14060d,
-  38px 26px #14060d,46px 22px #14060d,20px 34px #14060d,28px 34px #14060d,36px 38px #14060d,46px 34px #14060d,
-  24px 46px #14060d,32px 44px #14060d,40px 46px #14060d,46px 46px #14060d}
-.mkt-mini-tl{flex:1;min-width:0}
-.mkt-mini-tl .mkt-bar{height:8px;border-radius:99px;background:var(--panel-2);position:relative;overflow:hidden}
-.mkt-mini-tl .mkt-bar i{position:absolute;left:37%;width:13%;top:0;bottom:0;border-radius:99px;background:var(--split)}
-.mkt-mini-tl .mkt-ticks{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted);margin-top:.35rem}
-.mkt-mini-tl .mkt-ticks b{color:var(--neon);font-weight:700}
-
-/* act 5 — model chips */
-.mkt-mini-models{display:flex;flex-wrap:wrap;gap:.4rem}
-.mkt-mini-models span{padding:.26rem .66rem;border-radius:999px;font-size:.72rem;font-weight:600;
-  border:1px solid var(--line-2);color:rgba(237,234,243,.78);background:rgba(255,255,255,.02)}
-.mkt-mini-models span.mkt-hot{background:var(--split);border-color:transparent;color:#14060d;font-weight:700}
-
-/* credits-roll CTA card */
-.mkt-feat-cta{justify-content:center;align-items:flex-start;gap:.4rem;
-  border:1px solid transparent;
-  background:linear-gradient(160deg,#161019,#0d0a12) padding-box,
-    linear-gradient(150deg,rgba(255,121,198,.65),rgba(255,184,77,.65)) border-box}
-.mkt-feat-cta h3{margin-bottom:.8rem}
-.mkt-feat-cta .mkt-cta{align-self:flex-start}
-
-/* act 6 — media agent bars */
-.mkt-mini-social{display:flex;align-items:flex-end;gap:.9rem}
-.mkt-mini-bars{display:flex;align-items:flex-end;gap:5px;height:52px}
-.mkt-mini-bars i{width:9px;border-radius:3px 3px 0 0;background:linear-gradient(to top,rgba(255,121,198,.75),rgba(255,184,77,.85))}
-.mkt-mini-bars i:nth-child(1){height:34%}.mkt-mini-bars i:nth-child(2){height:52%}
-.mkt-mini-bars i:nth-child(3){height:44%}.mkt-mini-bars i:nth-child(4){height:70%}
-.mkt-mini-bars i:nth-child(5){height:58%}.mkt-mini-bars i:nth-child(6){height:92%}
-.mkt-mini-reply{flex:1;font-size:.72rem;color:var(--muted);border:1px solid var(--line);
-  border-radius:10px;padding:.5rem .65rem;background:rgba(255,255,255,.02)}
-.mkt-mini-reply b{color:var(--neon);font-weight:700}
-
-/* ==========================================================================
    Pricing
    ========================================================================== */
 .mkt-pricing{max-width:1100px;margin:0 auto;
@@ -3657,10 +3564,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* ==========================================================================
    Responsive
    ========================================================================== */
-@media (max-width:1000px){
-  .mkt-feat-grid{grid-template-columns:repeat(2,1fr)}
-  .mkt-feat.mkt-wide{grid-column:span 2}
-}
 @media (max-width:900px){
   .mkt-hero-grid{grid-template-columns:1fr;align-items:start;gap:1.6rem}
   .mkt-trio{grid-template-columns:1fr;gap:1rem}
@@ -3673,8 +3576,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 @media (max-width:640px){
   .mkt-links a{display:none}
-  .mkt-feat-grid{grid-template-columns:1fr}
-  .mkt-feat.mkt-wide{grid-column:auto}
   .mkt-screen{transform:none}
   .mkt-screen:hover{transform:none}
   .mkt-cards{grid-template-columns:repeat(2,1fr);gap:.6rem}
@@ -3692,7 +3593,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   .mkt-hero{padding-top:2.6rem}
   .mkt-big{width:100%}
   .mkt-cta-row{flex-direction:column;align-items:stretch}
-  .mkt-mini-qr{flex-direction:column;align-items:flex-start}
 }
 
 @media (prefers-reduced-motion:reduce){
