@@ -109,21 +109,43 @@
       </div>
     </div>
 
-    <!-- The app — a real site isibi built, embedded live and fully browsable -->
+    <!-- The app — real sites isibi built, embedded live and fully browsable -->
     <section class="mkt-studio" id="mkt-studio">
-      <!-- Demo carousel: each demo is its own <iframe> present at parse time (so
-           its script runs); dots toggle which is visible + the chrome URL. Add a
-           demo by dropping another <iframe> here and un-hiding its dot. -->
+      <!-- Fanned deck: three live demos, one centered + interactive, two peeking
+           tilted on the sides. Click a side peek (or a dot) to glide it to
+           center. Every demo is its own <iframe> present at parse time so its
+           React bundle runs. Add one by dropping another .mb-slot + dot. -->
       <div class="mkt-stage" id="mktDemos">
-        <div class="mkt-screen">
-          <div class="mkt-chrome">
-            <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
-            <span class="mkt-url" id="mktDemoUrl">impossible.store</span><i></i>
+        <div class="mb-deck" id="mbDeck">
+          <div class="mb-slot pos-c" data-url="impossible.store">
+            <div class="mkt-chrome">
+              <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
+              <span class="mkt-url">impossible.store</span><i></i>
+            </div>
+            <div class="mb-body">
+              <iframe class="mb-demo" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe>
+              <button class="mb-grab" type="button" aria-label="Bring IMPOSSIBLE to front"></button>
+            </div>
           </div>
-          <div class="mb-body">
-            <iframe class="mb-demo mb-on" data-url="impossible.store" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe>
-            <iframe class="mb-demo" data-url="seaward.io" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live" hidden></iframe>
-            <iframe class="mb-demo" data-url="gloopies.fun" src="/mkt/demo3/" title="Gloopies — a character brand site isibi built, browse it live" hidden></iframe>
+          <div class="mb-slot pos-l" data-url="seaward.io">
+            <div class="mkt-chrome">
+              <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
+              <span class="mkt-url">seaward.io</span><i></i>
+            </div>
+            <div class="mb-body">
+              <iframe class="mb-demo" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live"></iframe>
+              <button class="mb-grab" type="button" aria-label="Bring Seaward to front"></button>
+            </div>
+          </div>
+          <div class="mb-slot pos-r" data-url="gloopies.fun">
+            <div class="mkt-chrome">
+              <span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span>
+              <span class="mkt-url">gloopies.fun</span><i></i>
+            </div>
+            <div class="mb-body">
+              <iframe class="mb-demo" src="/mkt/demo3/" title="Gloopies — a character brand site isibi built, browse it live"></iframe>
+              <button class="mb-grab" type="button" aria-label="Bring Gloopies to front"></button>
+            </div>
           </div>
         </div>
         <div class="mkt-demo-dots" role="tablist" aria-label="Website demos">

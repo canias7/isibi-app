@@ -6492,21 +6492,41 @@ function initAuthGate() {
   else showMarketing();
 }
 
-// Marketing: the website-demo carousel. Each demo is its own <iframe> that's
-// present in the HTML (so its script runs on load); dots just toggle which one
-// is visible and update the browser-chrome URL. No dynamic navigation — that's
-// what keeps each vendored demo interactive.
+// Marketing: the fanned-deck website demo. Three live iframes, all present at
+// parse time (so each React bundle runs); one sits centered + interactive, two
+// peek tilted on the sides. Clicking a side peek — or a dot — glides it to
+// center by swapping the pos-c/pos-l/pos-r classes; the CSS transition on the
+// slots is the animation. Auto-advances slowly, paused while the mouse is over
+// the deck so it never yanks the frame out from under someone browsing it.
 function initDemoCarousel() {
-  const urlEl = document.getElementById('mktDemoUrl');
-  const frames = Array.prototype.slice.call(document.querySelectorAll('#mktDemos .mb-demo'));
+  const deck = document.getElementById('mbDeck');
+  if (!deck) return;
+  const slots = Array.prototype.slice.call(deck.querySelectorAll('.mb-slot'));
   const dots = Array.prototype.slice.call(document.querySelectorAll('.mkt-demo-dot'));
-  if (frames.length < 2 || !dots.length) return;
-  const show = (i) => {
-    frames.forEach((f, n) => { f.hidden = n !== i; f.classList.toggle('mb-on', n === i); });
-    dots.forEach((d, n) => d.classList.toggle('mkt-on', n === i));
-    if (urlEl && frames[i]) urlEl.textContent = frames[i].getAttribute('data-url') || '';
+  if (slots.length < 2) return;
+  const N = slots.length;
+  let center = 0;
+  const layout = () => {
+    slots.forEach((s, n) => {
+      const rel = (n - center + N) % N;   // 0 = center, N-1 = left peek, else right
+      s.classList.remove('pos-c', 'pos-l', 'pos-r');
+      s.classList.add(rel === 0 ? 'pos-c' : rel === N - 1 ? 'pos-l' : 'pos-r');
+    });
+    dots.forEach((d, n) => d.classList.toggle('mkt-on', n === center));
   };
-  dots.forEach((d, i) => { if (frames[i]) d.addEventListener('click', () => show(i)); });
+  const go = (i) => { center = ((i % N) + N) % N; layout(); };
+  slots.forEach((s, n) => {
+    const grab = s.querySelector('.mb-grab');
+    if (grab) grab.addEventListener('click', () => go(n));
+  });
+  dots.forEach((d, n) => d.addEventListener('click', () => go(n)));
+  layout();
+  let timer = null;
+  const start = () => { if (!timer) timer = setInterval(() => go(center + 1), 6500); };
+  const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+  deck.addEventListener('mouseenter', stop);
+  deck.addEventListener('mouseleave', start);
+  start();
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
