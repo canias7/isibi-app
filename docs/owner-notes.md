@@ -67,8 +67,12 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
-- **Voice lane on the marketing landing (owner request, 2026-07-13):** the
-  "Made with isibi" filmstrip had two drifting rows (image/video). Added a
+_(empty)_
+
+## Shipped
+
+- **Voice lane on the marketing landing (owner request, 2026-07-13 → merged):**
+  the "Made with isibi" filmstrip had two drifting rows (image/video). Added a
   **third line for audio/voice**, Wispr-Flow style — **compact waveform tiles**
   (owner picked compact over wide pills), each with a pink→amber ▶ play button,
   an animated equalizer waveform (isibi `--purple`→`--neon` gradient), and a
@@ -81,15 +85,14 @@ and fixed, and add a preference line whenever the owner signals one.
   seamless drift, wires click-to-play; called at boot next to
   `initDemoCarousel()`). CSP already allows `media-src 'self'`.
   - **Audio files:** cards point at `/mkt/a1.wav … a3.wav` (cycled across the 7
-    cards). Those are **placeholder tones I synthesized locally** (Node, zero
+    cards). Those are **placeholder tones synthesized locally** (Node, zero
     credits — no offline TTS engine here) so the play buttons work now.
     **Real voices just drop in:** replace the files (or point `data-audio` at
     `/mkt/a1.mp3 …`) — one line per card in index.html. Labels are placeholders
     too (edit the `.mkt-vmeta` text).
-  - **Rendered/verified** in a real-code harness (real styles.css + real markup
-    + real `initVoiceLane`); screenshot shown to owner 2026-07-13.
-
-## Shipped
+  - **TODO when owner supplies real clips:** swap the WAVs for real voice
+    samples + update the `.mkt-vmeta` labels. Owner may also want a different
+    card count (currently 7).
 
 - **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
   "main" 2026-07-13 → merged):** logged-out
