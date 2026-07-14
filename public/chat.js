@@ -2911,6 +2911,25 @@ async function fetchCredits(attempt) {
   }
 }
 
+// Turn fal's error payload into one readable line. Validation errors arrive as
+// {detail:[{loc:['body','video_url'],msg:'...'}]} (FastAPI-style) — name the
+// field and the reason so a rejected input is diagnosable straight from chat.
+function falErrorDetail(body) {
+  try {
+    const d = body && (body.detail ?? body.error ?? body.message);
+    if (!d) return '';
+    if (typeof d === 'string') return d.slice(0, 300);
+    if (Array.isArray(d)) {
+      return d.slice(0, 3).map((e) => {
+        if (typeof e === 'string') return e;
+        const field = Array.isArray(e.loc) ? e.loc.filter((p) => p !== 'body').join('.') : '';
+        return (field ? field + ': ' : '') + (e.msg || e.message || JSON.stringify(e));
+      }).join(' · ').slice(0, 400);
+    }
+    return JSON.stringify(d).slice(0, 300);
+  } catch { return ''; }
+}
+
 // A fal-confirmed failure means fal never billed us — ask the server to refund
 // the charge (it independently re-verifies the failure with fal). Returns the
 // refunded credit amount, and refreshes the balance display when it's non-zero.
@@ -3390,9 +3409,16 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // doesn't bill a rejected job). 401 is a session issue, handled elsewhere.
       if (rr.status >= 400 && rr.status < 500 && rr.status !== 401 && rr.status !== 408 && rr.status !== 429) {
         endGen(origin);
+        // fal's validation payload names the exact field and reason
+        // ({detail:[{loc,msg}]}) — surface it verbatim so a rejected input is
+        // diagnosable from the chat instead of a generic shrug.
+        const errBody = await rr.json().catch(() => ({}));
+        console.error('fal rejected render:', rr.status, errBody);
+        const why = falErrorDetail(errBody);
         const refunded = await requestRefund(statusUrl);
-        deliverAgent(origin, '⚠️ fal rejected this render — the clip or prompt didn’t pass its input checks, so nothing was produced'
-          + (refunded > 0 ? '. Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
+        deliverAgent(origin, '⚠️ fal rejected this render (' + rr.status + ')'
+          + (why ? ' — ' + why : ' — the clip or prompt didn’t pass its input checks') + '. Nothing was produced'
+          + (refunded > 0 ? '; your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
         return;
       }
       if (attempt === 0) setGenText(origin, 'Finishing up…');
