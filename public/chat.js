@@ -3988,7 +3988,7 @@ function hideAuthGate() {
 // the gate's "← Back" returns here; signing in hides it for good.
 function showMarketing() {
   const mkt = document.getElementById('marketing');
-  if (mkt) mkt.style.display = 'block';
+  if (mkt) mkt.style.display = 'flex';   // CRT landing is a flex column (nav + stage)
   const gate = document.getElementById('authGate');
   if (gate) gate.style.display = 'none';
   const shell = document.querySelector('.shell');
