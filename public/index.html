@@ -148,42 +148,76 @@
         <p class="mkt-h2-sub">The chatbox is the whole pipeline. Here's what happens under the hood.</p>
       </div>
       <div class="mkt-how-steps">
-        <div class="mkt-step" data-reveal>
+        <!-- Step 1 — 3 rotating input examples + 3 side texts (mkt-rotate) -->
+        <div class="mkt-step mkt-rotate" data-reveal>
           <div class="mkt-step-tile mkt-tile-a" aria-hidden="true">
-            <div class="mkt-mock">
-              <div class="mkt-mock-input">a neon tiger prowling a rainy Tokyo alley, cinematic<span class="mkt-mock-send">↑</span></div>
+            <div class="mkt-frames">
+              <div class="mkt-frame on">
+                <div class="mkt-mock"><div class="mkt-mock-input">a neon tiger prowling a rainy Tokyo alley, cinematic<span class="mkt-mock-send">↑</span></div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><span class="mkt-mock-attach">🎬 clip.mp4</span><div class="mkt-mock-input">make it warmer and cut the first 3 seconds<span class="mkt-mock-send">↑</span></div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><div class="mkt-mock-input mkt-mock-link">yourstore.com/espresso-cup<span class="mkt-mock-send">↑</span></div></div>
+              </div>
             </div>
           </div>
           <div class="mkt-step-copy">
             <span class="mkt-step-n">1</span>
-            <h3 class="mkt-step-h">Describe it in the chat</h3>
-            <p class="mkt-step-p">Type what you want in plain words — attach a clip, an image, or a product link if you have one.</p>
+            <div class="mkt-tframes">
+              <div class="mkt-tframe on"><h3 class="mkt-step-h">Describe it in the chat</h3><p class="mkt-step-p">Type what you want in plain words — no menus, no settings, no jargon.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">Or attach and tweak</h3><p class="mkt-step-p">Drop in a clip or an image and just say the change you want.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">Even a product link</h3><p class="mkt-step-p">Paste a store URL — it reads the page and stages the shot for you.</p></div>
+            </div>
           </div>
         </div>
-        <div class="mkt-step mkt-step-flip" data-reveal>
+        <!-- Step 2 -->
+        <div class="mkt-step mkt-step-flip mkt-rotate" data-reveal>
           <div class="mkt-step-tile mkt-tile-b" aria-hidden="true">
-            <div class="mkt-mock">
-              <div class="mkt-mock-line">Slow dolly-in on a neon-lit tiger, rain-slick asphalt, cyan signage reflections, anamorphic 35mm…</div>
-              <div class="mkt-mock-tags"><b>Veo 3.1 ✓</b><span>Sora 2</span><span>Kling</span></div>
+            <div class="mkt-frames">
+              <div class="mkt-frame on">
+                <div class="mkt-mock"><div class="mkt-mock-line">Slow dolly-in on a neon-lit tiger, rain-slick asphalt, cyan signage reflections, anamorphic 35mm…</div><div class="mkt-mock-tags"><b>Veo 3.1 ✓</b><span>Sora 2</span><span>Kling</span></div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><div class="mkt-mock-line">Studio product shot, soft key light, marble surface, 85mm macro, crisp reflections…</div><div class="mkt-mock-tags"><b>Flux 2 Pro ✓</b><span>Seedream 4</span><span>GPT-Image</span></div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><div class="mkt-mock-line mkt-mock-search">🔎 Checking the web…</div><div class="mkt-mock-line">Facts folded in so "the newest one" depicts the real, current thing.</div></div>
+              </div>
             </div>
           </div>
           <div class="mkt-step-copy">
             <span class="mkt-step-n">2</span>
-            <h3 class="mkt-step-h">The director takes over</h3>
-            <p class="mkt-step-p">Your words become a production-grade prompt, and the right one of 14 frontier models gets the job.</p>
+            <div class="mkt-tframes">
+              <div class="mkt-tframe on"><h3 class="mkt-step-h">The director takes over</h3><p class="mkt-step-p">Your words become a production-grade prompt, tuned to the model that runs it.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">It picks the model</h3><p class="mkt-step-p">The right one of 14 frontier models gets each job — video, image or voice.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">It checks the facts</h3><p class="mkt-step-p">Ask for "the newest X" and it searches the web so the result shows the real thing.</p></div>
+            </div>
           </div>
         </div>
-        <div class="mkt-step" data-reveal>
+        <!-- Step 3 -->
+        <div class="mkt-step mkt-rotate" data-reveal>
           <div class="mkt-step-tile mkt-tile-c" aria-hidden="true">
-            <div class="mkt-mock">
-              <div class="mkt-mock-media"><i class="mkt-mock-play"></i></div>
-              <div class="mkt-mock-saved">Saved to your gallery ✓</div>
+            <div class="mkt-frames">
+              <div class="mkt-frame on">
+                <div class="mkt-mock"><div class="mkt-mock-media"><i class="mkt-mock-play"></i></div><div class="mkt-mock-saved">Saved to your gallery ✓</div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><div class="mkt-mock-media mkt-mock-img"></div><div class="mkt-mock-saved">Image saved ✓</div></div>
+              </div>
+              <div class="mkt-frame">
+                <div class="mkt-mock"><div class="mkt-mock-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="mkt-mock-saved">Voiceover ready ✓</div></div>
+              </div>
             </div>
           </div>
           <div class="mkt-step-copy">
             <span class="mkt-step-n">3</span>
-            <h3 class="mkt-step-h">Your premiere lands</h3>
-            <p class="mkt-step-p">Watch it right in the chat, keep it in your private gallery, post it anywhere. Want a change? Just ask.</p>
+            <div class="mkt-tframes">
+              <div class="mkt-tframe on"><h3 class="mkt-step-h">Your premiere lands</h3><p class="mkt-step-p">Watch it right in the chat and keep it in your private, synced gallery.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">Stills, the same way</h3><p class="mkt-step-p">Images land framed and saved — ready to drop straight into the feed.</p></div>
+              <div class="mkt-tframe"><h3 class="mkt-step-h">And voiceovers</h3><p class="mkt-step-p">Sixteen studio voices read your script, ready to lay under the edit.</p></div>
+            </div>
           </div>
         </div>
       </div>

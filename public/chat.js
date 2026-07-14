@@ -6488,9 +6488,32 @@ function initAuthGate() {
   });
   initLeadHero();
   initMktReveal();
+  initMktRotate();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
+}
+
+// Marketing: each how-it-works step (.mkt-rotate) cycles through its 3 inner
+// frames and 3 side texts in lockstep, cross-fading every few seconds. All
+// steps advance on one shared clock so the column reads as a single beat.
+function initMktRotate() {
+  const steps = Array.prototype.slice.call(document.querySelectorAll('.mkt-rotate'));
+  if (!steps.length) return;
+  const groups = steps.map((step) => ({
+    frames: Array.prototype.slice.call(step.querySelectorAll('.mkt-frames > .mkt-frame')),
+    texts: Array.prototype.slice.call(step.querySelectorAll('.mkt-tframes > .mkt-tframe')),
+  }));
+  const count = Math.max.apply(null, groups.map((g) => Math.max(g.frames.length, g.texts.length)));
+  if (count < 2) return;
+  let i = 0;
+  setInterval(() => {
+    i = (i + 1) % count;
+    groups.forEach((g) => {
+      g.frames.forEach((el, k) => el.classList.toggle('on', k === i % g.frames.length));
+      g.texts.forEach((el, k) => el.classList.toggle('on', k === i % g.texts.length));
+    });
+  }, 3600);
 }
 
 // Marketing: cards with [data-reveal] drift up as they scroll into view.
