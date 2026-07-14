@@ -6520,6 +6520,15 @@ function paintCrt() {
   // morph the preview stage to the tuned channel
   const sel = opts[crtSel];
   if (sel) crtShowPanel(sel.dataset.panel || 'nosig');
+  // The chatbox only drives the live channel (Video/Image/Voice). On a
+  // coming-soon channel, dim it and swap the placeholder so it reads inert.
+  const box = document.getElementById('crtChatbox');
+  const inp = document.getElementById('crtLandInput');
+  const live = !sel || sel.dataset.live === '1';
+  if (box) box.classList.toggle('crt-chatbox-soon', !live);
+  if (inp) inp.placeholder = live
+    ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
+    : 'Coming soon — pick Video / Image / Voice to create';
 }
 // swap the visible preview panel; lazy-load the website iframes on first show
 function crtShowPanel(panel) {
@@ -6608,6 +6617,10 @@ function initCrt() {
   const landSend = document.getElementById('crtLandSend');
   const landBox = document.getElementById('crtChatbox');
   const submitLand = () => {
+    // Only the live channel (Video/Image/Voice) generates. On a coming-soon
+    // channel the chatbox is inert — Enter does nothing.
+    const sel = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
+    if (sel && sel.dataset.live !== '1') return;
     // Carry the typed prompt into the studio — it survives login (consumed by
     // enterApp) and is cleared if the user backs out of the auth popup.
     const t = (landInput && landInput.value.trim()) || '';

@@ -4177,6 +4177,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   border:0;cursor:pointer;background:var(--split);color:#14060d;box-shadow:0 6px 20px rgba(255,121,198,.4);transition:transform .15s}
 .crt-chatbox-send:hover{transform:translateY(-1px) scale(1.04)}
 .crt-chatbox-send:active{transform:scale(.96)}
+/* coming-soon channel: the chatbox is inert (Enter does nothing) */
+.crt-chatbox.crt-chatbox-soon{opacity:.5;filter:saturate(.5);cursor:not-allowed}
+.crt-chatbox.crt-chatbox-soon .crt-chatbox-send{pointer-events:none}
 .crtl-note{color:var(--muted);font-size:.85rem;text-align:center}
 .crtl-note b{color:var(--neon)}
 .crtl-note.crt-foot-nosig{color:#ff7a6a;letter-spacing:.14em;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
