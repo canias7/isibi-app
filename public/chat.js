@@ -6505,7 +6505,6 @@ function initMktRotate() {
   const ROW = 2.4; // rem — must match .mkt-wheel-item height
   const groups = steps.map((step) => ({
     frames: Array.prototype.slice.call(step.querySelectorAll('.mkt-frames > .mkt-frame')),
-    texts: Array.prototype.slice.call(step.querySelectorAll('.mkt-tframes > .mkt-tframe')),
     wheel: Array.prototype.slice.call(step.querySelectorAll('.mkt-wheel-item')),
   }));
 
@@ -6513,7 +6512,6 @@ function initMktRotate() {
   // top↔bottom skips the transition so it teleports instead of sweeping through.
   const place = (g, active, animate) => {
     g.frames.forEach((el, k) => el.classList.toggle('on', k === active % g.frames.length));
-    g.texts.forEach((el, k) => el.classList.toggle('on', k === active % g.texts.length));
     const n = g.wheel.length;
     g.wheel.forEach((el, i) => {
       const off = (((i - active) % n) + n) % n;   // 0..n-1
@@ -6530,7 +6528,7 @@ function initMktRotate() {
     });
   };
 
-  const N = Math.max.apply(null, groups.map((g) => Math.max(g.frames.length, g.texts.length, g.wheel.length)));
+  const N = Math.max.apply(null, groups.map((g) => Math.max(g.frames.length, g.wheel.length)));
   if (N < 2) return;
   groups.forEach((g) => place(g, 0, false));
   let active = 0;
