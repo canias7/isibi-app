@@ -4047,9 +4047,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* screen */
 .crt-screen{position:relative;flex:1;min-height:clamp(300px,52vh,460px);
   border-radius:16px;padding:clamp(1.2rem,3vw,2rem);overflow:hidden;
-  background:radial-gradient(120% 130% at 50% 45%,#1a130c,#0a0806 78%);
-  box-shadow:0 0 0 3px #16100c,0 0 0 5px #3a2620,inset 0 0 70px rgba(0,0,0,.9),
-    inset 0 0 26px rgba(255,150,90,.06)}
+  background:radial-gradient(52% 55% at 24% 28%,rgba(255,121,198,.11),transparent 62%),
+    radial-gradient(50% 55% at 82% 74%,rgba(255,184,77,.08),transparent 64%),
+    radial-gradient(120% 130% at 50% 45%,#100b16,#08070c 80%);
+  box-shadow:0 0 0 3px #14100e,0 0 0 5px #3a2620,inset 0 0 70px rgba(0,0,0,.88),
+    inset 0 0 30px rgba(255,121,198,.05)}
 .crt-glass{position:absolute;inset:0;pointer-events:none;border-radius:16px;
   background:radial-gradient(80% 55% at 50% 12%,rgba(255,220,190,.08),transparent 60%)}
 .crt-scan{position:absolute;inset:0;pointer-events:none;opacity:.5;
@@ -4137,7 +4139,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    CRT landing (production) — the CRT is the whole landing: nav on top, the TV
    centered, a chatbox docked at the bottom. Reuses the .crt-* screen visuals.
    ========================================================================== */
-.mkt.mkt-crt{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.mkt.mkt-crt{display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(46% 60% at 18% 30%,rgba(255,121,198,.13),transparent 70%),
+    radial-gradient(40% 55% at 82% 16%,rgba(255,184,77,.09),transparent 70%),var(--bg)}
 .mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
   padding:clamp(.4rem,1.2vh,.9rem) clamp(.5rem,1.5vw,1rem)}
 .mkt-crt .crtl-stage .crt-set{width:100%;max-width:1640px;margin:0 auto}
