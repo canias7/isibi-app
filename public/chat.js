@@ -6490,9 +6490,7 @@ function initAuthGate() {
   initMktReveal();
   initMktRotate();
   initMktCord();
-  // (The CRT channel selector was moved out of the auth flow — it now lives as
-  // a standalone landing demo at /demo-hero-3. initCrt() is intentionally not
-  // called here, so the #crtSelect markup stays inert on the live site.)
+  initCrt();   // the CRT is now the landing itself (channels + tuning)
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
@@ -6643,11 +6641,7 @@ function crtSelect() {
   const opt = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
   if (!opt) return;
   if (opt.dataset.live === '1') {
-    const kind = opt.dataset.kind;               // 'video' | 'audio'
-    hideCrt();
-    enterApp();
-    if (typeof showView === 'function') showView('home');
-    if (typeof setMode === 'function') setMode(kind === 'video' ? 'video' : 'audio');
+    if (typeof openAuthFrom === 'function') openAuthFrom('start');  // funnel into sign-up
   } else {
     crtNoSignal();                               // coming-soon channel
   }
@@ -6668,32 +6662,22 @@ function crtNoSignal() {
   }, 1600);
 }
 function initCrt() {
-  const crt = document.getElementById('crtSelect');
-  if (!crt) return;
   const menu = document.getElementById('crtMenu');
-  // click a channel → select it (single click both tunes and enters)
-  crt.querySelectorAll('.crt-opt').forEach((opt, i) => {
+  if (!menu) return;
+  const mkt = document.getElementById('marketing');
+  // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
+  menu.querySelectorAll('.crt-opt').forEach((opt, i) => {
     opt.addEventListener('click', () => { crtSel = i; paintCrt(); crtSelect(); });
   });
-  // VHF knob → advance to the next channel (visually turns via paintCrt)
-  const vhf = document.getElementById('crtVhf');
-  if (vhf) vhf.addEventListener('click', () => crtMove(1));
-  // power button → sign back out to the landing
-  const power = document.getElementById('crtPower');
-  if (power) power.addEventListener('click', () => {
-    hideCrt();
-    if (window.Auth && Auth.signOut) { try { Auth.signOut(); } catch (e) {} }
-    showMarketing();
-  });
-  // keyboard: ↑↓ tune, Enter/Space select — only while the CRT is visible
+  // keyboard: ↑↓ tune (only while the landing is showing); Enter selects when the menu is focused
   const onKey = (e) => {
-    if (!crt || crt.style.display === 'none') return;
+    if (!mkt || mkt.style.display === 'none') return;
     if (e.key === 'ArrowDown') { e.preventDefault(); crtMove(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); crtMove(-1); }
-    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crtSelect(); }
+    else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }
   };
-  if (menu) menu.addEventListener('keydown', onKey);
   document.addEventListener('keydown', onKey);
+  paintCrt();
 }
 
 // Marketing: cards with [data-reveal] drift up as they scroll into view.

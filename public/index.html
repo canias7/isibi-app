@@ -30,380 +30,49 @@
        CTAs reveal the auth gate; after sign-in the app takes over.
        Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
        and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
-  <div id="marketing" class="mkt" style="display:none">
+  <div id="marketing" class="mkt mkt-crt" style="display:none">
     <header class="mkt-nav">
       <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
       <nav class="mkt-links">
-        <a href="#mkt-lead">The app</a>
-        <a href="#mkt-pricing">Pricing</a>
+        <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
         <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
-        <button class="mkt-cta" data-mkt="start" type="button">Start creating</button>
+        <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
       </nav>
     </header>
 
-    <!-- Lead hero — a chatbox on the left; the right side shows real isibi output
-         for the picked kind: a vertical drifting filmstrip for video/image (same
-         cells as the old strip), and the live website demos for website. Chips
-         morph the right side, the headline word, and the prompt. Built/driven by
-         initLeadHero(); website iframes lazy-load on first pick. -->
-    <section class="mkt-lead" id="mkt-lead">
-      <div class="mkt-lead-copy">
-        <h1 class="mkt-lead-h1">Generate the <em>impossible</em>.</h1>
-        <!-- Output pickers — rounded-square tiles above the chatbox (per the
-             owner's sketch). 3 live kinds + Game/Music teased as SOON. -->
-        <div class="mkt-picks" id="leadChips" role="tablist" aria-label="Kind of output">
-          <button class="mkt-pick mkt-on" type="button" role="tab" data-cat="media" aria-label="Videos and images">
-            <span class="pk">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4.5" width="19" height="15" rx="3.2"/><path d="M2.5 9h19M7.5 4.5 10 9m3.5-4.5L16 9"/><path d="m10.4 12.6 4.4 2.5-4.4 2.5z" fill="currentColor" stroke="none"/></svg>
-            </span>
-            <span class="pl">Videos/Images</span>
-          </button>
-          <button class="mkt-pick" type="button" role="tab" data-cat="voice" aria-label="Voice">
-            <span class="pk">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>
-            </span>
-            <span class="pl">Voice</span>
-          </button>
-          <button class="mkt-pick" type="button" role="tab" data-cat="website" aria-label="Website">
-            <span class="pk">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.5 4 5.6 4 9s-1.4 6.5-4 9c-2.6-2.5-4-5.6-4-9s1.4-6.5 4-9z"/></svg>
-            </span>
-            <span class="pl">Website</span>
-          </button>
-          <button class="mkt-pick mkt-soon" type="button" disabled aria-label="Video game — coming soon">
-            <span class="pk"><i class="pk-soon">SOON</i>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 7h11a4.5 4.5 0 0 1 4.4 5.4l-.8 4a3 3 0 0 1-5.2 1.4L14 16h-4l-1.9 1.8a3 3 0 0 1-5.2-1.4l-.8-4A4.5 4.5 0 0 1 6.5 7z"/><path d="M8 10.2v3.6M6.2 12h3.6"/><circle cx="16" cy="11" r=".9" fill="currentColor" stroke="none"/><circle cx="18.3" cy="13.2" r=".9" fill="currentColor" stroke="none"/></svg>
-            </span>
-            <span class="pl">Game</span>
-          </button>
-          <button class="mkt-pick mkt-soon" type="button" disabled aria-label="Music — coming soon">
-            <span class="pk"><i class="pk-soon">SOON</i>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5.5L20 3v12.5"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="15.5" r="2.6"/></svg>
-            </span>
-            <span class="pl">Music</span>
-          </button>
-        </div>
-        <div class="mkt-composer mkt-composer-lead">
-          <div class="composer" data-mkt="start" role="button" tabindex="0" aria-label="Start creating — describe what you want">
-            <div class="composer-top">
-              <div class="mkt-fauxinput"><span id="leadPh"></span><i class="mkt-typebox-caret" aria-hidden="true"></i></div>
-            </div>
-            <div class="composer-row">
-              <span class="send" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-              </span>
-            </div>
+    <!-- The CRT is the landing: a retro TV whose channels are the output kinds.
+         Tune with the channel list (↑↓ / click); live channels + the chatbox
+         funnel into the normal sign-up flow. -->
+    <main class="crtl-stage">
+      <div class="crt-set">
+        <div class="crt-screen" id="crtScreen">
+          <div class="crt-glass" aria-hidden="true"></div>
+          <div class="crt-scan" aria-hidden="true"></div>
+          <div class="crt-hud">
+            <span class="crt-rec"><i></i> REC</span>
+            <span class="crt-chno" id="crtChNo">CH 01</span>
           </div>
+          <ul class="crt-menu" id="crtMenu" role="listbox" aria-label="Channels" tabindex="0">
+            <li class="crt-opt on" role="option" data-kind="video"   data-live="1" aria-selected="true"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO / IMAGE</span></li>
+            <li class="crt-opt"    role="option" data-kind="audio"   data-live="1" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">AUDIO</span></li>
+            <li class="crt-opt"    role="option" data-kind="music"   data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">MUSIC</span></li>
+            <li class="crt-opt"    role="option" data-kind="website" data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">WEBSITE</span></li>
+            <li class="crt-opt"    role="option" data-kind="game"    data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO GAME</span></li>
+          </ul>
+          <div class="crt-foot" id="crtFoot">↑ ↓ TUNE · ENTER TO SELECT</div>
         </div>
-        <p class="mkt-free-note"><b>20 free credits</b> on signup · no card required</p>
       </div>
+    </main>
 
-      <div class="mkt-lead-stage" id="leadStage">
-        <!-- video/image: vertical drifting filmstrip (cells built by JS) -->
-        <div class="lp-panel lp-film mkt-on" data-panel="film">
-          <div class="lp-col lp-up"></div>
-          <div class="lp-col lp-down"></div>
-        </div>
-        <!-- website: the live demos, cascaded. iframes lazy-load (data-src). -->
-        <div class="lp-panel lp-web" data-panel="website">
-          <div class="mb-cascade mb-cascade-lead" id="mbCascade">
-            <div class="mb-slot" data-url="impossible.store" data-prompt="a rebellious streetwear store — graffiti hero, a lookbook, and a crew signup">
-              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">impossible.store</span><i></i></div>
-              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo/" title="IMPOSSIBLE — a streetwear store isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring IMPOSSIBLE to front"></button></div>
-            </div>
-            <div class="mb-slot" data-url="seaward.io" data-prompt="a sleek maritime-intelligence platform with a request-access page">
-              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">seaward.io</span><i></i></div>
-              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo2/" title="Seaward — a maritime platform isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring Seaward to front"></button></div>
-            </div>
-            <div class="mb-slot" data-url="gloopies.fun" data-prompt="a playful character brand for little yellow blobs, with an adopt button">
-              <div class="mkt-chrome"><span class="mkt-dot mkt-r"></span><span class="mkt-dot mkt-y"></span><span class="mkt-dot mkt-g"></span><span class="mkt-url">gloopies.fun</span><i></i></div>
-              <div class="mb-body"><iframe class="mb-demo" src="/mkt/demo3/" title="Gloopies — a character brand site isibi built, browse it live"></iframe><button class="mb-grab" type="button" aria-label="Bring Gloopies to front"></button></div>
-            </div>
-          </div>
-        </div>
-        <!-- voice: placeholder until the real design is specced -->
-        <div class="lp-panel lp-voice" data-panel="voice">
-          <div class="lp-wave" aria-hidden="true"></div>
-          <span class="lp-voice-note">voice output — design coming</span>
-        </div>
+    <div class="crtl-dock">
+      <div class="crt-chatbox" data-mkt="start" role="button" tabindex="0" aria-label="Start creating — describe what you want">
+        <span class="crt-chatbox-in" id="crtLandPh">a neon tiger prowling a rainy Tokyo alley, cinematic</span>
+        <span class="crt-chatbox-send" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+        </span>
       </div>
-    </section>
-
-    <!-- model marquee -->
-    <div class="mkt-marquee-wrap">
-      <p class="mkt-marquee-lbl">14 frontier models · one place · picked for you</p>
-      <div class="mkt-marquee" aria-label="Veo 3.1, Sora 2, Ray 3.2, Seedance 2.0, Kling, Hailuo 2.3, Flux 2 Pro, Seedream 4, GPT-Image 2, Recraft V3, Krea 2, ElevenLabs">
-        <div class="mkt-marquee-track" aria-hidden="true">
-          <span>Veo 3.1</span><i>✦</i><span>Sora 2</span><i>✦</i><span>Ray 3.2</span><i>✦</i><span>Seedance 2.0</span><i>✦</i><span>Kling</span><i>✦</i><span>Hailuo 2.3</span><i>✦</i><span>Flux 2 Pro</span><i>✦</i><span>Seedream 4</span><i>✦</i><span>GPT-Image 2</span><i>✦</i><span>Recraft V3</span><i>✦</i><span>Krea 2</span><i>✦</i><span>ElevenLabs</span><i>✦</i>
-          <span>Veo 3.1</span><i>✦</i><span>Sora 2</span><i>✦</i><span>Ray 3.2</span><i>✦</i><span>Seedance 2.0</span><i>✦</i><span>Kling</span><i>✦</i><span>Hailuo 2.3</span><i>✦</i><span>Flux 2 Pro</span><i>✦</i><span>Seedream 4</span><i>✦</i><span>GPT-Image 2</span><i>✦</i><span>Recraft V3</span><i>✦</i><span>Krea 2</span><i>✦</i><span>ElevenLabs</span><i>✦</i>
-        </div>
-      </div>
+      <p class="crtl-note"><b>20 free credits</b> on signup · no card required</p>
     </div>
-
-    <!-- how it works — Liftoff-style zigzag: numbered steps, floating gradient
-         tiles with mini UI mocks on one side, short copy on the other -->
-    <section class="mkt-how" id="mkt-how">
-      <div class="mkt-sec-head mkt-center">
-        <h2 class="mkt-h2"><b>From plain words</b> <span>to finished media.</span></h2>
-        <p class="mkt-h2-sub">The chatbox is the whole pipeline. Here's what happens under the hood.</p>
-      </div>
-      <div class="mkt-how-steps">
-        <!-- connector cord — an S-curve threading tile→tile, drawn from the real
-             tile positions by initMktCord() and redrawn on resize -->
-        <svg class="mkt-cord" aria-hidden="true">
-          <defs>
-            <linearGradient id="mktCordGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
-              <stop offset="0" stop-color="#ff79c6" />
-              <stop offset="0.5" stop-color="#c79bff" />
-              <stop offset="1" stop-color="#ffb84d" />
-            </linearGradient>
-          </defs>
-          <path class="mkt-cord-path" />
-        </svg>
-        <!-- Step 1 — rotating input frames + a vertical phrase wheel on the side -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-a" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-input">a neon tiger prowling a rainy Tokyo alley, cinematic<span class="mkt-mock-send">↑</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><span class="mkt-mock-attach">🎬 clip.mp4</span><div class="mkt-mock-input">make it warmer and cut the first 3 seconds<span class="mkt-mock-send">↑</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-input mkt-mock-link">yourstore.com/espresso-cup<span class="mkt-mock-send">↑</span></div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">1</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">Describe it in the chat</div>
-              <div class="mkt-wheel-item">Or attach and tweak</div>
-              <div class="mkt-wheel-item">Even a product link</div>
-            </div>
-          </div>
-        </div>
-        <!-- Step 2 -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-b" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-line">Slow dolly-in on a neon-lit tiger, rain-slick asphalt, cyan signage reflections, anamorphic 35mm…</div><div class="mkt-mock-tags"><b>Veo 3.1 ✓</b><span>Sora 2</span><span>Kling</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">Studio product shot, soft key light, marble surface, 85mm macro, crisp reflections…</div><div class="mkt-mock-tags"><b>Flux 2 Pro ✓</b><span>Seedream 4</span><span>GPT-Image</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line mkt-mock-search">🔎 Checking the web…</div><div class="mkt-mock-line">Facts folded in so "the newest one" depicts the real, current thing.</div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">2</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">The director takes over</div>
-              <div class="mkt-wheel-item">It picks the model</div>
-              <div class="mkt-wheel-item">It checks the facts</div>
-            </div>
-          </div>
-        </div>
-        <!-- Step 3 -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-c" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-media"><i class="mkt-mock-play"></i></div><div class="mkt-mock-saved">Saved to your gallery ✓</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-media mkt-mock-img"></div><div class="mkt-mock-saved">Image saved ✓</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="mkt-mock-saved">Voiceover ready ✓</div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">3</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">Your premiere lands</div>
-              <div class="mkt-wheel-item">Stills, the same way</div>
-              <div class="mkt-wheel-item">And voiceovers</div>
-            </div>
-          </div>
-        </div>
-        <!-- Step 4 -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-a" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-media mkt-mock-img"></div><div class="mkt-mock-saved">Saved to your gallery ✓</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-media mkt-mock-img"></div><div class="mkt-mock-saved">Synced to your phone ✓</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">Private by default — delete anything, anytime.</div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">4</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">Keep everything</div>
-              <div class="mkt-wheel-item">On every device</div>
-              <div class="mkt-wheel-item">Private by default</div>
-            </div>
-          </div>
-        </div>
-        <!-- Step 5 -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-b" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-line mkt-mock-search">📸 New comment</div><div class="mkt-mock-line">Auto-reply drafted: "thank you! 🙌"</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">Scheduled and posted for you.</div><div class="mkt-mock-tags"><b>Instagram</b><span>YouTube</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">It answers comments while you sleep.</div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">5</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">Runs your socials</div>
-              <div class="mkt-wheel-item">Instagram &amp; YouTube</div>
-              <div class="mkt-wheel-item">Replies for you</div>
-            </div>
-          </div>
-        </div>
-        <!-- Step 6 -->
-        <div class="mkt-step mkt-rotate" data-reveal>
-          <div class="mkt-step-tile mkt-tile-c" aria-hidden="true">
-            <div class="mkt-frames">
-              <div class="mkt-frame on">
-                <div class="mkt-mock"><div class="mkt-mock-line">20 free credits on signup — no card needed.</div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">Every model, every feature, every plan.</div><div class="mkt-mock-tags"><b>Plus</b><span>Pro</span><span>Max</span></div></div>
-              </div>
-              <div class="mkt-frame">
-                <div class="mkt-mock"><div class="mkt-mock-line">You only pay for what you actually make.</div></div>
-              </div>
-            </div>
-          </div>
-          <div class="mkt-step-copy">
-            <span class="mkt-step-n">6</span>
-            <div class="mkt-wheel">
-              <div class="mkt-wheel-item">Start free</div>
-              <div class="mkt-wheel-item">No feature gates</div>
-              <div class="mkt-wheel-item">Pay per render</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="mkt-pricing" id="mkt-pricing">
-      <div class="mkt-sec-head mkt-center">
-        <h2 class="mkt-h2"><b>Simple plans.</b> <span>Serious output.</span></h2>
-        <p class="mkt-h2-sub">Every plan gets every model and every feature — pick the volume you ship at.</p>
-      </div>
-      <div class="mkt-price-grid">
-        <div class="mkt-plan">
-          <div class="mkt-plan-n">Plus</div>
-          <div class="mkt-plan-p">$24.99<small>/mo</small></div>
-          <div class="mkt-plan-d">For steady creators.</div>
-          <ul class="mkt-plan-list">
-            <li>Monthly credits at the best rate</li>
-            <li>10 GB cloud gallery</li>
-            <li>All 14 models, every feature</li>
-          </ul>
-          <button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Plus</button>
-        </div>
-        <div class="mkt-plan mkt-plan-hot">
-          <div class="mkt-plan-tag">Most popular</div>
-          <div class="mkt-plan-n">Pro</div>
-          <div class="mkt-plan-p">$49.99<small>/mo</small></div>
-          <div class="mkt-plan-d">For brands shipping weekly.</div>
-          <ul class="mkt-plan-list">
-            <li>2× the monthly credits</li>
-            <li>50 GB cloud gallery</li>
-            <li>All 14 models, every feature</li>
-          </ul>
-          <button class="mkt-cta mkt-plan-cta" data-mkt="start" type="button">Choose Pro</button>
-        </div>
-        <div class="mkt-plan">
-          <div class="mkt-plan-n">Max</div>
-          <div class="mkt-plan-p">$99.99<small>/mo</small></div>
-          <div class="mkt-plan-d">For teams shipping daily.</div>
-          <ul class="mkt-plan-list">
-            <li>The most monthly credits</li>
-            <li>100 GB cloud gallery</li>
-            <li>All 14 models, every feature</li>
-          </ul>
-          <button class="mkt-ghost mkt-plan-cta" data-mkt="start" type="button">Choose Max</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="mkt-final">
-      <h2 class="mkt-final-h">Your premiere<br />starts <span class="mkt-grad">tonight</span>.</h2>
-      <p class="mkt-final-s">First 20 credits are on us. The first scroll-stop is on you.</p>
-      <div class="mkt-cta-row">
-        <button class="mkt-cta mkt-big" data-mkt="start" type="button">Generate the impossible — free</button>
-      </div>
-    </section>
-
-    <footer class="mkt-foot">
-      <div class="mkt-foot-grid">
-        <div class="mkt-foot-say">
-          <p class="mkt-foot-h">The whole AI&nbsp;studio in one chatbox&nbsp;— for creators &amp;&nbsp;brands</p>
-          <button class="mkt-cta" data-mkt="start" type="button">Start creating</button>
-        </div>
-        <nav class="mkt-foot-cols" aria-label="Footer">
-          <div class="mkt-foot-col">
-            <div class="mkt-foot-hd">Explore</div>
-            <a href="#mkt-lead">The app</a>
-                <a href="#mkt-pricing">Pricing</a>
-          </div>
-          <div class="mkt-foot-col">
-            <div class="mkt-foot-hd">Video models</div>
-            <button type="button" data-mkt="start">Veo 3.1</button>
-            <button type="button" data-mkt="start">Sora 2</button>
-            <button type="button" data-mkt="start">Ray 3.2</button>
-            <button type="button" data-mkt="start">Seedance 2.0</button>
-            <button type="button" data-mkt="start">Kling</button>
-            <button type="button" data-mkt="start">Hailuo 2.3</button>
-            <button type="button" data-mkt="start">Gemini Omni Flash</button>
-            <button type="button" data-mkt="start">Grok Imagine</button>
-          </div>
-          <div class="mkt-foot-col">
-            <div class="mkt-foot-hd">Image models</div>
-            <button type="button" data-mkt="start">Flux 2 Pro</button>
-            <button type="button" data-mkt="start">Seedream 4</button>
-            <button type="button" data-mkt="start">GPT-Image 2</button>
-            <button type="button" data-mkt="start">Recraft V3</button>
-            <button type="button" data-mkt="start">Krea 2</button>
-          </div>
-          <div class="mkt-foot-col">
-            <div class="mkt-foot-hd">Voice</div>
-            <button type="button" data-mkt="start">ElevenLabs</button>
-            <div class="mkt-foot-hd mkt-foot-hd2">Account</div>
-            <button type="button" data-mkt="signin">Sign in</button>
-            <button type="button" data-mkt="start">Start creating</button>
-          </div>
-        </nav>
-      </div>
-      <div class="mkt-foot-row">
-        <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
-        <div class="mkt-foot-links"><a href="/privacy.html">Privacy</a><a href="/terms.html">Terms</a><span>© isibi.ai</span></div>
-      </div>
-      <div class="mkt-ghostword" aria-hidden="true">isibi</div>
-    </footer>
   </div>
 
   <!-- Auth popup — a modal over the marketing landing (backdrop/Esc/✕ close it). -->
@@ -705,32 +374,6 @@
       <div id="viewSettings" class="view view-settings"></div>
 
     </main>
-  </div>
-
-  <!-- Post-sign-in channel selector — a retro CRT set (brand-tinted). Shown by
-       enterCrt(); ↑↓/click tune a channel, Enter/click selects. Live channels
-       (VIDEO/IMAGE, AUDIO) enter the workspace in that mode; the rest flash a
-       NO SIGNAL / COMING SOON state. Wired in initCrt(). -->
-  <div id="crtSelect" class="crt" style="display:none" role="dialog" aria-label="Choose a channel" aria-modal="true">
-    <div class="crt-set">
-      <div class="crt-screen" id="crtScreen">
-        <div class="crt-glass" aria-hidden="true"></div>
-        <div class="crt-scan" aria-hidden="true"></div>
-        <div class="crt-hud">
-          <span class="crt-rec"><i></i> REC</span>
-          <span class="crt-chno" id="crtChNo">CH 01</span>
-        </div>
-        <ul class="crt-menu" id="crtMenu" role="listbox" aria-label="Channels" tabindex="0">
-          <li class="crt-opt on" role="option" data-kind="video"   data-live="1" aria-selected="true"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO / IMAGE</span></li>
-          <li class="crt-opt"    role="option" data-kind="audio"   data-live="1" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">AUDIO</span></li>
-          <li class="crt-opt"    role="option" data-kind="music"   data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">MUSIC</span></li>
-          <li class="crt-opt"    role="option" data-kind="website" data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">WEBSITE</span></li>
-          <li class="crt-opt"    role="option" data-kind="game"    data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO GAME</span></li>
-        </ul>
-        <div class="crt-foot" id="crtFoot">↑ ↓ TUNE · ENTER TO SELECT</div>
-      </div>
-    </div>
-    <div class="crt-brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg> HI-FI STEREO · ZEPHYR STUDIO</div>
   </div>
 
   <script src="/auth.js"></script>
