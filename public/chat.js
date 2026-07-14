@@ -2635,7 +2635,32 @@ function updateSendLock() {
   btn.disabled = false;
   btn.title = busy ? 'Stop generating' : 'Send';
   btn.innerHTML = busy ? STOP_SVG : ARROW_SVG + '<span class="send-price" id="sendPrice"></span>';
-  if (!busy) updateSendPrice();
+  if (!busy) { updateSendPrice(); refreshSendEnabled(); }
+}
+
+// Whether the current state can actually be submitted. Every fal model except
+// the lip-sync ones requires a text prompt (verified against fal's schemas —
+// even the video-to-video/edit and image-edit endpoints list "prompt" as
+// required), so an empty box only submits on a genuinely promptless model.
+function canSubmit() {
+  const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
+  if (promptless) return true; // runs off its attachments; send() checks them
+  const input = document.getElementById('input');
+  return !!(input && input.value.trim());
+}
+// Grey the send button out when it can't submit (empty box on a prompt model),
+// so it never looks ready and then silently does nothing. Stop stays clickable.
+function refreshSendEnabled() {
+  const btn = document.getElementById('sendBtn');
+  if (!btn) return;
+  if (activeGens.has(chatStore.active)) { btn.disabled = false; return; }
+  const ok = canSubmit();
+  btn.disabled = !ok;
+  btn.title = ok ? 'Send'
+    : mode === 'audio' ? 'Type what you want the voice to say'
+    : mode === 'image' ? (attachments.image ? 'Type the change to make' : 'Describe your image')
+    : attachments.clip ? 'Type the change to make to your clip'
+    : 'Describe your scene';
 }
 
 // ── Send-button price tag — estimates from fal's published pricing ────────
@@ -2704,6 +2729,7 @@ function estimatePrice(textForAudio) {
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
   if (el) el.textContent = estimatePrice();
+  refreshSendEnabled(); // model/attachment changes can flip submittability
 }
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────
@@ -7069,7 +7095,7 @@ const CHANGE_ACTIONS = {
 };
 const INPUT_ACTIONS = {
   'search': () => renderChatList(),
-  'autogrow': (e, el) => autoGrow(el),
+  'autogrow': (e, el) => { autoGrow(el); refreshSendEnabled(); },
 };
 const KEYDOWN_ACTIONS = {
   'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },

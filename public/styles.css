@@ -1956,6 +1956,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   box-shadow: 0 6px 24px rgba(255,150,120,.35);
 }
 .send:hover { box-shadow: 0 8px 30px rgba(255,150,120,.45); }
+/* Empty box on a prompt-required model: the button greys out and takes no hover
+   lift, so it never looks ready and then silently no-ops. */
+.send:disabled, .send:disabled:hover { opacity: .4; box-shadow: none; transform: none; cursor: default; }
 .send-price { font-weight: 800; font-size: .98rem; letter-spacing: .01em; color: #0a0a0b; white-space: nowrap; }
 .send-price:empty { display: none; }
 
