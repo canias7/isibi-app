@@ -4108,7 +4108,7 @@ async function submitAuth() {
       if (!/^\d{6,10}$/.test(code)) { showAuthError('Enter the code from your email.'); return; }
       await Auth.verifyCode(pendingEmail, code, pendingType);
       if (authMode === 'reset') { authStep = 'newpass'; renderAuthStep(); authEl('authNewPass').focus(); }
-      else enterApp();
+      else enterCrt();
       return;
     }
     // Set a new password (end of the reset flow).
@@ -4116,7 +4116,7 @@ async function submitAuth() {
       const np = authEl('authNewPass').value;
       if (np.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
       await Auth.updatePassword(np);
-      enterApp();
+      enterCrt();
       return;
     }
     // Credentials step.
@@ -4134,7 +4134,7 @@ async function submitAuth() {
 
     if (authMode === 'up') {
       const r = await Auth.signUp(email, pass);
-      if (r.session) { enterApp(); return; }   // confirm-email OFF → straight in
+      if (r.session) { enterCrt(); return; }   // confirm-email OFF → straight in
       goCodeStep(email, 'signup');             // confirm-email ON → verify code
       return;
     }
@@ -6490,8 +6490,9 @@ function initAuthGate() {
   initMktReveal();
   initMktRotate();
   initMktCord();
-  // Logged in → straight to the app. Otherwise the public landing (not the gate).
-  if (window.Auth && Auth.isSignedIn()) enterApp();
+  initCrt();
+  // Logged in → the CRT channel selector first. Otherwise the public landing.
+  if (window.Auth && Auth.isSignedIn()) enterCrt();
   else showMarketing();
 }
 
@@ -6594,6 +6595,104 @@ function initMktCord() {
   setTimeout(draw, 1200);
   if ('ResizeObserver' in window) { new ResizeObserver(draw).observe(wrap); }
   window.addEventListener('resize', draw);
+}
+
+// ── CRT channel selector ──────────────────────────────────────────────────
+// Shown right after sign-in. ↑↓ (or clicking) tune a channel, Enter/click
+// selects. Live channels (video, audio) enter the workspace in that mode; the
+// rest flash a NO SIGNAL / COMING SOON state. The VHF knob turns with the
+// channel. State lives on module-level crtSel; wiring is one-time in initCrt().
+let crtSel = 0;
+let crtNosigTimer = null;
+function enterCrt() {
+  const crt = document.getElementById('crtSelect');
+  if (!crt) { enterApp(); return; }            // safety: no CRT markup → old behaviour
+  hideMarketing();
+  hideAuthGate();
+  crt.style.display = 'flex';
+  crtSel = 0;
+  paintCrt();
+  const menu = document.getElementById('crtMenu');
+  if (menu) menu.focus();
+}
+function hideCrt() {
+  const crt = document.getElementById('crtSelect');
+  if (crt) crt.style.display = 'none';
+}
+function paintCrt() {
+  const opts = Array.prototype.slice.call(document.querySelectorAll('#crtMenu .crt-opt'));
+  opts.forEach((o, i) => {
+    const on = i === crtSel;
+    o.classList.toggle('on', on);
+    o.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  const chNo = document.getElementById('crtChNo');
+  if (chNo) chNo.textContent = 'CH ' + String(crtSel + 1).padStart(2, '0');
+  // VHF knob turns ~34° per channel across the 5 positions
+  const vhf = document.getElementById('crtVhf');
+  if (vhf) vhf.style.setProperty('--rot', (crtSel * 34 - 68) + 'deg');
+}
+function crtMove(delta) {
+  const n = document.querySelectorAll('#crtMenu .crt-opt').length;
+  if (!n) return;
+  crtSel = (crtSel + delta + n) % n;
+  paintCrt();
+}
+function crtSelect() {
+  const opt = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
+  if (!opt) return;
+  if (opt.dataset.live === '1') {
+    const kind = opt.dataset.kind;               // 'video' | 'audio'
+    hideCrt();
+    enterApp();
+    if (typeof showView === 'function') showView('home');
+    if (typeof setMode === 'function') setMode(kind === 'video' ? 'video' : 'audio');
+  } else {
+    crtNoSignal();                               // coming-soon channel
+  }
+}
+function crtNoSignal() {
+  const screen = document.getElementById('crtScreen');
+  const foot = document.getElementById('crtFoot');
+  if (!screen || !foot) return;
+  screen.classList.add('crt-nosig');
+  foot.classList.add('crt-foot-nosig');
+  const label = (document.querySelectorAll('#crtMenu .crt-opt')[crtSel].querySelector('.crt-txt') || {}).textContent || '';
+  foot.textContent = '◈ ' + label + ' — NO SIGNAL · COMING SOON';
+  if (crtNosigTimer) clearTimeout(crtNosigTimer);
+  crtNosigTimer = setTimeout(() => {
+    screen.classList.remove('crt-nosig');
+    foot.classList.remove('crt-foot-nosig');
+    foot.textContent = 'TUNE WITH VHF DIAL · ↑ ↓ SELECT';
+  }, 1600);
+}
+function initCrt() {
+  const crt = document.getElementById('crtSelect');
+  if (!crt) return;
+  const menu = document.getElementById('crtMenu');
+  // click a channel → select it (single click both tunes and enters)
+  crt.querySelectorAll('.crt-opt').forEach((opt, i) => {
+    opt.addEventListener('click', () => { crtSel = i; paintCrt(); crtSelect(); });
+  });
+  // VHF knob → advance to the next channel (visually turns via paintCrt)
+  const vhf = document.getElementById('crtVhf');
+  if (vhf) vhf.addEventListener('click', () => crtMove(1));
+  // power button → sign back out to the landing
+  const power = document.getElementById('crtPower');
+  if (power) power.addEventListener('click', () => {
+    hideCrt();
+    if (window.Auth && Auth.signOut) { try { Auth.signOut(); } catch (e) {} }
+    showMarketing();
+  });
+  // keyboard: ↑↓ tune, Enter/Space select — only while the CRT is visible
+  const onKey = (e) => {
+    if (!crt || crt.style.display === 'none') return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); crtMove(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); crtMove(-1); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); crtSelect(); }
+  };
+  if (menu) menu.addEventListener('keydown', onKey);
+  document.addEventListener('keydown', onKey);
 }
 
 // Marketing: cards with [data-reveal] drift up as they scroll into view.

@@ -707,6 +707,56 @@
     </main>
   </div>
 
+  <!-- Post-sign-in channel selector — a retro CRT set (brand-tinted). Shown by
+       enterCrt(); ↑↓/click tune a channel, Enter/click selects. Live channels
+       (VIDEO/IMAGE, AUDIO) enter the workspace in that mode; the rest flash a
+       NO SIGNAL / COMING SOON state. Wired in initCrt(). -->
+  <div id="crtSelect" class="crt" style="display:none" role="dialog" aria-label="Choose a channel" aria-modal="true">
+    <div class="crt-set">
+      <div class="crt-screen" id="crtScreen">
+        <div class="crt-glass" aria-hidden="true"></div>
+        <div class="crt-scan" aria-hidden="true"></div>
+        <div class="crt-hud">
+          <span class="crt-rec"><i></i> REC</span>
+          <span class="crt-chno" id="crtChNo">CH 01</span>
+        </div>
+        <ul class="crt-menu" id="crtMenu" role="listbox" aria-label="Channels" tabindex="0">
+          <li class="crt-opt on" role="option" data-kind="video"   data-live="1" aria-selected="true"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO / IMAGE</span></li>
+          <li class="crt-opt"    role="option" data-kind="audio"   data-live="1" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">AUDIO</span></li>
+          <li class="crt-opt"    role="option" data-kind="music"   data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">MUSIC</span></li>
+          <li class="crt-opt"    role="option" data-kind="website" data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">WEBSITE</span></li>
+          <li class="crt-opt"    role="option" data-kind="game"    data-live="0" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO GAME</span></li>
+        </ul>
+        <div class="crt-foot" id="crtFoot">TUNE WITH VHF DIAL · ↑ ↓ SELECT</div>
+      </div>
+      <div class="crt-panel">
+        <div class="crt-plate"><span>ZEPHYR</span><b>CRT · MK II</b></div>
+        <div class="crt-dial">
+          <span class="crt-dial-lbl">VHF<i>CHANNEL</i></span>
+          <button class="crt-knob crt-knob-lg" id="crtVhf" type="button" aria-label="VHF channel — next channel"><span class="crt-knob-mark"></span></button>
+        </div>
+        <div class="crt-dial">
+          <span class="crt-dial-lbl">UHF<i>FINE TUNE</i></span>
+          <button class="crt-knob" type="button" tabindex="-1" aria-hidden="true"><span class="crt-knob-mark"></span></button>
+        </div>
+        <div class="crt-dial-row">
+          <div class="crt-dial">
+            <span class="crt-dial-lbl">VOL<i>PULL-ON</i></span>
+            <button class="crt-knob crt-knob-sm" type="button" tabindex="-1" aria-hidden="true"><span class="crt-knob-mark"></span></button>
+          </div>
+          <div class="crt-dial">
+            <span class="crt-dial-lbl">TONE</span>
+            <button class="crt-knob crt-knob-sm" type="button" tabindex="-1" aria-hidden="true"><span class="crt-knob-mark"></span></button>
+          </div>
+        </div>
+        <button class="crt-power" id="crtPower" type="button" aria-label="Power">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 3v9"/><path d="M6.5 7.5a8 8 0 1 0 11 0"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="crt-brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg> HI-FI STEREO · ZEPHYR STUDIO</div>
+  </div>
+
   <script src="/auth.js"></script>
   <script src="/vendor/qrcode.js"></script>
   <script src="/chat.js"></script>
