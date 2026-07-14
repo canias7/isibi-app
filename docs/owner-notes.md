@@ -122,6 +122,16 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### delete_account() can leave orphaned usage_log rows + storage objects (FOR AUDIT)
+- **Status:** 🟡 one-time cleanup done 2026-07-14; root fix deferred (owner: "later, just note it for audits")
+- **Reported:** 2026-07-14 (owner deleted their `aniascristian@gmail.com` test account and asked to verify)
+- **Where:** Postgres `public.delete_account()` — its `delete from usage_log` and the storage clause `owner=uid`; also the client Delete-account flow in `public/chat.js`.
+- **What:** Audit after the deletion found the auth user + identity, chats, credits, user_memory, user_plan, video_editor_plan, and all GoTrue child rows (sessions/refresh_tokens/identities) GONE — but **3 `usage_log` rows** and **1 storage object** (`media/test/hello.txt`, owner = the deleted uid `144474c8-bb38-4ffc-a867-d9fb54c31bcd`) were left behind. No `purchases` existed (those are intentionally KEPT as a financial record anyway).
+- **Cleanup done:** deleted the 3 usage_log rows; deleted the storage object using the same `storage.allow_delete_query` GUC that `delete_account` uses (direct `DELETE FROM storage.objects` is blocked by the `storage.protect_delete()` trigger). Re-verified: **0 orphans anywhere.**
+- **Likely cause:** the account was probably removed OUTSIDE the app's `delete_account()` RPC (e.g. straight from the Supabase dashboard) — cascade FKs then clear chats/credits/etc., but `usage_log` and `storage.objects` don't auto-cascade so they orphan. If instead the app's own "Delete account" button was used and these still leaked, `delete_account()` has a real gap (its usage_log delete + `owner=uid` storage clause should have caught both).
+- **Reusable audit (run for any deleted account / general sweep):** for a given uid, or generally, count rows whose owner is NOT in `auth.users` across: `usage_log`, `storage.objects` (bucket `media`, by `owner`), `chats`, `credits`, `user_memory`, `user_plan`, `video_editor_plan`, `auth.sessions`, `auth.refresh_tokens`, `auth.identities`. All should be **0**. (`purchases` orphans are expected/OK.)
+- **Fix (deferred, owner said later):** harden `delete_account()` (or add ON DELETE CASCADE / a cleanup trigger) so `usage_log` + `storage.objects` are always cleared regardless of deletion path; optionally a periodic orphan-sweep job.
+
 ### Added Luma Ray 3.2 to the video roster (owner request, 2026-07-12)
 - **Status:** ✅ done
 - **Where:** `worker.js` (allowlist, VIDEO_USD, isRay field handling),
