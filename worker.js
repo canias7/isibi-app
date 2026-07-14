@@ -783,53 +783,19 @@ async function storageRelease(request, id) {
   } catch {}
 }
 
-// ── AI Orchestrator add-on ($19.99/mo, at cost, no roll-over) ────────────────
-// The director (ask/compose/revise/research/error/studio) runs ONLY for members
-// of this add-on. Because the per-call cost is deterministic (step+effort),
-// orchestrator_reserve() checks entitlement + this month's budget AND charges the
-// call in ONE row-locked step (rolls the month too) — so concurrent calls can't
-// all pass a read-only gate before a separate debit lands and burst past budget.
-// Fails CLOSED — an unverifiable caller falls back to raw prompting, so the paid
-// feature never leaks on a ledger hiccup (raw still generates fine).
-async function orchestratorReserve(request, micros) {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_reserve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-      body: JSON.stringify({ p_cost_micros: Math.round(micros > 0 ? micros : 0) }),
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return false;
-    return (await r.json()) === true;
-  } catch { return false; }
-}
-// Estimated at-cost price of one director call, in micro-dollars (1e-6 USD).
-// The budget is really an abuse ceiling ($19.99 ≈ thousands of calls), so a
-// per-step estimate keyed to the model that runs it is close enough — Sonnet
-// (High+) and web-search research cost most; Haiku steps are pennies.
+// ── AI Orchestrator (metered through regular credits) ───────────────────────
+// The director (ask/compose/revise/research/error/studio) is available to
+// everyone — no subscription. Each call is charged to the credit ledger at the
+// $0.008/credit basis (see /api/direct). The per-call cost is a deterministic
+// at-cost estimate in micro-dollars (1e-6 USD), keyed to the model that runs
+// the step: Sonnet (High+) and web-search research cost most; Haiku steps are
+// pennies. 1 credit = 8000 micros, so dividing by 8000 gives fractional credits.
 function orchestratorCostMicros(step, effort) {
   if (step === "research") return 35000; // Sonnet + up to 4 web searches
   if ((step === "compose" || step === "revise") &&
       (effort === "high" || effort === "ultra" || effort === "max")) return 25000; // Sonnet
   if (step === "ask") return 3000; // Haiku, thinking off, ~1.5k tokens
-  return 4000; // Haiku prompt-writing / error
-}
-
-// ── Video Editor add-on ($19.99/mo) ─────────────────────────────────────────
-// Powers the Studio's chat director (the step:'studio' calls to /api/direct).
-// Flat monthly subscription — no usage meter (the Studio director is Haiku).
-// Fails CLOSED like the orchestrator gate.
-async function videoEditorGate(request) {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/video_editor_gate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-      body: "{}",
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!r.ok) return false;
-    return (await r.json()) === true;
-  } catch { return false; }
+  return 4000; // Haiku prompt-writing / error / studio
 }
 
 // ── Composio (Media Agent social connections) ─────────────────────────────
@@ -2013,14 +1979,6 @@ async function handleRequest(request, env, ctx) {
       "75": { cents: 7500, credits: 5350 },
       "100": { cents: 10000, credits: 7140 },
     };
-    // AI Orchestrator add-on — a $19.99/mo subscription, priced AT COST (no
-    // markup). Unlocks the director (chat/prompt-help/effort/research). Grants no
-    // credits: it activates its own budget via set_orchestrator on invoice.paid.
-    const ORCH = { cents: 1999, name: "isibi AI Orchestrator" };
-    // Video Editor add-on — $19.99/mo subscription. Unlocks the Studio chat
-    // director. Grants no credits; activates via set_video_editor on invoice.paid.
-    const VE = { cents: 1999, name: "isibi Video Editor" };
-
     if (url.pathname === "/api/checkout" && request.method === "POST") {
       const user = await authUser(request);
       if (!user) return UNAUTHED();
@@ -2033,27 +1991,23 @@ async function handleRequest(request, env, ctx) {
       }
       const plan = body.plan != null ? PLANS[String(body.plan)] : null;
       const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
-      const orch = !plan && !topup && body.orchestrator ? ORCH : null;
-      const ve = !plan && !topup && !orch && body.videoEditor ? VE : null;
-      if (!plan && !topup && !orch && !ve) return Response.json({ error: "unknown plan" }, { status: 400 });
-      const sub = plan || orch || ve; // all monthly subscriptions
+      if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
+      const sub = plan; // memberships are the only subscription
       const form = new URLSearchParams({
         mode: sub ? "subscription" : "payment",
         success_url: "https://isibi.ai/?credits=added",
         cancel_url: "https://isibi.ai/",
         "line_items[0][quantity]": "1",
         "line_items[0][price_data][currency]": "usd",
-        "line_items[0][price_data][unit_amount]": String((plan || topup || orch || ve).cents),
+        "line_items[0][price_data][unit_amount]": String((plan || topup).cents),
       });
       if (sub) {
         form.set("line_items[0][price_data][recurring][interval]", "month");
         form.set("line_items[0][price_data][product_data][name]", sub.name);
         // Subscription metadata rides along on every invoice, so renewals know
-        // who to grant and what (credits for a plan, orchestrator flag for the add-on).
+        // who to grant (credits for the plan's monthly refill).
         form.set("subscription_data[metadata][user_id]", user.id);
-        if (plan) form.set("subscription_data[metadata][credits]", String(plan.credits));
-        else if (orch) form.set("subscription_data[metadata][orchestrator]", "1");
-        else form.set("subscription_data[metadata][video_editor]", "1");
+        form.set("subscription_data[metadata][credits]", String(plan.credits));
       } else {
         form.set("line_items[0][price_data][product_data][name]", topup.credits.toLocaleString("en-US") + " isibi credits");
         form.set("metadata[user_id]", user.id);
@@ -2223,37 +2177,8 @@ async function handleRequest(request, env, ctx) {
           {};
         const uid = meta.user_id;
         const credits = Number(meta.credits) || 0;
-        const isOrch = meta.orchestrator === "1" || meta.orchestrator === 1;
-        const isVE = meta.video_editor === "1" || meta.video_editor === 1;
         const paid = inv && (inv.status === "paid" || inv.paid === true);
-        // AI Orchestrator sub: activate/extend the add-on on a rolling 32-day
-        // window (grants no credits). Lapses to raw once no invoice renews it.
-        if (uid && isOrch && paid && inv.id) {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_orchestrator`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid,
-              p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
-              mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!r.ok) return Response.json({ error: "orchestrator grant failed" }, { status: 500 });
-        } else if (uid && isVE && paid && inv.id) {
-          // Video Editor sub: activate/extend on a rolling 32-day window.
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_video_editor`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
-            body: JSON.stringify({
-              target: uid,
-              p_until: new Date(Date.now() + 32 * 86400000).toISOString(),
-              mint_key: env.CREDITS_MINT_SECRET,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-          if (!r.ok) return Response.json({ error: "video editor grant failed" }, { status: 500 });
-        } else if (uid && credits > 0 && paid && inv.id) {
+        if (uid && credits > 0 && paid && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
@@ -2317,40 +2242,6 @@ async function handleRequest(request, env, ctx) {
         return Response.json(s);
       } catch {
         return Response.json({ error: "storage unavailable" }, { status: 503 });
-      }
-    }
-
-    // AI Orchestrator status for the client ({active, used, budget, resets_at}).
-    if (url.pathname === "/api/orchestrator" && request.method === "GET") {
-      if (!(await authUser(request))) return UNAUTHED();
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/orchestrator_status`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-          body: "{}",
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) throw 0;
-        return Response.json(await r.json());
-      } catch {
-        return Response.json({ error: "orchestrator unavailable" }, { status: 503 });
-      }
-    }
-
-    // Video Editor status for the client ({active, resets_at}).
-    if (url.pathname === "/api/video-editor" && request.method === "GET") {
-      if (!(await authUser(request))) return UNAUTHED();
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/video_editor_status`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
-          body: "{}",
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!r.ok) throw 0;
-        return Response.json(await r.json());
-      } catch {
-        return Response.json({ error: "video editor unavailable" }, { status: 503 });
       }
     }
 
@@ -2730,24 +2621,24 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
       let step = ["compose", "revise", "error", "studio", "research"].includes(body.step) ? body.step : "ask";
-      // The director is a paid add-on, split by surface: the 'studio' step is the
-      // Video Editor add-on's chat; every other step is the AI Orchestrator.
-      // No active sub (or the orchestrator's monthly budget is spent) → 402 locked;
-      // the client falls back to raw prompting / an upsell.
-      const isStudio = step === "studio";
-      // Non-studio steps meter against the monthly orchestrator budget. The cost
-      // per call is deterministic (step+effort), so reserve it atomically at the
-      // gate — check entitlement + budget AND charge in one locked step — rather
-      // than debiting afterwards, which let concurrent calls all pass the check
-      // before any debit landed and burst past the budget. (compose/revise cost
-      // the same, so the pre-reassignment step value gives the right price.)
-      const estMicros = isStudio ? 0 : orchestratorCostMicros(
-        step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium");
-      if (!(isStudio ? await videoEditorGate(request) : await orchestratorReserve(request, estMicros))) {
-        return Response.json({
-          error: isStudio ? "video editor required" : "orchestrator required",
-          locked: true, need: isStudio ? "video_editor" : "orchestrator",
-        }, { status: 402 });
+      // The Orchestrator is no longer a subscription — every director call is
+      // metered through the regular credit ledger at the same $0.008/credit
+      // basis as generations (fractional). The per-call cost is deterministic
+      // (step+effort), so charge it atomically up front (useCredits row-locks
+      // the ledger) — this both gates a broke user AND stops concurrent calls
+      // bursting past the balance. A 402 makes the client fall back to raw
+      // prompting; a ledger hiccup fails the same way (never hand the paid
+      // director out for free, never hard-block the app on a credits outage).
+      const dirCredits = orchestratorCostMicros(
+        step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium") / 8000;
+      let dirBalance;
+      try {
+        dirBalance = await useCredits(request.headers.get("Authorization") || "", dirCredits);
+      } catch {
+        return Response.json({ error: "orchestrator unavailable", locked: true, need: "credits" }, { status: 402 });
+      }
+      if (dirBalance === -1) {
+        return Response.json({ error: "not enough credits", locked: true, need: "credits", cost: dirCredits }, { status: 402 });
       }
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";

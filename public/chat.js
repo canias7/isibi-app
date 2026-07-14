@@ -1005,32 +1005,27 @@ let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.
 // The last Auto/Plan choice, so flipping the switch back on restores it.
 let lastOrchMode = directorMode === 'off' ? 'auto' : directorMode;
 function orchestratorOn() { return directorMode !== 'off'; }
-// AI Orchestrator add-on subscription state. Until /api/orchestrator resolves,
-// orchKnown is false and orchActive() is false — we fail toward raw prompting so
-// the paid director is never called for a non-subscriber. `exhausted` flips on a
-// 402 (monthly budget spent) so the client stops trying until the next refresh.
-let orchSub = { active: false, used: 0, budget: 0, exhausted: false };
-let orchKnown = false;
-function orchActive() { return orchSub.active === true && !orchSub.exhausted; }
+// The AI Orchestrator (the Sonnet/Haiku director) is available to everyone —
+// it's metered through regular credits per call (see /api/direct), not a
+// subscription. So it's simply on/off via the builder switch (directorMode);
+// orchActive() stays as a helper (always true) so the on/off call-sites read
+// naturally. A broke user's call 402s server-side and falls back to raw.
+function orchActive() { return true; }
 function renderOrchSwitch() {
-  const subbed = orchActive();
+  const on = orchestratorOn();
   const sw = document.getElementById('orchSwitch');
   if (sw) {
-    const on = subbed && orchestratorOn(); // "on" only when subscribed AND toggled on
     sw.classList.toggle('on', on);
-    sw.classList.toggle('locked', !subbed); // padlock look for non-subscribers
+    sw.classList.remove('locked');
     sw.setAttribute('aria-checked', on ? 'true' : 'false');
-    sw.title = subbed
-      ? 'Orchestrator — isibi reads your message, picks the model and writes the prompt. Off = raw prompting.'
-      : 'AI Orchestrator is an add-on ($19.99/mo) — tap to unlock prompt help, effort levels and research.';
+    sw.title = 'Orchestrator — isibi reads your message, picks the model and writes the prompt (spends credits per use). Off = raw prompting, free.';
     const ctl = sw.closest('.orch-ctl');
-    if (ctl) { ctl.classList.toggle('on', on); ctl.classList.toggle('locked', !subbed); }
+    if (ctl) { ctl.classList.toggle('on', on); ctl.classList.remove('locked'); }
   }
   const chip = document.getElementById('dirModeChip');
-  if (chip) chip.style.display = (subbed && orchestratorOn()) ? '' : 'none'; // Auto/Plan only when live
+  if (chip) chip.style.display = on ? '' : 'none'; // Auto/Plan only when on
 }
 function toggleOrchestrator() {
-  if (!orchActive()) { openOrchestratorUpsell(); return; } // not subscribed → sell the add-on
   if (orchestratorOn()) { lastOrchMode = directorMode; setDirectorMode('off'); }
   else setDirectorMode(lastOrchMode || 'auto');
 }
@@ -2703,7 +2698,9 @@ function setArcFill(el, frac) {
 }
 function setCredits(n) {
   if (typeof n !== 'number') return;
-  const txt = '✦ ' + n.toLocaleString();
+  // Whole credits show clean; fractional balances (from Orchestrator use) round
+  // to 2 decimals for display — the ledger still tracks the exact amount.
+  const txt = '✦ ' + n.toLocaleString(undefined, { maximumFractionDigits: 2 });
   const el = document.getElementById('creditChip');
   if (el) el.textContent = txt;
   const pn = document.getElementById('credPillN');
@@ -2735,24 +2732,6 @@ async function fetchCredits(attempt) {
     // transient failure must not leave a paid user in the "unknown" state.
     const n = (attempt || 0) + 1;
     if (n <= 4) setTimeout(() => fetchCredits(n), 1500 * n);
-  }
-}
-
-// AI Orchestrator add-on status → gates the switch, effort picker and the whole
-// director flow. Retries a few times so a transient failure doesn't strand a
-// subscriber in raw mode.
-async function fetchOrchestrator(attempt) {
-  try {
-    const r = await apiFetch('/api/orchestrator');
-    if (!r.ok) throw 0;
-    const d = await r.json();
-    orchSub = { active: d.active === true, used: Number(d.used) || 0, budget: Number(d.budget) || 0, exhausted: false };
-    orchKnown = true;
-    renderOrchSwitch();
-    renderEffortLock();
-  } catch {
-    const n = (attempt || 0) + 1;
-    if (n <= 4) setTimeout(() => fetchOrchestrator(n), 1500 * n);
   }
 }
 
@@ -2853,88 +2832,6 @@ const TOPUPS = [
 
 // Focused upsell for the AI Orchestrator add-on ($19.99/mo, at cost). Opened
 // from the locked Orchestrator switch and the pricing page's add-on band.
-function openOrchestratorUpsell() {
-  if (document.querySelector('.credits-overlay')) return;
-  document.getElementById('profilePop')?.classList.remove('open');
-  const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  ov.innerHTML =
-    '<div class="cp-box cp-narrow orch-up">' +
-      '<button type="button" class="cp-close">✕</button>' +
-      '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">AI Orchestrator</div>' +
-        '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
-      '<p class="orch-up-lead">Let isibi direct your generations — it reads your message, picks the model, writes the prompt, and researches real subjects when it matters. Every effort level and all prompt help runs on this.</p>' +
-      '<ul class="orch-up-feat">' +
-        '<li>Auto &amp; Plan prompt-writing</li>' +
-        '<li>All five effort levels (Low → Max)</li>' +
-        '<li>Live web-research for real people, products &amp; events</li>' +
-        '<li>Priced at cost — no markup, cancel anytime</li>' +
-      '</ul>' +
-      '<button type="button" class="orch-up-buy">Add AI Orchestrator →</button>' +
-      '<div class="cp-note" id="cpNote"></div>' +
-      '<p class="orch-up-fine">Without it, your words go to the model exactly as typed (raw prompting) — generation always works on your credits.</p>' +
-    '</div>';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.querySelector('.cp-close').onclick = () => ov.remove();
-  ov.querySelector('.orch-up-buy').onclick = async () => {
-    const note = document.getElementById('cpNote');
-    note.textContent = 'Opening secure checkout…';
-    try {
-      const r = await apiFetch('/api/checkout', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orchestrator: true }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll add it.'; return; }
-      if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
-      note.textContent = 'Checkout hit a snag — try again in a moment.';
-    } catch { note.textContent = 'Checkout hit a snag — try again in a moment.'; }
-  };
-  document.body.appendChild(ov);
-}
-
-// Video Editor add-on upsell ($19.99/mo). Powers the Studio's chat editor.
-function openVideoEditorUpsell() {
-  if (document.querySelector('.credits-overlay')) return;
-  document.getElementById('profilePop')?.classList.remove('open');
-  const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  ov.innerHTML =
-    '<div class="cp-box cp-narrow orch-up">' +
-      '<button type="button" class="cp-close">✕</button>' +
-      '<div class="orch-up-head"><span class="orch-up-spark">✦</span><div class="orch-up-name">Video Editor</div>' +
-        '<div class="orch-up-price">$19.99<span>/mo</span></div></div>' +
-      '<p class="orch-up-lead">Edit by chat in the Studio — just tell isibi what you want and it cuts, retimes, reframes, captions, adds transitions and exports for you. The editing runs on your device, so your files stay private and free.</p>' +
-      '<ul class="orch-up-feat">' +
-        '<li>Chat-driven trim, speed &amp; reframe</li>' +
-        '<li>Burn-in captions, crossfades &amp; fades</li>' +
-        '<li>Stitch &amp; export your film in-browser</li>' +
-        '<li>Cancel anytime</li>' +
-      '</ul>' +
-      '<button type="button" class="orch-up-buy">Add Video Editor →</button>' +
-      '<div class="cp-note" id="cpNote"></div>' +
-      '<p class="orch-up-fine">The on-device editing tools are always free — this add-on unlocks the chat that drives them.</p>' +
-    '</div>';
-  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  ov.querySelector('.cp-close').onclick = () => ov.remove();
-  ov.querySelector('.orch-up-buy').onclick = async () => {
-    const note = document.getElementById('cpNote');
-    note.textContent = 'Opening secure checkout…';
-    try {
-      const r = await apiFetch('/api/checkout', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoEditor: true }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll add it.'; return; }
-      if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
-      note.textContent = 'Checkout hit a snag — try again in a moment.';
-    } catch { note.textContent = 'Checkout hit a snag — try again in a moment.'; }
-  };
-  document.body.appendChild(ov);
-}
-window.openVideoEditorUpsell = openVideoEditorUpsell;
-
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   document.getElementById('profilePop')?.classList.remove('open'); // don't leave the menu open behind the overlay
@@ -2996,27 +2893,6 @@ function openCredits(topupsOnly) {
         '<p class="up-sub">Fresh credits every month at a better rate than one-time top-ups — unused credits roll over, and you can cancel anytime.</p>' +
       '</div>' +
       '<div class="up-grid">' + cards + '</div>' +
-      '<div class="addon-eyebrow">Membership add-ons</div>' +
-      '<div class="addon-env-row">' +
-        '<div class="addon-env">' +
-          '<div class="addon-env-badge">' +
-            '<img class="apb" src="/img/badge-orchestrator-cut.webp" alt="isibi.ai orchestrator" loading="lazy" />' +
-          '</div>' +
-          '<div class="addon-badge-name">AI Orchestrator <span class="addon-tag">at cost</span></div>' +
-          '<div class="addon-badge-desc">isibi writes your prompts, picks the right models &amp; researches for you.</div>' +
-          '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
-          '<button type="button" class="addon-badge-buy" data-addon="orch">Add →</button></div>' +
-        '</div>' +
-        '<div class="addon-env">' +
-          '<div class="addon-env-badge">' +
-            '<img class="apb b" src="/img/badge-video-editor-cut.webp" alt="isibi.ai video editor" loading="lazy" />' +
-          '</div>' +
-          '<div class="addon-badge-name">Video Editor</div>' +
-          '<div class="addon-badge-desc">Cut, retime, reframe, caption &amp; export — raw clips to finished film.</div>' +
-          '<div class="addon-badge-foot"><span class="addon-badge-price">$19.99<small>/mo</small></span>' +
-          '<button type="button" class="addon-badge-buy" data-addon="ve">Add →</button></div>' +
-        '</div>' +
-      '</div>' +
       '<div class="cp-note up-note" id="cpNote"></div>' +
       '<div class="up-trust"><span>Secure checkout</span><span>Cancel anytime</span><span>Every model included</span><span>Credits roll over</span></div>' +
       '<div class="up-topnote">Just need a one-off? <button type="button" class="up-topup-link">Grab a one-time top-up →</button></div>';
@@ -3025,27 +2901,6 @@ function openCredits(topupsOnly) {
   ov.querySelector('.cp-close').onclick = () => ov.remove();
   const topupLink = ov.querySelector('.up-topup-link');
   if (topupLink) topupLink.onclick = () => { ov.remove(); openCredits(true); };
-  ov.querySelectorAll('.addon-badge-buy').forEach((b) => {
-    b.onclick = () => {
-      ov.remove();
-      if (b.dataset.addon === 'orch') openOrchestratorUpsell();
-      else openVideoEditorUpsell();
-    };
-  });
-  // Playful click feedback: flick the hanging badge so it swings, then hand
-  // back to the idle sway once the kick finishes.
-  ov.querySelectorAll('.addon-env-badge').forEach((stage) => {
-    const el = stage.querySelector('.apb');
-    if (!el) return;
-    stage.addEventListener('click', () => {
-      el.classList.remove('kick');
-      void el.offsetWidth; // reflow so a rapid re-click replays it
-      el.classList.add('kick');
-    });
-    el.addEventListener('animationend', (e) => {
-      if (e.animationName === 'apb-kick') el.classList.remove('kick');
-    });
-  });
   // Live launch-offer countdown, painted into the four segment boxes; the
   // interval dies with the overlay.
   const segD = ov.querySelector('#upcD'), segH = ov.querySelector('#upcH'),
@@ -3582,9 +3437,9 @@ async function directorAsk(text, history, onDelta) {
         ...directorContext(), ...(await directorImage()),
       }),
     });
-    // 402 = no active add-on / monthly budget spent → mark exhausted so the rest
-    // of the session goes raw without another round-trip, then fall back locally.
-    if (res.status === 402) { orchSub.exhausted = true; renderOrchSwitch(); renderEffortLock(); }
+    // 402 = the caller is out of credits for the director. Refresh the balance
+    // so the low/zero shows, then fall back to raw prompting for this call.
+    if (res.status === 402) { fetchCredits(); }
     if (!res.ok) throw 0;
     // Streamed reply: render deltas live, then return the final payload.
     if ((res.headers.get('content-type') || '').includes('text/event-stream') && res.body) {
@@ -4232,7 +4087,6 @@ function enterApp() {
   pullChats();
   pullMemory();
   fetchCredits();
-  fetchOrchestrator();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
   resumeJobs();
