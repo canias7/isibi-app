@@ -2912,7 +2912,10 @@ ${hasImage ? `- A source image IS attached (it's in the conversation — look at
 - ${familyHint}` : ""}
 ${effortLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
-        : `You are the prompt writer for isibi, an AI voice generator. Describe the delivery and tone for the spoken line in ONE short direction.`;
+        : `You are the script writer for isibi, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
+- If the user gives words to say, return exactly those words, lightly cleaned and punctuated for natural delivery.
+- If the user asks for a vocal SOUND rather than words (a scream, laugh, sob, gasp, sigh, whisper, moan), render it as a performable vocalization${/eleven-v3/.test(genModel) ? ` using ElevenLabs v3 audio tags in square brackets — e.g. a woman screaming → "[screams] Aaaaaahhh!", a laugh → "[laughs] Haha, no way!", a whisper → "[whispers] come closer…".` : ` written as onomatopoeia the voice can actually perform — e.g. a scream → "Aaaaaaahhhh!", a laugh → "Hahaha!".`}
+Return just the line to be voiced — keep it to what should actually come out of the speaker.`;
 
       const userMsg = step === "ask"
         ? `Request: ${prompt}`

@@ -3509,7 +3509,11 @@ async function directorRevise(feedback) {
 }
 
 async function directorCompose(text, answers, webFacts) {
-  if (mode === 'audio') return text; // voice: speak the words as given
+  // Audio used to skip the writer entirely (speak the raw message verbatim),
+  // which meant "make an audio of a woman screaming" got read out loud. With
+  // the orchestrator on, the writer now interprets the request into the actual
+  // words / vocal sounds to voice (see the audio branch in the worker). Raw
+  // mode (orchestrator off) never reaches here, so it still speaks verbatim.
   pendingBrief = null; pendingMemory = null;
   try {
     const res = await apiFetch('/api/direct', {
@@ -3526,7 +3530,7 @@ async function directorCompose(text, answers, webFacts) {
     if (Array.isArray(data.memory)) pendingMemory = data.memory;
     if (data.prompt) return data.prompt;
     throw 0;
-  } catch { return localCompose(text, answers); }
+  } catch { return mode === 'audio' ? text : localCompose(text, answers); }
 }
 
 function localAsk(text) {
