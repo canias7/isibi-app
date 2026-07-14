@@ -3504,9 +3504,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* side phrase wheel — 3 phrases stacked vertically, active one centered & sharp,
    the two neighbours above/below blurred; the next slides up into the middle.
    Positions/opacity/blur are driven per-item by JS (initMktRotate). */
-.mkt-wheel{position:relative;height:7.2rem;margin:.2rem 0 .8rem;overflow:hidden;
+.mkt-wheel{position:relative;height:7.2rem;width:22rem;max-width:100%;margin:.2rem 0 .8rem;overflow:hidden;
   -webkit-mask-image:linear-gradient(180deg,transparent,#000 26%,#000 74%,transparent);
   mask-image:linear-gradient(180deg,transparent,#000 26%,#000 74%,transparent)}
+.mkt-step-flip .mkt-wheel{margin-left:auto}
 .mkt-wheel-item{position:absolute;left:0;right:0;top:50%;height:2.4rem;margin-top:-1.2rem;
   display:flex;align-items:center;
   font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;
