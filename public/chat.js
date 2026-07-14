@@ -6362,7 +6362,9 @@ function initAuthGate() {
     if (el.getAttribute('role') === 'button') el.addEventListener('keydown', go);
   });
   // The popup closes three ways — ✕, backdrop click, Esc — all back to the landing.
-  const closeAuth = () => { hideAuthGate(); showMarketing(); };
+  // Backing out of the popup drops any prompt typed into the landing chatbox,
+  // so a later sign-in doesn't fire a stale generation.
+  const closeAuth = () => { pendingFirstMsg = null; hideAuthGate(); showMarketing(); };
   const back = document.getElementById('authHome');
   if (back) back.addEventListener('click', closeAuth);
   const gateEl = document.getElementById('authGate');
@@ -6606,14 +6608,12 @@ function initCrt() {
   const landSend = document.getElementById('crtLandSend');
   const landBox = document.getElementById('crtChatbox');
   const submitLand = () => {
-    // Already logged in on the landing → carry the typed prompt into the studio.
-    if (window.Auth && Auth.isSignedIn()) {
-      const t = (landInput && landInput.value.trim()) || '';
-      if (t) pendingFirstMsg = t;
-      enterApp();
-      return;
-    }
-    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');  // chatbox → into the studio after auth
+    // Carry the typed prompt into the studio — it survives login (consumed by
+    // enterApp) and is cleared if the user backs out of the auth popup.
+    const t = (landInput && landInput.value.trim()) || '';
+    if (t) pendingFirstMsg = t;
+    if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }   // already in → straight to generating
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');  // sign in/up, then generate
   };
   // grow the box downward as text wraps (never sideways)
   const grow = () => { if (!landInput) return; landInput.style.height = 'auto'; landInput.style.height = landInput.scrollHeight + 'px'; };
