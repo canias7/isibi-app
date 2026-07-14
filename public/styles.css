@@ -4039,10 +4039,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .crt-set{display:flex;gap:clamp(.8rem,2vw,1.4rem);width:min(840px,100%);
   padding:clamp(.9rem,2vw,1.5rem);border-radius:26px;
   background:
-    repeating-linear-gradient(91deg,rgba(0,0,0,.16) 0 2px,transparent 2px 8px),
-    linear-gradient(158deg,#432a25,#2a1719 58%,#1f1214);
-  box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(255,180,120,.12) inset,
-    0 2px 0 rgba(255,220,180,.14) inset,0 -20px 60px rgba(255,121,140,.05) inset}
+    repeating-linear-gradient(91deg,rgba(0,0,0,.22) 0 1px,transparent 1px 5px),
+    repeating-linear-gradient(89deg,rgba(255,220,170,.05) 0 1px,transparent 1px 11px),
+    linear-gradient(158deg,#7a5433,#513521 52%,#38240f);
+  box-shadow:0 40px 120px rgba(0,0,0,.6),0 0 0 1px rgba(255,200,140,.18) inset,
+    0 2px 0 rgba(255,225,185,.2) inset,0 -20px 60px rgba(90,55,25,.25) inset}
 /* screen */
 .crt-screen{position:relative;flex:1;min-height:clamp(300px,52vh,460px);
   border-radius:16px;padding:clamp(1.2rem,3vw,2rem);overflow:hidden;
@@ -4136,10 +4137,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    CRT landing (production) — the CRT is the whole landing: nav on top, the TV
    centered, a chatbox docked at the bottom. Reuses the .crt-* screen visuals.
    ========================================================================== */
-.mkt.mkt-crt{display:flex;flex-direction:column;overflow:hidden;
-  background:radial-gradient(58% 52% at 50% 40%,rgba(255,121,160,.11),transparent 62%),
-    radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
-    radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),#07060a}
+.mkt.mkt-crt{display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
 .mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
   padding:clamp(.4rem,1.2vh,.9rem) clamp(.5rem,1.5vw,1rem)}
 .mkt-crt .crtl-stage .crt-set{width:100%;max-width:1640px;margin:0 auto}
@@ -4156,14 +4154,52 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* chatbox lives inside the screen, docked bottom-centre */
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
-.crt-chatbox{width:min(640px,100%);display:flex;align-items:center;gap:.8rem;cursor:text;
-  padding:.95rem 1rem .95rem 1.3rem;border-radius:18px;border:1px solid var(--line-2);background:var(--panel);
-  box-shadow:0 24px 60px rgba(0,0,0,.5);transition:border-color .25s}
+.crt-chatbox{width:min(720px,94%);display:flex;align-items:center;gap:.9rem;cursor:text;
+  padding:1.15rem 1.15rem 1.15rem 1.5rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
+  box-shadow:0 28px 70px rgba(0,0,0,.55);transition:border-color .25s}
 .crt-chatbox:hover{border-color:rgba(255,121,198,.45)}
-.crt-chatbox-in{flex:1;color:var(--muted);font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.crt-chatbox-send{flex:0 0 auto;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+.crt-chatbox-in{flex:1;color:var(--muted);font-size:1.06rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crt-chatbox-send{flex:0 0 auto;width:48px;height:48px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--split);color:#14060d;box-shadow:0 6px 20px rgba(255,121,198,.4)}
 .crtl-note{color:var(--muted);font-size:.85rem;text-align:center}
 .crtl-note b{color:var(--neon)}
 .crtl-note.crt-foot-nosig{color:#ff7a6a;letter-spacing:.14em;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
 @media (max-width:640px){ .mkt-crt .crtl-stage{padding-top:4.5rem} }
+
+/* ---- CRT landing: crest (laurel + headline), preview stage, legal ---- */
+.crt-crest{position:absolute;top:clamp(4.6rem,9vh,6.2rem);left:0;right:0;z-index:3;
+  display:flex;align-items:center;justify-content:center;gap:.7rem;pointer-events:none}
+.crt-laurel{width:clamp(34px,4vw,50px);height:auto;flex:0 0 auto;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5))}
+.crt-laurel-r{transform:scaleX(-1)}
+.crt-crest-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;
+  font-size:clamp(1.5rem,3vw,2.4rem);line-height:1;text-align:center;color:var(--text);margin:0;white-space:nowrap}
+.crt-crest-h .mkt-grad{background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
+/* preview stage — right half of the screen, morphs per channel */
+.crt-stage{position:absolute;z-index:2;right:clamp(1.2rem,3vw,3rem);
+  top:clamp(9.5rem,20vh,13rem);bottom:clamp(8.5rem,16vh,11rem);
+  width:clamp(300px,44vw,640px);border-radius:16px;overflow:hidden}
+.crt-stage .lp-film{background:transparent}
+.crt-stage .lp-voice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem}
+.crt-stage .lp-voice-note{color:var(--muted);font-size:.8rem;letter-spacing:.06em}
+/* NO SIGNAL panel (music / game) */
+.lp-nosig{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.8rem;
+  background:radial-gradient(60% 60% at 50% 45%,rgba(255,121,140,.06),transparent 70%),#0a0806}
+.lp-nosig-static{position:absolute;inset:0;opacity:.5;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.05) 0 1px,transparent 1px 2px),
+    repeating-linear-gradient(90deg,rgba(0,0,0,.4) 0 1px,transparent 1px 3px);
+  animation:crt-flicker .2s steps(24) infinite}
+.lp-nosig-txt{position:relative;z-index:1;font-family:ui-monospace,Menlo,monospace;font-weight:700;
+  letter-spacing:.18em;color:#ff7a6a;text-align:center;font-size:1rem}
+.lp-nosig-txt small{display:block;margin-top:.4rem;font-size:.62rem;letter-spacing:.24em;color:var(--muted)}
+/* legal footer, bottom-right on the frame */
+.crt-legal{position:absolute;right:clamp(1.4rem,3vw,2.4rem);bottom:clamp(1rem,2.4vh,1.6rem);z-index:3;
+  display:flex;align-items:center;gap:1rem;font-family:ui-monospace,Menlo,monospace;
+  font-size:.66rem;letter-spacing:.14em;color:rgba(255,180,120,.42)}
+.crt-legal a{color:inherit;text-decoration:none;transition:color .2s}
+.crt-legal a:hover{color:var(--neon)}
+/* channels clear the crest */
+.mkt-crt .crt-menu{padding-top:clamp(10rem,22vh,14rem)}
+@media (max-width:820px){
+  .crt-stage{display:none}
+  .crt-crest-h{font-size:clamp(1.3rem,5vw,1.8rem)}
+}

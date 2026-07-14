@@ -6486,7 +6486,8 @@ function initAuthGate() {
     if (window.Auth && Auth.isSignedIn()) return; // mid-session re-auth: don't dismiss
     closeAuth();
   });
-  initLeadHero();
+  // (initLeadHero removed — the old chatbox hero is gone; the CRT landing's
+  //  preview stage is built by initCrtStage inside initCrt.)
   initMktReveal();
   initMktRotate();
   initMktCord();
@@ -6627,9 +6628,21 @@ function paintCrt() {
   });
   const chNo = document.getElementById('crtChNo');
   if (chNo) chNo.textContent = 'CH ' + String(crtSel + 1).padStart(2, '0');
-  // VHF knob turns ~34° per channel across the 5 positions
-  const vhf = document.getElementById('crtVhf');
-  if (vhf) vhf.style.setProperty('--rot', (crtSel * 34 - 68) + 'deg');
+  // morph the preview stage to the tuned channel
+  const sel = opts[crtSel];
+  if (sel) crtShowPanel(sel.dataset.panel || 'nosig');
+}
+// swap the visible preview panel; lazy-load the website iframes on first show
+function crtShowPanel(panel) {
+  const stage = document.getElementById('leadStage');
+  if (!stage) return;
+  stage.querySelectorAll('.lp-panel').forEach((p) => p.classList.toggle('mkt-on', p.dataset.panel === panel));
+  if (panel === 'website') {
+    stage.querySelectorAll('.mb-slot[data-src]').forEach((s) => {
+      const f = s.querySelector('iframe');
+      if (f && !f.src) f.src = s.getAttribute('data-src');
+    });
+  }
 }
 function crtMove(delta) {
   const n = document.querySelectorAll('#crtMenu .crt-opt').length;
@@ -6642,9 +6655,29 @@ function crtSelect() {
   if (!opt) return;
   if (opt.dataset.live === '1') {
     if (typeof openAuthFrom === 'function') openAuthFrom('start');  // funnel into sign-up
-  } else {
-    crtNoSignal();                               // coming-soon channel
   }
+  // coming-soon channels already show the NO SIGNAL preview via paintCrt — no-op
+}
+// Build the preview stage once: filmstrip columns, voice wave, website cascade.
+function initCrtStage() {
+  const stage = document.getElementById('leadStage');
+  if (!stage) return;
+  const cell = (n) => '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
+  const col = (arr) => { const one = arr.map(cell).join(''); return one + one; };  // doubled for seamless loop
+  const cols = stage.querySelectorAll('.lp-col');
+  if (cols[0]) cols[0].innerHTML = col([1, 3, 5, 7, 9, 11, 13]);
+  if (cols[1]) cols[1].innerHTML = col([2, 4, 6, 8, 10, 12, 14]);
+  const cascade = document.getElementById('mbCascade');
+  const slots = cascade ? Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot')) : [];
+  const N = slots.length;
+  let front = 0;
+  const layoutWeb = () => slots.forEach((s, n) => {
+    const rel = (n - front + N) % N;
+    s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
+    s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3');
+  });
+  slots.forEach((s, n) => { const g = s.querySelector('.mb-grab'); if (g) g.addEventListener('click', () => { front = n; layoutWeb(); }); });
+  layoutWeb();
 }
 function crtNoSignal() {
   const screen = document.getElementById('crtScreen');
@@ -6665,6 +6698,7 @@ function crtNoSignal() {
 function initCrt() {
   const menu = document.getElementById('crtMenu');
   if (!menu) return;
+  initCrtStage();
   const mkt = document.getElementById('marketing');
   // click a channel → tune it, then act (live → sign-up, soon → NO SIGNAL)
   menu.querySelectorAll('.crt-opt').forEach((opt, i) => {
