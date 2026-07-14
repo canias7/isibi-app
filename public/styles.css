@@ -3482,37 +3482,46 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .mkt-step-flip .mkt-step-copy{order:1;justify-self:end;text-align:right}
 .mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:auto}
 /* tiles — soft gradient washes, media-like rounded slabs */
-.mkt-step-tile{position:relative;border-radius:22px;min-height:230px;display:flex;
-  align-items:center;justify-content:center;padding:2rem;border:1px solid var(--line-2);overflow:hidden}
-.mkt-tile-a{background:radial-gradient(120% 130% at 15% 20%,rgba(255,121,198,.32),transparent 55%),
-  radial-gradient(120% 130% at 90% 85%,rgba(255,184,77,.24),transparent 55%),linear-gradient(160deg,#171019,#0d0a12)}
-.mkt-tile-b{background:radial-gradient(120% 130% at 85% 15%,rgba(151,120,255,.28),transparent 55%),
-  radial-gradient(120% 130% at 10% 90%,rgba(255,121,198,.22),transparent 55%),linear-gradient(160deg,#131019,#0c0a12)}
-.mkt-tile-c{background:radial-gradient(120% 130% at 20% 85%,rgba(255,184,77,.28),transparent 55%),
-  radial-gradient(120% 130% at 85% 15%,rgba(255,121,198,.2),transparent 55%),linear-gradient(160deg,#17120e,#0e0b0a)}
-/* mini mocks inside the tiles */
-.mkt-mock{width:min(100%,340px);display:flex;flex-direction:column;gap:.7rem}
-.mkt-mock-input{position:relative;font-size:.82rem;line-height:1.5;color:rgba(237,234,243,.9);
-  padding:.95rem 3rem .95rem 1.05rem;border-radius:14px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(10,8,14,.72);backdrop-filter:blur(6px);box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.mkt-step-tile{position:relative;border-radius:26px;min-height:248px;display:flex;
+  align-items:center;justify-content:center;padding:2.2rem;overflow:hidden;
+  border:1px solid rgba(255,255,255,.1);
+  box-shadow:0 30px 70px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.16)}
+/* vivid, saturated sunset/aurora gradient washes — Liftoff-style */
+.mkt-tile-a{background:radial-gradient(115% 125% at 8% 12%,rgba(255,121,198,.85),transparent 50%),
+  radial-gradient(120% 135% at 96% 94%,rgba(255,150,74,.72),transparent 52%),
+  radial-gradient(90% 110% at 60% 45%,rgba(255,90,160,.35),transparent 60%),linear-gradient(150deg,#2c1526,#150b16)}
+.mkt-tile-b{background:radial-gradient(115% 125% at 94% 8%,rgba(151,120,255,.8),transparent 50%),
+  radial-gradient(125% 135% at 6% 96%,rgba(255,121,198,.62),transparent 52%),
+  radial-gradient(90% 110% at 45% 55%,rgba(120,110,255,.32),transparent 60%),linear-gradient(150deg,#1e1433,#110b1b)}
+.mkt-tile-c{background:radial-gradient(115% 130% at 10% 92%,rgba(255,172,66,.85),transparent 50%),
+  radial-gradient(120% 130% at 92% 8%,rgba(255,108,150,.66),transparent 52%),
+  radial-gradient(90% 110% at 55% 45%,rgba(255,140,80,.34),transparent 60%),linear-gradient(150deg,#2c1b10,#150d0a)}
+/* mini mocks — frosted glass panels that float off the vivid gradient */
+.mkt-mock{width:min(100%,346px);display:flex;flex-direction:column;gap:.7rem}
+.mkt-mock-input,.mkt-mock-line,.mkt-mock-media,.mkt-mock-saved{
+  border:1px solid rgba(255,255,255,.16);background:rgba(14,10,20,.5);
+  -webkit-backdrop-filter:blur(16px) saturate(1.3);backdrop-filter:blur(16px) saturate(1.3);
+  box-shadow:0 22px 48px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.22)}
+.mkt-mock-input{position:relative;font-size:.82rem;line-height:1.5;color:rgba(255,255,255,.95);
+  padding:.95rem 3rem .95rem 1.05rem;border-radius:15px}
 .mkt-mock-send{position:absolute;right:.6rem;bottom:.6rem;width:28px;height:28px;border-radius:50%;
   display:flex;align-items:center;justify-content:center;background:var(--split);color:#14060d;
-  font-weight:800;font-size:.85rem}
-.mkt-mock-line{font-size:.8rem;line-height:1.55;color:rgba(237,234,243,.88);
-  padding:.9rem 1.05rem;border-radius:14px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(10,8,14,.72);backdrop-filter:blur(6px);box-shadow:0 18px 44px rgba(0,0,0,.5)}
+  font-weight:800;font-size:.85rem;box-shadow:0 4px 14px rgba(255,121,198,.5)}
+.mkt-mock-line{font-size:.8rem;line-height:1.55;color:rgba(255,255,255,.95);
+  padding:.9rem 1.05rem;border-radius:15px}
 .mkt-mock-tags{display:flex;gap:.45rem;flex-wrap:wrap}
-.mkt-mock-tags b,.mkt-mock-tags span{font-size:.7rem;font-weight:600;padding:.32rem .66rem;border-radius:999px;
-  border:1px solid rgba(255,255,255,.12);background:rgba(10,8,14,.6);color:rgba(237,234,243,.55)}
-.mkt-mock-tags b{color:#14060d;background:var(--split);border-color:transparent;font-weight:800}
-.mkt-mock-media{aspect-ratio:16/9;border-radius:14px;border:1px solid rgba(255,255,255,.14);
-  background:radial-gradient(70% 80% at 55% 40%,rgba(255,184,77,.4),transparent 65%),
-    radial-gradient(70% 80% at 25% 75%,rgba(255,121,198,.32),transparent 65%),#0b0910;
-  display:flex;align-items:center;justify-content:center;box-shadow:0 18px 44px rgba(0,0,0,.5)}
-.mkt-mock-play{width:0;height:0;border-left:16px solid rgba(255,255,255,.92);
-  border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
-.mkt-mock-saved{align-self:center;font-size:.72rem;font-weight:600;color:rgba(237,234,243,.85);
-  padding:.4rem .85rem;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(10,8,14,.72)}
+.mkt-mock-tags b,.mkt-mock-tags span{font-size:.7rem;font-weight:600;padding:.34rem .68rem;border-radius:999px;
+  border:1px solid rgba(255,255,255,.2);background:rgba(14,10,20,.5);color:rgba(255,255,255,.7);
+  -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+.mkt-mock-tags b{color:#14060d;background:var(--split);border-color:transparent;font-weight:800;
+  box-shadow:0 4px 14px rgba(255,121,198,.4)}
+.mkt-mock-media{aspect-ratio:16/9;border-radius:15px;
+  display:flex;align-items:center;justify-content:center}
+.mkt-mock-play{width:0;height:0;border-left:17px solid rgba(255,255,255,.95);
+  border-top:11px solid transparent;border-bottom:11px solid transparent;margin-left:4px;
+  filter:drop-shadow(0 2px 8px rgba(0,0,0,.4))}
+.mkt-mock-saved{align-self:center;font-size:.72rem;font-weight:600;color:rgba(255,255,255,.92);
+  padding:.42rem .9rem;border-radius:999px}
 /* copy side */
 .mkt-step-copy{max-width:24rem}
 .mkt-step-n{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;
