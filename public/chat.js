@@ -6491,8 +6491,10 @@ function initAuthGate() {
   initMktRotate();
   initMktCord();
   initCrt();
-  // Logged in → the CRT channel selector first. Otherwise the public landing.
-  if (window.Auth && Auth.isSignedIn()) enterCrt();
+  // Already signed in on load (returning session) → straight into the app; the
+  // CRT channel selector only appears on a fresh sign-up / sign-in (see the
+  // enterCrt() calls in submitAuth). Otherwise show the public landing.
+  if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
 
