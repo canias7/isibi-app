@@ -4183,14 +4183,14 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   font-size:clamp(1.5rem,3vw,2.4rem);line-height:1;text-align:center;color:var(--text);margin:0;white-space:nowrap}
 .crt-crest-h .mkt-grad{background:var(--split);-webkit-background-clip:text;background-clip:text;color:transparent}
 /* preview stage — right half of the screen, morphs per channel */
-.crt-stage{position:absolute;z-index:2;right:clamp(1rem,2vw,2.2rem);
-  top:clamp(7rem,15vh,10rem);bottom:clamp(6rem,11vh,8.5rem);
+.crt-stage{position:absolute;z-index:2;right:clamp(.5rem,.6vw,.9rem);
+  top:clamp(6.4rem,13.5vh,9rem);bottom:clamp(6.6rem,12vh,9rem);
   width:clamp(440px,60vw,900px);border-radius:16px;overflow:hidden}
 /* website cascade fills the wider preview: bigger demos, tighter/flush spread
    so the front card stays fully visible instead of running off the frame */
 .crt-stage .mb-cascade-lead{--sc:.66}
-.crt-stage .mb-slot.mb-p1{left:40px;top:100px}
-.crt-stage .mb-slot.mb-p2{left:20px;top:50px}
+.crt-stage .mb-slot.mb-p1{left:40px;top:72px}
+.crt-stage .mb-slot.mb-p2{left:20px;top:36px}
 .crt-stage .mb-slot.mb-p3{left:0;top:0}
 @media (max-width:1200px){ .crt-stage .mb-cascade-lead{--sc:.54} }
 .crt-stage .lp-film{background:transparent}
