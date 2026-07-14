@@ -316,6 +316,41 @@ async function cancelFal(data, env) {
   } catch {}
 }
 
+// Upload an inline data-URI attachment to fal's own storage and return the
+// hosted https URL. Images ride fine as data URIs, but Kling's video validator
+// probes video_url (format/duration/resolution) and 422s an inline blob — so
+// clips get parked on fal storage first and submitted as a real URL.
+async function falUpload(dataUri, env) {
+  try {
+    const m = String(dataUri).match(/^data:([^;,]+);base64,([A-Za-z0-9+/=]+)$/);
+    if (!m || !env.FAL_KEY) return null;
+    const mime = m[1];
+    const raw = atob(m[2]);
+    const bin = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bin[i] = raw.charCodeAt(i);
+    const ext = mime.includes("quicktime") ? "mov" : (mime.split("/")[1] || "bin").split("+")[0];
+    const init = await fetch("https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3", {
+      method: "POST",
+      headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ file_name: `isibi-input.${ext}`, content_type: mime }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!init.ok) return null;
+    const meta = await init.json().catch(() => ({}));
+    if (!meta.upload_url || !meta.file_url) return null;
+    const put = await fetch(meta.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": mime },
+      body: bin,
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!put.ok) return null;
+    return meta.file_url;
+  } catch {
+    return null;
+  }
+}
+
 // Resolve the caller's Supabase access token to a user, or null if missing/invalid.
 async function authUser(request) {
   const header = request.headers.get("Authorization") || "";
@@ -1567,7 +1602,17 @@ async function handleRequest(request, env, ctx) {
       const avatar = dataImage(body.avatar);
       const end = dataImage(body.end);
       const audio = dataAudio(body.audio);
-      const clip = dataVideo(body.clip);
+      // Video clips can't ride inline: Kling's video_url validator probes the
+      // URL for format/duration/resolution and 422s a base64 data URI. Park the
+      // clip on fal storage and submit the hosted URL instead. Happens BEFORE
+      // the credit charge, so an upload failure costs nothing.
+      let clip = dataVideo(body.clip);
+      if (clip) {
+        clip = await falUpload(clip, env);
+        if (!clip) {
+          return Response.json({ error: "couldn't stage the video clip — try attaching it again" }, { status: 502 });
+        }
+      }
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
         ? body.images.slice(0, 8).map(dataImage).filter(Boolean)
