@@ -4062,7 +4062,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .crt-rec i{width:8px;height:8px;border-radius:50%;background:#ff5a7a;
   box-shadow:0 0 10px #ff5a7a;animation:crt-blink 1.4s steps(1) infinite}
 @keyframes crt-blink{50%{opacity:.15}}
-.crt-menu{list-style:none;margin:0;padding:clamp(1.4rem,4vh,2.6rem) 0 0;outline:none;
+/* the 5 channels hug the left edge of the screen (pull past the screen padding) */
+.crt-menu{list-style:none;margin:0 0 0 calc(.25rem - clamp(1.2rem,3vw,2rem));
+  padding:clamp(1.4rem,4vh,2.6rem) 0 0;outline:none;
   display:flex;flex-direction:column;gap:clamp(.35rem,1.4vh,.7rem)}
 .crt-opt{position:relative;display:flex;align-items:center;gap:.55rem;cursor:pointer;
   font-size:clamp(1.6rem,3.6vw,2.5rem);font-weight:700;letter-spacing:.06em;line-height:1.05;
