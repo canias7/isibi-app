@@ -3428,7 +3428,7 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
       if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
       try {
-        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(15000) });
+        const r = await fetch(target, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(30000) });
         return new Response(await r.text(), {
           status: r.status,
           headers: { "Content-Type": "application/json" },

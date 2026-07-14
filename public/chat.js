@@ -3252,16 +3252,26 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       return;
     }
 
-    const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
-    if (!alive()) return;
     // The job COMPLETED on fal and is already charged. A non-OK result fetch
-    // (the poll proxy's 502 timeout returns a parseable {error} body; or a 401)
-    // is transient — keep the refresh-proof record and let boot-resume re-fetch,
-    // instead of reading the error body as "no media" and dropping a paid render.
-    if (!rr.ok) {
+    // (the poll proxy's timeout returns a parseable {error} body; or a 401) is
+    // transient — a big render's result endpoint can be slow. Retry inline a few
+    // times before falling back to boot-resume, so the paid render lands here
+    // instead of making the user reopen the app.
+    let rr = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
+      if (!alive()) return;
+      if (rr.ok) break;
+      if (attempt === 0) setGenText(origin, 'Finishing up…');
+      await new Promise((r) => setTimeout(r, 3000));
+      if (!alive()) return;
+    }
+    if (!rr || !rr.ok) {
+      // Still not back — keep the refresh-proof record and let boot-resume
+      // re-fetch, rather than reading the error body as "no media".
       jobBumpTries(origin);
       pauseGen(origin);
-      deliverAgent(origin, '⚠️ The render finished but I couldn’t fetch it just now — the app will retrieve it automatically.');
+      deliverAgent(origin, '⚠️ The render finished — I’m still pulling it in; it’ll appear here in a moment automatically.');
       return;
     }
     const out = await rr.json().catch(() => ({}));
