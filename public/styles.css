@@ -3470,38 +3470,82 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 @keyframes mkt-scroll{to{transform:translateX(-50%)}}
 
 /* ==========================================================================
-   Features + trust — small reveal-on-scroll cards between the hero and pricing
+   How it works (zigzag steps) + trust trio — between the hero and pricing.
+   Steps: floating gradient tile with a mini UI mock on one side, numbered
+   copy on the other, sides alternating. Trio: soft glow orbs, airy + centered.
    ========================================================================== */
-.mkt-feats,.mkt-trust{max-width:1100px;margin:0 auto;
-  padding:clamp(3.2rem,8vh,5.5rem) clamp(1.1rem,4vw,2rem) 0}
-.mkt-feat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
-.mkt-trust-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem}
-.mkt-feat,.mkt-trust-card{position:relative;display:flex;flex-direction:column;gap:.55rem;text-align:left;
-  padding:1.4rem 1.3rem 1.35rem;border-radius:16px;border:1px solid var(--line);background:var(--panel);
-  transition:transform .3s,border-color .3s,box-shadow .3s}
-.mkt-feat:hover,.mkt-trust-card:hover{transform:translateY(-4px);border-color:var(--line-2);
-  box-shadow:0 18px 44px rgba(0,0,0,.45),0 8px 30px rgba(255,121,198,.08)}
-.mkt-feat-ic{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;
-  border-radius:12px;border:1px solid rgba(255,121,198,.28);
-  background:linear-gradient(135deg,rgba(255,121,198,.12),rgba(255,184,77,.1));color:var(--neon)}
-.mkt-feat-ic svg{width:21px;height:21px}
-.mkt-trust-ic{border-color:rgba(255,184,77,.3)}
-.mkt-feat-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1rem;
-  letter-spacing:.01em;margin:.15rem 0 0}
-.mkt-feat-p{color:var(--muted);font-size:.86rem;line-height:1.5;margin:0}
-/* reveal: cards drift up as they scroll into view (JS adds .mkt-in; stagger via inline delay) */
+.mkt-how,.mkt-trust{max-width:1020px;margin:0 auto;
+  padding:clamp(3.6rem,9vh,6.5rem) clamp(1.1rem,4vw,2rem) 0}
+.mkt-how-steps{display:flex;flex-direction:column;gap:clamp(2.2rem,6vh,4rem);margin-top:1.2rem}
+.mkt-step{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(1.6rem,5vw,4rem);align-items:center}
+.mkt-step-flip .mkt-step-tile{order:2}
+.mkt-step-flip .mkt-step-copy{order:1;justify-self:end;text-align:right}
+.mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:auto}
+/* tiles — soft gradient washes, media-like rounded slabs */
+.mkt-step-tile{position:relative;border-radius:22px;min-height:230px;display:flex;
+  align-items:center;justify-content:center;padding:2rem;border:1px solid var(--line-2);overflow:hidden}
+.mkt-tile-a{background:radial-gradient(120% 130% at 15% 20%,rgba(255,121,198,.32),transparent 55%),
+  radial-gradient(120% 130% at 90% 85%,rgba(255,184,77,.24),transparent 55%),linear-gradient(160deg,#171019,#0d0a12)}
+.mkt-tile-b{background:radial-gradient(120% 130% at 85% 15%,rgba(151,120,255,.28),transparent 55%),
+  radial-gradient(120% 130% at 10% 90%,rgba(255,121,198,.22),transparent 55%),linear-gradient(160deg,#131019,#0c0a12)}
+.mkt-tile-c{background:radial-gradient(120% 130% at 20% 85%,rgba(255,184,77,.28),transparent 55%),
+  radial-gradient(120% 130% at 85% 15%,rgba(255,121,198,.2),transparent 55%),linear-gradient(160deg,#17120e,#0e0b0a)}
+/* mini mocks inside the tiles */
+.mkt-mock{width:min(100%,340px);display:flex;flex-direction:column;gap:.7rem}
+.mkt-mock-input{position:relative;font-size:.82rem;line-height:1.5;color:rgba(237,234,243,.9);
+  padding:.95rem 3rem .95rem 1.05rem;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(10,8,14,.72);backdrop-filter:blur(6px);box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.mkt-mock-send{position:absolute;right:.6rem;bottom:.6rem;width:28px;height:28px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;background:var(--split);color:#14060d;
+  font-weight:800;font-size:.85rem}
+.mkt-mock-line{font-size:.8rem;line-height:1.55;color:rgba(237,234,243,.88);
+  padding:.9rem 1.05rem;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(10,8,14,.72);backdrop-filter:blur(6px);box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.mkt-mock-tags{display:flex;gap:.45rem;flex-wrap:wrap}
+.mkt-mock-tags b,.mkt-mock-tags span{font-size:.7rem;font-weight:600;padding:.32rem .66rem;border-radius:999px;
+  border:1px solid rgba(255,255,255,.12);background:rgba(10,8,14,.6);color:rgba(237,234,243,.55)}
+.mkt-mock-tags b{color:#14060d;background:var(--split);border-color:transparent;font-weight:800}
+.mkt-mock-media{aspect-ratio:16/9;border-radius:14px;border:1px solid rgba(255,255,255,.14);
+  background:radial-gradient(70% 80% at 55% 40%,rgba(255,184,77,.4),transparent 65%),
+    radial-gradient(70% 80% at 25% 75%,rgba(255,121,198,.32),transparent 65%),#0b0910;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 18px 44px rgba(0,0,0,.5)}
+.mkt-mock-play{width:0;height:0;border-left:16px solid rgba(255,255,255,.92);
+  border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
+.mkt-mock-saved{align-self:center;font-size:.72rem;font-weight:600;color:rgba(237,234,243,.85);
+  padding:.4rem .85rem;border-radius:999px;border:1px solid rgba(255,255,255,.14);background:rgba(10,8,14,.72)}
+/* copy side */
+.mkt-step-copy{max-width:24rem}
+.mkt-step-n{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;
+  background:var(--split);color:#14060d;font-weight:800;font-size:.85rem;margin-bottom:.9rem}
+.mkt-step-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;letter-spacing:-.02em;
+  font-size:clamp(1.25rem,2.4vw,1.6rem);margin:0 0 .55rem}
+.mkt-step-p{color:var(--muted);font-size:.95rem;line-height:1.6;margin:0}
+/* trust trio — soft glow orbs, centered, lots of air */
+.mkt-safe{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(1.5rem,4vw,3rem);
+  margin-top:1.6rem;text-align:center}
+.mkt-safe-item{display:flex;flex-direction:column;align-items:center;gap:.55rem;border:none}
+.mkt-orb{width:72px;height:72px;border-radius:50%;margin-bottom:.4rem;filter:blur(7px);opacity:.95}
+.mkt-orb-a{background:radial-gradient(circle at 42% 38%,rgba(255,217,238,.95),rgba(255,121,198,.65) 42%,rgba(255,121,198,0) 68%);
+  box-shadow:0 0 56px rgba(255,121,198,.45)}
+.mkt-orb-b{background:radial-gradient(circle at 42% 38%,rgba(228,220,255,.95),rgba(151,120,255,.62) 42%,rgba(151,120,255,0) 68%);
+  box-shadow:0 0 56px rgba(151,120,255,.45)}
+.mkt-orb-c{background:radial-gradient(circle at 42% 38%,rgba(255,233,201,.95),rgba(255,184,77,.62) 42%,rgba(255,184,77,0) 68%);
+  box-shadow:0 0 56px rgba(255,184,77,.45)}
+.mkt-safe-h{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.02rem;margin:0}
+.mkt-safe-p{color:var(--muted);font-size:.88rem;line-height:1.55;max-width:16rem;margin:0}
+/* reveal: drift up on scroll (JS adds .mkt-in; stagger via inline delay) */
 [data-reveal]{opacity:0;transform:translateY(18px);
   transition:opacity .6s ease,transform .6s cubic-bezier(.22,.9,.32,1)}
 [data-reveal].mkt-in{opacity:1;transform:none}
 @media (prefers-reduced-motion: reduce){
   [data-reveal]{opacity:1;transform:none;transition:none}
 }
-@media (max-width: 900px){
-  .mkt-feat-grid{grid-template-columns:repeat(2,1fr)}
-  .mkt-trust-grid{grid-template-columns:repeat(2,1fr)}
-}
-@media (max-width: 520px){
-  .mkt-feat-grid,.mkt-trust-grid{grid-template-columns:1fr}
+@media (max-width: 860px){
+  .mkt-step{grid-template-columns:1fr;gap:1.2rem}
+  .mkt-step-flip .mkt-step-tile{order:0}
+  .mkt-step-flip .mkt-step-copy{order:1;justify-self:start;text-align:left}
+  .mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:0}
+  .mkt-safe{grid-template-columns:1fr;gap:2.4rem}
 }
 
 /* ==========================================================================
