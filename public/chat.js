@@ -6494,25 +6494,49 @@ function initAuthGate() {
   else showMarketing();
 }
 
-// Marketing: each how-it-works step (.mkt-rotate) cycles through its 3 inner
-// frames and 3 side texts in lockstep, cross-fading every few seconds. All
-// steps advance on one shared clock so the column reads as a single beat.
+// Marketing: each how-it-works step (.mkt-rotate) cycles through its inner
+// frames, its supporting line, and a vertical phrase wheel in lockstep. The
+// wheel keeps all phrases visible — active one centred and sharp, neighbours
+// blurred above/below — and slides the next one up into the middle. All steps
+// share one clock so the column reads as a single beat.
 function initMktRotate() {
   const steps = Array.prototype.slice.call(document.querySelectorAll('.mkt-rotate'));
   if (!steps.length) return;
+  const ROW = 2.4; // rem — must match .mkt-wheel-item height
   const groups = steps.map((step) => ({
     frames: Array.prototype.slice.call(step.querySelectorAll('.mkt-frames > .mkt-frame')),
     texts: Array.prototype.slice.call(step.querySelectorAll('.mkt-tframes > .mkt-tframe')),
+    wheel: Array.prototype.slice.call(step.querySelectorAll('.mkt-wheel-item')),
   }));
-  const count = Math.max.apply(null, groups.map((g) => Math.max(g.frames.length, g.texts.length)));
-  if (count < 2) return;
-  let i = 0;
-  setInterval(() => {
-    i = (i + 1) % count;
-    groups.forEach((g) => {
-      g.frames.forEach((el, k) => el.classList.toggle('on', k === i % g.frames.length));
-      g.texts.forEach((el, k) => el.classList.toggle('on', k === i % g.texts.length));
+
+  // Place one step at `active`. `animate` false (initial) or when an item wraps
+  // top↔bottom skips the transition so it teleports instead of sweeping through.
+  const place = (g, active, animate) => {
+    g.frames.forEach((el, k) => el.classList.toggle('on', k === active % g.frames.length));
+    g.texts.forEach((el, k) => el.classList.toggle('on', k === active % g.texts.length));
+    const n = g.wheel.length;
+    g.wheel.forEach((el, i) => {
+      const off = (((i - active) % n) + n) % n;   // 0..n-1
+      const slot = off > n / 2 ? off - n : off;   // centred range, e.g. -1,0,1
+      const prev = el.dataset.slot === undefined || el.dataset.slot === '' ? null : +el.dataset.slot;
+      const wraps = prev !== null && Math.abs(slot - prev) > 1;
+      if (!animate || wraps) el.style.transition = 'none';
+      el.style.transform = 'translateY(' + (slot * ROW) + 'rem)';
+      el.style.opacity = slot === 0 ? '1' : '.28';
+      el.style.filter = slot === 0 ? 'none' : 'blur(3px)';
+      el.classList.toggle('is-focus', slot === 0);
+      if (!animate || wraps) { void el.offsetWidth; el.style.transition = ''; }
+      el.dataset.slot = String(slot);
     });
+  };
+
+  const N = Math.max.apply(null, groups.map((g) => Math.max(g.frames.length, g.texts.length, g.wheel.length)));
+  if (N < 2) return;
+  groups.forEach((g) => place(g, 0, false));
+  let active = 0;
+  setInterval(() => {
+    active = (active + 1) % N;
+    groups.forEach((g) => place(g, active, true));
   }, 3600);
 }
 
