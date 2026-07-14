@@ -6563,29 +6563,28 @@ function initMktCord() {
       const b = tiles[i + 1].getBoundingClientRect();
       const acx = a.left + a.width / 2, acy = a.top + a.height / 2;
       const bcx = b.left + b.width / 2, bcy = b.top + b.height / 2;
-      const horizontal = Math.abs(bcx - acx) > Math.abs(bcy - acy);
-      let sx, sy, ex, ey;
-      if (horizontal) {                        // cards side by side → right edge to left edge
-        sx = a.right - wb.left - 14;
-        sy = acy - wb.top;
-        ex = b.left - wb.left + 14;
-        ey = bcy - wb.top;
+      const sameRow = Math.abs(bcy - acy) < Math.min(a.height, b.height) * 0.5;
+      const stacked = Math.abs(bcx - acx) < Math.min(a.width, b.width) * 0.5;
+      if (sameRow) {                           // side by side → connect facing horizontal edges
+        const rightward = bcx > acx;
+        const sx = (rightward ? a.right - 14 : a.left + 14) - wb.left;
+        const ex = (rightward ? b.left + 14 : b.right - 14) - wb.left;
+        const sy = acy - wb.top, ey = bcy - wb.top;
         const dx = ex - sx;
         d += 'M ' + sx + ' ' + sy +
              ' C ' + (sx + dx * 0.55) + ' ' + sy +
              ', ' + (ex - dx * 0.55) + ' ' + ey +
              ', ' + ex + ' ' + ey + ' ';
-      } else {                                 // cards stacked → bottom edge to top edge
-        sx = acx - wb.left;
-        sy = a.bottom - wb.top - 14;
-        ex = bcx - wb.left;
-        ey = b.top - wb.top + 14;
+      } else if (stacked) {                    // one above the other → connect vertical edges
+        const sx = acx - wb.left, ex = bcx - wb.left;
+        const sy = a.bottom - wb.top - 14, ey = b.top - wb.top + 14;
         const dy = ey - sy;
         d += 'M ' + sx + ' ' + sy +
              ' C ' + sx + ' ' + (sy + dy * 0.55) +
              ', ' + ex + ' ' + (ey - dy * 0.55) +
              ', ' + ex + ' ' + ey + ' ';
       }
+      // else: not adjacent (e.g. top-right → bottom-left wrap) — skip, no diagonal
     }
     path.setAttribute('d', d.trim());
   };
