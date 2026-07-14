@@ -1613,6 +1613,32 @@ function updateScrollDown(scroller) {
   btn.classList.toggle('show', far);
 }
 
+function prefersReducedMotion() {
+  try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  catch { return false; }
+}
+// Reveal agent text word-by-word (Claude-Code style). Fresh deliveries only —
+// history re-renders through renderSaved and stays instant. The full text is
+// already persisted, so this is purely a visual reveal; type into a dedicated
+// text node so the message's copy button (a sibling in the div) isn't wiped.
+function typeText(el, text) {
+  const tokens = String(text).match(/\S+\s*/g);
+  if (!tokens || tokens.length < 2) { el.textContent = text; return; }
+  const node = document.createTextNode('');
+  el.appendChild(node);
+  let i = 0;
+  const tick = () => {
+    if (!el.isConnected) return; // chat switched / thread re-rendered → stop (renderSaved shows the full text)
+    const burst = i > 60 ? 3 : 1; // long replies reveal a few words per tick so they don't drag
+    for (let b = 0; b < burst && i < tokens.length; b++) node.data += tokens[i++];
+    const sc = el.parentElement && el.parentElement.parentElement;
+    if (sc) scrollThreadBottom(sc);
+    if (i < tokens.length) setTimeout(tick, 32);
+  };
+  // Defer the first tick: addMsg mounts the div AFTER calling typeText, so run
+  // once it's connected (the tick guards on isConnected to stop on chat switch).
+  setTimeout(tick, 0);
+}
 function addMsg(kind, text) {
   const div = document.createElement('div');
   div.className = 'msg ' + kind;
@@ -1623,6 +1649,8 @@ function addMsg(kind, text) {
     const dots = document.createElement('span');
     dots.className = 'dots';
     div.appendChild(dots);
+  } else if (kind === 'agent' && text && !prefersReducedMotion()) {
+    typeText(div, text); // isibi's replies type out word-by-word
   } else {
     div.textContent = text;
   }
@@ -3592,24 +3620,10 @@ async function startDirector(text) {
   addMsg('user', text);
   await pushRefStrip();
   const thinking = addMsg('agent typing', 'isibi.ai is thinking');
-  // isibi.ai's reply streams into a live bubble; the final text is re-delivered
-  // through the normal path (persisted, stamped) when the stream ends.
-  let live = null;
-  const onDelta = (d) => {
-    if (chatStore.active !== origin) return;
-    if (!live) {
-      thinking.remove();
-      live = document.createElement('div');
-      live.className = 'msg agent live';
-      live.setAttribute('aria-live', 'polite'); // announce the streamed reply to screen readers
-      live.setAttribute('aria-atomic', 'false');
-      document.getElementById('messages').appendChild(live);
-    }
-    live.textContent += d;
-    scrollThreadBottom(live.parentElement.parentElement); // follow the stream only if the user is at the bottom
-  };
+  // isibi.ai's reply is delivered through the normal path when the call ends,
+  // which types it out word-by-word (like every other agent message).
   let res;
-  try { res = await directorAsk(text, history, onDelta); } finally { thinking.remove(); if (live) live.remove(); }
+  try { res = await directorAsk(text, history); } finally { thinking.remove(); }
   // isibi.ai's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
   // If the user moved to another chat while isibi.ai was thinking, stop here —
