@@ -1894,6 +1894,13 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
       }
 
+      // Some endpoints hard-cap the prompt (Kling o3 edit = 2500 chars) and 422
+      // a longer one. Edit prompts are short by design now, but clamp as a safety
+      // net so a pathologically long prompt can never bounce the whole render.
+      if (typeof input.prompt === "string" && endpoint.includes("/video-to-video/edit") && input.prompt.length > 2500) {
+        input.prompt = input.prompt.slice(0, 2500);
+      }
+
       // Submit to fal. A network error here means nothing was charged.
       let r;
       try {
@@ -3259,7 +3266,25 @@ Return just the line to be voiced — keep it to what should actually come out o
         return Response.json({ error: "verify failed" }, { status: 502 });
       }
       if (!["FAILED", "ERROR", "CANCELED", "CANCELLED"].includes(status)) {
-        return Response.json({ refunded: 0 }); // still running, completed, or unknown — nothing to refund
+        // A job can report COMPLETED yet carry a client-error RESULT (e.g. a 422
+        // input-validation failure): fal doesn't bill those either, but the
+        // status check alone misses them. Only COMPLETED earns this second look
+        // — IN_QUEUE / IN_PROGRESS are genuinely still running.
+        if (status !== "COMPLETED") {
+          return Response.json({ refunded: 0 });
+        }
+        try {
+          const resultUrl = statusUrl.replace(/\/status\b.*$/, "");
+          const rr = await fetch(resultUrl, { headers: { Authorization: `Key ${env.FAL_KEY}` }, signal: AbortSignal.timeout(10000) });
+          // 2xx = real output (don't refund); 5xx / network = transient (don't
+          // refund, it may still be retrievable); only a 4xx client error means
+          // the render terminally failed validation → fall through and refund.
+          if (rr.status < 400 || rr.status >= 500) {
+            return Response.json({ refunded: 0 });
+          }
+        } catch {
+          return Response.json({ refunded: 0 });
+        }
       }
       try {
         const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/refund_charge`, {

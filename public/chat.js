@@ -186,6 +186,7 @@ function onAttach(kind, inputEl) {
       awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
     }
+    if (kind === 'clip') { clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' }; readClipMeta(reader.result); }
     renderAttach(kind);
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
     if (kind === 'image') clearImageInputsExcept('image');
@@ -194,6 +195,49 @@ function onAttach(kind, inputEl) {
     if (kind === 'clip') updateSendPrice();
   };
   reader.readAsDataURL(file);
+}
+
+// Attached video-clip metadata (duration + pixel size), read so a v2v edit can
+// be checked against the target model's limits BEFORE it's submitted/charged —
+// fal 422s (and used to still bill us) when the clip is out of spec.
+let clipMeta = null;
+function readClipMeta(dataUri) {
+  const v = document.createElement('video');
+  v.preload = 'metadata';
+  v.muted = true;
+  v.onloadedmetadata = () => {
+    if (!clipMeta) return;
+    clipMeta.dur = v.duration || 0;
+    clipMeta.w = v.videoWidth || 0;
+    clipMeta.h = v.videoHeight || 0;
+    try { v.src = ''; } catch (e) {}
+  };
+  v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
+  v.src = dataUri;
+}
+// Per-model clip requirements for video-to-video edits, from each endpoint's fal
+// schema. Only models with hard limits are listed; others accept any clip.
+const CLIP_LIMITS = {
+  'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'] },
+};
+// Check the attached clip against the current model's limits. Returns an error
+// string to show the user, or '' when it's fine (or can't be verified).
+function clipIssue() {
+  if (mode !== 'video' || !attachments.clip) return '';
+  const lim = CLIP_LIMITS[model];
+  if (!lim || !clipMeta) return '';
+  const { dur, w, h, type } = clipMeta;
+  const fmtOk = !type || lim.formats.some((f) => type.includes(f) || (f === 'mov' && type.includes('quicktime')));
+  if (!fmtOk) return 'This model needs an ' + lim.formats.join(' or ') + ' clip. Re-export your video as MP4 and attach it again.';
+  if (dur) {
+    if (dur < lim.minDur) return 'That clip is ' + dur.toFixed(1) + 's — this model needs at least ' + lim.minDur + 's. Attach a longer clip.';
+    if (dur > lim.maxDur + 0.5) return 'That clip is ' + Math.round(dur) + 's — this model maxes out at ' + lim.maxDur + 's. Trim it and attach again.';
+  }
+  const shortSide = w && h ? Math.min(w, h) : 0;
+  const longSide = w && h ? Math.max(w, h) : 0;
+  if (shortSide && shortSide < lim.minPx) return 'That clip is ' + w + '×' + h + ' — this model needs at least ' + lim.minPx + 'p on the short side. Use a higher-resolution clip.';
+  if (longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
+  return '';
 }
 
 // ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
@@ -362,7 +406,7 @@ function clearAttach(ev, kind) {
     renderExtraImages();
   }
   if (kind === 'audio') { awDur = 0; awPeaks = null; updateSendPrice(); } // reset lip-sync price
-  if (kind === 'clip') updateSendPrice(); // dropping the clip exits v2v billing
+  if (kind === 'clip') { clipMeta = null; updateSendPrice(); } // dropping the clip exits v2v billing
   renderAttach(kind);
 }
 
@@ -3303,6 +3347,16 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
       if (!alive()) return;
       if (rr.ok) break;
+      // A client error (422 invalid input, 400, 404 gone) is terminal — the
+      // render won't ever produce a result, so stop retrying and refund (fal
+      // doesn't bill a rejected job). 401 is a session issue, handled elsewhere.
+      if (rr.status >= 400 && rr.status < 500 && rr.status !== 401 && rr.status !== 408 && rr.status !== 429) {
+        endGen(origin);
+        const refunded = await requestRefund(statusUrl);
+        deliverAgent(origin, '⚠️ fal rejected this render — the clip or prompt didn’t pass its input checks, so nothing was produced'
+          + (refunded > 0 ? '. Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
+        return;
+      }
       if (attempt === 0) setGenText(origin, 'Finishing up…');
       await new Promise((r) => setTimeout(r, 3000));
       if (!alive()) return;
@@ -3865,6 +3919,11 @@ function send(fromButton) {
     addMsg('agent', "That's a long one — voice scripts are capped at 2,000 characters (this is " + text.length.toLocaleString() + "). Trim it a little and send again.");
     return;
   }
+  // A video-to-video clip out of the model's spec (wrong format, too long/short,
+  // too small) is rejected by fal with a 422 — catch it HERE so the user gets a
+  // clear fix instead of a charge and a dead render.
+  const badClip = clipIssue();
+  if (badClip) { addMsg('agent', '⚠️ ' + badClip); return; }
   // Lip-sync bills by the audio length (awDur). Never submit with an unmeasured
   // clip — the worker charges the 60s max, which the price quote never showed.
   if (promptless && attachments.audio && !awDur) {
