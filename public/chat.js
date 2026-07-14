@@ -4108,7 +4108,7 @@ async function submitAuth() {
       if (!/^\d{6,10}$/.test(code)) { showAuthError('Enter the code from your email.'); return; }
       await Auth.verifyCode(pendingEmail, code, pendingType);
       if (authMode === 'reset') { authStep = 'newpass'; renderAuthStep(); authEl('authNewPass').focus(); }
-      else enterCrt();
+      else enterApp();
       return;
     }
     // Set a new password (end of the reset flow).
@@ -4116,7 +4116,7 @@ async function submitAuth() {
       const np = authEl('authNewPass').value;
       if (np.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
       await Auth.updatePassword(np);
-      enterCrt();
+      enterApp();
       return;
     }
     // Credentials step.
@@ -4134,7 +4134,7 @@ async function submitAuth() {
 
     if (authMode === 'up') {
       const r = await Auth.signUp(email, pass);
-      if (r.session) { enterCrt(); return; }   // confirm-email OFF → straight in
+      if (r.session) { enterApp(); return; }   // confirm-email OFF → straight in
       goCodeStep(email, 'signup');             // confirm-email ON → verify code
       return;
     }
@@ -6490,10 +6490,9 @@ function initAuthGate() {
   initMktReveal();
   initMktRotate();
   initMktCord();
-  initCrt();
-  // Already signed in on load (returning session) → straight into the app; the
-  // CRT channel selector only appears on a fresh sign-up / sign-in (see the
-  // enterCrt() calls in submitAuth). Otherwise show the public landing.
+  // (The CRT channel selector was moved out of the auth flow — it now lives as
+  // a standalone landing demo at /demo-hero-3. initCrt() is intentionally not
+  // called here, so the #crtSelect markup stays inert on the live site.)
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
 }
