@@ -4140,9 +4140,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   background:radial-gradient(58% 52% at 50% 40%,rgba(255,121,160,.11),transparent 62%),
     radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
     radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),#07060a}
-.mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;
-  padding:clamp(4rem,9vh,5.5rem) clamp(1rem,4vw,2.5rem) .4rem}
-.mkt-crt .crtl-stage .crt-set{width:min(760px,100%)}
+.mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
+  padding:clamp(3.4rem,6vh,4.4rem) clamp(.7rem,2vw,1.4rem) .4rem}
+.mkt-crt .crtl-stage .crt-set{width:100%;max-width:1560px;margin:0 auto}
+.mkt-crt .crt-screen{flex:1;min-height:clamp(320px,60vh,900px)}
 .mkt-crt .crtl-dock{display:flex;flex-direction:column;align-items:center;gap:.9rem;
   padding:0 1.5rem clamp(1.6rem,4vh,2.8rem);z-index:1}
 .crt-chatbox{width:min(620px,100%);display:flex;align-items:center;gap:.8rem;cursor:text;
