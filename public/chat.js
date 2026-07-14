@@ -250,7 +250,10 @@ function clipIssue() {
   if (!fmtOk) return 'This model needs an ' + lim.formats.join(' or ') + ' clip. Re-export your video as MP4 and attach it again.';
   if (dur) {
     if (dur < lim.minDur) return 'That clip is ' + dur.toFixed(1) + 's — this model needs at least ' + lim.minDur + 's. Attach a longer clip.';
-    if (dur > lim.maxDur + 0.5) return 'That clip is ' + Math.round(dur) + 's — this model maxes out at ' + lim.maxDur + 's. Trim it and attach again.';
+    // fal's own tolerance is 0.05s (its 422 says "maximum is 15.05 seconds") —
+    // mirror it exactly. A looser grace here let a 15.3s clip pass this check
+    // and die at fal's, which is how the whole 422 saga stayed hidden.
+    if (dur > lim.maxDur + 0.05) return 'That clip is ' + dur.toFixed(2) + 's — this model maxes out at ' + lim.maxDur + 's (strict). Trim it to ' + lim.maxDur + 's or less and attach again.';
   }
   const shortSide = w && h ? Math.min(w, h) : 0;
   const longSide = w && h ? Math.max(w, h) : 0;
