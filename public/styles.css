@@ -4192,19 +4192,19 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    the LEFT so each shows a wide clickable strip you can grab to switch */
 .crt-stage .lp-web{padding:0;justify-content:flex-end;align-items:center}
 .crt-stage .mb-cascade{width:100%;max-width:none;margin:0}
-.crt-stage .mb-cascade-lead{--sc:.6}
-.crt-stage .mb-slot.mb-p1{left:auto;right:16px;top:54px}
-.crt-stage .mb-slot.mb-p2{left:auto;right:70px;top:41px}
-.crt-stage .mb-slot.mb-p3{left:auto;right:124px;top:28px}
+.crt-stage .mb-cascade-lead{--sc:.72}
+.crt-stage .mb-slot.mb-p1{left:auto;right:16px;top:60px}
+.crt-stage .mb-slot.mb-p2{left:auto;right:70px;top:45px}
+.crt-stage .mb-slot.mb-p3{left:auto;right:124px;top:30px}
 .crt-stage .mb-slot.mb-p4{left:auto;right:178px;top:15px}
-.crt-stage .mb-slot.mb-p5{left:auto;right:232px;top:2px}
+.crt-stage .mb-slot.mb-p5{left:auto;right:232px;top:0}
 @media (max-width:1500px){
-  .crt-stage .mb-cascade-lead{--sc:.48}
-  .crt-stage .mb-slot.mb-p1{right:10px;top:44px}
-  .crt-stage .mb-slot.mb-p2{right:54px;top:33px}
-  .crt-stage .mb-slot.mb-p3{right:98px;top:22px}
-  .crt-stage .mb-slot.mb-p4{right:142px;top:11px}
-  .crt-stage .mb-slot.mb-p5{right:186px;top:0}
+  .crt-stage .mb-cascade-lead{--sc:.54}
+  .crt-stage .mb-slot.mb-p1{right:10px;top:48px}
+  .crt-stage .mb-slot.mb-p2{right:50px;top:36px}
+  .crt-stage .mb-slot.mb-p3{right:90px;top:24px}
+  .crt-stage .mb-slot.mb-p4{right:130px;top:12px}
+  .crt-stage .mb-slot.mb-p5{right:170px;top:0}
 }
 .crt-stage .lp-film{background:transparent}
 .crt-stage .lp-voice{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem}
