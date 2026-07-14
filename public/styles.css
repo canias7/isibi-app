@@ -4029,10 +4029,14 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    ========================================================================== */
 .crt{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:1.4rem;padding:clamp(1rem,4vw,2.5rem);
-  background:radial-gradient(120% 90% at 50% 40%,#140c10,#08070c 70%);
+  background:
+    radial-gradient(58% 52% at 50% 42%,rgba(255,121,160,.11),transparent 62%),
+    radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
+    radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),
+    #07060a;
   font-family:ui-monospace,"SFMono-Regular",Menlo,"Roboto Mono",monospace}
-/* the set: wood cabinet holding the screen (left) + control panel (right) */
-.crt-set{display:flex;gap:clamp(.8rem,2vw,1.4rem);width:min(1040px,100%);
+/* the set: wood cabinet holding just the screen */
+.crt-set{display:flex;gap:clamp(.8rem,2vw,1.4rem);width:min(840px,100%);
   padding:clamp(.9rem,2vw,1.5rem);border-radius:26px;
   background:
     repeating-linear-gradient(91deg,rgba(0,0,0,.16) 0 2px,transparent 2px 8px),

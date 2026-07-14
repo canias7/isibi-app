@@ -6663,7 +6663,7 @@ function crtNoSignal() {
   crtNosigTimer = setTimeout(() => {
     screen.classList.remove('crt-nosig');
     foot.classList.remove('crt-foot-nosig');
-    foot.textContent = 'TUNE WITH VHF DIAL · ↑ ↓ SELECT';
+    foot.textContent = '↑ ↓ TUNE · ENTER TO SELECT';
   }, 1600);
 }
 function initCrt() {
