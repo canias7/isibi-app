@@ -31,18 +31,9 @@
        Media slots: drop real output at /public/mkt/f1.jpg…f14.jpg (filmstrip)
        and /public/mkt/p1.jpg…p8.jpg (preset cards) — placeholders show until then. -->
   <div id="marketing" class="mkt mkt-crt" style="display:none">
-    <header class="mkt-nav">
-      <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
-      <nav class="mkt-links">
-        <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
-        <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
-        <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
-      </nav>
-    </header>
-
-    <!-- The CRT is the landing: a retro TV whose channels are the output kinds.
-         Tune with the channel list (↑↓ / click); live channels + the chatbox
-         funnel into the normal sign-up flow. -->
+    <!-- The CRT is the landing — everything lives inside the screen: the nav on
+         top, the channel list (↑↓ / click), and the chatbox at the bottom. Live
+         channels + the chatbox funnel into the normal sign-up flow. -->
     <main class="crtl-stage">
       <div class="crt-set">
         <div class="crt-screen" id="crtScreen">
@@ -52,6 +43,14 @@
             <span class="crt-rec"><i></i> REC</span>
             <span class="crt-chno" id="crtChNo">CH 01</span>
           </div>
+          <header class="crt-topbar">
+            <div class="mkt-brand"><img class="logo-mark" src="/logo.png" alt="" /> isibi</div>
+            <nav class="mkt-links">
+              <button class="mkt-signin" data-act="credits" type="button">Pricing</button>
+              <button class="mkt-signin" data-mkt="signin" type="button">Sign in</button>
+              <button class="mkt-cta" data-mkt="start" type="button">Sign up</button>
+            </nav>
+          </header>
           <ul class="crt-menu" id="crtMenu" role="listbox" aria-label="Channels" tabindex="0">
             <li class="crt-opt on" role="option" data-kind="video"   data-live="1" aria-selected="true"><span class="crt-caret">▶</span><span class="crt-txt">VIDEO / IMAGE</span></li>
             <li class="crt-opt"    role="option" data-kind="audio"   data-live="1" aria-selected="false"><span class="crt-caret">▶</span><span class="crt-txt">AUDIO</span></li>

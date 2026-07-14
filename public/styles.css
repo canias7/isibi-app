@@ -4141,9 +4141,18 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
     radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
     radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),#07060a}
 .mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
-  padding:clamp(.8rem,2vh,1.4rem) clamp(.7rem,2vw,1.4rem) clamp(.8rem,2vh,1.4rem)}
-.mkt-crt .crtl-stage .crt-set{width:100%;max-width:1560px;margin:0 auto}
-.mkt-crt .crt-screen{flex:1;min-height:clamp(340px,66vh,960px)}
+  padding:clamp(.4rem,1.2vh,.9rem) clamp(.5rem,1.5vw,1rem)}
+.mkt-crt .crtl-stage .crt-set{width:100%;max-width:1640px;margin:0 auto}
+.mkt-crt .crt-screen{flex:1;min-height:clamp(360px,70vh,1040px)}
+/* nav lives INSIDE the screen, on the top bar (below the tiny REC/CH hud) */
+.crt-topbar{position:absolute;top:clamp(2.4rem,5vh,3.1rem);left:0;right:0;z-index:3;
+  display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,3.2vw,2.4rem)}
+.crt-topbar .mkt-brand{font-family:'Space Grotesk',Inter,sans-serif;font-weight:700;font-size:1.05rem;
+  display:flex;align-items:center;gap:.5rem;color:var(--text)}
+.crt-topbar .mkt-brand .logo-mark{width:26px;height:26px}
+.crt-topbar .mkt-links{display:flex;align-items:center;gap:1.4rem}
+/* channels start below the in-screen nav */
+.mkt-crt .crt-menu{padding-top:clamp(5.5rem,12vh,7.5rem)}
 /* chatbox lives inside the screen, docked bottom-centre */
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
