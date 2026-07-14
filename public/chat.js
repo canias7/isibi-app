@@ -3443,6 +3443,12 @@ function directorContext() {
     // separately so the director can cite them (Seedance) or lean on them (Veo).
     hasImage: !!(attachments.image || attachments.ffirst),
     hasEnd: !!(attachments.end || attachments.flast),
+    // Every attachment the director can't render as an image (video clip,
+    // avatar face, audio track) still gets flagged so the orchestrator KNOWS
+    // it's there — never denies seeing it, and writes for the actual inputs.
+    hasClip: mode === 'video' && !!attachments.clip,
+    hasAvatar: mode === 'video' && !!attachments.avatar,
+    hasAudio: mode === 'video' && !!attachments.audio,
     refCount: (mode === 'video' && refList.length) ? refList.length : undefined,
     brief: (activeChat() || {}).brief || undefined,
     // Universal taste — only when enabled and there's something to apply.
