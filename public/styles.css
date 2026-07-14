@@ -3476,8 +3476,16 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    ========================================================================== */
 .mkt-how,.mkt-trust{max-width:1020px;margin:0 auto;
   padding:clamp(3.6rem,9vh,6.5rem) clamp(1.1rem,4vw,2rem) 0}
-.mkt-how-steps{display:flex;flex-direction:column;gap:clamp(2.2rem,6vh,4rem);margin-top:1.2rem}
-.mkt-step{display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(1.6rem,5vw,4rem);align-items:center}
+.mkt-how-steps{position:relative;display:flex;flex-direction:column;gap:clamp(2.2rem,6vh,4rem);margin-top:1.2rem}
+/* connector cord — sits behind the tiles so it tucks under them and shows in the gaps */
+.mkt-cord{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;overflow:visible}
+.mkt-cord-path{fill:none;stroke:url(#mktCordGrad);stroke-width:2;stroke-linecap:round;
+  opacity:.55;filter:drop-shadow(0 0 6px rgba(255,121,198,.35))}
+@media (prefers-reduced-motion: no-preference){
+  .mkt-cord-path{stroke-dasharray:7 9;animation:mkt-cord-flow 26s linear infinite}
+}
+@keyframes mkt-cord-flow{to{stroke-dashoffset:-320}}
+.mkt-step{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(1.6rem,5vw,4rem);align-items:center}
 .mkt-step-flip .mkt-step-tile{order:2}
 .mkt-step-flip .mkt-step-copy{order:1;justify-self:end;text-align:right}
 .mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:auto}

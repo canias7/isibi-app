@@ -148,6 +148,18 @@
         <p class="mkt-h2-sub">The chatbox is the whole pipeline. Here's what happens under the hood.</p>
       </div>
       <div class="mkt-how-steps">
+        <!-- connector cord — an S-curve threading tile→tile, drawn from the real
+             tile positions by initMktCord() and redrawn on resize -->
+        <svg class="mkt-cord" aria-hidden="true">
+          <defs>
+            <linearGradient id="mktCordGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="100">
+              <stop offset="0" stop-color="#ff79c6" />
+              <stop offset="0.5" stop-color="#c79bff" />
+              <stop offset="1" stop-color="#ffb84d" />
+            </linearGradient>
+          </defs>
+          <path class="mkt-cord-path" />
+        </svg>
         <!-- Step 1 — rotating input frames + a vertical phrase wheel on the side -->
         <div class="mkt-step mkt-rotate" data-reveal>
           <div class="mkt-step-tile mkt-tile-a" aria-hidden="true">

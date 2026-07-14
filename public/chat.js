@@ -6489,6 +6489,7 @@ function initAuthGate() {
   initLeadHero();
   initMktReveal();
   initMktRotate();
+  initMktCord();
   // Logged in → straight to the app. Otherwise the public landing (not the gate).
   if (window.Auth && Auth.isSignedIn()) enterApp();
   else showMarketing();
@@ -6536,6 +6537,48 @@ function initMktRotate() {
     active = (active + 1) % N;
     groups.forEach((g) => place(g, active, true));
   }, 3600);
+}
+
+// Marketing: draw the connector cord that S-curves from the bottom of each
+// how-it-works tile into the top of the next. Measured from live tile positions
+// (the tiles alternate sides), redrawn on resize so it always lines up. The
+// cord sits behind the tiles, so it tucks under them and shows in the gaps.
+function initMktCord() {
+  const wrap = document.querySelector('.mkt-how-steps');
+  if (!wrap) return;
+  const svg = wrap.querySelector('.mkt-cord');
+  const path = svg && svg.querySelector('.mkt-cord-path');
+  const grad = svg && svg.querySelector('#mktCordGrad');
+  if (!path) return;
+  const draw = () => {
+    const tiles = Array.prototype.slice.call(wrap.querySelectorAll('.mkt-step-tile'));
+    if (tiles.length < 2) return;
+    const wb = wrap.getBoundingClientRect();
+    if (!wb.width || !wb.height) return;
+    svg.setAttribute('viewBox', '0 0 ' + wb.width + ' ' + wb.height);
+    if (grad) { grad.setAttribute('y2', wb.height); }
+    let d = '';
+    for (let i = 0; i < tiles.length - 1; i++) {
+      const a = tiles[i].getBoundingClientRect();
+      const b = tiles[i + 1].getBoundingClientRect();
+      const sx = a.left + a.width / 2 - wb.left;
+      const sy = a.bottom - wb.top - 14;      // start tucked just inside the tile
+      const ex = b.left + b.width / 2 - wb.left;
+      const ey = b.top - wb.top + 14;         // end tucked into the next tile
+      const dy = ey - sy;
+      d += 'M ' + sx + ' ' + sy +
+           ' C ' + sx + ' ' + (sy + dy * 0.55) +
+           ', ' + ex + ' ' + (ey - dy * 0.55) +
+           ', ' + ex + ' ' + ey + ' ';
+    }
+    path.setAttribute('d', d.trim());
+  };
+  draw();
+  // redraw after fonts/layout/reveal settle, and on resize
+  setTimeout(draw, 300);
+  setTimeout(draw, 1200);
+  if ('ResizeObserver' in window) { new ResizeObserver(draw).observe(wrap); }
+  window.addEventListener('resize', draw);
 }
 
 // Marketing: cards with [data-reveal] drift up as they scroll into view.
