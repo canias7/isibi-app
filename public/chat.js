@@ -2707,9 +2707,15 @@ function setCredits(n) {
   if (el) el.textContent = txt;
   const pn = document.getElementById('credPillN');
   if (pn) pn.textContent = txt;
-  let max = n;
+  // The arc fills the balance against the most credits the account has held.
+  // Floor that reference at the 20-credit starting grant (every account begins
+  // there) so a spent-down or freshly-read low balance reads near-empty instead
+  // of anchoring the gauge to itself. parseFloat (not parseInt) keeps fractional
+  // maxes intact now that orchestrator use spends fractions.
+  const CRED_GRANT = 20;
+  let max = Math.max(n, CRED_GRANT);
   try {
-    max = Math.max(n, parseInt(localStorage.getItem(CRED_MAX_KEY) || '0', 10) || 0);
+    max = Math.max(n, CRED_GRANT, parseFloat(localStorage.getItem(CRED_MAX_KEY)) || 0);
     localStorage.setItem(CRED_MAX_KEY, String(max));
   } catch {}
   const frac = max > 0 ? Math.max(0, Math.min(1, n / max)) : 0;
