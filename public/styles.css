@@ -4144,8 +4144,12 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
     radial-gradient(40% 55% at 82% 16%,rgba(255,184,77,.09),transparent 70%),var(--bg)}
 .mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
   padding:clamp(.4rem,1.2vh,.9rem) clamp(.5rem,1.5vw,1rem)}
-.mkt-crt .crtl-stage .crt-set{width:100%;max-width:1640px;margin:0 auto}
-.mkt-crt .crt-screen{flex:1;min-height:clamp(360px,70vh,1040px)}
+/* no TV frame — the wood cabinet + screen bezel are removed; content sits on
+   the page background (scanlines/glass kept for the CRT feel) */
+.mkt-crt .crtl-stage .crt-set{width:100%;max-width:1640px;margin:0 auto;
+  background:none;padding:0;border-radius:0;box-shadow:none}
+.mkt-crt .crt-screen{flex:1;min-height:clamp(360px,70vh,1040px);
+  background:transparent;box-shadow:none;border-radius:0}
 /* nav lives INSIDE the screen, on the top bar (below the tiny REC/CH hud) */
 .crt-topbar{position:absolute;top:clamp(2.4rem,5vh,3.1rem);left:0;right:0;z-index:3;
   display:flex;align-items:center;justify-content:space-between;padding:0 clamp(1.5rem,3.2vw,2.4rem)}
