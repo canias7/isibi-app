@@ -3474,9 +3474,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    Steps: floating gradient tile with a mini UI mock on one side, numbered
    copy on the other, sides alternating. Trio: soft glow orbs, airy + centered.
    ========================================================================== */
-.mkt-how,.mkt-trust{max-width:1020px;margin:0 auto;
+.mkt-how,.mkt-trust{max-width:1160px;margin:0 auto;
   padding:clamp(3.6rem,9vh,6.5rem) clamp(1.1rem,4vw,2rem) 0}
-.mkt-how-steps{position:relative;display:flex;flex-direction:column;gap:clamp(4.6rem,13vh,9rem);margin-top:1.8rem}
+.mkt-how-steps{position:relative;display:grid;grid-template-columns:repeat(3,1fr);
+  gap:clamp(1rem,2.6vw,2rem);margin-top:2.2rem;align-items:start}
 /* connector cord — sits behind the tiles so it tucks under them and shows in the gaps */
 .mkt-cord{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;overflow:visible}
 .mkt-cord-path{fill:none;stroke:url(#mktCordGrad);stroke-width:2;stroke-linecap:round;
@@ -3485,10 +3486,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   .mkt-cord-path{stroke-dasharray:7 9;animation:mkt-cord-flow 26s linear infinite}
 }
 @keyframes mkt-cord-flow{to{stroke-dashoffset:-320}}
-.mkt-step{position:relative;z-index:1;display:grid;grid-template-columns:1.05fr 1fr;gap:clamp(1.6rem,5vw,4rem);align-items:center}
-.mkt-step-flip .mkt-step-tile{order:2}
-.mkt-step-flip .mkt-step-copy{order:1;justify-self:end;text-align:right}
-.mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:auto}
+/* each step is a vertical card: tile on top, number + phrase wheel below */
+.mkt-step{position:relative;z-index:1;display:flex;flex-direction:column;gap:1.2rem;text-align:left}
+.mkt-step-copy{max-width:none}
 /* tiles — soft gradient washes, media-like rounded slabs */
 .mkt-step-tile{position:relative;border-radius:26px;min-height:248px;display:flex;
   align-items:center;justify-content:center;padding:2.2rem;overflow:hidden;
@@ -3602,10 +3602,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   [data-reveal]{opacity:1;transform:none;transition:none}
 }
 @media (max-width: 860px){
-  .mkt-step{grid-template-columns:1fr;gap:1.2rem}
-  .mkt-step-flip .mkt-step-tile{order:0}
-  .mkt-step-flip .mkt-step-copy{order:1;justify-self:start;text-align:left}
-  .mkt-step-flip .mkt-step-copy .mkt-step-n{margin-left:0}
+  /* stack the 3-across row back into a single column on narrow screens */
+  .mkt-how-steps{grid-template-columns:1fr;gap:clamp(3rem,8vh,5rem)}
   .mkt-safe{grid-template-columns:1fr;gap:2.4rem}
 }
 

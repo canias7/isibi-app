@@ -6561,15 +6561,31 @@ function initMktCord() {
     for (let i = 0; i < tiles.length - 1; i++) {
       const a = tiles[i].getBoundingClientRect();
       const b = tiles[i + 1].getBoundingClientRect();
-      const sx = a.left + a.width / 2 - wb.left;
-      const sy = a.bottom - wb.top - 14;      // start tucked just inside the tile
-      const ex = b.left + b.width / 2 - wb.left;
-      const ey = b.top - wb.top + 14;         // end tucked into the next tile
-      const dy = ey - sy;
-      d += 'M ' + sx + ' ' + sy +
-           ' C ' + sx + ' ' + (sy + dy * 0.55) +
-           ', ' + ex + ' ' + (ey - dy * 0.55) +
-           ', ' + ex + ' ' + ey + ' ';
+      const acx = a.left + a.width / 2, acy = a.top + a.height / 2;
+      const bcx = b.left + b.width / 2, bcy = b.top + b.height / 2;
+      const horizontal = Math.abs(bcx - acx) > Math.abs(bcy - acy);
+      let sx, sy, ex, ey;
+      if (horizontal) {                        // cards side by side → right edge to left edge
+        sx = a.right - wb.left - 14;
+        sy = acy - wb.top;
+        ex = b.left - wb.left + 14;
+        ey = bcy - wb.top;
+        const dx = ex - sx;
+        d += 'M ' + sx + ' ' + sy +
+             ' C ' + (sx + dx * 0.55) + ' ' + sy +
+             ', ' + (ex - dx * 0.55) + ' ' + ey +
+             ', ' + ex + ' ' + ey + ' ';
+      } else {                                 // cards stacked → bottom edge to top edge
+        sx = acx - wb.left;
+        sy = a.bottom - wb.top - 14;
+        ex = bcx - wb.left;
+        ey = b.top - wb.top + 14;
+        const dy = ey - sy;
+        d += 'M ' + sx + ' ' + sy +
+             ' C ' + sx + ' ' + (sy + dy * 0.55) +
+             ', ' + ex + ' ' + (ey - dy * 0.55) +
+             ', ' + ex + ' ' + ey + ' ';
+      }
     }
     path.setAttribute('d', d.trim());
   };
