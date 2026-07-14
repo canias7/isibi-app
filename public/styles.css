@@ -4141,18 +4141,20 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
     radial-gradient(90% 70% at 50% 118%,rgba(255,150,80,.08),transparent 60%),
     radial-gradient(70% 60% at 50% -10%,rgba(151,120,255,.06),transparent 55%),#07060a}
 .mkt-crt .crtl-stage{flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;
-  padding:clamp(3.4rem,6vh,4.4rem) clamp(.7rem,2vw,1.4rem) .4rem}
+  padding:clamp(.8rem,2vh,1.4rem) clamp(.7rem,2vw,1.4rem) clamp(.8rem,2vh,1.4rem)}
 .mkt-crt .crtl-stage .crt-set{width:100%;max-width:1560px;margin:0 auto}
-.mkt-crt .crt-screen{flex:1;min-height:clamp(320px,60vh,900px)}
-.mkt-crt .crtl-dock{display:flex;flex-direction:column;align-items:center;gap:.9rem;
-  padding:0 1.5rem clamp(1.6rem,4vh,2.8rem);z-index:1}
-.crt-chatbox{width:min(620px,100%);display:flex;align-items:center;gap:.8rem;cursor:text;
+.mkt-crt .crt-screen{flex:1;min-height:clamp(340px,66vh,960px)}
+/* chatbox lives inside the screen, docked bottom-centre */
+.crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
+  display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
+.crt-chatbox{width:min(640px,100%);display:flex;align-items:center;gap:.8rem;cursor:text;
   padding:.95rem 1rem .95rem 1.3rem;border-radius:18px;border:1px solid var(--line-2);background:var(--panel);
   box-shadow:0 24px 60px rgba(0,0,0,.5);transition:border-color .25s}
 .crt-chatbox:hover{border-color:rgba(255,121,198,.45)}
 .crt-chatbox-in{flex:1;color:var(--muted);font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .crt-chatbox-send{flex:0 0 auto;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;
   background:var(--split);color:#14060d;box-shadow:0 6px 20px rgba(255,121,198,.4)}
-.crtl-note{color:var(--muted);font-size:.85rem}
+.crtl-note{color:var(--muted);font-size:.85rem;text-align:center}
 .crtl-note b{color:var(--neon)}
+.crtl-note.crt-foot-nosig{color:#ff7a6a;letter-spacing:.14em;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
 @media (max-width:640px){ .mkt-crt .crtl-stage{padding-top:4.5rem} }

@@ -6648,17 +6648,18 @@ function crtSelect() {
 }
 function crtNoSignal() {
   const screen = document.getElementById('crtScreen');
-  const foot = document.getElementById('crtFoot');
-  if (!screen || !foot) return;
+  const note = document.getElementById('crtNote');
+  if (!screen || !note) return;
+  if (!note.dataset.orig) note.dataset.orig = note.innerHTML;   // remember the credits line
   screen.classList.add('crt-nosig');
-  foot.classList.add('crt-foot-nosig');
+  note.classList.add('crt-foot-nosig');
   const label = (document.querySelectorAll('#crtMenu .crt-opt')[crtSel].querySelector('.crt-txt') || {}).textContent || '';
-  foot.textContent = '◈ ' + label + ' — NO SIGNAL · COMING SOON';
+  note.textContent = '◈ ' + label + ' — NO SIGNAL · COMING SOON';
   if (crtNosigTimer) clearTimeout(crtNosigTimer);
   crtNosigTimer = setTimeout(() => {
     screen.classList.remove('crt-nosig');
-    foot.classList.remove('crt-foot-nosig');
-    foot.textContent = '↑ ↓ TUNE · ENTER TO SELECT';
+    note.classList.remove('crt-foot-nosig');
+    note.innerHTML = note.dataset.orig;
   }, 1600);
 }
 function initCrt() {
