@@ -215,10 +215,17 @@ function readClipMeta(dataUri) {
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
 }
-// Per-model clip requirements for video-to-video edits, from each endpoint's fal
-// schema. Only models with hard limits are listed; others accept any clip.
+// Per-model clip requirements for video-to-video edits, verified against each
+// endpoint's fal OpenAPI schema (2026-07). Models absent here (Ray, Gemini)
+// document no hard clip limits — anything they still reject is caught by the
+// terminal-4xx auto-refund path.
 const CLIP_LIMITS = {
+  // kling-video/o3/pro/video-to-video/edit: mp4/mov, 3-15s, 720-3840px, ≤200MB
   'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'] },
+  // veo3.1/extend-video: 720p/1080p in 16:9|9:16, input clip up to 8s
+  'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
+  // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
+  'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
 };
 // Check the attached clip against the current model's limits. Returns an error
 // string to show the user, or '' when it's fine (or can't be verified).
@@ -227,7 +234,7 @@ function clipIssue() {
   const lim = CLIP_LIMITS[model];
   if (!lim || !clipMeta) return '';
   const { dur, w, h, type } = clipMeta;
-  const fmtOk = !type || lim.formats.some((f) => type.includes(f) || (f === 'mov' && type.includes('quicktime')));
+  const fmtOk = !type || !lim.formats || lim.formats.some((f) => type.includes(f) || (f === 'mov' && type.includes('quicktime')));
   if (!fmtOk) return 'This model needs an ' + lim.formats.join(' or ') + ' clip. Re-export your video as MP4 and attach it again.';
   if (dur) {
     if (dur < lim.minDur) return 'That clip is ' + dur.toFixed(1) + 's — this model needs at least ' + lim.minDur + 's. Attach a longer clip.';
@@ -3931,6 +3938,12 @@ function send(fromButton) {
       ? "One sec — I'm still reading that audio clip. Hit send again in a moment."
       : "I couldn't read that audio clip — try a different file (mp3, wav, or m4a).");
     return;
+  }
+  // Kling LipSync's fal schema bounds the driving audio at 2-60s — out of range
+  // 422s after charging, so bounce it here with the fix instead.
+  if (promptless && model === 'fal-ai/kling-video/lipsync/audio-to-video' && awDur) {
+    if (awDur < 2) { addMsg('agent', '⚠️ That audio is under 2 seconds — this model needs 2–60s of audio. Attach a longer clip.'); return; }
+    if (awDur > 60) { addMsg('agent', '⚠️ That audio is ' + Math.round(awDur) + 's — this model caps at 60s. Trim it and attach again.'); return; }
   }
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending

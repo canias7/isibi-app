@@ -1894,11 +1894,15 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "not enough credits", cost: genCost }, { status: 402 });
       }
 
-      // Some endpoints hard-cap the prompt (Kling o3 edit = 2500 chars) and 422
-      // a longer one. Edit prompts are short by design now, but clamp as a safety
-      // net so a pathologically long prompt can never bounce the whole render.
-      if (typeof input.prompt === "string" && endpoint.includes("/video-to-video/edit") && input.prompt.length > 2500) {
-        input.prompt = input.prompt.slice(0, 2500);
+      // Endpoints hard-cap the prompt and 422 anything longer (verified against
+      // each schema: Kling 2500 · Ray v2v 6000 · Veo/Gemini 20000). Prompts are
+      // short by design now, but clamp as a safety net so an over-long prompt
+      // can never bounce a whole (charged) render.
+      if (typeof input.prompt === "string") {
+        const promptCap = endpoint.includes("kling-video") ? 2500
+          : endpoint.includes("/video-to-video") ? 6000
+          : 20000;
+        if (input.prompt.length > promptCap) input.prompt = input.prompt.slice(0, promptCap);
       }
 
       // Submit to fal. A network error here means nothing was charged.
