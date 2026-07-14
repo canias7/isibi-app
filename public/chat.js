@@ -3781,6 +3781,15 @@ async function startDirector(text) {
   // The director read the message as "run that again": the last prompt was
   // already approved once — straight back into generation, no re-interview.
   if (res.rerun && (activeChat() || {}).lastPrompt) {
+    // For an edit (clip/image attached), never replay the stored prompt: it can
+    // be a stale, oversized from-scratch treatment (e.g. saved before edits
+    // switched to short instructions, or from a run that failed). Re-compose it
+    // into a fresh SHORT edit instruction instead of dredging the old one up.
+    if (isEditMode()) {
+      if (!res.reply) deliverAgent(origin, '🔁 Giving it another go.');
+      composeAndReview(activeChat().lastPrompt, [], false);
+      return;
+    }
     // Plan mode still gets the approval card (settings may have changed since
     // the last run) — deliverPrompt handles the mode split; Auto runs straight.
     if (!res.reply && directorMode !== 'plan') deliverAgent(origin, '🔁 Running it again.');
