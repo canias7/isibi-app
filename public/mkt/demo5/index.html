@@ -1,0 +1,218 @@
+<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/mkt/demo5/assets/styles-Bxtw3Ecr.css" data-precedence="default"/><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" data-precedence="default"/><title>Lumen — Mobile App Demo</title><meta name="author" content="Lumen"/><meta name="twitter:card" content="summary_large_image"/><meta name="twitter:title" content="Lumen — Mobile App Demo"/><meta name="twitter:description" content="Interactive demo of Lumen, a warm-toned mobile music app shown inside a realistic phone mockup."/><meta property="og:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2124ac6-a201-42da-9054-50f2811c2676/id-preview-57de70f3--090baada-3613-4f2d-bd98-531301048821.lovable.app-1784013335414.png"/><meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b2124ac6-a201-42da-9054-50f2811c2676/id-preview-57de70f3--090baada-3613-4f2d-bd98-531301048821.lovable.app-1784013335414.png"/><meta name="description" content="Interactive demo of Lumen, a warm-toned mobile music app shown inside a realistic phone mockup."/><meta property="og:title" content="Lumen — Mobile App Demo"/><meta property="og:description" content="Interactive demo of Lumen, a warm-toned mobile music app shown inside a realistic phone mockup."/><meta property="og:type" content="website"/><link rel="modulepreload" href="/mkt/demo5/assets/index-BgTNp6Yc.js"/><link rel="modulepreload" href="/mkt/demo5/assets/routes-B0FfL65Y.js"/><link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/><link rel="icon" href="/mkt/demo5/favicon.ico" type="image/x-icon"/>
+<style>
+	@font-face {
+		font-family: 'CameraPlainVariable';
+		src: url('https://cdn.gpteng.co/mcp-widgets/v1/fonts/CameraPlainVariable.woff2') format('woff2');
+		font-weight: 100 900;
+		font-style: normal;
+		font-display: swap;
+	}
+
+	#lovable-badge {
+		--badge-bg: #1b1b1b;
+		--badge-text: #c5c1b9;
+		--badge-text-hover: #dcdad5;
+		--badge-radius: 6px;
+		--badge-padding: 8px;
+		--badge-gap: 6px;
+		--badge-shadow: 
+			0 0 0 1px rgba(0, 0, 0, 0.88),
+			0 1px 0 0 rgba(0, 0, 0, 0.04),
+			0 2px 2px -1px rgba(0, 0, 0, 0.08),
+			0 4px 4px -2px rgba(0, 0, 0, 0.08),
+			0 8px 8px -4px rgba(0, 0, 0, 0.08),
+			0 16px 16px -8px rgba(0, 0, 0, 0.08);
+		--badge-transition-duration: 0.2s;
+		--badge-transition-easing: cubic-bezier(0.16, 1, 0.32, 1);
+		--focus-color: #575ECF;
+		--focus-offset: 2px;
+		--focus-width: 2px;
+		
+		position: fixed;
+		bottom: 12px;
+		right: 12px;
+		height: 24px;
+		display: flex;
+		align-items: center;
+		z-index: 1000000;
+		background-color: var(--badge-bg) !important;
+		color: var(--badge-text) !important;
+		border-radius: var(--badge-radius);
+		box-shadow: var(--badge-shadow) !important;
+		font-size: 12px;
+		font-family: CameraPlainVariable, "CameraPlainVariable Fallback", -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+		font-weight: 400 !important;
+		text-transform: none !important;
+		font-feature-settings: normal !important;
+		transform: translateZ(0);
+		will-change: transform, opacity;
+	}
+
+	#lovable-badge-cta {
+		display: flex;
+		align-items: center;
+		gap: var(--badge-gap);
+		padding: 0 var(--badge-padding);
+		height: 100%;
+		color: inherit;
+		text-decoration: none;
+		white-space: nowrap;
+		border-radius: var(--badge-radius) 0 0 var(--badge-radius);
+		transition: 
+			background-color var(--badge-transition-duration) ease,
+			color var(--badge-transition-duration) ease,
+			transform 0.1s ease;
+	}
+
+	#lovable-badge-cta:hover {
+		background: rgba(255, 255, 255, 0.04);
+		color: var(--badge-text-hover);
+	}
+
+	#lovable-badge-cta:active {
+		transform: scale(0.98);
+	}
+
+	#lovable-badge-cta:focus {
+		outline: none;
+	}
+
+	#lovable-badge-cta:focus-visible {
+		outline: var(--focus-width) solid var(--focus-color);
+		outline-offset: var(--focus-offset);
+		z-index: 1;
+	}
+
+	#lovable-badge-text {
+		line-height: 1;
+	}
+
+	#lovable-badge-divider {
+		width: 1px;
+		height: 24px;
+		background-color: rgba(255, 255, 255, 0.04);
+		flex-shrink: 0;
+	}
+
+	#lovable-badge-close {
+		width: 24px;
+		height: 24px;
+		min-width: 24px;
+		min-height: 24px;
+		cursor: pointer;
+		background: none;
+		border: none;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0 var(--badge-radius) var(--badge-radius) 0;
+		flex-shrink: 0;
+		transition: 
+			background-color var(--badge-transition-duration) ease,
+			transform 0.1s ease;
+	}
+
+	#lovable-badge-close:hover {
+		background: rgba(255, 255, 255, 0.04);
+	}
+
+	#lovable-badge-close:active {
+		transform: scale(0.92);
+	}
+
+	#lovable-badge-close:focus {
+		outline: none;
+	}
+
+	#lovable-badge-close:focus-visible {
+		outline: var(--focus-width) solid var(--focus-color);
+		outline-offset: calc(var(--focus-offset) * -1);
+		z-index: 1;
+	}
+
+	#lovable-badge-close svg path {
+		fill: var(--badge-text);
+		transition: fill var(--badge-transition-duration) ease;
+	}
+
+	#lovable-badge-close:hover svg path {
+		fill: var(--badge-text-hover);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		#lovable-badge-cta,
+		#lovable-badge-close,
+		#lovable-badge-close svg path {
+			transition: none;
+		}
+		
+		#lovable-badge-cta:active,
+		#lovable-badge-close:active {
+			transform: none;
+		}
+	}
+
+	@media (prefers-contrast: high) {
+		#lovable-badge {
+			--badge-bg: #000;
+			--badge-text: #fff;
+			--badge-text-hover: #fff;
+			border: 2px solid currentColor;
+		}
+		
+		#lovable-badge-cta:focus-visible,
+		#lovable-badge-close:focus-visible {
+			outline-width: 3px;
+		}
+	}
+</style>
+<style id="isibi-reveal-fix">[class*="opacity-0"]{opacity:1!important}[class*="translate-y"]{--tw-translate-y:0px!important}[class*="animate-in"],[class*="fade-in"]{animation:none!important}</style></head><body><!--$--><main class="stage-bg min-h-screen w-full overflow-hidden"><div class="mx-auto flex min-h-screen max-w-6xl flex-col items-center gap-10 px-6 py-14 lg:flex-row lg:justify-between lg:gap-4 lg:py-0"><div class="max-w-md text-center lg:text-left"><h1 class="mt-5 font-display text-4xl font-bold leading-tight tracking-tight text-foreground sm:text-5xl">Meet <span class="text-app-gradient">Lumen</span>,<br/> music with warmth.</h1><p class="mt-4 text-base leading-relaxed text-muted-foreground">This page is a showcase — the real design lives inside the phone. Tap around: play tracks, open the full player, and explore the tabs. It&#x27;s a fully interactive mobile app running right in the mockup.</p><div class="mt-7 flex flex-wrap justify-center gap-3 lg:justify-start"><div class="rounded-2xl border border-border bg-card/50 px-4 py-3 text-left"><p class="font-display text-lg font-bold text-foreground">3 tabs</p><p class="text-xs text-muted-foreground">Home · Search · Library</p></div><div class="rounded-2xl border border-border bg-card/50 px-4 py-3 text-left"><p class="font-display text-lg font-bold text-foreground">Full player</p><p class="text-xs text-muted-foreground">Tap the mini bar</p></div></div></div><div class="phone-shell relative h-[720px] w-[350px] shrink-0 rounded-[3.2rem] p-3"><span class="absolute -left-[3px] top-28 h-8 w-[3px] rounded-l bg-black/40"></span><span class="absolute -left-[3px] top-40 h-12 w-[3px] rounded-l bg-black/40"></span><span class="absolute -left-[3px] top-56 h-12 w-[3px] rounded-l bg-black/40"></span><span class="absolute -right-[3px] top-44 h-16 w-[3px] rounded-r bg-black/40"></span><div class="relative h-full w-full overflow-hidden rounded-[2.4rem] bg-app-bg"><div class="absolute left-1/2 top-2 z-40 h-7 w-24 -translate-x-1/2 rounded-full bg-black"></div><div class="relative flex h-full flex-col bg-app-bg font-body text-app-text"><div class="flex items-center justify-between px-6 pt-3 text-[11px] font-semibold text-app-text"><span>9:41</span><span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-[3px] border border-app-text/70"></span><span class="h-2.5 w-4 rounded-[3px] border border-app-text/70"></span></span></div><div class="no-scrollbar flex-1 overflow-y-auto pt-2"><div class="space-y-7 px-5 pb-4"><header class="flex items-center justify-between pt-2"><div><p class="text-xs font-medium text-app-muted">Good evening</p><h1 class="font-display text-2xl font-bold text-app-text">Alex</h1></div><div class="app-accent-gradient grid h-10 w-10 place-items-center rounded-full text-sm font-bold text-app-bg">A</div></header><section class="relative overflow-hidden rounded-3xl p-5" style="background:linear-gradient(135deg, var(--color-app-elevated), var(--color-app-surface))"><div class="absolute -right-6 -top-8 h-28 w-28 rounded-full opacity-40 blur-2xl app-accent-gradient"></div><p class="text-[11px] font-semibold uppercase tracking-widest text-app-accent">Daily Mix</p><h2 class="mt-1 font-display text-xl font-bold text-app-text">Made for you</h2><p class="mt-1 text-xs text-app-muted">Handpicked from your recent vibes</p><div class="mt-4 flex items-center gap-3"><button class="app-accent-gradient flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-app-bg"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play h-4 w-4 fill-current" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"></path></svg> Play</button><div class="flex -space-x-3"><img src="/mkt/demo5/assets/cover1-DUnrlRIv.jpg" alt="" width="512" height="512" loading="lazy" class="h-9 w-9 rounded-lg border-2 border-app-surface object-cover"/><img src="/mkt/demo5/assets/cover2-CCG0EFME.jpg" alt="" width="512" height="512" loading="lazy" class="h-9 w-9 rounded-lg border-2 border-app-surface object-cover"/><img src="/mkt/demo5/assets/cover3-B2ElBQ3U.jpg" alt="" width="512" height="512" loading="lazy" class="h-9 w-9 rounded-lg border-2 border-app-surface object-cover"/></div></div></section><section><div class="mb-3 flex items-center justify-between"><h3 class="font-display text-base font-bold text-app-text">Recently played</h3><button class="text-xs font-medium text-app-accent">See all</button></div><div class="no-scrollbar -mx-5 flex gap-4 overflow-x-auto px-5"><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover1-DUnrlRIv.jpg" alt="Golden Hour" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Golden Hour</p><p class="truncate text-xs text-app-muted">Solace</p></button><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover2-CCG0EFME.jpg" alt="Neon Tide" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Neon Tide</p><p class="truncate text-xs text-app-muted">Kavo</p></button><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover3-B2ElBQ3U.jpg" alt="Cotton Sky" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Cotton Sky</p><p class="truncate text-xs text-app-muted">Mira Lune</p></button><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover4-DXURe9bf.jpg" alt="Evergreen" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Evergreen</p><p class="truncate text-xs text-app-muted">The Hollows</p></button><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover1-DUnrlRIv.jpg" alt="Dust &amp; Amber" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Dust &amp; Amber</p><p class="truncate text-xs text-app-muted">Solace</p></button><button class="w-32 shrink-0 text-left"><img src="/mkt/demo5/assets/cover2-CCG0EFME.jpg" alt="Deep Current" width="512" height="512" loading="lazy" class="aspect-square w-full rounded-2xl object-cover shadow-lg"/><p class="mt-2 truncate text-sm font-semibold text-app-text">Deep Current</p><p class="truncate text-xs text-app-muted">Kavo</p></button></div></section></div></div><div role="button" tabindex="0" class="mx-3 mb-1 flex cursor-pointer items-center gap-3 rounded-2xl bg-app-elevated p-2 text-left shadow-lg"><img src="/mkt/demo5/assets/cover1-DUnrlRIv.jpg" alt="Golden Hour" width="512" height="512" loading="lazy" class="h-11 w-11 rounded-lg object-cover"/><div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold text-app-text">Golden Hour</p><p class="truncate text-xs text-app-muted">Solace</p></div><button aria-label="Remove from Liked" class="grid h-9 w-9 place-items-center"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-heart h-5 w-5 fill-app-accent text-app-accent" aria-hidden="true"><path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"></path></svg></button><button aria-label="Play" class="grid h-9 w-9 place-items-center rounded-full bg-app-bg text-app-text"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-play h-4 w-4 fill-current" aria-hidden="true"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"></path></svg></button></div><nav class="flex items-center justify-around border-t border-white/5 px-4 pb-5 pt-3"><button class="flex flex-col items-center gap-1 text-[10px] font-medium transition-colors text-app-accent"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-house h-5 w-5 fill-app-accent/20" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"></path><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Home</button><button class="flex flex-col items-center gap-1 text-[10px] font-medium transition-colors text-app-muted"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search h-5 w-5" aria-hidden="true"><path d="m21 21-4.34-4.34"></path><circle cx="11" cy="11" r="8"></circle></svg>Search</button><button class="flex flex-col items-center gap-1 text-[10px] font-medium transition-colors text-app-muted"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-library h-5 w-5" aria-hidden="true"><path d="m16 6 4 14"></path><path d="M12 6v14"></path><path d="M8 8v12"></path><path d="M4 4v16"></path></svg>Library</button></nav></div></div></div></div></main><script>(function(a,f){let l;try{l=JSON.parse(sessionStorage.getItem(a)||"{}")}catch{return}const n=l?.[f||history.state?.__TSR_key];let c=!1;for(const t in n){const e=n[t],o=e?.scrollX,s=e?.scrollY;if(Number.isFinite(o)&&Number.isFinite(s)){if(t==="window")scrollTo(o,s),c=!0;else if(t)try{const r=document.querySelector(t);r&&(r.scrollLeft=o,r.scrollTop=s)}catch{}}}if(c)return;const i=location.hash.slice(1);if(i){const t=history.state?.__hashScrollIntoViewOptions??!0;if(t){const e=document.getElementById(i);e&&e.scrollIntoView(t)}return}scrollTo(0,0)})("tsr-scroll-restoration-v1_3");document.currentScript.remove()</script><!--/$--><script class="$tsr" id="$tsr-stream-barrier">(self.$R=self.$R||{})["tsr"]=[];self.$_TSR={h(){this.hydrated=!0,this.c()},e(){this.streamEnded=!0,this.c()},c(){this.hydrated&&this.streamEnded&&(delete self.$_TSR,delete self.$R.tsr)},p(e){this.initialized?e():this.buffer.push(e)},buffer:[]};$_TSR.router=($R=>$R[0]={manifest:$R[1]={routes:$R[2]={__root__:$R[3]={preloads:$R[4]=["/mkt/demo5/assets/index-BgTNp6Yc.js"],scripts:$R[5]=[$R[6]={attrs:$R[7]={type:"module",async:!0,src:"/mkt/demo5/assets/index-BgTNp6Yc.js"}}]},"/":$R[8]={preloads:$R[9]=["/mkt/demo5/assets/routes-B0FfL65Y.js"]}}},matches:$R[10]=[$R[11]={i:"__root__ ",u:1784016041359,s:"success",ssr:!0},$R[12]={i:"  ",u:1784016041359,s:"success",ssr:!0}],lastMatchId:"  "})($R["tsr"]);$_TSR.e();document.currentScript.remove()</script><script type="module" async="" src="/mkt/demo5/assets/index-BgTNp6Yc.js"></script>
+<aside
+	id="lovable-badge"
+	role="complementary"
+	dir="ltr"
+	lang="en"
+	aria-label="Edit with Lovable">
+	
+	
+	<span id="lovable-badge-divider" aria-hidden="true"></span>
+	
+	<button 
+		id="lovable-badge-close"
+		aria-label="Dismiss"
+		title="Dismiss"
+		type="button">
+		<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 16 16" aria-hidden="true">
+			<path d="M10.646 4.646a.5.5 0 1 1 .707.708L8.707 8l2.646 2.646a.5.5 0 1 1-.707.707L8 8.707l-2.646 2.646a.5.5 0 1 1-.708-.707L7.293 8 4.646 5.354a.5.5 0 1 1 .708-.708L8 7.293l2.646-2.647Z"/>
+		</svg>
+	</button>
+</aside>
+<script>
+	// Don't show the lovable-badge if the page is in an iframe or if it's being rendered by puppeteer (screenshot service)
+	if (window.self !== window.top || navigator.userAgent.includes('puppeteer')) {
+		var badge = document.getElementById('lovable-badge');
+		if (badge) {
+			badge.style.display = 'none';
+		}
+	}
+
+	// Add click event listener to close button with animation
+	var closeButton = document.getElementById('lovable-badge-close');
+	if (closeButton) {
+		closeButton.addEventListener('click', function(event) {
+			event.preventDefault();
+			event.stopPropagation();
+			var badge = document.getElementById('lovable-badge');
+			if (badge) {
+				badge.classList.add('closing');
+				setTimeout(function() {
+					if (badge) {
+						badge.style.display = 'none';
+					}
+				}, 240);
+			}
+		});
+	}
+</script>
+</body></html>
