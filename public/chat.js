@@ -6716,10 +6716,16 @@ function initCrt() {
   // popup when they commit (Enter) or hit the send arrow — not on tap/focus.
   const landInput = document.getElementById('crtLandInput');
   const landSend = document.getElementById('crtLandSend');
+  const landBox = document.getElementById('crtChatbox');
   const submitLand = () => { if (typeof openAuthFrom === 'function') openAuthFrom('start'); };
-  if (landInput) landInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); submitLand(); }
-  });
+  // grow the box downward as text wraps (never sideways)
+  const grow = () => { if (!landInput) return; landInput.style.height = 'auto'; landInput.style.height = landInput.scrollHeight + 'px'; };
+  if (landInput) {
+    landInput.addEventListener('input', grow);
+    landInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitLand(); } });
+  }
+  // clicking anywhere in the box (padding, empty area) focuses the field
+  if (landBox && landInput) landBox.addEventListener('click', (e) => { if (e.target !== landSend && !landSend.contains(e.target)) landInput.focus(); });
   if (landSend) landSend.addEventListener('click', submitLand);
   paintCrt();
 }
