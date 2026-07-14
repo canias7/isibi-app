@@ -2724,6 +2724,21 @@ function setCredits(n) {
   const pill = document.getElementById('credPill');
   if (pill) pill.classList.add('show');
 }
+// The account badge names the real membership tier (Plus / Pro / Max) when one
+// is active; 'Member' for a paid top-up-only account (bought credits, no plan);
+// 'Free plan' otherwise. The tier comes from the storage status (/api/storage).
+function planLabelText() {
+  const tier = galStorage && typeof galStorage.tier === 'string' ? galStorage.tier : '';
+  if (tier && tier !== 'free') return tier.charAt(0).toUpperCase() + tier.slice(1);
+  if (paidKnown && isPaid) return 'Member';
+  if (paidKnown) return 'Free plan';
+  return '';
+}
+function updatePlanTag() {
+  const pt = document.getElementById('planTag');
+  const l = planLabelText();
+  if (pt && l) pt.textContent = l;
+}
 async function fetchCredits(attempt) {
   try {
     const r = await apiFetch('/api/credits');
@@ -2731,8 +2746,10 @@ async function fetchCredits(attempt) {
     const d = await r.json();
     if (typeof d.paid === 'boolean') {
       isPaid = d.paid; paidKnown = true; refreshVideoBadges();
-      const pt = document.getElementById('planTag');
-      if (pt) pt.textContent = isPaid ? 'Member' : 'Free plan';
+      updatePlanTag();
+      // Resolve the membership tier once so the badge can show Plus/Pro/Max
+      // (not just 'Member') — even on the logged-in landing / before the gallery.
+      if (!galStorage) refreshStorageBar();
     }
     if (typeof d.balance === 'number') { setCredits(d.balance); maybeShowWelcome(d.balance); }
   } catch {
@@ -4267,7 +4284,7 @@ function renderSettings() {
   const email = Auth.email();
   const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
   const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
-  const planTxt = paidKnown ? (isPaid ? 'Member' : 'Free') : '';
+  const planTxt = planLabelText();
   const balTxt = (document.getElementById('creditChip') || {}).textContent || '✦ —';
 
   view.innerHTML =
@@ -6815,6 +6832,7 @@ async function refreshStorageBar() {
     const r = await apiFetch('/api/storage');
     if (r && r.ok) galStorage = await r.json();
   } catch {}
+  updatePlanTag(); // tier just resolved → let the badge show Plus/Pro/Max
   paintStorageBar();
 }
 
