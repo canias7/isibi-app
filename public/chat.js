@@ -6673,8 +6673,8 @@ function initCrtStage() {
   let front = 0;
   const layoutWeb = () => slots.forEach((s, n) => {
     const rel = (n - front + N) % N;
-    s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
-    s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3');
+    s.classList.remove('mb-p1', 'mb-p2', 'mb-p3', 'mb-p4');
+    s.classList.add('mb-p' + Math.min(rel + 1, 4));
   });
   slots.forEach((s, n) => { const g = s.querySelector('.mb-grab'); if (g) g.addEventListener('click', () => { front = n; layoutWeb(); }); });
   layoutWeb();
@@ -6781,8 +6781,8 @@ function initLeadHero() {
   let front = 0;
   const layoutWeb = () => {
     slots.forEach((s, n) => { const rel = (n - front + N) % N;
-      s.classList.remove('mb-p1', 'mb-p2', 'mb-p3');
-      s.classList.add(rel === 0 ? 'mb-p1' : rel === 1 ? 'mb-p2' : 'mb-p3'); });
+      s.classList.remove('mb-p1', 'mb-p2', 'mb-p3', 'mb-p4');
+      s.classList.add('mb-p' + Math.min(rel + 1, 4)); });
     const prompt = slots[front] && slots[front].getAttribute('data-prompt');
     if (prompt) type(prompt);
   };
