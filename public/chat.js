@@ -3828,9 +3828,15 @@ async function apiFetch(path, opts = {}) {
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(path, Object.assign({}, opts, { headers }));
   if (res.status === 401) showAuthGate();
-  // Reflect the orchestrator's per-call credit spend as it happens (501 = the
-  // director isn't configured, so nothing was charged).
-  if (path === '/api/direct' && res.status !== 501) scheduleCreditRefresh();
+  // Reflect every credit spend as it happens: the orchestrator (/api/direct)
+  // and each generation (/api/video|image|audio). Exact-match so the polling
+  // and save endpoints (/api/video/poll, /api/save) don't trigger a refresh;
+  // 501 = the feature isn't configured, so nothing was charged.
+  const p = path.split('?')[0];
+  if (res.status !== 501 &&
+      (p === '/api/direct' || p === '/api/video' || p === '/api/image' || p === '/api/audio')) {
+    scheduleCreditRefresh();
+  }
   return res;
 }
 
