@@ -4159,7 +4159,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .crt-inbox{position:absolute;left:0;right:0;bottom:clamp(1.4rem,4vh,2.8rem);z-index:2;
   display:flex;flex-direction:column;align-items:center;gap:.75rem;padding:0 clamp(1.4rem,4vw,3rem)}
 .crt-chatbox{width:min(720px,94%);display:flex;align-items:center;gap:.9rem;cursor:text;
-  padding:1.15rem 1.15rem 1.15rem 1.5rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
+  padding:1.6rem 1.15rem 1.6rem 1.5rem;border-radius:20px;border:1px solid var(--line-2);background:var(--panel);
   box-shadow:0 28px 70px rgba(0,0,0,.55);transition:border-color .25s}
 .crt-chatbox:hover{border-color:rgba(255,121,198,.45)}
 .crt-chatbox-in{flex:1;color:var(--muted);font-size:1.06rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
