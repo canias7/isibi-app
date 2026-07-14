@@ -2729,7 +2729,13 @@ function canSubmit() {
 function refreshSendEnabled() {
   const btn = document.getElementById('sendBtn');
   if (!btn) return;
-  if (activeGens.has(chatStore.active)) { btn.disabled = false; return; }
+  // updateSendPrice() runs during early module init (via setEffort), before
+  // chatStore/activeGens are initialized — reading them then throws a TDZ
+  // ReferenceError that would halt the whole script. Bail quietly until they
+  // exist; the real refreshes all happen after init.
+  let busy;
+  try { busy = activeGens.has(chatStore.active); } catch (e) { return; }
+  if (busy) { btn.disabled = false; return; }
   const ok = canSubmit();
   btn.disabled = !ok;
   btn.title = ok ? 'Send'
