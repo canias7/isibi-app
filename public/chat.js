@@ -3858,9 +3858,19 @@ function hideMarketing() {
 // A marketing CTA opens the auth popup OVER the landing, in the right mode
 // ("start" → create account, "signin" → sign in). The landing stays visible,
 // dimmed behind the modal backdrop.
-function openAuthFrom(mode) {
+// Where the gate was opened from decides where a successful auth lands:
+//   'app'  → drop into the studio (the chatbox on Enter, or picking a channel)
+//   'stay' → stay on the landing as a logged-in page (the Sign in / Sign up nav)
+let authEntry = 'stay';
+function openAuthFrom(mode, entry) {
+  authEntry = entry === 'app' ? 'app' : 'stay';
   if (typeof setAuthMode === 'function') setAuthMode(mode === 'start' ? 'up' : 'in');
   showAuthGate();
+}
+// After a successful sign in / sign up, route by that entry point.
+function finishAuth() {
+  if (authEntry === 'app') enterApp();
+  else enterLandingAuthed();
 }
 
 // One flow: email + password → emailed code → in.
@@ -3965,7 +3975,7 @@ async function submitAuth() {
       if (!/^\d{6,10}$/.test(code)) { showAuthError('Enter the code from your email.'); return; }
       await Auth.verifyCode(pendingEmail, code, pendingType);
       if (authMode === 'reset') { authStep = 'newpass'; renderAuthStep(); authEl('authNewPass').focus(); }
-      else enterApp();
+      else finishAuth();
       return;
     }
     // Set a new password (end of the reset flow).
@@ -3973,7 +3983,7 @@ async function submitAuth() {
       const np = authEl('authNewPass').value;
       if (np.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
       await Auth.updatePassword(np);
-      enterApp();
+      finishAuth();
       return;
     }
     // Credentials step.
@@ -3991,7 +4001,7 @@ async function submitAuth() {
 
     if (authMode === 'up') {
       const r = await Auth.signUp(email, pass);
-      if (r.session) { enterApp(); return; }   // confirm-email OFF → straight in
+      if (r.session) { finishAuth(); return; }   // confirm-email OFF → straight in
       goCodeStep(email, 'signup');             // confirm-email ON → verify code
       return;
     }
@@ -4096,6 +4106,27 @@ function enterApp() {
   // Open on the Builder when a ?q= prompt is running (so its reply/loader is
   // visible), otherwise on the Home landing.
   showView(ranFirstMsg ? 'home' : 'landing');
+}
+
+// Signed in via the nav buttons (not the chatbox): stay on the landing but flip
+// it to a logged-in page — the top-right becomes the same profile menu the app
+// uses. The chatbox still drops them into the studio on Enter. Account cache is
+// left for enterApp() to reconcile (it does the account-switch wipe on entry).
+function enterLandingAuthed() {
+  hideAuthGate();
+  const email = Auth.email();
+  const local = (email.split('@')[0] || '').replace(/[._-]+/g, ' ').trim();
+  const name = local ? local.charAt(0).toUpperCase() + local.slice(1) : 'You';
+  const initial = (name[0] || '·').toUpperCase();
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('authEmailBadge', email); set('sideName', name); set('sideAvatar', initial); set('profileBtnAv', initial);
+  // The profile cluster lives inside the app shell (inert while the landing is
+  // up); move it to <body> so it's interactive over the landing, then show it.
+  const so = document.getElementById('signOutRow');
+  if (so) { if (so.parentElement !== document.body) document.body.appendChild(so); so.style.display = ''; }
+  // Swap the landing's Sign in / Sign up / Pricing nav for the profile menu.
+  document.querySelectorAll('#marketing .mkt-links').forEach((n) => { n.style.display = 'none'; });
+  fetchCredits();
 }
 
 async function doSignOut(everywhere) {
@@ -6510,7 +6541,8 @@ function crtSelect() {
   const opt = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
   if (!opt) return;
   if (opt.dataset.live === '1') {
-    if (typeof openAuthFrom === 'function') openAuthFrom('start');  // funnel into sign-up
+    if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }   // already in → straight to the studio
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');  // picked a channel → into the studio
   }
   // coming-soon channels already show the NO SIGNAL preview via paintCrt — no-op
 }
@@ -6573,7 +6605,16 @@ function initCrt() {
   const landInput = document.getElementById('crtLandInput');
   const landSend = document.getElementById('crtLandSend');
   const landBox = document.getElementById('crtChatbox');
-  const submitLand = () => { if (typeof openAuthFrom === 'function') openAuthFrom('start'); };
+  const submitLand = () => {
+    // Already logged in on the landing → carry the typed prompt into the studio.
+    if (window.Auth && Auth.isSignedIn()) {
+      const t = (landInput && landInput.value.trim()) || '';
+      if (t) pendingFirstMsg = t;
+      enterApp();
+      return;
+    }
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');  // chatbox → into the studio after auth
+  };
   // grow the box downward as text wraps (never sideways)
   const grow = () => { if (!landInput) return; landInput.style.height = 'auto'; landInput.style.height = landInput.scrollHeight + 'px'; };
   if (landInput) {
@@ -6881,7 +6922,13 @@ function toggleProfileMenu(e) {
 // Listeners are attached directly to each element (not document-delegated) to
 // preserve the stopPropagation() semantics the menu toggles rely on.
 const CLICK_ACTIONS = {
-  'view': (e, el) => showView(el.dataset.view),
+  'view': (e, el) => {
+    // From the logged-in landing, a profile-menu view (Integrations/Settings)
+    // enters the studio first so the view is actually visible.
+    const mkt = document.getElementById('marketing');
+    if (mkt && mkt.style.display !== 'none' && window.Auth && Auth.isSignedIn()) enterApp();
+    showView(el.dataset.view);
+  },
   'new-chat': () => newChat(),
   'credits': () => openCredits(),
   'credits-topup': () => openCredits(true),
