@@ -3439,9 +3439,8 @@ async function directorAsk(text, history, onDelta) {
         ...directorContext(), ...(await directorImage()),
       }),
     });
-    // 402 = the caller is out of credits for the director. Refresh the balance
-    // so the low/zero shows, then fall back to raw prompting for this call.
-    if (res.status === 402) { fetchCredits(); }
+    // 402 = out of credits for the director → fall back to raw prompting (the
+    // balance refresh is handled centrally in apiFetch).
     if (!res.ok) throw 0;
     // Streamed reply: render deltas live, then return the final payload.
     if ((res.headers.get('content-type') || '').includes('text/event-stream') && res.body) {
@@ -3814,12 +3813,24 @@ function send(fromButton) {
 // ── Auth gate ────────────────────────────────────────
 // Every /api/* call carries the Supabase access token; a 401 sends the user
 // back to the sign-in screen.
+// Director calls (/api/direct) debit fractional credits at the gate, so the ✦
+// balance needs to re-read after each one. Debounced so a burst (ask→compose)
+// coalesces into a single refresh; the debit is already applied by the time the
+// response arrives, so the refetched balance reflects it.
+let _credRefreshT = null;
+function scheduleCreditRefresh() {
+  if (_credRefreshT) clearTimeout(_credRefreshT);
+  _credRefreshT = setTimeout(() => { _credRefreshT = null; if (typeof fetchCredits === 'function') fetchCredits(); }, 350);
+}
 async function apiFetch(path, opts = {}) {
   const token = window.Auth ? await Auth.accessToken() : null;
   const headers = Object.assign({}, opts.headers || {});
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(path, Object.assign({}, opts, { headers }));
   if (res.status === 401) showAuthGate();
+  // Reflect the orchestrator's per-call credit spend as it happens (501 = the
+  // director isn't configured, so nothing was charged).
+  if (path === '/api/direct' && res.status !== 501) scheduleCreditRefresh();
   return res;
 }
 
