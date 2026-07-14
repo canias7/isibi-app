@@ -1001,7 +1001,9 @@ const DIR_MODES = {
   plan: { icon: '', label: 'Plan', desc: 'isibi.ai shows you the plan to approve before generating' },
   off:  { icon: '</>', label: 'Raw', desc: 'No prompt help — your words go to the model exactly as typed' },
 };
-let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'auto';
+// Default OFF (free raw prompting) — the Orchestrator spends credits per call,
+// so users opt in via the switch. A saved preference (if any) still wins.
+let directorMode = DIR_MODES[localStorage.getItem(DIR_MODE_KEY)] ? localStorage.getItem(DIR_MODE_KEY) : 'off';
 // The last Auto/Plan choice, so flipping the switch back on restores it.
 let lastOrchMode = directorMode === 'off' ? 'auto' : directorMode;
 function orchestratorOn() { return directorMode !== 'off'; }
