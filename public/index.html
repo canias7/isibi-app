@@ -95,11 +95,13 @@
           </div>
 
           <div class="crt-inbox">
-            <div class="crt-chatbox" data-mkt="start" role="button" tabindex="0" aria-label="Start creating — describe what you want">
-              <span class="crt-chatbox-in" id="crtLandPh">a neon tiger prowling a rainy Tokyo alley, cinematic</span>
-              <span class="crt-chatbox-send" aria-hidden="true">
+            <div class="crt-chatbox" id="crtChatbox">
+              <input class="crt-chatbox-in" id="crtLandInput" type="text" autocomplete="off" enterkeyhint="go"
+                placeholder="a neon tiger prowling a rainy Tokyo alley, cinematic"
+                aria-label="Describe what you want to create — press Enter" />
+              <button class="crt-chatbox-send" id="crtLandSend" type="button" aria-label="Start creating">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-              </span>
+              </button>
             </div>
           </div>
 

@@ -6712,6 +6712,15 @@ function initCrt() {
     else if ((e.key === 'Enter' || e.key === ' ') && document.activeElement === menu) { e.preventDefault(); crtSelect(); }
   };
   document.addEventListener('keydown', onKey);
+  // Landing chatbox: let the visitor type freely; only funnel into the sign-up
+  // popup when they commit (Enter) or hit the send arrow — not on tap/focus.
+  const landInput = document.getElementById('crtLandInput');
+  const landSend = document.getElementById('crtLandSend');
+  const submitLand = () => { if (typeof openAuthFrom === 'function') openAuthFrom('start'); };
+  if (landInput) landInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitLand(); }
+  });
+  if (landSend) landSend.addEventListener('click', submitLand);
   paintCrt();
 }
 
