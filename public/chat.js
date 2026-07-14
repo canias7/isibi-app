@@ -6746,12 +6746,19 @@ function initLeadHero() {
 let galFilter = 'all';   // all | video | image | audio
 let galSort = 'new';     // new | old
 
+// A permanent, gallery-saved URL lives in Supabase Storage. Temp links (fal)
+// and client-burned free-tier copies (data: URLs) are NOT saved, so they must
+// never appear in the gallery — free tier can't save, period.
+function isSavedMedia(url) {
+  return typeof url === 'string' && typeof SUPABASE_URL === 'string' &&
+    url.startsWith(SUPABASE_URL + '/storage/');
+}
 function galleryItems() {
   const seen = new Set();
   const out = [];
   let seq = 0;
   chatStore.chats.forEach((c) => (c.msgs || []).forEach((m) => {
-    if (m.t === 'media' && m.url && !seen.has(m.url)) {
+    if (m.t === 'media' && isSavedMedia(m.url) && !seen.has(m.url)) {
       seen.add(m.url);
       out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt, poster: m.poster, at: m.at || 0, seq: seq++ });
     }
