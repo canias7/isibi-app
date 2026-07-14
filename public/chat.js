@@ -211,6 +211,18 @@ function readClipMeta(dataUri) {
     clipMeta.w = v.videoWidth || 0;
     clipMeta.h = v.videoHeight || 0;
     try { v.src = ''; } catch (e) {}
+    // Validate against the current model RIGHT NOW — an out-of-spec clip gets
+    // rejected at attach (slot cleared + a message saying what to fix), not
+    // discovered at send. The send-time check stays as the backstop for a
+    // model switched AFTER attaching.
+    const bad = clipIssue();
+    if (bad) {
+      attachments.clip = null;
+      clipMeta = null;
+      renderAttach('clip');
+      updateSendPrice();
+      addMsg('agent', '⚠️ ' + bad);
+    }
   };
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
@@ -434,6 +446,19 @@ function updateAttachVisibility() {
     if (row) row.style.display = ok ? '' : 'none';
     if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
   });
+  // Switching models re-judges a kept clip against the NEW model's limits
+  // (e.g. a 12s clip fine on Kling o3 is over Veo extend's 8s cap) — drop it
+  // with the reason rather than let it ride to a doomed, charged submit.
+  if (attachments.clip) {
+    const bad = clipIssue();
+    if (bad) {
+      attachments.clip = null;
+      clipMeta = null;
+      renderAttach('clip');
+      updateSendPrice();
+      addMsg('agent', '⚠️ ' + bad);
+    }
+  }
   // First-&-last-frame row (two dedicated slots) — Veo's 2-frame input.
   const rowFlf = document.getElementById('rowFlf');
   if (rowFlf) rowFlf.style.display = caps.flf ? '' : 'none';
