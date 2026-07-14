@@ -3300,8 +3300,9 @@ async function generateMedia(text, opts = {}) {
     if (typeof job.balance === 'number') setCredits(job.balance);
     myGen.statusUrl = job.status_url; // lets Stop cancel the job on fal too
 
-    // 4K renders can legitimately outrun ten minutes — give them twenty.
-    const maxWaitMin = kind === 'video' && quality === '4k' ? 20 : 10;
+    // 4K renders and video-to-video edits (a full re-render of the source
+    // clip — Kling o3 routinely runs past ten minutes) get twenty minutes.
+    const maxWaitMin = kind === 'video' && (quality === '4k' || attachments.clip) ? 20 : 10;
     const deadline = Date.now() + maxWaitMin * 60 * 1000;
     // On record until endGen clears it — a refreshed tab resumes this at boot.
     jobRecord(origin, {
