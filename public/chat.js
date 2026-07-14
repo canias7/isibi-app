@@ -346,6 +346,9 @@ function renderAttach(kind) {
     const c = document.getElementById('cntFlf');
     if (c) { const n = (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0); c.textContent = n ? '· ' + n : ''; }
   }
+  // Attaching/removing a clip flips a video into (or out of) video-to-video,
+  // where the effort picker no longer applies — refresh its locked state.
+  if (kind === 'clip') renderEffortLock();
 }
 
 function clearAttach(ev, kind) {
@@ -1248,9 +1251,13 @@ function renderLpChip() {
   host.appendChild(chip);
 }
 
+// A clip attached in video mode routes to a video-to-video edit endpoint,
+// where the director writes a short edit instruction — the effort/depth ladder
+// (which only shapes written text-to-video/image prompts) does not apply.
+function isV2VEdit() { return mode === 'video' && !!attachments.clip; }
 function toggleEffortMenu(e) {
   e.stopPropagation();
-  if (directorMode === 'off' || !orchActive()) return; // raw / no add-on: effort has nothing to control
+  if (directorMode === 'off' || !orchActive() || isV2VEdit()) return; // raw / no add-on / v2v edit: effort has nothing to control
   const menu = document.getElementById('effortMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
@@ -1261,11 +1268,14 @@ function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
   if (!pick) return;
   const subbed = orchActive();
-  const off = directorMode === 'off' || !subbed;
+  const v2v = isV2VEdit();
+  const off = directorMode === 'off' || !subbed || v2v;
   pick.classList.toggle('locked', off);
   pick.querySelector('.opt-btn').title = !subbed
     ? 'Effort is part of the AI Orchestrator add-on ($19.99/mo)'
-    : off
+    : v2v
+    ? 'Effort is for written prompts — a video-to-video edit just takes a short instruction'
+    : directorMode === 'off'
     ? 'Effort applies when isibi.ai writes the prompt — turn the orchestrator on to use it'
     : 'How detailed the written prompt gets';
   if (off) document.getElementById('effortMenu').classList.remove('open');

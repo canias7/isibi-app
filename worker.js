@@ -2786,7 +2786,13 @@ async function handleRequest(request, env, ctx) {
       // Effort sets DEPTH, never a recipe: no level prescribes which areas to
       // cover, so two prompts at the same level read like two different
       // directors, not one template.
-      const effortLine = kind === "audio" ? "" : effort === "low"
+      // A video-to-video edit re-renders footage the model already has, so the
+      // effort/depth ladder (which drives 100-330 word text-to-video treatments)
+      // does NOT apply — it wants a short, direct edit instruction. This overrides
+      // effort entirely for clip edits.
+      const effortLine = hasClip
+        ? `\nThis is a video-to-video EDIT — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No cinematic treatment, no scene description, no length padding.`
+        : kind === "audio" ? "" : effort === "low"
         ? `\nEffort: LOW — a quick take. 1-2 tight sentences (30-50 words): the idea at its purest — subject, action, setting, one defining style note. Keep the non-negotiables (camera named, on-screen text pinned) and let the model improvise everything else.`
         : effort === "high"
         ? `\nEffort: HIGH — real craft, 120-180 words. Go deep on whatever THIS shot needs most — that might be light, motion, texture, framing, mood, timing, or something else entirely; you choose, the shot decides. Every sentence must add new concrete visual information. Never pad, and never run through a checklist.`
@@ -2891,6 +2897,14 @@ Previous prompt:
 ${prevPrompt}
 ${briefLine}${memoryLine}${refLine ? refLine + " Preserve the existing @ImageN tags exactly." : ""}
 Context: ${ctxLine}`
+        : kind === "video" && hasClip
+        ? `You are the edit writer for isibi, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
+
+Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. When it helps, name what to KEEP from the original vs. what to CHANGE. Do NOT write a cinematic treatment, do NOT narrate the whole scene, do NOT pad for length. Return nothing but the instruction.
+
+Examples of the register (never copy their content): "Restyle the footage into a polished, photoreal cinematic AI look — cleaner textures, warmer light — while keeping the exact framing, motion and timing." · "Keep everything as-is but relight the scene for golden-hour warmth." · "Swap the car for a red vintage convertible; leave the road, motion and background unchanged."${familyHint ? `
+- ${familyHint}` : ""}${briefLine}${memoryLine}${refLine}
+Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
 
@@ -2902,8 +2916,7 @@ Craft rules:
 ${hasImage
   ? `- A start image IS attached (it's in the conversation — look at it): the model animates that image. Do NOT re-describe what is already in the picture (re-describing causes drift and morphing). Name its actual contents concretely as "the ..." ("the man leaning on the red car", not "the subject") and describe ONLY what moves and how, plus what must stay still. If the image has a distinct art style (anime, pixel art, illustration), say the style must be preserved exactly, with no smoothing.${hasEnd ? `
 - An end frame IS attached: the clip must land back on that frame — keep the motion gentle and cyclical so the return feels natural, never a hard change of state.` : ""}`
-  : `- No start image: paint the full scene — subject, action, setting, lighting, mood, in that order, each in concrete visual terms.`}${hasClip ? `
-- A source VIDEO CLIP is attached — this is a video-to-video edit, not a fresh generation. The model already has the footage; write ONLY the transformation to apply to it (restyle, relight, swap a subject, change setting, extend), naming what to keep from the original vs. what to change. Do not re-describe the whole scene from scratch as if generating it new.` : ""}${familyHint ? `
+  : `- No start image: paint the full scene — subject, action, setting, lighting, mood, in that order, each in concrete visual terms.`}${familyHint ? `
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
