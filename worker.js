@@ -2786,12 +2786,16 @@ async function handleRequest(request, env, ctx) {
       // Effort sets DEPTH, never a recipe: no level prescribes which areas to
       // cover, so two prompts at the same level read like two different
       // directors, not one template.
-      // A video-to-video edit re-renders footage the model already has, so the
-      // effort/depth ladder (which drives 100-330 word text-to-video treatments)
-      // does NOT apply — it wants a short, direct edit instruction. This overrides
-      // effort entirely for clip edits.
-      const effortLine = hasClip
-        ? `\nThis is a video-to-video EDIT — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No cinematic treatment, no scene description, no length padding.`
+      // An EDIT re-renders media the model already has (a video clip, or a
+      // source image being edited), so the effort/depth ladder — which drives
+      // 100-330 word from-scratch treatments — does NOT apply. Any edit wants a
+      // short, direct instruction stating only the change. This covers every
+      // edit model (Kling o3 / Ray / Gemini / Veo v2v, plus image editing),
+      // not just video-to-video. NB: a start image for image-TO-video is NOT an
+      // edit — the model generates new motion, so that keeps the full ladder.
+      const isEdit = hasClip || (kind === "image" && hasImage);
+      const effortLine = isEdit
+        ? `\nThis is an EDIT of media the model already has — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No elaborate treatment, no re-describing the source, no length padding.`
         : kind === "audio" ? "" : effort === "low"
         ? `\nEffort: LOW — a quick take. 1-2 tight sentences (30-50 words): the idea at its purest — subject, action, setting, one defining style note. Keep the non-negotiables (camera named, on-screen text pinned) and let the model improvise everything else.`
         : effort === "high"
@@ -2922,6 +2926,14 @@ ${hasImage
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
 ${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}
 Context: ${ctxLine}`
+        : kind === "image" && hasImage
+        ? `You are the edit writer for isibi, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.
+
+Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Do NOT re-describe the whole scene, do NOT write a full generation prompt, do NOT pad for length. Return nothing but the instruction.
+
+Examples of the register (never copy their content): "Change the sky behind the building to a dramatic orange sunset; leave everything else untouched." · "Turn the man's jacket red and add subtle rain on the window." · "Restyle the photo into a soft watercolour painting while keeping the composition exactly."${familyHint ? `
+- ${familyHint}` : ""}${briefLine}${memoryLine}
+Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
 
@@ -2929,7 +2941,7 @@ Craft rules:
 - Name the medium and style explicitly (photograph, cinematic still, oil painting, anime, pixel art...) — unstated style yields generic digital art.
 - Cover subject, composition and framing, lighting and palette, in concrete visual terms.
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
-${hasImage ? `- A source image IS attached (it's in the conversation — look at it): this is an EDIT. Describe only the change to make, naming existing content concretely as "the ..." — do not re-describe the rest of the picture.` : ""}${familyHint ? `
+${familyHint ? `
 - ${familyHint}` : ""}
 ${effortLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
