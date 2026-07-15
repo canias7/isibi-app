@@ -3449,7 +3449,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    wrap lands perfectly on the seam — a plain -50% is off by the uncounted last
    margin and jumps. Falls back to -50% before JS measures. */
 @keyframes mkt-vdrift{to{transform:translateY(var(--vdrift,-50%))}}
-.lp-film:hover .lp-col{animation-play-state:paused}
+/* pause-on-hover is driven from JS via the Web Animations API (initCrtStage) so
+   it reliably stops on the compositor thread too — a CSS :hover play-state pause
+   can leave a GPU-composited animation still painting on some laptops. */
 .lp-col .mkt-cell{margin:0 0 .7rem;width:min(268px,25vw)}
 .lp-badge{position:absolute;top:.4rem;left:.4rem;z-index:2;display:none;align-items:center;gap:.25rem;
   padding:.16rem .5rem;border-radius:999px;font-size:.6rem;font-weight:700;color:#14060d;

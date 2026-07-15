@@ -7112,6 +7112,20 @@ function initCrtStage() {
   });
   requestAnimationFrame(setDrift);
   let driftT; window.addEventListener('resize', () => { clearTimeout(driftT); driftT = setTimeout(setDrift, 150); });
+  // Pause-on-hover via the Web Animations API — pauses/resumes the drift on BOTH
+  // the main and compositor threads, so it truly freezes in place and resumes
+  // from the exact spot (a CSS :hover play-state pause can keep a GPU-composited
+  // animation visually running on some laptops). Falls back to the style prop.
+  const film = stage.querySelector('.lp-film');
+  if (film) {
+    const setPlay = (paused) => cols.forEach((c) => {
+      const anims = c.getAnimations ? c.getAnimations() : [];
+      if (anims.length) anims.forEach((a) => paused ? a.pause() : a.play());
+      else c.style.animationPlayState = paused ? 'paused' : 'running';
+    });
+    film.addEventListener('mouseenter', () => setPlay(true));
+    film.addEventListener('mouseleave', () => setPlay(false));
+  }
   // Tap-to-unmute: clicking a clip's sound button unmutes THAT copy and mutes
   // every other (the strip is doubled, so both copies exist — no echo).
   stage.querySelectorAll('.mkt-vid-sound').forEach((btn) => {
