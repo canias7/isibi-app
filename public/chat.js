@@ -7093,6 +7093,16 @@ function initCrtStage() {
   const cols = stage.querySelectorAll('.lp-col');
   if (cols[0]) cols[0].innerHTML = col(['v', 3, 5, 7, 9, 11, 13]);
   if (cols[1]) cols[1].innerHTML = col([2, 4, 6, 8, 10, 12, 14]);
+  // Drive the loop by the EXACT height of one copy (the start of the 2nd copy)
+  // so it wraps seamlessly — a plain -50% is short by the last cell's uncounted
+  // margin and visibly jumps. Recompute on resize (cells are vw-sized).
+  const setDrift = () => cols.forEach((c) => {
+    const cells = c.querySelectorAll('.mkt-cell');
+    const mid = cells[cells.length / 2];
+    if (mid) c.style.setProperty('--vdrift', '-' + mid.offsetTop + 'px');
+  });
+  requestAnimationFrame(setDrift);
+  let driftT; window.addEventListener('resize', () => { clearTimeout(driftT); driftT = setTimeout(setDrift, 150); });
   const cascade = document.getElementById('mbCascade');
   const slots = cascade ? Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot')) : [];
   const N = slots.length;

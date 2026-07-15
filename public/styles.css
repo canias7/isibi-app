@@ -3433,7 +3433,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .lp-col{display:flex;flex-direction:column;flex:0 0 auto;will-change:transform}
 .lp-col.lp-up{animation:mkt-vdrift 12.8s linear infinite}
 .lp-col.lp-down{animation:mkt-vdrift 14.8s linear infinite reverse}
-@keyframes mkt-vdrift{to{transform:translateY(-50%)}}
+/* --vdrift is set in JS to the EXACT pixel height of one copy (measured), so the
+   wrap lands perfectly on the seam — a plain -50% is off by the uncounted last
+   margin and jumps. Falls back to -50% before JS measures. */
+@keyframes mkt-vdrift{to{transform:translateY(var(--vdrift,-50%))}}
 .lp-film:hover .lp-col{animation-play-state:paused}
 .lp-col .mkt-cell{margin:0 0 .7rem;width:min(268px,25vw)}
 .lp-badge{position:absolute;top:.4rem;left:.4rem;z-index:2;display:none;align-items:center;gap:.25rem;
