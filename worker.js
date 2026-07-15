@@ -2039,6 +2039,16 @@ async function handleRequest(request, env, ctx) {
         const urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
         if (edit.multi) input.image_urls = urls;
         else input.image_url = urls[0];
+        // GPT Image 2's edit endpoint has no aspect_ratio/resolution — it sizes
+        // ONLY via image_size. The generic ratio→image_size mapping below lives
+        // in the (mutually exclusive) text-to-image branch, so a picked ratio was
+        // dropped on edits (every gpt edit came out at the source/auto shape).
+        // Map it here so the aspect picker actually reframes. (Nano's edit takes
+        // aspect_ratio directly and is handled after the chain.)
+        if (model === "openai/gpt-image-2" && ratio) {
+          const sizes = { "1:1": "square_hd", "16:9": "landscape_16_9", "9:16": "portrait_16_9", "4:3": "landscape_4_3", "3:4": "portrait_4_3" };
+          if (sizes[ratio]) input.image_size = sizes[ratio];
+        }
       } else if (ratio) {
         // These families size output via an image_size enum; the rest take aspect_ratio.
         // gpt-image-2 has no aspect_ratio field at all — it sizes via image_size,
