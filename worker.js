@@ -61,22 +61,29 @@ const CREDIT_USD = 0.008;
 const VIDEO_USD = {
   "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
-  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, d: 5 },
-  "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
-  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
-  "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
+  // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
+  // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).
+  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, i2s: { "540p": 0.03, "720p": 0.06, "1080p": 0.24 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, d: 5 },
+  "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.304, "1080p": 0.682, "4k": 1.59 }, d: 5 },
+  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.135, "720p": 0.242, "1080p": 0.55 }, d: 5 },
+  "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.0725, "720p": 0.155 }, d: 5 },
   // o3's video-to-video/edit bills a 20% premium over t2v ($0.168/s vs $0.14/s
   // — verified on fal's pricing page + a real $2.52 bill for a 15s edit).
   "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, v2s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
-  "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
-  "fal-ai/kling-video/lipsync/audio-to-video":    { audioPer5s: 0.014 },  // fal bills per 5-second increment
+  "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
+  // LipSync bills on the INPUT VIDEO's seconds ($0.014/s, rolled UP to the next
+  // 5s increment) — not the audio. Billed from the client-reported clip length,
+  // defaulting to the 10s max when unknown (never undercharge).
+  "fal-ai/kling-video/lipsync/audio-to-video":    { videoPer5s: 0.014 },
 };
 const IMAGE_USD = {
   "fal-ai/nano-banana-pro": 0.15,
-  "openai/gpt-image-2": 0.12,
+  // Token-billed; fal's own table puts a High-quality 1024² at $0.211 (edit
+  // $0.219) — the old $0.12 undercharged ~2× since quality defaults to auto.
+  "openai/gpt-image-2": 0.22,
 };
 const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/eleven-v3": 0.10,
@@ -92,7 +99,7 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -101,12 +108,19 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
     const secs = Math.max(1, Math.min(AUDIO_DRIVE_MAX_S, Math.round(audioSeconds || 0)));
     if (!p) usd = 3; // unlisted video model: charge high, never undercharge
     else if (p.audioPerSec != null) usd = p.audioPerSec * secs;
-    else if (p.audioPer5s != null) usd = p.audioPer5s * Math.ceil(secs / 5);
+    else if (p.videoPer5s != null) {
+      // Billed on the input clip's length, rolled UP to the next 5s (LipSync:
+      // $0.014/s). Unknown length bills the 10s max — never undercharge.
+      const vs = Math.max(2, Math.min(10, Math.round(clipSeconds || 0) || 10));
+      usd = p.videoPer5s * Math.ceil(vs / 5) * 5;
+    }
     else if (p.flat != null) usd = p.flat;
     else {
       // Unknown quality never undercharges: fall back to def, else the highest
       // listed tier (not 720p, which could be cheaper than what fal renders).
-      const tbl = v2v && p.v2s ? p.v2s : p.s; // clip re-render bills its own rates
+      // Rate table: clip attached → v2s (re-render premium); start image on a
+      // model where fal prices i2v separately → i2s; else the t2v rates.
+      const tbl = v2v && p.v2s ? p.v2s : i2v && p.i2s ? p.i2s : p.s;
       const tiers = Object.values(tbl).filter((n) => typeof n === "number");
       const maxTier = tiers.length ? Math.max(...tiers) : 0.4;
       const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : maxTier;
@@ -1917,8 +1931,15 @@ async function handleRequest(request, env, ctx) {
         }
       }
 
+      // Endpoint-specific billing shape (verified on fal's pricing pages):
+      // Veo extend always outputs a 7s clip (schema const) regardless of the
+      // duration picker; Ray image-to-video only renders 5s (10s is t2v/
+      // keyframes-only) AND bills its own cheaper i2s tier.
+      const isRayI2V = model.startsWith("luma/") && endpoint.includes("image-to-video") && !input.keyframes;
+      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayI2V ? 5 : duration;
+      if (isRayI2V) input.duration = "5s"; // fal rejects 10s on Ray i2v — force the only valid value
       const genCost = creditCost(genKind, model, {
-        duration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+        duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         effort: typeof body.effort === "string" ? body.effort : "",
         // Only an explicit "off" waives the director surcharge — absent or
         // anything else charges it, so old clients never undercharge.
@@ -1929,6 +1950,10 @@ async function handleRequest(request, env, ctx) {
         // Any clip attached = a v2v re-render; creditCost only applies the
         // premium where the model lists v2s rates (Ray, Kling o3).
         v2v: !!clip,
+        i2v: isRayI2V,
+        // LipSync bills on the input clip's length — client-reported, clamped
+        // to the schema's 2-10s; absent claims bill the 10s max.
+        clipSeconds: Number(body.clipDuration) || 0,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never

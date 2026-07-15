@@ -139,6 +139,19 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   2. **Image dimension checks** — `imgMeta`/`imageAttachIssue()` measure every image slot (image/end/first/last) and bounce Kling-bound images under 300×300 or outside aspect 0.40–2.50 at attach, re-checked on model switch.
   3. Also: image models' min prompt length (nano-banana-pro = 3 chars) guarded in raw mode.
 
+### Pricing audit — fal bills per ENDPOINT, not per model (2026-07-15)
+- **Status:** ✅ fixed
+- **Reported:** owner noticed the successful Kling o3 v2v edit billed **$2.52** on fal while the app charged 263 credits ($2.10) — the edit endpoint bills $0.168/s, a 20% premium over t2v's $0.14/s. Root cause of the class: price tables keyed rates by MODEL while fal prices each ENDPOINT separately. Swept all 31 endpoints' pricing pages.
+- **Fixed (both `VIDEO_USD`/`VIDEO_PRICE` worker+client tables):**
+  - Kling o3 v2v edit → own `v2s` rate $0.168/s (15s edit now quotes/charges 315 credits).
+  - **Veo extend** outputs a const 7s clip → billed at 7s regardless of the duration picker ($2.80/350 credits, audio-on rate).
+  - **Ray i2v** is priced BELOW t2v (5s 720p $0.30 vs $1.00) and 10s is unavailable from a start image → new `i2s` tier + duration forced to 5s (was overcharging ~3×).
+  - **Kling LipSync** bills the INPUT VIDEO's seconds rolled up to 5s steps ($0.014/s) — we billed per audio seconds (could undercharge 10×). Now billed from the client-measured clip length (clamped 2–10s; unknown bills the 10s max).
+  - **gpt-image-2** is token-billed; High 1024² ≈ $0.211 → flat rate raised $0.12 → $0.22.
+  - Seedance per-second nudges: std 720p 0.304 / 1080p 0.682; fast 480p 0.135 / 720p 0.242; mini 480p 0.0725.
+- **Verified correct:** Veo tiers (audio-on rates), Ray t2v/v2v + HDR 2×/EXR 3×, Gemini ~0.13/s, Kling t2v/i2v all tiers, nano-banana $0.15 (4K would be 2× — we only render 1K), all ElevenLabs rates.
+- **Lesson recorded:** any new model/endpoint must have BOTH its input schema AND its pricing page checked before wiring (they differ per endpoint under the same model name).
+
 ### delete_account() can leave orphaned usage_log rows + storage objects (FOR AUDIT)
 - **Status:** 🟡 one-time cleanup done 2026-07-14; root fix deferred (owner: "later, just note it for audits")
 - **Reported:** 2026-07-14 (owner deleted their `aniascristian@gmail.com` test account and asked to verify)

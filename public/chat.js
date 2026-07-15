@@ -2894,20 +2894,21 @@ function refreshSendEnabled() {
 // Video: $/sec by resolution (audio-on rates where the model does audio).
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
-  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
-  'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
-  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
-  'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },
+  // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
+  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
+  'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },
+  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242, '1080p': 0.55 } },
+  'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.0725, '720p': 0.155 } },
   'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 }, v2s: { def: 0.168 } }, // edit endpoint bills 20% over t2v
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
-  'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills by driving-audio length
-  'fal-ai/kling-video/lipsync/audio-to-video':    { audioPer5s: 0.014 },  // fal bills per 5-second increment
+  'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
+  'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
 };
 const IMAGE_PRICE = { // $ per image
   'fal-ai/nano-banana-pro': 0.15,
-  'openai/gpt-image-2': 0.12, // token-billed; high quality 1024² lands about here
+  'openai/gpt-image-2': 0.22, // token-billed; fal's table puts High 1024² at ~$0.21
 };
 const AUDIO_PRICE = { // $ per 1,000 characters spoken
   'fal-ai/elevenlabs/tts/eleven-v3': 0.10,
@@ -2938,21 +2939,32 @@ function estimatePrice(textForAudio) {
   }
   const p = VIDEO_PRICE[model];
   if (!p) return '';
-  // Audio-driven models bill by the attached clip's length (awDur, seconds).
-  if (p.audioPerSec != null || p.audioPer5s != null) {
+  // OmniHuman bills by the driving audio's length (awDur, seconds, ≤30s).
+  if (p.audioPerSec != null) {
     const secs = Math.max(1, Math.min(60, Math.round(awDur || 0)));
-    const usd = p.audioPerSec != null ? p.audioPerSec * secs : p.audioPer5s * Math.ceil(secs / 5);
-    return fmtPrice(usd);
+    return fmtPrice(p.audioPerSec * secs);
+  }
+  // LipSync bills on the INPUT VIDEO's seconds, rolled up to the next 5s step
+  // ($0.014/s). Unknown clip length quotes the 10s max — same as the worker.
+  if (p.videoPer5s != null) {
+    const vs = Math.max(2, Math.min(10, Math.round((clipMeta && clipMeta.dur) || 0) || 10));
+    return fmtPrice(p.videoPer5s * Math.ceil(vs / 5) * 5);
   }
   if (p.flat != null) return fmtPrice(p.flat);
-  // Video-to-video (clip attached) bills its own higher rates where the model
-  // lists them (Ray tiers, Kling o3's 20% edit premium).
-  const tbl = p.v2s && attachments.clip ? p.v2s : p.s;
+  // Rate table: clip attached → v2s (re-render premium: Ray, Kling o3 +20%);
+  // start image on a model that prices i2v separately (Ray) → i2s; else t2v.
+  const startImg = !!(attachments.image || attachments.ffirst || attachments.flast || kfList.length);
+  const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : p.s;
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
+  // Endpoint-fixed durations: Veo extend always outputs 7s; Ray from a start
+  // image (no keyframes) only renders 5s — quote what will actually be billed.
+  const isVeoExtend = /veo/.test(model) && !!attachments.clip;
+  const isRayI2V = model.startsWith('luma/') && startImg && !attachments.clip && !kfList.length;
+  const billDur = isVeoExtend ? 7 : isRayI2V ? 5 : (duration || 5);
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
   const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
-  return fmtPrice(rate * (duration || 5) * hdrX);
+  return fmtPrice(rate * billDur * hdrX);
 }
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
@@ -3391,6 +3403,8 @@ async function generateMedia(text, opts = {}) {
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
+        clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
+
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
         quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
