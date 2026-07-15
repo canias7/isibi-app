@@ -1691,9 +1691,26 @@ async function handleRequest(request, env, ctx) {
       const kfs = model.startsWith("luma/") && Array.isArray(body.keyframes)
         ? body.keyframes.slice(0, 64).map(dataImage).filter(Boolean)
         : [];
+      // Kling multi-shot (shot-list): an ordered list of {prompt, duration}
+      // shots rendered as one cut sequence. fal's `multi_prompt` lives ONLY on
+      // Kling's text-to-video endpoints; each shot is 1–15s. Ignored for any
+      // other model (the gate below also requires the pure t2v endpoint).
+      const shots = (model.includes("kling-video") && /\/text-to-video$/.test(model) && Array.isArray(body.shots))
+        ? body.shots.slice(0, 8).map((s) => {
+            const p = s && typeof s.prompt === "string" ? s.prompt.trim().slice(0, 2500) : "";
+            if (!p) return null;
+            let d = Math.round(Number(s && s.duration));
+            if (!Number.isFinite(d) || d < 1) d = 5;
+            if (d > 15) d = 15;
+            return { prompt: p, duration: String(d) };
+          }).filter(Boolean)
+        : [];
 
       let endpoint = model;
       const input = { prompt };
+      // Set once the multi_prompt shot-list is actually applied (Kling pure t2v,
+      // ≥2 shots) — flips billing onto the summed shot seconds.
+      let useShots = false;
 
       const ratio =
         typeof body.ratio === "string" && /^\d{1,2}:\d{1,2}$/.test(body.ratio)
@@ -1767,9 +1784,9 @@ async function handleRequest(request, env, ctx) {
         // duration/ratio/resolution) so the gen params below are suppressed.
         let bareEdit = false;
 
-        // The image-to-video endpoint id — Veo's base id has no "/text-to-video"
-        // segment to swap, so it gets the suffix appended instead.
-        const i2v = isVeo ? model + "/image-to-video" : model.replace("/text-to-video", "/image-to-video");
+        // The image-to-video endpoint id — Veo and Gemini have base ids with no
+        // "/text-to-video" segment to swap, so they get the suffix appended instead.
+        const i2v = (isVeo || isGemini) ? model + "/image-to-video" : model.replace("/text-to-video", "/image-to-video");
         // Start-image field name differs by family: Kling v3 wants start_image_url;
         // everyone else (Seedance, Kling o3, Grok, Veo, Sora, Hailuo) wants image_url.
         const startField = isKlingV3 ? "start_image_url" : "image_url";
@@ -1777,24 +1794,26 @@ async function handleRequest(request, env, ctx) {
         // Reference-to-video (hold a subject/identity across a fresh scene).
         // Seedance folds any driving audio + multi-image references in here;
         // Veo has its own reference endpoint (≤3 images, no audio).
-        if (isSeedance && (refs.length || audio)) {
+        if (isSeedance && (refs.length || audio || clip)) {
+          // Reference-to-video: hold subjects/motion across a fresh scene from
+          // image refs (@ImageN), a driving audio (@Audio1), and/or a video
+          // reference (@Video1 — the clip is already staged on fal storage).
           endpoint = model.replace("/text-to-video", "/reference-to-video");
           const rImgs = (refs.length ? refs : [image].filter(Boolean)).slice(0, 9);
-          // fal rule: a driving audio needs at least one image/video reference.
-          if (audio && !rImgs.length) {
-            return Response.json({ error: "Add a reference image along with the audio." }, { status: 400 });
+          // fal rule: a driving audio needs at least one image OR video reference.
+          if (audio && !rImgs.length && !clip) {
+            return Response.json({ error: "Add a reference image or video along with the audio." }, { status: 400 });
           }
-          if (rImgs.length) {
-            input.image_urls = rImgs;
-            // Seedance only uses a reference if the prompt cites it as @ImageN.
-            // The director writes those tags; for a raw prompt without them,
-            // append the tags so the uploaded images aren't silently ignored.
-            if (typeof input.prompt === "string" && !/@Image\d/i.test(input.prompt)) {
-              const tags = rImgs.map((_, i) => "@Image" + (i + 1)).join(", ");
-              input.prompt = (input.prompt.trim() + ` Feature ${tags}.`).trim();
-            }
-          }
+          if (rImgs.length) input.image_urls = rImgs;
+          if (clip) input.video_urls = [clip]; // ≤3 allowed; we surface one slot
           if (audio) input.audio_urls = [audio];
+          // Seedance only uses a reference the prompt CITES (@ImageN / @Video1).
+          // The director writes those tags; for a raw prompt without any, append
+          // them so the uploaded references aren't silently ignored.
+          const tags = rImgs.map((_, i) => "@Image" + (i + 1)).concat(clip ? ["@Video1"] : []);
+          if (typeof input.prompt === "string" && tags.length && !/@(?:Image|Video)\d/i.test(input.prompt)) {
+            input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
+          }
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
@@ -1868,6 +1887,16 @@ async function handleRequest(request, env, ctx) {
           if (end && (isSeedance || isKlingV3 || isKlingO3 || isRay)) input.end_image_url = end;
         }
 
+        // Kling multi-shot: swap the single prompt for the shot list, but ONLY
+        // on the untouched text-to-video endpoint — any attachment above rerouted
+        // it to an i2v/edit/reference endpoint, and fal accepts multi_prompt only
+        // on pure t2v. `prompt` and `multi_prompt` are mutually exclusive.
+        if (shots.length >= 2 && endpoint === model) {
+          useShots = true;
+          input.multi_prompt = shots;
+          delete input.prompt;
+        }
+
         // Reconcile @ImageN reference tags with the ACTUAL generation. Seedance
         // binds tags natively; Veo's reference endpoint has no tag concept, so
         // its tags are translated to plain "reference image N" wording instead
@@ -1876,13 +1905,21 @@ async function handleRequest(request, env, ctx) {
         // cleared), or a plan-mode prompt whose reference set shrank, tags would
         // be dangling noise pointing at images that aren't there — drop those.
         if (typeof input.prompt === "string" && /@(?:Image|Video|Audio)\d/i.test(input.prompt)) {
-          const refN = endpoint.includes("/reference-to-video") && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
-          if (isSeedance && refN) {
-            // Native tag binding: keep only tags that point at an attached reference.
-            input.prompt = input.prompt.replace(/@(?:Image|Video|Audio)(\d+)/gi, (m, d) => (+d <= refN ? m : ""));
-          } else if (refN) {
-            // Tagless family (Veo): translate cited tags into natural wording.
-            input.prompt = input.prompt.replace(/@Image(\d+)/gi, (m, d) => (+d <= refN ? "reference image " + d : ""));
+          const isRefEndpoint = endpoint.includes("/reference-to-video");
+          const imgN = isRefEndpoint && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
+          const vidN = isRefEndpoint && Array.isArray(input.video_urls) ? input.video_urls.length : 0;
+          const audN = isRefEndpoint && Array.isArray(input.audio_urls) ? input.audio_urls.length : 0;
+          if (isSeedance && (imgN || vidN || audN)) {
+            // Native tag binding: keep only tags that point at an attached
+            // reference OF THAT MODALITY (@Image→images, @Video→videos, @Audio→
+            // audio); drop any dangling tag pointing past what's attached.
+            input.prompt = input.prompt
+              .replace(/@Image(\d+)/gi, (m, d) => (+d >= 1 && +d <= imgN ? m : ""))
+              .replace(/@Video(\d+)/gi, (m, d) => (+d >= 1 && +d <= vidN ? m : ""))
+              .replace(/@Audio(\d+)/gi, (m, d) => (+d >= 1 && +d <= audN ? m : ""));
+          } else if (imgN) {
+            // Tagless family (Veo): translate cited image tags into natural wording.
+            input.prompt = input.prompt.replace(/@Image(\d+)/gi, (m, d) => (+d <= imgN ? "reference image " + d : ""));
             input.prompt = input.prompt.replace(/\s*@(?:Video|Audio)\d+/gi, "");
           } else {
             // Not a reference gen: drop the appended "Feature @Image1, @Image2."
@@ -1894,7 +1931,7 @@ async function handleRequest(request, env, ctx) {
           input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
         }
 
-        if (duration && !bareEdit) {
+        if (duration && !bareEdit && !useShots) {
           // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
           if (isVeo && endpoint.includes("/reference-to-video")) input.duration = "8s"; // fal locks Veo ref to 8s only
           else if (isVeo || isRay) input.duration = duration + "s";
@@ -1924,7 +1961,10 @@ async function handleRequest(request, env, ctx) {
         else input.image_url = urls[0];
       } else if (ratio) {
         // These families size output via an image_size enum; the rest take aspect_ratio.
+        // gpt-image-2 has no aspect_ratio field at all — it sizes via image_size,
+        // so a picked ratio was silently dropped (every render came out landscape_4_3).
         const usesImageSize =
+          model === "openai/gpt-image-2" ||
           model.startsWith("fal-ai/flux/") ||
           model.startsWith("fal-ai/flux-2") ||
           model.includes("seedream") ||
@@ -1985,7 +2025,10 @@ async function handleRequest(request, env, ctx) {
       // follows the endpoint while the 5s force excludes keyframes.
       const isRayImgEndpoint = model.startsWith("luma/") && endpoint.includes("image-to-video");
       const isRayStart5s = isRayImgEndpoint && !input.keyframes;
-      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayStart5s ? 5 : duration;
+      // Multi-shot bills on the SUM of the shot durations (one continuous render
+      // of that total length) at the model's per-second rate.
+      const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
+      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayStart5s ? 5 : useShots ? shotSecs : duration;
       if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
@@ -2906,7 +2949,18 @@ async function handleRequest(request, env, ctx) {
       const hasClip = kind === "video" && !!body.hasClip;
       const hasAvatar = kind === "video" && !!body.hasAvatar;
       const hasAudio = kind === "video" && !!body.hasAudio;
+      // On Seedance a clip is a @Video1 REFERENCE (reference-to-video), not an
+      // edit source — so it takes the full from-scratch prompt writer, not the
+      // short edit-instruction path.
+      const clipIsSeedanceRef = hasClip && /seedance/.test(genModel);
       const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
+      // Kling multi-shot (shot-list) is available on the pure text-to-video
+      // endpoints only — an attached image/clip/frame/ref routes to i2v/edit,
+      // where multi_prompt isn't accepted. When capable, the composer MAY return
+      // a `shots` array instead of relying on one continuous prompt.
+      const shotsCapable = kind === "video" &&
+        /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(genModel) &&
+        !hasImage && !hasEnd && !hasClip && !hasAvatar && !hasAudio && !refCount;
       // The attached image itself (downscaled by the client) so the director
       // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
       let imageBlock = null;
@@ -2932,7 +2986,7 @@ async function handleRequest(request, env, ctx) {
       // edit model (Kling o3 / Ray / Gemini / Veo v2v, plus image editing),
       // not just video-to-video. NB: a start image for image-TO-video is NOT an
       // edit — the model generates new motion, so that keeps the full ladder.
-      const isEdit = hasClip || (kind === "image" && hasImage);
+      const isEdit = (hasClip && !clipIsSeedanceRef) || (kind === "image" && hasImage);
       const effortLine = isEdit
         ? `\nThis is an EDIT of media the model already has — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No elaborate treatment, no re-describing the source, no length padding.`
         : kind === "audio" ? "" : effort === "low"
@@ -2965,7 +3019,7 @@ async function handleRequest(request, env, ctx) {
       if (kind !== "audio") {
         ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
-        if (hasClip) ctxBits.push("a source video clip IS attached (video-to-video edit)");
+        if (hasClip) ctxBits.push(clipIsSeedanceRef ? "a video clip IS attached as a @Video1 reference" : "a source video clip IS attached (video-to-video edit)");
         if (hasAvatar) ctxBits.push("an avatar face image IS attached");
         if (hasAudio) ctxBits.push("an audio track IS attached (lip-sync / soundtrack)");
         if (refCount) ctxBits.push(`${refCount} reference image${refCount > 1 ? "s" : ""} attached`);
@@ -2977,6 +3031,15 @@ async function handleRequest(request, env, ctx) {
         ? (/seedance/.test(genModel)
           ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. Seedance binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.`
           : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words. The UI labels them @Image1…@Image${refCount} in order, so if the user's message cites @ImageN, that's the reference they mean — refer to it naturally in the prompt (e.g. "the subject from reference image ${refCount > 1 ? "N" : "1"}"), not by tag.`)
+        : "";
+      // Seedance video reference (@Video1): a clip whose motion/subject carries
+      // into a fresh generated scene. Cite it by tag, like the image refs.
+      const vidRefLine = clipIsSeedanceRef
+        ? `\nThe user also attached a VIDEO clip as a reference (labelled @Video1). Seedance binds it by tag: weave @Video1 into the prompt where that clip's motion, subject or framing should carry into the scene (e.g. "the trucks weave like @Video1"). Cite it by tag rather than re-describing the clip; the model receives the footage.`
+        : "";
+      // Kling multi-shot: the model can render a cut sequence of distinct shots.
+      const shotsLine = shotsCapable
+        ? `\nMULTI-SHOT: this model can CUT between several shots in one video. If — and ONLY if — the user wants a sequence that cuts between distinct shots (a montage, a multi-beat ad, changing scenes/subjects), return the \`shots\` array: 2-5 shots, each a full self-contained prompt plus a 2-10s duration, repeating any recurring character/setting description WORD-FOR-WORD across shots so they stay consistent. For a single continuous shot, omit \`shots\` entirely and just write the one prompt.`
         : "";
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)
@@ -3005,7 +3068,7 @@ When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create: DEFAULT to set ready=true and make every creative call yourself — a clear request should just get made, no back-and-forth.
 - The ONE exception: if a single genuinely important detail is missing or ambiguous AND you can't reasonably assume it — something that would materially change the result (a real product photo vs an illustration; one of two very different moods or settings; a specific brand, person or place you can't guess) — then set ready=false and end your reply with ONE short, specific question, offering a couple of concrete options when that helps them answer in a word. Ask at most one question, only when it truly earns the extra step; never interrogate, and never ask about things you can tastefully decide yourself.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? "a source VIDEO CLIP (for a video-to-video edit)" : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (restyle, swap a subject, relight, extend, lip-sync), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
 - both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${memoryLine}
@@ -3040,7 +3103,7 @@ Previous prompt:
 ${prevPrompt}
 ${briefLine}${memoryLine}${refLine ? refLine + " Preserve the existing @ImageN tags exactly." : ""}
 Context: ${ctxLine}`
-        : kind === "video" && hasClip
+        : kind === "video" && hasClip && !clipIsSeedanceRef
         ? `You are the edit writer for isibi, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
 
 Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. When it helps, name what to KEEP from the original vs. what to CHANGE. Do NOT write a cinematic treatment, do NOT narrate the whole scene, do NOT pad for length. Return nothing but the instruction.
@@ -3063,7 +3126,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}${vidRefLine}${shotsLine}
 Context: ${ctxLine}`
         : kind === "image" && hasImage
         ? `You are the edit writer for isibi, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.
@@ -3211,6 +3274,20 @@ Return just the line to be voiced — keep it to what should actually come out o
                   items: { type: "string" },
                   description: "The user's DURABLE creative taste, learned across ALL their projects — short standing preferences that should apply to future generations (e.g. 'Cinematic, filmic color grading', 'Prefers vertical 9:16', 'Warm, moody lighting', 'Minimal on-screen text'). Return the FULL updated list (not a delta): carry forward what was given, fold in any durable preference THIS request reveals, dedupe and merge near-duplicates, and DROP anything project- or subject-specific (that belongs in the brief, not here). Each item one short phrase. Keep it tight — at most 12 items. Omit or return the list unchanged if this request reveals nothing new about lasting taste.",
                 },
+                ...(shotsCapable ? {
+                  shots: {
+                    type: "array",
+                    description: "OPTIONAL multi-shot sequence. ONLY return this when the user clearly wants a video that CUTS between several distinct shots (a montage, a commercial with separate beats, 'cut between X and Y', a scene that changes location/subject) — NOT for a single continuous shot (leave it out then). This model renders the shots as one video, cutting between them. Keep it to 2-5 shots; each needs a second or two to read, so avoid rapid-fire cuts. For each shot write a full self-contained prompt (camera, subject, action, setting, lighting) — repeat recurring characters/settings WORD-FOR-WORD across shots so they stay consistent — and a duration in seconds (2-10). Still fill the top-level `prompt` with a one-paragraph summary of the whole sequence (used as a fallback and for later revisions).",
+                    items: {
+                      type: "object",
+                      properties: {
+                        prompt: { type: "string", description: "Full generation prompt for this one shot" },
+                        duration: { type: "integer", description: "Shot length in seconds (2-10)" },
+                      },
+                      required: ["prompt", "duration"],
+                    },
+                  },
+                } : {}),
               },
               required: ["prompt"],
             },
@@ -3346,6 +3423,14 @@ Return just the line to be voiced — keep it to what should actually come out o
         // when the model returned nothing new — the client keeps what it has.
         memory: Array.isArray(parsed.memory)
           ? parsed.memory.filter((s) => typeof s === "string" && s.trim()).map((s) => s.trim().slice(0, 140)).slice(0, 12)
+          : undefined,
+        // Multi-shot list (Kling t2v only). Only returned when the composer made
+        // a genuine sequence (≥2 shots); durations clamped to 2-10s, ≤5 shots.
+        shots: shotsCapable && Array.isArray(parsed.shots) && parsed.shots.length >= 2
+          ? parsed.shots
+              .filter((s) => s && typeof s.prompt === "string" && s.prompt.trim())
+              .map((s) => ({ prompt: s.prompt.trim().slice(0, 2500), duration: Math.min(10, Math.max(2, Math.round(+s.duration) || 5)) }))
+              .slice(0, 5)
           : undefined,
       });
     }

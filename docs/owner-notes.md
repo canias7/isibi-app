@@ -372,3 +372,35 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   DM version, which no-ops when there's no DM panel (`#maDmThread` missing).
 - **Fix:** Renamed the Media Agent DM function (and its single caller) to
   `renderDmThread`, freeing `renderThread` to be the real chat repaint again. (PR #348)
+
+### Model capabilities wired up — @Video refs, Kling shot-lists, Gemini i2v, GPT ratio fix
+- **Status:** ✅ shipped
+- **Reported:** 2026-07-15 — owner: "add everything a model supports … lock in."
+- **What (four things, after auditing every model's live fal schema):**
+  1. **Seedance `@Video1` reference** — you can now drop a video clip alongside
+     your image refs on Seedance (all 3 tiers) → it rides into reference-to-video
+     as `video_urls` (@Video1), a motion/subject reference for a fresh scene. New
+     clip slot on Seedance + a `@Video1` composer chip. Priced at t2v rates (a
+     reference, not a re-render). Mini also gained reference-to-video (its old
+     "no ref endpoint" note was stale — verified on fal).
+  2. **Kling `multi_prompt` shot-lists** — Kling o3/v3 t2v can render a CUT
+     sequence of distinct shots in one video. Director-driven (AI-native, no new
+     knobs): the composer returns a `shots` array [{prompt, duration}] when you
+     ask for a montage/multi-beat sequence; the Plan card shows the shot
+     breakdown. Billed on the SUM of shot seconds at the model rate (quote ==
+     charge, float-verified). Only on pure t2v (nothing attached).
+  3. **Gemini image-to-video** — a whole fal endpoint we never wired. Gemini now
+     has a start-frame (image) slot → `google/gemini-omni-flash/image-to-video`.
+  4. **Bug fix: GPT Image 2 aspect ratio** — it has no `aspect_ratio` field
+     (sizes via `image_size`), so a picked ratio was silently dropped and every
+     render came out landscape 4:3. Now maps ratio → `image_size` enum.
+- **Where:** `worker.js` (routing/billing/compose tool), `public/chat.js` (caps,
+  clip/audio limits, chips, shots threading, pricing), `public/styles.css`.
+- **Deferred on purpose (need fal cost-deltas or lower value):** `generate_audio`
+  toggle (enabling audio where it's OFF by default — e.g. Kling o3 — risks
+  undercharging until we verify fal's delta; most models already default audio
+  ON, priced in), image quality/resolution tiers (nano-banana 2K/4K, gpt-image-2
+  `quality` — price levers, need repricing), Kling "elements" character mode
+  (@Element multi-angle consistency — bigger feature), ElevenLabs voice tuning
+  (stability/style/speed — no price impact, marginal). All catalogued from the
+  per-model schema audit.

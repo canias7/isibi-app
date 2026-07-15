@@ -16,10 +16,10 @@ const SEEDANCE_OPTS = {
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
   resolutions: ['480p', '720p'], defRes: '720p',
   // image-to-video, first-&-last (start+end frames), and reference-to-video
-  // (≤9 images + optional driving audio). References are cited as @ImageN in the
-  // prompt — the director writes the tags, worker appends them for raw prompts.
-  // Video references (@VideoN) are a richer follow-up, not yet exposed.
-  caps: { image: true, flf: true, ref: 9, audio: true },
+  // (≤9 image refs + a driving audio + a @Video1 clip reference). References are
+  // cited as @ImageN / @Video1 / @Audio1 in the prompt — the director writes the
+  // tags, the worker appends them for raw prompts.
+  caps: { image: true, flf: true, ref: 9, audio: true, clip: true },
 };
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
@@ -31,16 +31,17 @@ const KLING_OPTS = {
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
   'bytedance/seedance-2.0/fast/text-to-video': SEEDANCE_OPTS,
-  // Mini has image-to-video (image_url + end_image_url) but NO reference-to-video
-  // endpoint on fal — so no Reference row and no driving audio for it.
-  'bytedance/seedance-2.0/mini/text-to-video': { ...SEEDANCE_OPTS, caps: { image: true, flf: true } },
+  // Mini also has reference-to-video (verified on fal 2026-07-15): image_urls +
+  // video_urls + audio_urls, same @-tag binding as the bigger tiers — capped at 720p.
+  'bytedance/seedance-2.0/mini/text-to-video': { ...SEEDANCE_OPTS },
   'fal-ai/kling-video/v3/pro/text-to-video': KLING_OPTS,
   'fal-ai/kling-video/v3/standard/text-to-video': KLING_OPTS,
   'google/gemini-omni-flash': {
     durations: range(3, 10), defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
+    // image: start frame → image-to-video (its own fal endpoint, no end frame).
     // clip: attach a video → conversational edit (swap/relight/stabilize/bg).
-    caps: { image: false, end: false, avatar: false, clip: true },
+    caps: { image: true, end: false, avatar: false, clip: true },
   },
   'fal-ai/veo3.1': {
     durations: [4, 6, 8], defDur: 8,
@@ -187,7 +188,7 @@ function onAttach(kind, inputEl) {
       awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
     }
-    if (kind === 'clip') { clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' }; readClipMeta(reader.result); }
+    if (kind === 'clip') { clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' }; readClipMeta(reader.result); renderRefChips(); }
     // Image slots: measure dimensions and bounce anything the model hard-caps
     // (Kling: ≥300px, aspect 0.40–2.50) with the exact reason.
     if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, reader.result);
@@ -250,6 +251,11 @@ const CLIP_LIMITS = {
   'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
+  // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total (no hard px floor).
+  // The clip is a REFERENCE (reference-to-video), not a re-render.
+  'bytedance/seedance-2.0/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
+  'bytedance/seedance-2.0/fast/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
+  'bytedance/seedance-2.0/mini/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
 };
 // Check the attached clip against the current model's limits. Returns an error
 // string to show the user, or '' when it's fine (or can't be verified).
@@ -365,6 +371,7 @@ const AUDIO_LIMITS = {
   // seedance reference audio: MP3/WAV, ≤15s combined, ≤15MB per file
   'bytedance/seedance-2.0/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
   'bytedance/seedance-2.0/fast/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
+  'bytedance/seedance-2.0/mini/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
 };
 // Check the attached audio against the current model's limits (fal 422s a
 // wrong-format / too-big / too-long driving track). Returns an error string or ''.
@@ -558,7 +565,7 @@ function clearAttach(ev, kind) {
     renderExtraImages();
   }
   if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; }
-  if (kind === 'clip') clipMeta = null; // dropping the clip exits v2v billing
+  if (kind === 'clip') { clipMeta = null; renderRefChips(); } // dropping the clip exits v2v billing / clears the @Video1 chip
   delete imgMeta[kind];
   renderAttach(kind);
   updateSendPrice(); // any removal can move the tier/duration (esp. Ray i2v ↔ t2v)
@@ -947,11 +954,15 @@ function renderKfList() {
 // While references are attached (tag-binding context), the chatbox shows one
 // clickable @ImageN chip per image — tap to drop that tag at the cursor, so
 // writing "the character from @Image1…" never means memorizing the order.
+// A clip on a Seedance model is a @Video1 reference (reference-to-video), so it
+// gets a chip too — everywhere else a clip is an edit/extend, which has no tag.
+function clipIsVideoRef() { return mode === 'video' && !!attachments.clip && /seedance/.test(model); }
 function renderRefChips() {
   const composer = document.querySelector('#viewHome .composer');
   if (!composer) return;
   let bar = document.getElementById('refChips');
-  const want = refTagBinding() && refList.length;
+  const vidRef = clipIsVideoRef();
+  const want = (refTagBinding() && refList.length) || vidRef;
   if (!want) { if (bar) bar.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -969,6 +980,15 @@ function renderRefChips() {
     chip.onclick = () => insertAtCursor('@Image' + (i + 1));
     bar.appendChild(chip);
   });
+  if (vidRef) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ref-chip ref-chip-vid';
+    chip.title = 'Insert @Video1 into your message';
+    chip.innerHTML = '<span class="ref-chip-glyph">🎬</span>@Video1';
+    chip.onclick = () => insertAtCursor('@Video1');
+    bar.appendChild(chip);
+  }
 }
 function insertAtCursor(tag) {
   const input = document.getElementById('input');
@@ -2206,7 +2226,7 @@ function pushSaved(item) {
 
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
-  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory)); return; }
+  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory, item.shots)); return; }
   if (item.t === 'refs') { threadAppend(buildRefStrip(item)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
@@ -3003,7 +3023,7 @@ const CREDIT_USD = 0.008;
 function fmtPrice(usd) {
   return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
 }
-function estimatePrice(textForAudio) {
+function estimatePrice(textForAudio, shotsOverride) {
   if (mode === 'image') {
     const per = IMAGE_PRICE[model];
     return per == null ? '' : fmtPrice(per * (numImages || 1));
@@ -3039,10 +3059,12 @@ function estimatePrice(textForAudio) {
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
   // Endpoint-fixed durations: Veo extend always outputs 7s; Ray from a start
-  // image (no keyframes) only renders 5s — quote what will actually be billed.
+  // image (no keyframes) only renders 5s; a Kling multi-shot bills the SUM of
+  // its shot durations — quote what will actually be billed.
+  const shots = (shotsOverride && modelSupportsShots(model) && pureT2V()) ? sanitizeShots(shotsOverride) : null;
   const isVeoExtend = /veo/.test(model) && !!attachments.clip;
   const isRayI2V = model.startsWith('luma/') && startImg && !attachments.clip && !kfList.length;
-  const billDur = isVeoExtend ? 7 : isRayI2V ? 5 : (duration || 5);
+  const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0) : isVeoExtend ? 7 : isRayI2V ? 5 : (duration || 5);
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
   const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
   return fmtPrice(rate * billDur * hdrX);
@@ -3467,6 +3489,9 @@ async function generateMedia(text, opts = {}) {
 
   const kind = mode;
   const label = document.getElementById('modelLabel').textContent;
+  // Kling multi-shot: only a Kling t2v generation with nothing attached can send
+  // a shot list (the worker double-gates the same way). null otherwise.
+  const genShots = (kind === 'video' && modelSupportsShots(model) && pureT2V() && sanitizeShots(opts.shots)) || null;
   // Identity token: cancel deletes it, and a fresh generation in this chat
   // replaces it — either way this run notices and quietly stops.
   const myGen = { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label, statusUrl: null };
@@ -3504,6 +3529,7 @@ async function generateMedia(text, opts = {}) {
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
         clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
+        shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, nothing attached)
 
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
@@ -3897,6 +3923,29 @@ function directorContext() {
 // APPROVES that prompt (so abandoned drafts never teach isibi anything).
 let pendingBrief = null;
 let pendingMemory = null;
+// A multi-shot list (Kling t2v cut sequence) the composer may return alongside
+// the prompt; rides through to generateMedia like the brief does.
+let pendingShots = null;
+// The Kling text-to-video endpoints are the only ones that accept multi_prompt.
+function modelSupportsShots(m) {
+  return /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
+}
+// multi_prompt is a pure text-to-video feature — any attachment routes to a
+// different endpoint, so shots only apply when nothing is attached.
+function pureT2V() {
+  return mode === 'video' && !attachments.image && !attachments.clip && !attachments.avatar &&
+    !attachments.end && !attachments.ffirst && !attachments.flast && !refList.length && !kfList.length;
+}
+// Validate a shots array from the director: 2-5 shots, each {prompt, 2-10s}.
+// Returns a clean array, or null when it isn't a real multi-shot list.
+function sanitizeShots(arr) {
+  if (!Array.isArray(arr)) return null;
+  const out = arr
+    .filter((s) => s && typeof s.prompt === 'string' && s.prompt.trim())
+    .map((s) => ({ prompt: s.prompt.trim().slice(0, 2500), duration: Math.min(10, Math.max(2, Math.round(+s.duration) || 5)) }))
+    .slice(0, 5);
+  return out.length >= 2 ? out : null;
+}
 
 // The director gets to SEE the attached image (downscaled — it only needs to
 // understand the picture, not generate from it).
@@ -3982,7 +4031,7 @@ async function directorAsk(text, history, onDelta) {
 // Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
 async function directorRevise(feedback) {
   const prev = (activeChat() || {}).lastPrompt || '';
-  pendingBrief = null; pendingMemory = null;
+  pendingBrief = null; pendingMemory = null; pendingShots = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3995,6 +4044,7 @@ async function directorRevise(feedback) {
     const data = await res.json();
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (Array.isArray(data.memory)) pendingMemory = data.memory;
+    pendingShots = sanitizeShots(data.shots);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return prev ? prev + ' ' + feedback : feedback; }
@@ -4006,7 +4056,7 @@ async function directorCompose(text, answers, webFacts) {
   // the orchestrator on, the writer now interprets the request into the actual
   // words / vocal sounds to voice (see the audio branch in the worker). Raw
   // mode (orchestrator off) never reaches here, so it still speaks verbatim.
-  pendingBrief = null; pendingMemory = null;
+  pendingBrief = null; pendingMemory = null; pendingShots = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4020,6 +4070,7 @@ async function directorCompose(text, answers, webFacts) {
     const data = await res.json();
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (Array.isArray(data.memory)) pendingMemory = data.memory;
+    pendingShots = sanitizeShots(data.shots);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return mode === 'audio' ? text : localCompose(text, answers); }
@@ -4159,7 +4210,8 @@ function deliverPrompt(prompt) {
   const c = activeChat();
   if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
   if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
-  generateMedia(prompt, { announce: false });
+  const shots = pendingShots; pendingShots = null;
+  generateMedia(prompt, { announce: false, shots });
 }
 
 // The floating dock above the composer (was the question cards; the Plan
@@ -4172,22 +4224,38 @@ function clearQDock() {
 // Build the Plan-mode review card (approve to run). Extracted so it can be
 // re-rendered from a persisted {t:'review'} message — otherwise switching
 // chats, a background sync-renderThread, or a reload lost the composed prompt.
-function buildReviewCard(prompt, cardMode, cardBrief, cardMemory) {
+function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots) {
   const m = cardMode || mode;
+  // A shot list only applies to a Kling t2v generation with nothing attached.
+  const shots = (m === 'video' && sanitizeShots(cardShots) && modelSupportsShots() && pureT2V()) ? sanitizeShots(cardShots) : null;
   const box = document.createElement('div');
   box.className = 'review-card';
   const label = document.createElement('div');
   label.className = 'review-label';
   label.textContent = m === 'audio'
     ? "I'll voice exactly these words — approve to hear it:"
+    : shots
+    ? "Here's the shot list — approve to run it:"
     : "Here's the plan — approve to run it:";
   const body = document.createElement('div');
   body.className = 'review-prompt'; body.textContent = prompt;
+  // Multi-shot: show the numbered breakdown with each shot's length.
+  let shotList = null;
+  if (shots) {
+    shotList = document.createElement('ol');
+    shotList.className = 'review-shots';
+    shots.forEach((s, i) => {
+      const li = document.createElement('li');
+      const tag = document.createElement('span'); tag.className = 'rs-tag'; tag.textContent = 'Shot ' + (i + 1) + ' · ' + s.duration + 's';
+      const txt = document.createElement('span'); txt.className = 'rs-txt'; txt.textContent = s.prompt;
+      li.appendChild(tag); li.appendChild(txt); shotList.appendChild(li);
+    });
+  }
   const actions = document.createElement('div'); actions.className = 'review-actions';
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
-  // Price the card on the actual prompt/script, not the (now-cleared) input.
-  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined) || '✦');
+  // Price the card on the actual prompt/script/shot-list, not the (now-cleared) input.
+  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots) || '✦');
   deny.onclick = () => { clearReviews(); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     // One generation per chat — if the previous run is still going, keep the
@@ -4208,10 +4276,10 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory) {
     const c = activeChat();
     if (cardBrief && c) { c.brief = cardBrief; persistStore(); touchSync(c.id); }
     if (cardMemory) commitMemory(cardMemory);
-    generateMedia(prompt, { announce: false });
+    generateMedia(prompt, { announce: false, shots });
   };
   actions.appendChild(deny); actions.appendChild(allow);
-  box.appendChild(label); box.appendChild(body); box.appendChild(actions);
+  box.appendChild(label); box.appendChild(body); if (shotList) box.appendChild(shotList); box.appendChild(actions);
   return box;
 }
 // Drop any pending review card from the active chat once approved/denied so a
@@ -4227,10 +4295,10 @@ function reviewPrompt(prompt) {
   // by the next compose, so approving an older (or previously denied) card must
   // not commit a different draft's durable memory. Also persist them on the
   // message so a card approved after a reload still commits the right ones.
-  const cardBrief = pendingBrief, cardMemory = pendingMemory;
-  pendingBrief = null; pendingMemory = null;
-  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined });
-  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory));
+  const cardBrief = pendingBrief, cardMemory = pendingMemory, cardShots = pendingShots;
+  pendingBrief = null; pendingMemory = null; pendingShots = null;
+  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined, shots: cardShots || undefined });
+  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory, cardShots));
 }
 
 // Grow the message box downward as the user types; cap it, then scroll.
