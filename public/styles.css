@@ -3427,12 +3427,15 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .lp-film{display:flex;gap:1rem;justify-content:center;
   -webkit-mask-image:linear-gradient(180deg,transparent,#000 9%,#000 91%,transparent);
           mask-image:linear-gradient(180deg,transparent,#000 9%,#000 91%,transparent)}
-.lp-col{display:flex;flex-direction:column;gap:.7rem;flex:0 0 auto;will-change:transform}
+/* Spacing lives on each cell's bottom margin (not container gap) so the doubled
+   content is an exact 2x and translateY(-50%) wraps seamlessly — the tiles
+   (video included) cycle around endlessly with no jump at the loop point. */
+.lp-col{display:flex;flex-direction:column;flex:0 0 auto;will-change:transform}
 .lp-col.lp-up{animation:mkt-vdrift 12.8s linear infinite}
 .lp-col.lp-down{animation:mkt-vdrift 14.8s linear infinite reverse}
 @keyframes mkt-vdrift{to{transform:translateY(-50%)}}
 .lp-film:hover .lp-col{animation-play-state:paused}
-.lp-col .mkt-cell{margin:0;width:min(268px,25vw)}
+.lp-col .mkt-cell{margin:0 0 .7rem;width:min(268px,25vw)}
 .lp-badge{position:absolute;top:.4rem;left:.4rem;z-index:2;display:none;align-items:center;gap:.25rem;
   padding:.16rem .5rem;border-radius:999px;font-size:.6rem;font-weight:700;color:#14060d;
   background:linear-gradient(120deg,#ffce8a,var(--neon))}
