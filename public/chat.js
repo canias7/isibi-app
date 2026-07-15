@@ -87,6 +87,15 @@ const MODEL_OPTS = {
   },
 };
 const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1:1' };
+// Per-model ratio lists (verified against each fal schema): Nano Banana Pro
+// accepts the full 10-ratio enum; GPT Image 2 sizes via image_size, so it keeps
+// only the five ratios that map to its named presets. ('auto' is deliberately
+// excluded — the worker's d:d gate drops it and the chat placeholder needs a
+// concrete aspect.)
+const IMAGE_RATIOS = {
+  'fal-ai/nano-banana-pro': ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
+  'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
+};
 // Image models that support editing (attach an image). MULTI ones take more
 // than one image (so they also get the +Avatar reference picker).
 const IMAGE_EDIT_MODELS = new Set([
@@ -234,8 +243,10 @@ function readClipMeta(dataUri) {
       return;
     }
     // Passed the basic checks — probe fps and quietly conform it if the model
-    // requires a range the clip misses (see normalizeClipFps).
+    // requires a range the clip misses (see normalizeClipFps), and downscale
+    // an over-resolution reference clip into the model's pixel band.
     normalizeClipFps();
+    normalizeClipArea();
   };
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
@@ -251,11 +262,19 @@ const CLIP_LIMITS = {
   'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
-  // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total (no hard px floor).
+  // gemini-omni-flash/edit renders (and fal bills) the WHOLE source clip and
+  // its schema documents no cap — 30s is OUR cap so an edit can't silently
+  // bill minutes of footage; billing assumes the same 30s max.
+  'google/gemini-omni-flash': { maxDur: 30 },
+  // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
+  // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
+  // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
+  // over the band are downscaled on-device for free (normalizeClipArea);
+  // under-band clips are rejected (upscaling can't add detail fal needs).
   // The clip is a REFERENCE (reference-to-video), not a re-render.
-  'bytedance/seedance-2.0/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
-  'bytedance/seedance-2.0/fast/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
-  'bytedance/seedance-2.0/mini/text-to-video': { minDur: 2, maxDur: 15, formats: ['mp4', 'mov'] },
+  'bytedance/seedance-2.0/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
+  'bytedance/seedance-2.0/fast/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
+  'bytedance/seedance-2.0/mini/text-to-video': { minDur: 2, maxDur: 15, minArea: 409600, maxArea: 927408, formats: ['mp4', 'mov'] },
 };
 // Check the attached clip against the current model's limits. Returns an error
 // string to show the user, or '' when it's fine (or can't be verified).
@@ -275,8 +294,12 @@ function clipIssue() {
   }
   const shortSide = w && h ? Math.min(w, h) : 0;
   const longSide = w && h ? Math.max(w, h) : 0;
-  if (shortSide && shortSide < lim.minPx) return 'That clip is ' + w + '×' + h + ' — this model needs at least ' + lim.minPx + 'p on the short side. Use a higher-resolution clip.';
-  if (longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
+  if (lim.minPx && shortSide && shortSide < lim.minPx) return 'That clip is ' + w + '×' + h + ' — this model needs at least ' + lim.minPx + 'p on the short side. Use a higher-resolution clip.';
+  if (lim.maxPx && longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
+  // Pixel-AREA floor (Seedance reference clips): below ~480p there isn't enough
+  // detail for fal to reference — reject; ABOVE the band is handled by the free
+  // on-device downscale (normalizeClipArea), so it's not an error here.
+  if (lim.minArea && w && h && w * h < lim.minArea) return 'That clip is ' + w + '×' + h + ' — this model needs at least ~480p (' + lim.minArea.toLocaleString() + ' pixels per frame). Use a higher-resolution clip.';
   return '';
 }
 
@@ -318,6 +341,47 @@ async function normalizeClipFps() {
   } catch {
     note.remove();
     addMsg('agent', '⚠️ Your clip is ' + fps.toFixed(2) + ' fps and this model needs ' + lo + '–' + hi + ' fps — I couldn’t convert it here, so please re-export it at ' + lo + ' fps and attach again.');
+  }
+}
+
+// ── Pixel-area conform (on-device, free) ──
+// Seedance hard-caps reference clips at ~720p worth of pixels (area band in
+// CLIP_LIMITS). A 1080p/4K phone clip would bounce at fal — instead, quietly
+// downscale it on-device to fit the band, same free-conform pattern as the
+// fps fix. Serialized by token so a re-attach mid-encode can't clobber the
+// newer clip.
+let _clipAreaToken = 0;
+async function normalizeClipArea() {
+  const lim = CLIP_LIMITS[model];
+  if (!lim || !lim.maxArea || mode !== 'video' || !attachments.clip) return;
+  if (!clipMeta || !clipMeta.w || !clipMeta.h) return; // dims unknown — fal's error net catches it
+  const area = clipMeta.w * clipMeta.h;
+  if (area <= lim.maxArea) return; // already inside the band
+  if (typeof sbFFScale !== 'function' || !sbFFSupported()) return; // engine unavailable
+  const myToken = ++_clipAreaToken;
+  const src = attachments.clip;
+  const note = addMsg('agent typing', 'Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' — this model caps reference clips near 720p. Downscaling it on-device (free)');
+  try {
+    // Target just under the cap so rounding to even dims can't tip back over.
+    const blob = await sbFFScale(src, clipMeta.w, clipMeta.h, lim.maxArea - 8000, { mime: clipMeta.type || '' });
+    const dataUri = await new Promise((ok, err) => {
+      const r = new FileReader();
+      r.onload = () => ok(r.result); r.onerror = err;
+      r.readAsDataURL(blob);
+    });
+    note.remove();
+    if (myToken !== _clipAreaToken || attachments.clip !== src) return; // user swapped clips mid-encode
+    attachments.clip = dataUri;
+    // Re-read the conformed clip's real dims/duration (also re-validates).
+    clipMeta = { dur: clipMeta.dur, w: 0, h: 0, type: 'video/mp4', name: clipMeta.name };
+    readClipMeta(dataUri);
+    renderAttach('clip');
+    updateSendPrice();
+    addMsg('agent', '⚙️ Downscaled your clip to fit this model’s reference band — re-encoded on-device (free). Ready to go.');
+  } catch {
+    note.remove();
+    if (myToken !== _clipAreaToken || attachments.clip !== src) return;
+    addMsg('agent', '⚠️ Your clip is ' + clipMeta.w + '×' + clipMeta.h + ' and this model caps reference clips near 720p — I couldn’t convert it here, so please re-export it at 720p or smaller and attach again.');
   }
 }
 
@@ -608,9 +672,11 @@ function updateAttachVisibility() {
       updateSendPrice();
       addMsg('agent', '⚠️ ' + bad);
     } else {
-      // New model may demand an fps range the old one didn't — re-probe/conform.
+      // New model may demand an fps range or pixel band the old one didn't —
+      // re-probe/conform both.
       if (clipMeta) clipMeta.fpsOk = false;
       normalizeClipFps();
+      normalizeClipArea();
     }
   }
   // Kept images get re-judged against the NEW model's dimension caps too.
@@ -1548,7 +1614,7 @@ function currentOpts() {
   if (mode === 'audio') return AUDIO_OPTS;
   if (mode === 'image') {
     return {
-      ratios: IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
+      ratios: IMAGE_RATIOS[model] || IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
         image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model),
@@ -2226,7 +2292,7 @@ function pushSaved(item) {
 
 function renderSaved(item) {
   if (item.t === 'media') { threadAppend(buildMedia(item.kind, item.url, item.prompt)); return; }
-  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory, item.shots)); return; }
+  if (item.t === 'review') { threadAppend(buildReviewCard(item.prompt, item.mode, item.brief, item.memory, item.shots, item.extras)); return; }
   if (item.t === 'refs') { threadAppend(buildRefStrip(item)); return; }
   const div = document.createElement('div');
   div.className = 'msg ' + item.t;
@@ -2991,17 +3057,19 @@ function refreshSendEnabled() {
 }
 
 // ── Send-button price tag — estimates from fal's published pricing ────────
-// Video: $/sec by resolution (audio-on rates where the model does audio).
+// Video: $/sec by resolution (audio-on rates where the model does audio;
+// aoff = the cheaper audio-off rate applied when the director's "silent" flag
+// is set — mirrors the worker's VIDEO_USD exactly).
 const VIDEO_PRICE = {
-  'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 } },
+  'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 }, aoff: { '720p': 0.20, '1080p': 0.20, '4k': 0.40 } },
   // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
   'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },
-  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242, '1080p': 0.55 } },
+  'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242 } }, // no 1080p on the fast tier
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.0725, '720p': 0.155 } },
-  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 }, v2s: { def: 0.168 } }, // edit endpoint bills 20% over t2v
-  'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
-  'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
+  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 }, aoff: { def: 0.112 }, v2s: { def: 0.168 } }, // edit endpoint bills 20% over t2v
+  'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 }, aoff: { def: 0.112 } },
+  'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 }, aoff: { def: 0.084 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
   'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
@@ -3023,7 +3091,7 @@ const CREDIT_USD = 0.008;
 function fmtPrice(usd) {
   return '✦ ' + Math.max(1, Math.ceil(usd / CREDIT_USD)).toLocaleString();
 }
-function estimatePrice(textForAudio, shotsOverride) {
+function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   if (mode === 'image') {
     const per = IMAGE_PRICE[model];
     return per == null ? '' : fmtPrice(per * (numImages || 1));
@@ -3053,18 +3121,39 @@ function estimatePrice(textForAudio, shotsOverride) {
   }
   if (p.flat != null) return fmtPrice(p.flat);
   // Rate table: clip attached → v2s (re-render premium: Ray, Kling o3 +20%);
-  // start image on a model that prices i2v separately (Ray) → i2s; else t2v.
+  // start image on a model that prices i2v separately (Ray) → i2s; else t2v —
+  // discounted to aoff when the render is explicitly silent (Veo, Kling).
   const startImg = !!(attachments.image || attachments.ffirst || attachments.flast || kfList.length);
-  const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : p.s;
+  const soundOff = soundOverride === false;
+  const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
-  // Endpoint-fixed durations: Veo extend always outputs 7s; Ray from a start
-  // image (no keyframes) only renders 5s; a Kling multi-shot bills the SUM of
-  // its shot durations — quote what will actually be billed.
+  // Endpoint-fixed durations — quote what will actually be billed:
+  //  · Veo extend always outputs 7s; Veo reference-to-video always renders 8s.
+  //  · The o3/Gemini clip edits render the WHOLE source clip (no duration
+  //    input), so the bill follows the clip's length, not the picker.
+  //  · Ray from a start image (no keyframes) only renders 5s.
+  //  · A Kling multi-shot bills the SUM of its shot durations.
   const shots = (shotsOverride && modelSupportsShots(model) && pureT2V()) ? sanitizeShots(shotsOverride) : null;
   const isVeoExtend = /veo/.test(model) && !!attachments.clip;
+  const isVeoRef = /veo/.test(model) && refList.length > 0;
+  const isClipEdit = !!attachments.clip && (/kling-video\/o3/.test(model) || /gemini/.test(model));
+  const clipEditMax = /gemini/.test(model) ? 30 : 15;
+  const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeta && clipMeta.dur) || clipEditMax));
   const isRayI2V = model.startsWith('luma/') && startImg && !attachments.clip && !kfList.length;
-  const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0) : isVeoExtend ? 7 : isRayI2V ? 5 : (duration || 5);
+  // Veo refs win over a clip (the worker routes reference-to-video first).
+  const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0)
+    : isVeoRef ? 8
+    : isVeoExtend ? 7
+    : isClipEdit ? clipEditSecs
+    : isRayI2V ? 5
+    : (duration || 5);
+  // Seedance reference-to-video with a @Video1 clip: 0.6× rate over the
+  // clip's input seconds + the output duration (same basis as the worker).
+  if (/seedance/.test(model) && attachments.clip) {
+    const inSecs = Math.min(15, Math.ceil((clipMeta && clipMeta.dur) || 15));
+    return fmtPrice(0.6 * rate * (inSecs + billDur));
+  }
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
   const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
   return fmtPrice(rate * billDur * hdrX);
@@ -3492,6 +3581,9 @@ async function generateMedia(text, opts = {}) {
   // Kling multi-shot: only a Kling t2v generation with nothing attached can send
   // a shot list (the worker double-gates the same way). null otherwise.
   const genShots = (kind === 'video' && modelSupportsShots(model) && pureT2V() && sanitizeShots(opts.shots)) || null;
+  // Director-driven knobs (silent flag / negative list / voice tuning) — the
+  // worker re-validates and applies each only where the endpoint supports it.
+  const genExtras = sanitizeExtras(opts.extras) || {};
   // Identity token: cancel deletes it, and a fresh generation in this chat
   // replaces it — either way this run notices and quietly stops.
   const myGen = { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label, statusUrl: null };
@@ -3530,6 +3622,11 @@ async function generateMedia(text, opts = {}) {
         clip: attachments.clip || undefined,
         clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
         shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, nothing attached)
+        sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
+        negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
+        stability: kind === 'audio' ? genExtras.stability : undefined, // voice delivery tuning
+        speed: kind === 'audio' ? genExtras.speed : undefined,
+        style: kind === 'audio' ? genExtras.style : undefined,
 
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
@@ -3540,8 +3637,9 @@ async function generateMedia(text, opts = {}) {
         editMode: kind === 'video' && currentOpts().v2v && attachments.clip && editMode !== 'auto' ? editMode : undefined,
         voice: kind === 'audio' ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
-        effort: effort, // sets the director surcharge (+1 Haiku / +2 Sonnet tiers)
-        // 'off' waives the surcharge; promptless lip-sync runs no director step, so it must not pay it either.
+        // effort/director ride along for observability only — generations bill
+        // pure fal cost; the orchestrator is metered per-call on /api/direct.
+        effort: effort,
         director: (directorMode === 'off' || (currentOpts() && currentOpts().noPrompt)) ? 'off' : 'on',
       }),
     });
@@ -3926,6 +4024,23 @@ let pendingMemory = null;
 // A multi-shot list (Kling t2v cut sequence) the composer may return alongside
 // the prompt; rides through to generateMedia like the brief does.
 let pendingShots = null;
+// Director-driven knobs the composer may return alongside the prompt: sound
+// (false = explicit silent request → cheaper audio-off billing where fal has
+// it), negative (things to exclude — Kling v3/Veo), and voice delivery tuning
+// (speed/stability/style — ElevenLabs). Same lifecycle as the brief/shots.
+let pendingExtras = null;
+function sanitizeExtras(data) {
+  if (!data) return null;
+  const out = {};
+  if (data.sound === false) out.sound = false;
+  if (typeof data.negative === 'string' && data.negative.trim()) out.negative = data.negative.trim().slice(0, 300);
+  const num = (v, lo, hi) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : null);
+  const stab = num(data.stability, 0, 1), spd = num(data.speed, 0.7, 1.2), sty = num(data.style, 0, 1);
+  if (stab != null) out.stability = stab;
+  if (spd != null) out.speed = spd;
+  if (sty != null) out.style = sty;
+  return Object.keys(out).length ? out : null;
+}
 // The Kling text-to-video endpoints are the only ones that accept multi_prompt.
 function modelSupportsShots(m) {
   return /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
@@ -4031,7 +4146,7 @@ async function directorAsk(text, history, onDelta) {
 // Surgical prompt revision: previous prompt + plain-words feedback → edited prompt.
 async function directorRevise(feedback) {
   const prev = (activeChat() || {}).lastPrompt || '';
-  pendingBrief = null; pendingMemory = null; pendingShots = null;
+  pendingBrief = null; pendingMemory = null; pendingShots = null; pendingExtras = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4045,6 +4160,7 @@ async function directorRevise(feedback) {
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (Array.isArray(data.memory)) pendingMemory = data.memory;
     pendingShots = sanitizeShots(data.shots);
+    pendingExtras = sanitizeExtras(data);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return prev ? prev + ' ' + feedback : feedback; }
@@ -4056,7 +4172,7 @@ async function directorCompose(text, answers, webFacts) {
   // the orchestrator on, the writer now interprets the request into the actual
   // words / vocal sounds to voice (see the audio branch in the worker). Raw
   // mode (orchestrator off) never reaches here, so it still speaks verbatim.
-  pendingBrief = null; pendingMemory = null; pendingShots = null;
+  pendingBrief = null; pendingMemory = null; pendingShots = null; pendingExtras = null;
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -4071,6 +4187,7 @@ async function directorCompose(text, answers, webFacts) {
     if (data.brief) pendingBrief = String(data.brief).slice(0, 600);
     if (Array.isArray(data.memory)) pendingMemory = data.memory;
     pendingShots = sanitizeShots(data.shots);
+    pendingExtras = sanitizeExtras(data);
     if (data.prompt) return data.prompt;
     throw 0;
   } catch { return mode === 'audio' ? text : localCompose(text, answers); }
@@ -4211,7 +4328,16 @@ function deliverPrompt(prompt) {
   if (pendingBrief && c) { c.brief = pendingBrief; pendingBrief = null; persistStore(); touchSync(c.id); }
   if (pendingMemory) { commitMemory(pendingMemory); pendingMemory = null; }
   const shots = pendingShots; pendingShots = null;
-  generateMedia(prompt, { announce: false, shots });
+  const extras = pendingExtras; pendingExtras = null;
+  // A multi-shot bills the SUM of its shot durations — often far more than the
+  // single-duration send-button quote the user last saw. Auto mode never shows
+  // a review card, so surface the real total in the chat before it bills.
+  const liveShots = (mode === 'video' && shots && modelSupportsShots(model) && pureT2V()) ? sanitizeShots(shots) : null;
+  if (liveShots) {
+    const secs = liveShots.reduce((t, s) => t + s.duration, 0);
+    addMsg('agent', '🎬 Multi-shot: ' + liveShots.length + ' shots · ' + secs + 's total — ' + (estimatePrice(undefined, liveShots, extras && extras.sound) || '✦'));
+  }
+  generateMedia(prompt, { announce: false, shots, extras });
 }
 
 // The floating dock above the composer (was the question cards; the Plan
@@ -4224,10 +4350,11 @@ function clearQDock() {
 // Build the Plan-mode review card (approve to run). Extracted so it can be
 // re-rendered from a persisted {t:'review'} message — otherwise switching
 // chats, a background sync-renderThread, or a reload lost the composed prompt.
-function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots) {
+function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, cardExtras) {
   const m = cardMode || mode;
   // A shot list only applies to a Kling t2v generation with nothing attached.
   const shots = (m === 'video' && sanitizeShots(cardShots) && modelSupportsShots() && pureT2V()) ? sanitizeShots(cardShots) : null;
+  const extras = sanitizeExtras(cardExtras);
   const box = document.createElement('div');
   box.className = 'review-card';
   const label = document.createElement('div');
@@ -4254,8 +4381,9 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots) {
   const actions = document.createElement('div'); actions.className = 'review-actions';
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
-  // Price the card on the actual prompt/script/shot-list, not the (now-cleared) input.
-  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots) || '✦');
+  // Price the card on the actual prompt/script/shot-list (and the silent flag,
+  // which discounts Veo/Kling), not the (now-cleared) input.
+  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots, extras && extras.sound) || '✦');
   deny.onclick = () => { clearReviews(); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     // One generation per chat — if the previous run is still going, keep the
@@ -4276,7 +4404,7 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots) {
     const c = activeChat();
     if (cardBrief && c) { c.brief = cardBrief; persistStore(); touchSync(c.id); }
     if (cardMemory) commitMemory(cardMemory);
-    generateMedia(prompt, { announce: false, shots });
+    generateMedia(prompt, { announce: false, shots, extras });
   };
   actions.appendChild(deny); actions.appendChild(allow);
   box.appendChild(label); box.appendChild(body); if (shotList) box.appendChild(shotList); box.appendChild(actions);
@@ -4295,10 +4423,10 @@ function reviewPrompt(prompt) {
   // by the next compose, so approving an older (or previously denied) card must
   // not commit a different draft's durable memory. Also persist them on the
   // message so a card approved after a reload still commits the right ones.
-  const cardBrief = pendingBrief, cardMemory = pendingMemory, cardShots = pendingShots;
-  pendingBrief = null; pendingMemory = null; pendingShots = null;
-  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined, shots: cardShots || undefined });
-  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory, cardShots));
+  const cardBrief = pendingBrief, cardMemory = pendingMemory, cardShots = pendingShots, cardExtras = pendingExtras;
+  pendingBrief = null; pendingMemory = null; pendingShots = null; pendingExtras = null;
+  pushSaved({ t: 'review', prompt: String(prompt), mode, at: Date.now(), brief: cardBrief || undefined, memory: cardMemory || undefined, shots: cardShots || undefined, extras: cardExtras || undefined });
+  threadAppend(buildReviewCard(prompt, mode, cardBrief, cardMemory, cardShots, cardExtras));
 }
 
 // Grow the message box downward as the user types; cap it, then scroll.

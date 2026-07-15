@@ -59,19 +59,25 @@ const SUPABASE_ANON_KEY =
 // own JWT, so the client can display but never mint credits.
 const CREDIT_USD = 0.008;
 const VIDEO_USD = {
-  "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, d: 8 },
+  // aoff = audio-off rates (fal bills less with generate_audio:false; applied
+  // only when the director's "silent" flag is set — verified on fal's pricing
+  // pages 2026-07-15: Veo halves, Kling v3 pro 0.112 / std 0.084, o3 0.112).
+  "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, aoff: { "720p": 0.20, "1080p": 0.20, "4k": 0.40 }, d: 8 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
   // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
   // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).
   "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, i2s: { "540p": 0.03, "720p": 0.06, "1080p": 0.24 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, d: 5 },
+  // Seedance has no published audio-off discount — silent renders bill the same.
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.304, "1080p": 0.682, "4k": 1.59 }, d: 5 },
-  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.135, "720p": 0.242, "1080p": 0.55 }, d: 5 },
+  // (fast tier has no 1080p on fal — resolution enum is 480p/720p only)
+  "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.135, "720p": 0.242 }, d: 5 },
   "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.0725, "720p": 0.155 }, d: 5 },
   // o3's video-to-video/edit bills a 20% premium over t2v ($0.168/s vs $0.14/s
   // — verified on fal's pricing page + a real $2.52 bill for a 15s edit).
-  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, v2s: { def: 0.168 }, d: 5 },
-  "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
-  "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
+  // o3 t2v/i2v now send generate_audio:true, matching the $0.14/s audio-on rate.
+  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, aoff: { def: 0.112 }, v2s: { def: 0.168 }, d: 5 },
+  "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, aoff: { def: 0.112 }, d: 5 },
+  "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, aoff: { def: 0.084 }, d: 5 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
   "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
   // LipSync bills on the INPUT VIDEO's seconds ($0.014/s, rolled UP to the next
@@ -99,7 +105,7 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds, soundOff, vrefSeconds }) {
   let usd;
   if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
@@ -119,12 +125,17 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
       // Unknown quality never undercharges: fall back to def, else the highest
       // listed tier (not 720p, which could be cheaper than what fal renders).
       // Rate table: clip attached → v2s (re-render premium); start image on a
-      // model where fal prices i2v separately → i2s; else the t2v rates.
-      const tbl = v2v && p.v2s ? p.v2s : i2v && p.i2s ? p.i2s : p.s;
+      // model where fal prices i2v separately → i2s; else the t2v rates —
+      // discounted to aoff when the render is explicitly silent (Veo, Kling).
+      const tbl = v2v && p.v2s ? p.v2s : i2v && p.i2s ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
       const tiers = Object.values(tbl).filter((n) => typeof n === "number");
       const maxTier = tiers.length ? Math.max(...tiers) : 0.4;
       const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : maxTier;
-      usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
+      // Seedance reference-to-video WITH a @Video1 clip: fal's page prices video
+      // input at 0.6× the rate over (input + output) seconds — bill that basis
+      // (covers both published readings; to be relaxed if a live job bills less).
+      if (vrefSeconds) usd = 0.6 * (rate != null ? rate : maxTier) * (vrefSeconds + (duration || p.d || 5));
+      else usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
     if (hdr) usd *= exr ? 3 : 2; // Ray HDR render bills 2×; the EXR sidecar 3×
   }
@@ -288,6 +299,27 @@ async function useCredits(authHeader, cost) {
   });
   if (!r.ok) throw new Error("credits rpc " + r.status);
   return Number(await r.json());
+}
+
+// Reverse a small service fee whose work never happened (an orchestrator call
+// charged before an upstream failure). Server-authorized only: the RPC's
+// EXECUTE is service_role-only and hard-caps the per-call amount, so this can
+// never become a client-reachable mint. Best-effort — a failed reversal is
+// logged nowhere and simply stands as the (tiny) original charge.
+async function creditBack(env, userId, amount) {
+  if (!env.SUPABASE_SERVICE_KEY || !userId || !(amount > 0)) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/rpc/credit_back`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_KEY,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      },
+      body: JSON.stringify({ target: userId, amount }),
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {}
 }
 
 // Read the caller's balance without deducting (used to reject a broke user
@@ -1663,11 +1695,13 @@ async function handleRequest(request, env, ctx) {
       // clip on fal storage and submit the hosted URL instead. Happens BEFORE
       // the credit charge, so an upload failure costs nothing.
       const clipDataUri = dataVideo(body.clip);
-      // LipSync bills on the clip's real length — measure it from the bytes here
-      // (before the data URI is swapped for the hosted URL) rather than trusting
-      // the client. Unparseable → 0, which bills the 10s max downstream.
-      const clipSecondsReal = clipDataUri && model === "fal-ai/kling-video/lipsync/audio-to-video"
-        ? (videoDurationFromDataUri(clipDataUri) || 0) : 0;
+      // Several billing bases need the clip's REAL length (LipSync per-5s, the
+      // o3/Gemini edits that render the whole clip, Seedance video-reference
+      // input seconds) — measure it from the bytes here (before the data URI is
+      // swapped for the hosted URL) rather than trusting the client.
+      // Unparseable → 0, and each consumer falls back to its own never-
+      // undercharge maximum.
+      const clipSecondsReal = clipDataUri ? (videoDurationFromDataUri(clipDataUri) || 0) : 0;
       let clip = clipDataUri;
       if (clip) {
         clip = await falUpload(clip, env);
@@ -1711,6 +1745,12 @@ async function handleRequest(request, env, ctx) {
       // Set once the multi_prompt shot-list is actually applied (Kling pure t2v,
       // ≥2 shots) — flips billing onto the summed shot seconds.
       let useShots = false;
+      // Director-driven extras (no UI knobs — the composer sets these from the
+      // user's own words). soundOff: an explicit "silent / no sound" request;
+      // billing keys off it where fal prices audio-off cheaper (Veo, Kling).
+      const soundOff = body.sound === false;
+      // A short "avoid X" list for families with a real negative_prompt field.
+      const negative = typeof body.negative === "string" ? body.negative.trim().slice(0, 500) : "";
 
       const ratio =
         typeof body.ratio === "string" && /^\d{1,2}:\d{1,2}$/.test(body.ratio)
@@ -1753,6 +1793,18 @@ async function handleRequest(request, env, ctx) {
             ? body.voice
             : null;
         if (voice) input.voice = voice;
+        // Director-driven delivery tuning (price-neutral — TTS bills per
+        // character). Clamped to each schema's range; eleven-v3 accepts only
+        // stability, so speed/style are dropped for it.
+        const clamp = (v, lo, hi) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : null);
+        const stab = clamp(body.stability, 0, 1);
+        if (stab != null) input.stability = stab;
+        if (!/eleven-v3/.test(model)) {
+          const spd = clamp(body.speed, 0.7, 1.2);
+          const sty = clamp(body.style, 0, 1);
+          if (spd != null) input.speed = spd;
+          if (sty != null) input.style = sty;
+        }
       } else if (genKind === "video" && model === "fal-ai/bytedance/omnihuman") {
         // Audio-driven talking avatar: a portrait image + a voice clip.
         if (!image || !audio) {
@@ -1951,6 +2003,33 @@ async function handleRequest(request, env, ctx) {
         if (wantExr) input.exr_export = true;
         // Loop: t2v/i2v only, and never alongside an end frame (fal rejects it).
         if (wantLoop && !isRayV2V && !input.end_image_url && !input.keyframes) input.loop = true;
+
+        // ── Audio track control (director-driven, no UI knob) ──
+        // Kling o3's generate_audio defaults FALSE (every other family defaults
+        // true) while its $0.14/s rate is fal's audio-ON price — so o3 renders
+        // were silent yet billed with-audio. Turn audio ON by default so the
+        // delivered video matches the rate charged; an explicit "silent" request
+        // (soundOff) leaves it off and bills the cheaper audio-off tier.
+        if (isKlingO3 && !bareEdit) input.generate_audio = !soundOff;
+        // Families whose generate_audio defaults true: only an explicit silent
+        // request flips it (and, where fal prices audio-off cheaper — Veo, Kling
+        // v3 — billing follows via the aoff tier below).
+        else if (soundOff && !bareEdit && (isSeedance || isKlingV3 || isVeo)) input.generate_audio = false;
+        // o3 edit keeps the source clip's audio by default; "silent" strips it.
+        if (soundOff && isKlingO3 && endpoint.includes("/video-to-video/edit")) input.keep_audio = false;
+
+        // ── negative_prompt (director-driven) ── only Kling v3 and Veo have the
+        // field (verified per schema; o3/Seedance/Gemini/Ray do not). Kling's
+        // server default is a quality guard — append to it, never replace it.
+        if (negative && !bareEdit) {
+          if (isKlingV3) input.negative_prompt = negative + ", blur, distort, and low quality";
+          else if (isVeo && !endpoint.includes("/reference-to-video")) input.negative_prompt = negative;
+        }
+
+        // Veo auto-fix (self-heal content-policy trips by rewording) defaults
+        // true on t2v but FALSE on i2v/flf/ref/extend — normalize it on so an
+        // i2v run self-heals instead of failing a charged submit. Price-neutral.
+        if (isVeo) input.auto_fix = true;
       } else if ((image || avatar) && IMAGE_EDIT[model]) {
         // Image editing: route to the model's edit / image-to-image endpoint.
         // Size comes from the source image, so no aspect_ratio here.
@@ -1982,6 +2061,12 @@ async function handleRequest(request, env, ctx) {
           input.aspect_ratio = ratio;
         }
       }
+
+      // Nano Banana Pro: request the 2K render tier — fal bills 1K and 2K at the
+      // SAME $0.15/image (verified on the pricing page 2026-07-15; only 4K is
+      // 2×), so this is a free quality upgrade over the 1K default. Applies to
+      // both text-to-image and the edit endpoint (same field on each schema).
+      if (genKind === "image" && model === "fal-ai/nano-banana-pro") input.resolution = "2K";
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
@@ -2019,23 +2104,37 @@ async function handleRequest(request, env, ctx) {
 
       // Endpoint-specific billing shape (verified on fal's pricing pages):
       // Veo extend always outputs a 7s clip (schema const) regardless of the
-      // duration picker; Ray's image-to-video endpoint bills its cheaper i2s
-      // tier for EVERYTHING it renders (start image OR keyframes). Only a single
-      // start image is 5s-locked — keyframes can be 10s — so the rate tier
-      // follows the endpoint while the 5s force excludes keyframes.
+      // duration picker; Veo reference-to-video always renders 8s (schema const
+      // — the input build forces "8s", so billing must too); Ray's image-to-video
+      // endpoint bills its cheaper i2s tier for EVERYTHING it renders (start
+      // image OR keyframes). Only a single start image is 5s-locked — keyframes
+      // can be 10s — so the rate tier follows the endpoint while the 5s force
+      // excludes keyframes.
       const isRayImgEndpoint = model.startsWith("luma/") && endpoint.includes("image-to-video");
       const isRayStart5s = isRayImgEndpoint && !input.keyframes;
+      const isVeoRef = model.includes("veo") && endpoint.includes("/reference-to-video");
+      // The o3/Gemini clip edits have NO duration input — fal renders (and
+      // bills) the WHOLE source clip, so the bill follows the clip's measured
+      // length, never the duration picker (a real 15s edit billed $2.52 while
+      // the picker said 5s). Unmeasurable → the model's max, never undercharge:
+      // the client validates o3 clips to 3-15s and Gemini clips to 30s.
+      const isClipEdit = !!clip && (endpoint.includes("/video-to-video/edit") || endpoint.endsWith("gemini-omni-flash/edit"));
+      const clipEditMax = endpoint.includes("/video-to-video/edit") ? 15 : 30;
+      // Only the server-side byte measurement is trusted; unparseable bills the
+      // max (a client-claimed duration could undercharge a long clip).
+      const clipBillSecs = isClipEdit ? Math.min(clipEditMax, Math.ceil(clipSecondsReal || clipEditMax)) : 0;
       // Multi-shot bills on the SUM of the shot durations (one continuous render
       // of that total length) at the model's per-second rate.
       const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
-      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayStart5s ? 5 : useShots ? shotSecs : duration;
+      const billDuration = endpoint.includes("/extend-video") ? 7
+        : isVeoRef ? 8
+        : isClipEdit ? clipBillSecs
+        : isRayStart5s ? 5
+        : useShots ? shotSecs
+        : duration;
       if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
-        effort: typeof body.effort === "string" ? body.effort : "",
-        // Only an explicit "off" waives the director surcharge — absent or
-        // anything else charges it, so old clients never undercharge.
-        director: body.director === "off" ? "off" : "on",
         audioSeconds,
         hdr: wantHdr,
         exr: wantExr,
@@ -2046,6 +2145,11 @@ async function handleRequest(request, env, ctx) {
         // LipSync bills on the clip's length, measured server-side from the
         // bytes (never the client's claim). Unparseable → 0 → the 10s max.
         clipSeconds: clipSecondsReal,
+        // Explicit "silent" render → the audio-off rate where fal prices one.
+        soundOff,
+        // Seedance reference-to-video with a @Video1 clip bills 0.6× rate over
+        // (input + output) seconds; unmeasurable input assumes the 15s max.
+        vrefSeconds: model.startsWith("bytedance/") && clip ? Math.min(15, Math.ceil(clipSecondsReal || 15)) : 0,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never
@@ -2113,11 +2217,15 @@ async function handleRequest(request, env, ctx) {
 
       // Record the charge so /api/refund can credit it back if fal never bills
       // us, AND so the idempotency key can recover the job if this response is
-      // lost. Stores status/response URLs + idem. Runs via waitUntil — Cloudflare
-      // keeps the insert alive after the response, so it lands even when the
-      // client's reply was dropped (recovery re-POSTs ~45s later, well after).
+      // lost. Stores status/response URLs + idem. AWAITED (with one retry)
+      // before responding: this row is the ONLY thing a recovery re-POST or a
+      // refund can find, so a fire-and-forget insert that silently failed used
+      // to leave a dropped-reply job unrecoverable AND unrefundable — the one
+      // path where every charge-loss protection agreed the charge never
+      // happened. ~100ms of latency buys a durable record; if both attempts
+      // fail we still respond (the client holds the URLs in its own record).
       if (env.SUPABASE_SERVICE_KEY && data.request_id) {
-        const rec = fetch(`${SUPABASE_URL}/rest/v1/gen_charges`, {
+        const insertRec = () => fetch(`${SUPABASE_URL}/rest/v1/gen_charges`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -2129,9 +2237,12 @@ async function handleRequest(request, env, ctx) {
             request_id: data.request_id, user_id: genUser.id, cost: genCost,
             idem: idem || null, status_url: data.status_url || null, response_url: data.response_url || null,
           }),
-          signal: AbortSignal.timeout(8000),
-        }).catch(() => {});
-        if (ctx && ctx.waitUntil) ctx.waitUntil(rec); else await rec;
+          signal: AbortSignal.timeout(6000),
+        });
+        try {
+          const ok = await insertRec().then((r) => r.ok, () => false);
+          if (!ok) { const retry = insertRec().catch(() => {}); if (ctx && ctx.waitUntil) ctx.waitUntil(retry); else await retry; }
+        } catch {}
       }
 
       return Response.json({
@@ -2796,7 +2907,8 @@ async function handleRequest(request, env, ctx) {
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.
     if (url.pathname === "/api/direct" && request.method === "POST") {
-      if (!(await authUser(request))) return UNAUTHED();
+      const dirUser = await authUser(request);
+      if (!dirUser) return UNAUTHED();
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
@@ -2834,6 +2946,11 @@ async function handleRequest(request, env, ctx) {
       if (dirBalance === -1) {
         return Response.json({ error: "not enough credits", locked: true, need: "credits", cost: dirCredits }, { status: 402 });
       }
+      // The fee was debited above, BEFORE the Claude call — if that call then
+      // fails (network, upstream error, unusable output), the user paid for
+      // nothing. Every terminal failure path below reverses the fee via the
+      // service-only credit_back RPC, so an upstream outage never eats credits.
+      const refundFee = () => { const p = creditBack(env, dirUser.id, dirCredits); if (ctx && ctx.waitUntil) ctx.waitUntil(p); };
       // Raw pipeline error, for the explain-a-failure step.
       const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
       // The chat's running creative brief — per-chat taste memory, maintained
@@ -2903,10 +3020,11 @@ async function handleRequest(request, env, ctx) {
               signal: AbortSignal.timeout(120000),
             });
           } catch {
+            refundFee(); // paid research that never ran — reverse the fee
             return Response.json({ facts: "", sources: [] });
           }
           const rdata = await rr.json().catch(() => ({}));
-          if (!rr.ok) return Response.json({ facts: "", sources: [] });
+          if (!rr.ok) { refundFee(); return Response.json({ facts: "", sources: [] }); }
           const content = Array.isArray(rdata.content) ? rdata.content : [];
           for (const c of content) {
             if (c.type === "text" && typeof c.text === "string") facts += c.text;
@@ -2961,6 +3079,14 @@ async function handleRequest(request, env, ctx) {
       const shotsCapable = kind === "video" &&
         /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(genModel) &&
         !hasImage && !hasEnd && !hasClip && !hasAvatar && !hasAudio && !refCount;
+      // Director-driven knobs (owner's call: the AI sets these from the user's
+      // words, no new UI). sound: families with an audio-track switch
+      // (generate_audio / o3-edit keep_audio). negative: only Kling v3 and Veo
+      // have a real negative_prompt field. tune: ElevenLabs voice delivery.
+      const soundCapable = kind === "video" && /seedance|kling-video\/(?:o3|v3)|veo/.test(genModel);
+      const negCapable = kind === "video" && /kling-video\/v3|veo/.test(genModel);
+      const tuneCapable = kind === "audio" && /elevenlabs/.test(genModel);
+      const tuneFull = tuneCapable && !/eleven-v3/.test(genModel); // v3 accepts stability only
       // The attached image itself (downscaled by the client) so the director
       // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
       let imageBlock = null;
@@ -3150,6 +3276,7 @@ Context: ${ctxLine}`
         : `You are the script writer for isibi, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
 - If the user gives words to say, return exactly those words, lightly cleaned and punctuated for natural delivery.
 - If the user asks for a vocal SOUND rather than words (a scream, laugh, sob, gasp, sigh, whisper, moan), render it as a performable vocalization${/eleven-v3/.test(genModel) ? ` using ElevenLabs v3 audio tags in square brackets — e.g. a woman screaming → "[screams] Aaaaaahhh!", a laugh → "[laughs] Haha, no way!", a whisper → "[whispers] come closer…".` : ` written as onomatopoeia the voice can actually perform — e.g. a scream → "Aaaaaaahhhh!", a laugh → "Hahaha!".`}
+- If their phrasing asks for a DELIVERY change, set the matching tool fields (${tuneFull ? "speed: 0.8 slow / 1.15 fast; stability: ~0.3 emotional, ~0.85 steady; style: 0.6-0.9 expressive" : "stability: ~0.3 emotional/varied, ~0.85 steady"}); omit them all when the user didn't ask.
 Return just the line to be voiced — keep it to what should actually come out of the speaker.`;
 
       const userMsg = step === "ask"
@@ -3277,7 +3404,7 @@ Return just the line to be voiced — keep it to what should actually come out o
                 ...(shotsCapable ? {
                   shots: {
                     type: "array",
-                    description: "OPTIONAL multi-shot sequence. ONLY return this when the user clearly wants a video that CUTS between several distinct shots (a montage, a commercial with separate beats, 'cut between X and Y', a scene that changes location/subject) — NOT for a single continuous shot (leave it out then). This model renders the shots as one video, cutting between them. Keep it to 2-5 shots; each needs a second or two to read, so avoid rapid-fire cuts. For each shot write a full self-contained prompt (camera, subject, action, setting, lighting) — repeat recurring characters/settings WORD-FOR-WORD across shots so they stay consistent — and a duration in seconds (2-10). Still fill the top-level `prompt` with a one-paragraph summary of the whole sequence (used as a fallback and for later revisions).",
+                    description: "OPTIONAL multi-shot sequence. ONLY return this when the user clearly wants a video that CUTS between several distinct shots (a montage, a commercial with separate beats, 'cut between X and Y', a scene that changes location/subject) — NOT for a single continuous shot (leave it out then). This model renders the shots as one video, cutting between them. Keep it to 2-5 shots; each needs a second or two to read, so avoid rapid-fire cuts. For each shot write a full self-contained prompt (camera, subject, action, setting, lighting), each under ~120 words — repeat recurring characters/settings WORD-FOR-WORD across shots so they stay consistent — and a duration in seconds (2-10). Still fill the top-level `prompt` with a one-paragraph summary of the whole sequence (used as a fallback and for later revisions).",
                     items: {
                       type: "object",
                       properties: {
@@ -3287,6 +3414,19 @@ Return just the line to be voiced — keep it to what should actually come out o
                       required: ["prompt", "duration"],
                     },
                   },
+                } : {}),
+                ...(soundCapable ? {
+                  sound: { type: "boolean", description: "Set false ONLY when the user explicitly asks for a silent / muted / no-sound video (this model generates an audio track by default, and silent renders can cost less). Omit entirely otherwise — never set it true." },
+                } : {}),
+                ...(negCapable ? {
+                  negative: { type: "string", description: "ONLY when the user names concrete things to EXCLUDE from the video ('no people', 'avoid on-screen text', 'no rain'): a short comma-separated list of those things. Omit entirely otherwise — do not invent exclusions." },
+                } : {}),
+                ...(tuneCapable ? {
+                  stability: { type: "number", description: "ONLY when the user's phrasing asks for a delivery change: voice stability 0-1 (low ~0.3 = more emotional variation, high ~0.85 = steady/newsreader). Omit when unasked." },
+                  ...(tuneFull ? {
+                    speed: { type: "number", description: "ONLY when asked to speak slower/faster: 0.7-1.2 (0.8 = noticeably slow, 1.15 = brisk). Omit when unasked." },
+                    style: { type: "number", description: "ONLY when asked for more expressiveness/drama: style exaggeration 0-1 (0.6-0.9 = expressive). Omit when unasked." },
+                  } : {}),
                 } : {}),
               },
               required: ["prompt"],
@@ -3331,10 +3471,12 @@ Return just the line to be voiced — keep it to what should actually come out o
             model: dirModel,
             // The ask step has thinking off and writes a short reply, so 1500
             // is plenty. The prompt-writing steps run Sonnet with adaptive
-            // thinking, which shares the budget with a 250-330-word Max prompt
-            // — give them headroom so thinking can't truncate the tool output.
+            // thinking, which shares the budget with the tool output — and a
+            // multi-shot compose (up to 5 full shot prompts + summary + brief +
+            // memory) can legitimately run 4-5k output tokens, so 4000 could
+            // truncate the tool JSON and lose the whole (already-charged) call.
             // max_tokens is a ceiling, not a target: unused tokens aren't billed.
-            max_tokens: step === "ask" ? 1500 : 4000,
+            max_tokens: step === "ask" ? 1500 : 8000,
             // Chat replies should feel instant; on the Sonnet prompt-writing
             // steps thinking stays on (adaptive), where it earns its latency.
             // Haiku ignores the omission — it simply runs without thinking.
@@ -3348,6 +3490,7 @@ Return just the line to be voiced — keep it to what should actually come out o
           signal: AbortSignal.timeout(120000),
         });
       } catch {
+        refundFee(); // the Claude call never happened — reverse the fee
         return Response.json({ error: "director request failed" }, { status: 502 });
       }
 
@@ -3383,8 +3526,10 @@ Return just the line to be voiced — keep it to what should actually come out o
             }
             let parsed = null;
             try { parsed = JSON.parse(partial); } catch {}
+            if (!parsed) await creditBack(env, dirUser.id, dirCredits); // paid, no usable output
             await send(parsed ? { done: shapeAsk(parsed) } : { error: "director no output" });
           } catch {
+            await creditBack(env, dirUser.id, dirCredits); // stream broke — reverse the fee
             try { await send({ error: "stream failed" }); } catch {}
           } finally {
             try { await writer.close(); } catch {}
@@ -3397,10 +3542,10 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
 
       const data = await r.json().catch(() => ({}));
-      if (!r.ok) return Response.json({ error: "director error" }, { status: 502 });
+      if (!r.ok) { refundFee(); return Response.json({ error: "director error" }, { status: 502 }); }
 
       const parsed = (data.content || []).find((c) => c.type === "tool_use")?.input;
-      if (!parsed) return Response.json({ error: "director no output" }, { status: 502 });
+      if (!parsed) { refundFee(); return Response.json({ error: "director no output" }, { status: 502 }); }
 
       if (step === "ask") return Response.json(shapeAsk(parsed));
       if (step === "error") {
@@ -3432,6 +3577,15 @@ Return just the line to be voiced — keep it to what should actually come out o
               .map((s) => ({ prompt: s.prompt.trim().slice(0, 2500), duration: Math.min(10, Math.max(2, Math.round(+s.duration) || 5)) }))
               .slice(0, 5)
           : undefined,
+        // Director-driven knobs — only ever the restrictive direction (sound
+        // off / things to exclude / delivery tweaks), sanitized to safe ranges.
+        sound: soundCapable && parsed.sound === false ? false : undefined,
+        negative: negCapable && typeof parsed.negative === "string" && parsed.negative.trim()
+          ? parsed.negative.trim().slice(0, 300)
+          : undefined,
+        stability: tuneCapable && Number.isFinite(+parsed.stability) ? Math.min(1, Math.max(0, +parsed.stability)) : undefined,
+        speed: tuneFull && Number.isFinite(+parsed.speed) ? Math.min(1.2, Math.max(0.7, +parsed.speed)) : undefined,
+        style: tuneFull && Number.isFinite(+parsed.style) ? Math.min(1, Math.max(0, +parsed.style)) : undefined,
       });
     }
 
@@ -3537,7 +3691,7 @@ Return just the line to be voiced — keep it to what should actually come out o
       let ct;
       // Gallery storage gate. Saving is a subscription benefit: free, lapsed or
       // top-up-only users (cap 0) can't save; paid tiers are capped by GB
-      // (Plus 1 / Pro 5 / Max 10). storageStatus is null when the ledger is
+      // (Plus 10 GB / Pro 50 GB / Max 100 GB). storageStatus is null when the ledger is
       // unreachable → fail open (allow) so an outage can't break paid saves.
       const store = await storageStatus(request);
       if (store && store.cap === 0) {

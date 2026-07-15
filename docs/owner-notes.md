@@ -404,3 +404,69 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   (@Element multi-angle consistency — bigger feature), ElevenLabs voice tuning
   (stability/style/speed — no price impact, marginal). All catalogued from the
   per-model schema audit.
+
+### Round-2 audit (owner asked: "check the missing stuff again, check credits too") — 33 confirmed findings, fixed 2026-07-15
+- **Status:** ✅ fixed (the fix batch below); rest documented
+- **Money bugs found & fixed (quote == charge re-verified, 27-case parity test):**
+  1. **Kling o3 was billing audio-ON ($0.14/s) for SILENT renders** — o3's
+     `generate_audio` defaults false (every other family: true). Fix: o3 t2v/i2v
+     now send `generate_audio:true` — the video you pay for has sound.
+  2. **o3/Gemini clip edits billed the duration PICKER; fal bills the CLIP's
+     length** (the owner's $2.52 15s edit proved it — we'd charged for 5s).
+     Fix: bill the clip's server-measured length (o3 ≤15s; Gemini capped at 30s
+     — our product cap, attach-validated).
+  3. **Veo reference-to-video always renders 8s but billed the 4/6s pick** —
+     fix: bill 8s (both sides).
+  4. **Seedance @Video reference pricing** — fal prices video input at 0.6×rate
+     over (input+output) seconds; we billed flat t2v × output. Fixed to the
+     0.6×(in+out) basis (covers both readings of fal's page; relax later if a
+     live job bills less).
+  5. **Auto-mode multi-shot could show ✦79 and charge ✦788** — Auto now posts
+     "🎬 Multi-shot: N shots · Xs total — ✦YYY" in the chat before billing
+     (Plan card was already exact).
+  6. **/api/direct kept the fee when the AI call failed** — every terminal
+     failure path (fetch error, upstream !ok, no tool output, stream break,
+     research come-up-empty) now reverses the fee via a new `credit_back(target,
+     amount)` RPC (SECURITY DEFINER, **service_role-only EXECUTE, ≤10 credits
+     per call** — worker-authorized only, not client-callable).
+  7. **gen_charges insert was fire-and-forget** — a failed insert after a
+     dropped reply made a charged render unrecoverable AND unrefundable. Now
+     awaited with one retry before responding.
+  8. **Compose could truncate a big multi-shot answer** (max_tokens 4000, and
+     thinking shares the budget) → user paid, got local fallback. Raised to 8000.
+  9. Phantom Seedance-fast 1080p price tier deleted (no such tier on fal).
+- **Free upgrades wired:** nano-banana now renders **2K** (same $0.15 as 1K on
+  fal — verified; 4K is 2× and stays unwired). Veo `auto_fix:true` normalized on
+  all Veo endpoints (i2v defaulted false → content-policy trips failed instead
+  of self-healing).
+- **Director-driven knobs wired (owner's call: AI sets them, no new UI):**
+  - **"silent/no sound"** → `sound:false` → `generate_audio:false` (Seedance/
+    Kling/Veo; o3-edit `keep_audio:false`) — AND bills the cheaper audio-off
+    tier where fal has one (Veo halves; v3 pro 0.112, v3 std 0.084, o3 0.112).
+  - **"no people / avoid text"** → `negative` → `negative_prompt` on Kling v3
+    (APPENDED to fal's quality-guard default, never replacing it) and Veo.
+  - **"say it slower / more expressive"** → ElevenLabs `speed`/`stability`/
+    `style` (v3 model: stability only). Price-neutral.
+  - All ride the same pending→review-card→generateMedia lifecycle as shots.
+- **Seedance @Video clip band:** fal caps reference clips at ~0.41-0.93MP pixel
+  AREA (1280×720 fits; 1080p doesn't). Attach now auto-downscales oversized
+  clips on-device for free (`sbFFScale`, same pattern as the fps conform);
+  under-480p clips are rejected with the reason.
+- **nano-banana full ratio list** (3:2, 2:3, 4:5, 5:4, 21:9 added — per-model
+  `IMAGE_RATIOS`; GPT Image 2 keeps its 5 mappable presets).
+- **Round-1 wiring re-verified correct** by schema re-fetch: multi_prompt rules
+  (prompt omitted when shots sent — v3 requires that), Gemini integer duration,
+  GPT image_size enum values, no cross-endpoint leaks (gates proven).
+- **Known exposures documented, NOT charged for yet (need one live job each to
+  verify):** Kling v3 "voice control" third price tier ($0.196/$0.154 —
+  trigger mechanism unknown, possibly dialogue in prompt); whether fal's
+  multi-shot total length == sum of shot durations; Gemini /edit regional
+  restriction (EEA/CH/UK) possibly binding on the fal account; Seedance
+  bitrate_mode. **Add all four to the fal-balance live sweep list.**
+- **Deliberately skipped (reasons on file, don't re-flag):** Kling v3
+  `cfg_scale` (no reliable user-language signal), Veo `safety_tolerance`
+  (moderation dial, platform decision), `seed` (rerun means fresh sample),
+  Seedance duration/aspect "auto" (unbillable/low value), nano `sync_mode` +
+  `output_format`, Kling **elements** mode (character consistency — real
+  feature, deferred to its own pass: needs elements↔image_urls live testing
+  and the voice_id half trips the voice-control price tier).

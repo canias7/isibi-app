@@ -233,6 +233,29 @@ async function sbFFFps(src, fps, opts = {}) {
   }, opts.onProgress);
 }
 
+// ── Downscale ─────────────────────────────────────────────────────────────────
+// Re-encode a clip scaled so its frame AREA fits under `maxArea` pixels,
+// preserving aspect (H.264 + AAC). Used for models that hard-cap reference
+// clips at ~720p worth of pixels (Seedance @Video refs) — a 1080p phone video
+// conforms on-device for free instead of bouncing at fal. Width/height are
+// rounded to even numbers (encoder requirement). Throws if nothing came out.
+async function sbFFScale(src, w, h, maxArea, opts = {}) {
+  const k = Math.sqrt(maxArea / (w * h));
+  const even = (n) => Math.max(2, 2 * Math.floor((n * k) / 2));
+  const outW = even(w), outH = even(h);
+  const inName = 'in.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    const vf = ['-vf', 'scale=' + outW + ':' + outH];
+    let data = await sbFFRunRead(ff, ['-i', inName, ...vf, ...SB_VENC, ...SB_AENC, ...SB_FAST]);
+    if (!data) data = await sbFFRunRead(ff, ['-i', inName, ...vf, '-an', ...SB_VENC, ...SB_FAST]);
+    try { await ff.deleteFile(inName); await ff.deleteFile('out.mp4'); } catch (e) {}
+    if (!data) throw new Error('downscale produced no output');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }, opts.onProgress);
+}
+
 // ── Remux (repair a MediaRecorder capture) ────────────────────────────────────
 // The realtime canvas exporter records via MediaRecorder, which writes no
 // top-level duration into the webm — so players show Infinity/no seek bar until
