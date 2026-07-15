@@ -7091,12 +7091,16 @@ function initCrtStage() {
     + '<svg class="ico-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>'
     + '<svg class="ico-on" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 4.5a9 9 0 0 1 0 15"/></svg>'
     + '</button>';
-  const cell = (n) => n === 'v'
-    ? '<div class="mkt-cell mkt-cvid"><video class="mkt-cell-vid" src="/mkt/reel1.mp4" poster="/mkt/reel1.jpg" muted loop autoplay playsinline preload="metadata"></video>' + soundBtn + '</div>'
+  // A cell is either a still ('mkt-cN' + /mkt/fN.jpg) or a video — pass a video
+  // as { v:'reel1' } and it renders /mkt/reel1.mp4 (+ /mkt/reel1.jpg poster) with
+  // its own tap-to-unmute button. Drop more videos in by adding { v:'reel2' } etc.
+  const vidCell = (name) => '<div class="mkt-cell mkt-cvid"><video class="mkt-cell-vid" src="/mkt/' + name + '.mp4" poster="/mkt/' + name + '.jpg" muted loop autoplay playsinline preload="metadata"></video>' + soundBtn + '</div>';
+  const cell = (n) => (n && n.v)
+    ? vidCell(n.v)
     : '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
   const col = (arr) => { const one = arr.map(cell).join(''); return one + one; };  // doubled for seamless loop
   const cols = stage.querySelectorAll('.lp-col');
-  if (cols[0]) cols[0].innerHTML = col(['v', 3, 5, 7, 9, 11, 13]);
+  if (cols[0]) cols[0].innerHTML = col([{ v: 'reel1' }, 3, 5, 7, 9, 11, 13]);
   if (cols[1]) cols[1].innerHTML = col([2, 4, 6, 8, 10, 12, 14]);
   // Drive the loop by the EXACT height of one copy (the start of the 2nd copy)
   // so it wraps seamlessly — a plain -50% is short by the last cell's uncounted
