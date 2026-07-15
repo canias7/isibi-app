@@ -608,9 +608,11 @@ function renderAttach(kind) {
     const preview = kind === 'clip'
       ? '<span class="audio-chip">🎬 clip</span>'
       : '<img src="' + esc(attachments[kind]) + '" alt="" />';
-    // With several images attached, badge the main one as #1 so the prompt can
-    // refer to "the first image" (Nano references images by position, not tags).
-    const num = (kind === 'image' && extraImages.length) ? '<span class="slot-num">1</span>' : '';
+    // With several images attached, badge the main one as "1/<cap>" so the user
+    // sees which image is #1 (the composer refers to images by position) and how
+    // many the model can take. Only shown once there's more than one image.
+    const imgCap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+    const num = (kind === 'image' && extraImages.length) ? '<span class="slot-num">1/' + imgCap + '</span>' : '';
     btn.innerHTML = preview + num + '<span class="x">×</span>';
     const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
@@ -942,12 +944,15 @@ function removeExtraImage(i) {
 function renderExtraImages() {
   const host = document.getElementById('extraImages');
   if (!host) return;
+  const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
   host.innerHTML = '';
   extraImages.forEach((src, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
-    // Number continues from the main image (#1), so extras are #2, #3, …
-    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="slot-num">' + (i + 2) + '</span><span class="x">×</span>';
+    // Position out of the max ("2/14", "3/14"): the main image is #1, extras
+    // continue from #2. Lets the user see which image is which (the composer
+    // refers to them by position) and how many more can be added.
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="slot-num">' + (i + 2) + '/' + cap + '</span><span class="x">×</span>';
     d.querySelector('.x').onclick = () => removeExtraImage(i);
     host.appendChild(d);
   });
