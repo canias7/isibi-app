@@ -2073,6 +2073,15 @@ async function handleRequest(request, env, ctx) {
         : "";
       if (imgRes) input.resolution = imgRes;
 
+      // Nano Banana Pro aspect_ratio — applied to BOTH text-to-image AND edit
+      // (its edit endpoint reframes/outpaints to the target ratio; the generic
+      // ratio branch above is skipped on the edit path, so the picked ratio used
+      // to be dropped on edits). 'auto' lets the model pick / keeps the source
+      // shape; an unrecognized value defaults to 'auto' (never a forced reframe).
+      if (genKind === "image" && model === "fal-ai/nano-banana-pro") {
+        input.aspect_ratio = /^(auto|\d{1,2}:\d{1,2})$/.test(body.ratio || "") ? body.ratio : "auto";
+      }
+
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
       // Driving-audio length for the audio-billed video models (fal charges by

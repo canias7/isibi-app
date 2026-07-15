@@ -93,9 +93,15 @@ const IMAGE_OPTS = { ratios: ['1:1', '16:9', '9:16', '4:3', '3:4'], defRatio: '1
 // excluded — the worker's d:d gate drops it and the chat placeholder needs a
 // concrete aspect.)
 const IMAGE_RATIOS = {
-  'fal-ai/nano-banana-pro': ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
+  // 'auto' lets Nano pick the ratio from the prompt (text-to-image) and, on the
+  // edit endpoint, keeps the SOURCE image's shape — so it's the safe default for
+  // edits (a concrete ratio reframes/outpaints instead).
+  'fal-ai/nano-banana-pro': ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
   'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
 };
+// Per-model default aspect. Nano defaults to 'auto' (model picks / keeps source);
+// everything else keeps the square default.
+const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto' };
 // Per-model image resolution tiers — a switcher like the video resolution
 // picker. Nano Banana Pro offers 2K / 4K; 1K is omitted because fal bills it
 // the same $0.15 as 2K for lower quality (no reason to pick it). 2K is the
@@ -1621,7 +1627,7 @@ function currentOpts() {
   if (mode === 'audio') return AUDIO_OPTS;
   if (mode === 'image') {
     return {
-      ratios: IMAGE_RATIOS[model] || IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
+      ratios: IMAGE_RATIOS[model] || IMAGE_OPTS.ratios, defRatio: IMAGE_DEF_RATIO[model] || IMAGE_OPTS.defRatio,
       resolutions: IMAGE_RES[model] || null, defRes: '2K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
