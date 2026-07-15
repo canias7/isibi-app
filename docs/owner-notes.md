@@ -134,9 +134,10 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   - Clips are staged to **fal storage** (hosted URL) before submit (`falUpload`, worker) — data URIs worked for the duration probe, but hosted URLs are universally accepted and keep request bodies small.
   - fal's exact rejection reason is now surfaced in chat (`falErrorDetail`) + auto-refund on any terminal 4xx.
 - **Confirmed already-correct:** Kling v3 `start_image_url`; Veo `first_frame_url`/`last_frame_url`; Seedance fast/mini 480p/720p tiers; Ray v2v & Gemini edit have no clip limits; Kling prompt cap 2500.
-- **DEFERRED (low risk, owner FYI):**
-  1. **Kling o3 v2v needs 24–60 fps** — a browser `<video>` element doesn't expose fps, so we can't pre-validate it. A sub-24fps clip (e.g. 23.98, common on downloaded video) will still 422, but now with a clear message + refund. To truly prevent it we'd re-encode client-side via the ffmpeg engine (possible; not built).
-  2. **Image min 300×300px / aspect 0.40–2.50** (Kling i2v start-images & refs) not enforced — rare to hit; caught by the error-surfacing net if it happens.
+- **Formerly-deferred items — BUILT 2026-07-14 (owner: "sure do that"):**
+  1. **fps auto-conform** — `sbFFProbeFps`/`sbFFFps` (ffmpeg-edit.js) probe the attached clip's real fps via the on-device engine; `normalizeClipFps()` (chat.js) re-encodes out-of-range clips to the nearest bound (e.g. 23.98 → 24 for Kling o3) automatically, free, with a chat note. Runs at attach + on model switch.
+  2. **Image dimension checks** — `imgMeta`/`imageAttachIssue()` measure every image slot (image/end/first/last) and bounce Kling-bound images under 300×300 or outside aspect 0.40–2.50 at attach, re-checked on model switch.
+  3. Also: image models' min prompt length (nano-banana-pro = 3 chars) guarded in raw mode.
 
 ### delete_account() can leave orphaned usage_log rows + storage objects (FOR AUDIT)
 - **Status:** 🟡 one-time cleanup done 2026-07-14; root fix deferred (owner: "later, just note it for audits")

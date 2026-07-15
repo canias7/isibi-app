@@ -192,6 +192,47 @@ async function sbFFExtractAudio(src, opts = {}) {
   }, opts.onProgress);
 }
 
+// ── Probe frame rate ──────────────────────────────────────────────────────────
+// Read a clip's container fps by running `ffmpeg -i` and parsing the stream
+// line from the log (e.g. "..., 23.98 fps, ..."). Some fal models hard-require
+// 24-60 fps and a browser <video> element can't report fps, so this is the only
+// reliable client-side read. Returns a number, or 0 if it can't be determined.
+async function sbFFProbeFps(src, opts = {}) {
+  const inName = 'pr.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    let fps = 0;
+    const onLog = ({ message }) => {
+      const m = /([\d.]+)\s*fps\b/.exec(message || '');
+      if (m && !fps) fps = parseFloat(m[1]) || 0;
+    };
+    ff.on('log', onLog);
+    try { await ff.exec(['-i', inName]); } catch (e) {} // -i alone exits non-zero; the log still prints stream info
+    ff.off('log', onLog);
+    try { await ff.deleteFile(inName); } catch (e) {}
+    return fps;
+  });
+}
+
+// ── Conform frame rate ────────────────────────────────────────────────────────
+// Re-encode a clip to `fps` (H.264 + AAC), keeping everything else as-is. Used
+// to lift a 23.98fps download to the 24fps floor some models require. Returns a
+// Blob, or throws if the encode produced nothing.
+async function sbFFFps(src, fps, opts = {}) {
+  const inName = 'in.' + sbFFExt(opts.url || (typeof src === 'string' ? src : ''), opts.mime);
+  const bytes = await sbFFBytes(src);
+  return sbFFJob(async (ff) => {
+    await ff.writeFile(inName, bytes);
+    const rate = ['-r', String(fps)];
+    let data = await sbFFRunRead(ff, ['-i', inName, ...rate, ...SB_VENC, ...SB_AENC, ...SB_FAST]);
+    if (!data) data = await sbFFRunRead(ff, ['-i', inName, ...rate, '-an', ...SB_VENC, ...SB_FAST]);
+    try { await ff.deleteFile(inName); await ff.deleteFile('out.mp4'); } catch (e) {}
+    if (!data) throw new Error('fps conform produced no output');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }, opts.onProgress);
+}
+
 // ── Remux (repair a MediaRecorder capture) ────────────────────────────────────
 // The realtime canvas exporter records via MediaRecorder, which writes no
 // top-level duration into the webm — so players show Infinity/no seek bar until

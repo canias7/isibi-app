@@ -188,6 +188,9 @@ function onAttach(kind, inputEl) {
       awDecode(reader.result);
     }
     if (kind === 'clip') { clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' }; readClipMeta(reader.result); }
+    // Image slots: measure dimensions and bounce anything the model hard-caps
+    // (Kling: ≥300px, aspect 0.40–2.50) with the exact reason.
+    if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, reader.result);
     renderAttach(kind);
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
     if (kind === 'image') clearImageInputsExcept('image');
@@ -223,7 +226,11 @@ function readClipMeta(dataUri) {
       renderAttach('clip');
       updateSendPrice();
       addMsg('agent', '⚠️ ' + bad);
+      return;
     }
+    // Passed the basic checks — probe fps and quietly conform it if the model
+    // requires a range the clip misses (see normalizeClipFps).
+    normalizeClipFps();
   };
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
@@ -233,8 +240,8 @@ function readClipMeta(dataUri) {
 // document no hard clip limits — anything they still reject is caught by the
 // terminal-4xx auto-refund path.
 const CLIP_LIMITS = {
-  // kling-video/o3/pro/video-to-video/edit: mp4/mov, 3-15s, 720-3840px, ≤200MB
-  'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'] },
+  // kling-video/o3/pro/video-to-video/edit: mp4/mov, 3-15s, 720-3840px, 24-60fps, ≤200MB
+  'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'], fps: [24, 60] },
   // veo3.1/extend-video: 720p/1080p in 16:9|9:16, input clip up to 8s
   'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
@@ -261,6 +268,82 @@ function clipIssue() {
   if (shortSide && shortSide < lim.minPx) return 'That clip is ' + w + '×' + h + ' — this model needs at least ' + lim.minPx + 'p on the short side. Use a higher-resolution clip.';
   if (longSide && longSide > lim.maxPx) return 'That clip is ' + w + '×' + h + ' — this model caps at ' + lim.maxPx + 'px. Use a smaller clip.';
   return '';
+}
+
+// ── Frame-rate conform (on-device, free) ──
+// Some models hard-require an fps range (Kling o3 edit: 24-60) that fal
+// enforces strictly — a 23.98fps download (most YouTube/film content) is
+// rejected. A browser <video> can't report fps, so we probe with the on-device
+// ffmpeg engine and, when out of range, quietly re-encode to the nearest bound.
+// Serialized by token so a re-attach mid-conform can't clobber the newer clip.
+let _clipFpsToken = 0;
+async function normalizeClipFps() {
+  const lim = CLIP_LIMITS[model];
+  if (!lim || !lim.fps || mode !== 'video' || !attachments.clip) return;
+  if (clipMeta && clipMeta.fpsOk) return; // already probed/conformed for this clip
+  if (typeof sbFFProbeFps !== 'function' || !sbFFSupported()) return; // engine unavailable → fal's error net catches it
+  const myToken = ++_clipFpsToken;
+  const src = attachments.clip;
+  let fps = 0;
+  try { fps = await sbFFProbeFps(src, { mime: (clipMeta && clipMeta.type) || '' }); } catch { return; }
+  if (myToken !== _clipFpsToken || attachments.clip !== src) return; // clip changed while probing
+  if (!fps) return; // couldn't read — leave it to the error net
+  const [lo, hi] = lim.fps;
+  if (fps >= lo && fps <= hi) { if (clipMeta) clipMeta.fpsOk = true; return; }
+  const target = fps < lo ? lo : hi;
+  const note = addMsg('agent typing', 'Your clip is ' + fps.toFixed(2) + ' fps — this model needs ' + lo + '–' + hi + '. Conforming it to ' + target + ' fps on-device (free)');
+  try {
+    const blob = await sbFFFps(src, target, { mime: (clipMeta && clipMeta.type) || '' });
+    const dataUri = await new Promise((ok, err) => {
+      const r = new FileReader();
+      r.onload = () => ok(r.result); r.onerror = err;
+      r.readAsDataURL(blob);
+    });
+    note.remove();
+    if (myToken !== _clipFpsToken || attachments.clip !== src) return; // user swapped clips mid-encode
+    attachments.clip = dataUri;
+    if (clipMeta) { clipMeta.type = 'video/mp4'; clipMeta.fpsOk = true; }
+    renderAttach('clip');
+    addMsg('agent', '⚙️ Fixed the frame rate: ' + fps.toFixed(2) + ' → ' + target + ' fps, re-encoded on-device (free). Ready to go.');
+  } catch {
+    note.remove();
+    addMsg('agent', '⚠️ Your clip is ' + fps.toFixed(2) + ' fps and this model needs ' + lo + '–' + hi + ' fps — I couldn’t convert it here, so please re-export it at ' + lo + ' fps and attach again.');
+  }
+}
+
+// ── Image attachment limits ──
+// Kling (o3 + v3) hard-caps every image input: ≥300×300px, aspect 0.40–2.50
+// (10MB — already under the 8MB attach cap). Measured at attach; re-checked on
+// model switch. Other families document no hard dims (Seedance 30MB only).
+const IMG_KINDS = ['image', 'end', 'ffirst', 'flast'];
+const imgMeta = {}; // kind → {w, h}
+function imageLimitsFor() {
+  return /kling-video/.test(model) ? { minPx: 300, arLo: 0.40, arHi: 2.50 } : null;
+}
+function imageAttachIssue(kind) {
+  const lim = imageLimitsFor();
+  const m = imgMeta[kind];
+  if (!lim || !m || !m.w || !m.h) return '';
+  if (m.w < lim.minPx || m.h < lim.minPx) return 'That image is ' + m.w + '×' + m.h + ' — this model needs at least ' + lim.minPx + '×' + lim.minPx + '. Use a bigger image.';
+  const ar = m.w / m.h;
+  if (ar < lim.arLo || ar > lim.arHi) return 'That image is ' + m.w + '×' + m.h + ' (aspect ' + ar.toFixed(2) + ') — this model accepts 0.40–2.50 (between 2:5 tall and 5:2 wide). Crop it closer to square.';
+  return '';
+}
+function measureAttachedImage(kind, dataUri) {
+  const img = new Image();
+  img.onload = () => {
+    imgMeta[kind] = { w: img.naturalWidth, h: img.naturalHeight };
+    if (attachments[kind] !== dataUri) return; // replaced while loading
+    const bad = imageAttachIssue(kind);
+    if (bad) {
+      attachments[kind] = null;
+      delete imgMeta[kind];
+      renderAttach(kind);
+      addMsg('agent', '⚠️ ' + bad);
+    }
+  };
+  img.onerror = () => {}; // unreadable → treated as unverifiable, error net catches
+  img.src = dataUri;
 }
 
 // ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
@@ -472,6 +555,7 @@ function clearAttach(ev, kind) {
   }
   if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; updateSendPrice(); } // reset lip-sync price
   if (kind === 'clip') { clipMeta = null; updateSendPrice(); } // dropping the clip exits v2v billing
+  delete imgMeta[kind];
   renderAttach(kind);
 }
 
@@ -503,8 +587,23 @@ function updateAttachVisibility() {
       renderAttach('clip');
       updateSendPrice();
       addMsg('agent', '⚠️ ' + bad);
+    } else {
+      // New model may demand an fps range the old one didn't — re-probe/conform.
+      if (clipMeta) clipMeta.fpsOk = false;
+      normalizeClipFps();
     }
   }
+  // Kept images get re-judged against the NEW model's dimension caps too.
+  IMG_KINDS.forEach((k) => {
+    if (!attachments[k]) return;
+    const bad = imageAttachIssue(k);
+    if (bad) {
+      attachments[k] = null;
+      delete imgMeta[k];
+      renderAttach(k);
+      addMsg('agent', '⚠️ ' + bad);
+    }
+  });
   // First-&-last-frame row (two dedicated slots) — Veo's 2-frame input.
   const rowFlf = document.getElementById('rowFlf');
   if (rowFlf) rowFlf.style.display = caps.flf ? '' : 'none';
@@ -4044,6 +4143,12 @@ function send(fromButton) {
   // clear fix instead of a charge and a dead render.
   const badClip = clipIssue();
   if (badClip) { addMsg('agent', '⚠️ ' + badClip); return; }
+  // Image models set a minimum prompt length (nano-banana-pro: 3 chars) and 422
+  // anything shorter — only bites raw mode, since composed prompts are long.
+  if (mode === 'image' && directorMode === 'off' && text.length < 3) {
+    addMsg('agent', 'Give me a couple more words — this model needs at least a 3-character prompt.');
+    return;
+  }
   // Lip-sync bills by the audio length (awDur). Never submit with an unmeasured
   // clip — the worker charges the 60s max, which the price quote never showed.
   if (promptless && attachments.audio && !awDur) {
