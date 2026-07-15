@@ -2898,7 +2898,7 @@ const VIDEO_PRICE = {
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.30, '1080p': 0.68, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.11, '720p': 0.24, '1080p': 0.55 } },
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.07, '720p': 0.155 } },
-  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 } },
+  'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 }, v2s: { def: 0.168 } }, // edit endpoint bills 20% over t2v
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
@@ -2945,8 +2945,9 @@ function estimatePrice(textForAudio) {
     return fmtPrice(usd);
   }
   if (p.flat != null) return fmtPrice(p.flat);
-  // Video-to-video (Ray, clip attached) bills its own higher rates.
-  const tbl = p.v2s && attachments.clip && (currentOpts() || {}).v2v ? p.v2s : p.s;
+  // Video-to-video (clip attached) bills its own higher rates where the model
+  // lists them (Ray tiers, Kling o3's 20% edit premium).
+  const tbl = p.v2s && attachments.clip ? p.v2s : p.s;
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.

@@ -65,7 +65,9 @@ const VIDEO_USD = {
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.30, "1080p": 0.68, "4k": 1.59 }, d: 5 },
   "bytedance/seedance-2.0/fast/text-to-video":    { s: { "480p": 0.11, "720p": 0.24, "1080p": 0.55 }, d: 5 },
   "bytedance/seedance-2.0/mini/text-to-video":    { s: { "480p": 0.07, "720p": 0.155 }, d: 5 },
-  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, d: 5 },
+  // o3's video-to-video/edit bills a 20% premium over t2v ($0.168/s vs $0.14/s
+  // — verified on fal's pricing page + a real $2.52 bill for a 15s edit).
+  "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, v2s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, d: 5 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
@@ -1924,7 +1926,9 @@ async function handleRequest(request, env, ctx) {
         audioSeconds,
         hdr: wantHdr,
         exr: wantExr,
-        v2v: !!(model.startsWith("luma/") && clip),
+        // Any clip attached = a v2v re-render; creditCost only applies the
+        // premium where the model lists v2s rates (Ray, Kling o3).
+        v2v: !!clip,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never
