@@ -1631,8 +1631,14 @@ function currentOpts() {
       resolutions: IMAGE_RES[model] || null, defRes: '2K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
-        image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model),
-        maxImages: IMAGE_MULTI_MODELS.has(model) ? 4 : 1,
+        // The "Image" row IS the multi-image picker (main + "+ Add image" up to
+        // maxImages). No separate avatar slot in image mode — it duplicated the
+        // Image row, was mislabeled "Avatar" (a video-only concept), and snuck a
+        // 5th image past the stated cap. All references go through Image, capped
+        // at 9 to match the worker's image_urls slice (the edit endpoints
+        // document no hard max, so 9 is our shared ceiling).
+        image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: false,
+        maxImages: IMAGE_MULTI_MODELS.has(model) ? 9 : 1,
       },
     };
   }
