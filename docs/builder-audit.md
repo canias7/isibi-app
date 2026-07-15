@@ -42,12 +42,18 @@ part of why the earlier successful render never returned to the app.** Fix: key
 resume records so a new run can't evict an unfinished one; block/redirect a
 retry while a chat still has a live record.
 
-### H2 — A charged render is orphaned if the submit response is lost
-`public/chat.js` — the resume record is written only after the `/api/*` response
-parses; the worker charges before returning. A dropped response (mobile blip)
-lands in the generic `catch` ("Network hiccup — try again") with no record, no
-status URL, and no refund path. Fix: client idempotency key recorded before the
-request so a retry can't double-charge and the job can be recovered/refunded.
+### ✅ H2 — A charged render is orphaned if the submit response is lost
+**FIXED.** The client now stamps an **idempotency key** per submit and writes a
+*provisional* resume record BEFORE the request. The worker stores that key (plus
+the status/response URLs) with the charge. On a dropped response the provisional
+record survives; auto-resume re-POSTs with the same key and `recover:true`, and
+the worker returns the stored job (no second charge) — or a clean 400 if nothing
+was charged (never a new charged run, since the recovery body carries no prompt).
+`gen_charges` gained `idem`/`status_url`/`response_url` columns + a unique
+(user, idem) index. The recovery lookup only runs on an explicit recovery
+re-POST, so normal submits add no latency.
+
+_Original:_
 
 ### H3 — `delete_account()` removes purchase records
 Live DB — `purchases.user_id` cascades on `auth.users` delete, so account

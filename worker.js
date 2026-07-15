@@ -1610,6 +1610,31 @@ async function handleRequest(request, env, ctx) {
       if (!allowed.has(model)) {
         return Response.json({ error: "unknown model" }, { status: 400 });
       }
+      // Idempotency key: the client stamps one per submit and retries with the
+      // SAME key if the response is lost after we may have charged. Checked BEFORE
+      // the prompt requirement so a minimal recovery re-POST ({model, idem}) can
+      // reach it. If a charge already exists for this key, return the stored job
+      // instead of charging + submitting again — a dropped reply can't orphan a
+      // paid render or double-charge on retry.
+      const idem = typeof body.idem === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.idem) ? body.idem : "";
+      // Only a recovery re-POST (body.recover) pays for the lookup — a normal
+      // first submit skips it, so the hot path adds no DB round-trip.
+      if (idem && body.recover === true && env.SUPABASE_SERVICE_KEY) {
+        try {
+          const q = await fetch(
+            `${SUPABASE_URL}/rest/v1/gen_charges?user_id=eq.${genUser.id}&idem=eq.${encodeURIComponent(idem)}&select=request_id,status_url,response_url,cost&limit=1`,
+            { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` }, signal: AbortSignal.timeout(6000) }
+          );
+          if (q.ok) {
+            const rows = await q.json().catch(() => []);
+            const ex = Array.isArray(rows) && rows[0];
+            if (ex && ex.status_url && ex.response_url) {
+              return Response.json({ request_id: ex.request_id, status_url: ex.status_url, response_url: ex.response_url, model, cost: ex.cost, recovered: true });
+            }
+          }
+        } catch {} // recovery is best-effort; fall through to a normal submit
+      }
+
       // Lip-sync models drive off attachments, not text; everything else needs a prompt.
       const promptless = genKind === "video" && PROMPTLESS_VIDEO.has(model);
       if (!prompt && !promptless) {
@@ -2044,9 +2069,10 @@ async function handleRequest(request, env, ctx) {
       }
 
       // Record the charge so /api/refund can credit it back if fal never bills
-      // us (the render fails). Best-effort with the service key (RLS-locked
-      // table); a missed record just means no refund for that rare job. Fire and
-      // forget so it never delays the generation response.
+      // us, AND so the idempotency key can recover the job if this response is
+      // lost. Stores status/response URLs + idem. Runs via waitUntil — Cloudflare
+      // keeps the insert alive after the response, so it lands even when the
+      // client's reply was dropped (recovery re-POSTs ~45s later, well after).
       if (env.SUPABASE_SERVICE_KEY && data.request_id) {
         const rec = fetch(`${SUPABASE_URL}/rest/v1/gen_charges`, {
           method: "POST",
@@ -2056,7 +2082,10 @@ async function handleRequest(request, env, ctx) {
             Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
             Prefer: "resolution=ignore-duplicates",
           },
-          body: JSON.stringify({ request_id: data.request_id, user_id: genUser.id, cost: genCost }),
+          body: JSON.stringify({
+            request_id: data.request_id, user_id: genUser.id, cost: genCost,
+            idem: idem || null, status_url: data.status_url || null, response_url: data.response_url || null,
+          }),
           signal: AbortSignal.timeout(8000),
         }).catch(() => {});
         if (ctx && ctx.waitUntil) ctx.waitUntil(rec); else await rec;

@@ -2864,7 +2864,7 @@ async function retryPendingSaves() {
 
 // Boot: pick up any generation that was in flight when the tab last died.
 function resumeJobs() {
-  const jobs = jobsLoad().filter((j) => j.chatId && j.statusUrl && j.responseUrl);
+  const jobs = jobsLoad().filter((j) => j.chatId && ((j.statusUrl && j.responseUrl) || j.idem));
   // Give up on a record that has been paused (network-dead) several boots
   // running — its fal URL is almost certainly gone, so stop re-polling forever.
   const live = jobs.filter((j) => (j.tries || 0) < 4);
@@ -2876,7 +2876,10 @@ function resumeJobs() {
 // by boot-resume, the auto-resume timer, and the "you retried while a render was
 // still finishing" path so none of them re-implement (or diverge on) the setup.
 function resumeOne(j) {
-  if (!j || !j.statusUrl || activeGens.has(j.chatId)) return;
+  if (!j || activeGens.has(j.chatId)) return;
+  // A provisional record (reply lost mid-submit, maybe charged) has an idem but
+  // no statusUrl — recover the job by idem instead of polling a URL we never got.
+  if (!j.statusUrl) { if (j.idem) recoverJob(j); return; }
   const kind = j.kind || 'video';
   const myGen = { kind, aspect: j.aspect, text: 'Checking on your ' + kind + '…', statusUrl: j.statusUrl };
   activeGens.set(j.chatId, myGen);
@@ -2887,6 +2890,30 @@ function resumeOne(j) {
   const deadline = Math.max(Date.now() + 5 * 60000, j.deadline || 0);
   const mins = Math.max(5, Math.round((deadline - Date.now()) / 60000));
   pollAndDeliver(j.chatId, kind, j.statusUrl, j.responseUrl, j.text || '', j.label || 'the model', deadline, mins, myGen, false);
+}
+
+// Recover a provisional job (its submit reply was lost): re-POST with the SAME
+// idem. The worker returns the stored job if a charge already exists (recover +
+// poll it), else a non-OK (nothing was charged → drop the record). It can never
+// start a new charged generation, since the recovery body carries no prompt.
+async function recoverJob(j) {
+  if (activeGens.has(j.chatId)) return;
+  try {
+    const res = await apiFetch(j.apiPath || '/api/video', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: j.model, idem: j.idem, recover: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.status_url && data.response_url) {
+      const deadline = Date.now() + 10 * 60000;
+      jobRecord(j.chatId, { kind: j.kind, statusUrl: data.status_url, responseUrl: data.response_url, text: j.text || '', label: j.label, aspect: j.aspect, deadline });
+      resumeOne({ ...j, statusUrl: data.status_url, responseUrl: data.response_url, deadline });
+    } else if (res.status && res.status !== 502 && res.status !== 503 && res.status !== 401) {
+      jobClear(j.chatId); // definitively nothing to recover (400/404) — nothing was charged
+    } else {
+      jobBumpTries(j.chatId); // transient (5xx/auth) — bounded by tries<4, retried at next boot
+    }
+  } catch { jobBumpTries(j.chatId); } // network — leave it, bounded, retried later
 }
 
 // A render that outran its window / hit a network drop is paused (record kept,
@@ -3427,7 +3454,7 @@ async function generateMedia(text, opts = {}) {
   // clobbered by a new run — starting one would overwrite its resume record and
   // strand the paid job forever (the exact way a slow render gets lost). Pick it
   // back up instead of charging for a second generation.
-  const pending = jobsLoad().find((j) => j.chatId === origin && j.statusUrl && (j.tries || 0) < 4);
+  const pending = jobsLoad().find((j) => j.chatId === origin && (j.statusUrl || j.idem) && (j.tries || 0) < 4);
   if (pending) {
     addMsg('agent', '⏳ Your previous render is still finishing — picking it back up now (you won’t be charged again).');
     resumeOne(pending);
@@ -3449,12 +3476,21 @@ async function generateMedia(text, opts = {}) {
   mountGenLoader();
 
   const apiPath = kind === 'image' ? '/api/image' : kind === 'audio' ? '/api/audio' : '/api/video';
+  // Idempotency key: stamped once per submit. If the response is lost after the
+  // worker may have charged, a re-POST with this SAME key returns the stored job
+  // (no second charge) instead of orphaning a paid render. The provisional
+  // record below survives a dropped reply so auto-resume can do that recovery.
+  const idem = (self.crypto && crypto.randomUUID) ? crypto.randomUUID()
+    : (Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+  myGen.idem = idem;
+  jobRecord(origin, { kind, idem, apiPath, model, text: text ? String(text).slice(0, 400) : '', label, aspect: myGen.aspect, provisional: true });
   try {
     const res = await apiFetch(apiPath, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model,
+        idem,
         prompt: text,
         image: attachments.image || undefined,
         images: extraImages.length ? extraImages.slice() : undefined,
@@ -3490,6 +3526,7 @@ async function generateMedia(text, opts = {}) {
     }
     const job = await res.json().catch(() => ({})); // a non-JSON error body must not throw past the status checks
     if (!alive()) {
+      jobClear(origin); // cancelled mid-submit — drop the provisional so it isn't "recovered" later
       // Cancelled while we were still submitting. If fal accepted the job the
       // Worker has already charged us (charge-after-fal-accepts) and the
       // status_url only reaches us now — so cancel the job and reclaim the
@@ -3532,7 +3569,11 @@ async function generateMedia(text, opts = {}) {
     });
     await pollAndDeliver(origin, kind, job.status_url, job.response_url, text, label, deadline, maxWaitMin, myGen, true);
   } catch {
-    if (alive()) deliverAgent(origin, '⚠️ Network hiccup — try again.');
+    // The request may have reached the worker and charged before the reply was
+    // lost. KEEP the provisional record (written above) and let auto-resume
+    // recover the job by idem, rather than clearing it and stranding a paid
+    // render. pauseGen frees the loader + schedules the recovery.
+    if (alive()) { deliverAgent(origin, '⚠️ Connection dropped — checking whether that render went through…'); pauseGen(origin); }
   } finally {
     if (alive()) endGen(origin);
     if (chatStore.active === origin) document.getElementById('input').focus();
