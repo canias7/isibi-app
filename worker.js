@@ -2069,7 +2069,7 @@ async function handleRequest(request, env, ctx) {
       // priced accordingly below. Server-authoritative: an unrecognized value
       // falls back to 2K (never the pricier 4K). Applies to both t2i and edit.
       const imgRes = genKind === "image" && model === "fal-ai/nano-banana-pro"
-        ? (/^4K$/i.test(body.quality) ? "4K" : "2K")
+        ? (/^(1K|2K|4K)$/i.test(body.quality) ? body.quality.toUpperCase() : "2K")
         : "";
       if (imgRes) input.resolution = imgRes;
 
