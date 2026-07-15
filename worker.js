@@ -2060,6 +2060,14 @@ async function handleRequest(request, env, ctx) {
           const sizes = { "1:1": "square_hd", "16:9": "landscape_16_9", "9:16": "portrait_16_9", "4:3": "landscape_4_3", "3:4": "portrait_4_3" };
           if (sizes[ratio]) input.image_size = sizes[ratio];
         }
+        // GPT Image 2 inpainting: a black/white mask (WHITE = edit, BLACK = keep,
+        // same dimensions as the source) confines the edit to a painted region.
+        // Only for a single-image edit — the mask maps to one base image. Sent
+        // inline as a data URI, like image_urls.
+        if (model === "openai/gpt-image-2" && urls.length === 1) {
+          const mask = dataImage(body.mask);
+          if (mask) input.mask_url = mask;
+        }
       } else if (ratio) {
         // These families size output via an image_size enum; the rest take aspect_ratio.
         // gpt-image-2 has no aspect_ratio field at all — it sizes via image_size,

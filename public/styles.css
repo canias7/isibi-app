@@ -2618,6 +2618,58 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .gal-box::-webkit-scrollbar { width: 9px; }
 .gal-box::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .16); border-radius: 5px; }
 .gal-box::-webkit-scrollbar-track { background: transparent; }
+
+/* ── GPT inpainting: paint-the-edit-region button + editor ── */
+.mask-btn {
+  display: block; width: 100%; margin-top: .5rem; padding: .5rem .75rem;
+  font: inherit; font-size: .82rem; font-weight: 600; color: var(--text);
+  background: var(--panel-2); border: 1px dashed var(--line-2); border-radius: 10px;
+  cursor: pointer; text-align: center; transition: border-color .12s, background .12s;
+}
+.mask-btn:hover { border-color: var(--neon); }
+.mask-btn.has-mask {
+  border-style: solid; border-color: var(--neon); background: rgba(255, 121, 198, .08);
+  display: flex; align-items: center; justify-content: center; gap: .5rem;
+}
+.mask-btn .mask-clear {
+  display: inline-grid; place-items: center; width: 18px; height: 18px;
+  border-radius: 50%; background: rgba(255, 255, 255, .12); font-size: .7rem; line-height: 1;
+}
+.mask-btn .mask-clear:hover { background: var(--neon); color: #0a0a0b; }
+.mask-overlay {
+  position: fixed; inset: 0; z-index: 210;
+  background: rgba(8, 7, 12, .72);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  display: flex; align-items: center; justify-content: center; padding: 1.2rem;
+}
+.mask-box {
+  background: linear-gradient(180deg, #26262d, #1e1e24);
+  border: 1px solid rgba(255, 255, 255, .13); border-radius: 20px;
+  padding: 1.1rem 1.2rem 1.2rem; max-width: 94vw;
+  box-shadow: 0 40px 100px rgba(0, 0, 0, .65), inset 0 1px 0 rgba(255, 255, 255, .09);
+}
+.mask-head { display: flex; flex-direction: column; gap: .15rem; margin-bottom: .8rem; }
+.mask-title { font-weight: 700; font-size: 1rem; }
+.mask-sub { font-size: .78rem; color: var(--muted); }
+.mask-stage { position: relative; border-radius: 12px; overflow: hidden; user-select: none; }
+.mask-stage .mask-img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.mask-stage .mask-paint { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+.mask-tools { display: flex; align-items: center; gap: .9rem; margin-top: .9rem; flex-wrap: wrap; }
+.mask-brush { display: flex; align-items: center; gap: .5rem; font-size: .8rem; color: var(--muted); }
+.mask-brush input { accent-color: #ff79c6; }
+.mask-clearall {
+  padding: .4rem .8rem; font: inherit; font-size: .8rem; color: var(--text);
+  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 9px; cursor: pointer;
+}
+.mask-actions { margin-left: auto; display: flex; gap: .5rem; }
+.mask-cancel {
+  padding: .5rem .9rem; font: inherit; font-size: .82rem; color: var(--muted);
+  background: none; border: 1px solid var(--line-2); border-radius: 10px; cursor: pointer;
+}
+.mask-save {
+  padding: .5rem 1.1rem; font: inherit; font-size: .82rem; font-weight: 700; color: #0a0a0b;
+  background: var(--split); border: none; border-radius: 10px; cursor: pointer;
+}
 .gal-head {
   display: flex; align-items: baseline; gap: .8rem;
   margin-bottom: 1.2rem; padding-bottom: 1rem;

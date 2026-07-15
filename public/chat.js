@@ -637,6 +637,7 @@ function renderAttach(kind) {
   // flips whether this is an edit, where the effort picker no longer applies —
   // refresh its locked state.
   if (kind === 'clip' || kind === 'image') renderEffortLock();
+  if (kind === 'image') renderMaskState(); // the GPT inpainting button follows the image
 }
 
 function clearAttach(ev, kind) {
@@ -733,6 +734,7 @@ function updateAttachVisibility() {
   if (!caps.image) extraImages.length = 0;
   else if (extraImages.length > cap - 1) extraImages.length = Math.max(0, cap - 1);
   renderExtraImages();
+  renderMaskState(); // the GPT inpainting button depends on model + single image
 }
 
 // ── Attach panel (left of the thread): accordion rows ──
@@ -967,6 +969,112 @@ function renderExtraImages() {
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
   updateSendPrice(); // extra images can move the Ray tier
+  renderMaskState(); // a second image disables inpainting (mask maps to one base)
+}
+
+// ── GPT Image 2 inpainting: paint the region to edit ──
+// The mask fal wants is a black/white PNG at the SOURCE image's exact
+// dimensions — WHITE where the model may edit, BLACK to keep pixel-perfect.
+// The user paints the edit region on a fit-to-screen canvas; on save we render
+// those strokes onto a full-resolution mask. Single-image GPT edits only (the
+// mask maps to one base image).
+let maskData = null; // the mask PNG data URI, or null when no region is set
+
+function maskCapable() {
+  return mode === 'image' && model === 'openai/gpt-image-2' &&
+    !!attachments.image && extraImages.length === 0;
+}
+function clearMask() { maskData = null; renderMaskState(); updateSendPrice(); }
+function renderMaskState() {
+  const btn = document.getElementById('btnMask');
+  if (!btn) return;
+  const on = maskCapable();
+  btn.style.display = on ? '' : 'none';
+  if (!on && maskData) maskData = null; // model/attachment changed out from under a mask
+  btn.classList.toggle('has-mask', !!maskData);
+  btn.innerHTML = maskData
+    ? '<span>✓ Edit area set</span><span class="mask-clear" data-act="mask-clear" title="Clear the edit area">✕</span>'
+    : '🖌 Paint edit area';
+  wireActions(btn);
+}
+
+function openMaskEditor() {
+  const src = attachments.image;
+  if (!src) return;
+  const img = new Image();
+  img.onload = () => {
+    const nW = img.naturalWidth, nH = img.naturalHeight;
+    if (!nW || !nH) return;
+    const maxW = Math.min(window.innerWidth * 0.9, 760), maxH = window.innerHeight * 0.68;
+    const scale = Math.min(maxW / nW, maxH / nH, 1);
+    const dW = Math.round(nW * scale), dH = Math.round(nH * scale);
+
+    const ov = document.createElement('div');
+    ov.className = 'mask-overlay';
+    ov.innerHTML =
+      '<div class="mask-box">' +
+        '<div class="mask-head"><span class="mask-title">Paint the area to edit</span>' +
+          '<span class="mask-sub">Brush over what should change — the rest stays pixel-for-pixel.</span></div>' +
+        '<div class="mask-stage" style="width:' + dW + 'px;height:' + dH + 'px">' +
+          '<img class="mask-img" src="' + esc(src) + '" alt="" draggable="false" />' +
+          '<canvas class="mask-paint" width="' + dW + '" height="' + dH + '"></canvas>' +
+        '</div>' +
+        '<div class="mask-tools">' +
+          '<label class="mask-brush">Brush<input type="range" min="10" max="140" value="42" class="mask-size"></label>' +
+          '<button class="mask-clearall" type="button">Clear</button>' +
+          '<span class="mask-actions"><button class="mask-cancel" type="button">Cancel</button>' +
+          '<button class="mask-save" type="button">Use this area</button></span>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(ov);
+
+    const paint = ov.querySelector('.mask-paint');
+    const pctx = paint.getContext('2d');
+    // Full-res mask (black bg, white strokes) — this is what gets sent.
+    const mcv = document.createElement('canvas');
+    mcv.width = nW; mcv.height = nH;
+    const mctx = mcv.getContext('2d');
+    const resetMask = () => { mctx.fillStyle = '#000'; mctx.fillRect(0, 0, nW, nH); };
+    resetMask();
+    const k = nW / dW; // display → full-res
+
+    let brush = 42, drawing = false, last = null, painted = false;
+    ov.querySelector('.mask-size').oninput = (e) => { brush = +e.target.value; };
+    const pt = (e) => {
+      const r = paint.getBoundingClientRect();
+      const t = e.touches && e.touches[0];
+      return { x: (t ? t.clientX : e.clientX) - r.left, y: (t ? t.clientY : e.clientY) - r.top };
+    };
+    const seg = (ctx, a, b, w, color) => {
+      ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    };
+    const stroke = (a, b) => {
+      seg(pctx, a, b, brush, 'rgba(255,121,198,.55)'); // on-screen: translucent pink
+      seg(mctx, { x: a.x * k, y: a.y * k }, { x: b.x * k, y: b.y * k }, brush * k, '#fff'); // mask: solid white
+      painted = true;
+    };
+    const down = (e) => { e.preventDefault(); drawing = true; last = pt(e); stroke(last, last); };
+    const move = (e) => { if (!drawing) return; e.preventDefault(); const p = pt(e); stroke(last, p); last = p; };
+    const up = () => { drawing = false; };
+    paint.addEventListener('mousedown', down);
+    paint.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    paint.addEventListener('touchstart', down, { passive: false });
+    paint.addEventListener('touchmove', move, { passive: false });
+    paint.addEventListener('touchend', up);
+
+    const close = () => { window.removeEventListener('mouseup', up); ov.remove(); };
+    ov.querySelector('.mask-clearall').onclick = () => { pctx.clearRect(0, 0, dW, dH); resetMask(); painted = false; };
+    ov.querySelector('.mask-cancel').onclick = close;
+    ov.onclick = (e) => { if (e.target === ov) close(); };
+    ov.querySelector('.mask-save').onclick = () => {
+      maskData = painted ? mcv.toDataURL('image/png') : null; // no strokes → no mask
+      renderMaskState(); updateSendPrice(); close();
+    };
+  };
+  img.onerror = () => {};
+  img.src = src;
 }
 
 // The three image-input modes — image-to-video, first-&-last frame, and
@@ -3696,6 +3804,7 @@ async function generateMedia(text, opts = {}) {
         clip: attachments.clip || undefined,
         clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
         shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, nothing attached)
+        mask: (kind === 'image' && maskCapable() && maskData) ? maskData : undefined, // GPT inpainting region
         sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
         negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
         stability: kind === 'audio' ? genExtras.stability : undefined, // voice delivery tuning
@@ -7854,6 +7963,8 @@ const CLICK_ACTIONS = {
   'ap-row': (e, el) => toggleApRow(el.dataset.row),
   'img-src': (e, el) => openImgSrc(el.dataset.src, e),
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
+  'mask-edit': () => openMaskEditor(),
+  'mask-clear': (e) => { e.stopPropagation(); clearMask(); },
   'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
   'dir-menu': (e) => toggleDirMenu(e),
   'orch-toggle': () => toggleOrchestrator(),
