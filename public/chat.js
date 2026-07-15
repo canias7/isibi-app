@@ -195,8 +195,9 @@ function onAttach(kind, inputEl) {
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
     if (kind === 'image') clearImageInputsExcept('image');
     else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
-    // A clip flips Ray into video-to-video, which bills its own rates.
-    if (kind === 'clip') updateSendPrice();
+    // Any attachment can move the price: a clip flips into video-to-video, and a
+    // start image / first-last frame flips Ray onto its cheaper i2v tier (and 5s).
+    updateSendPrice();
   };
   reader.readAsDataURL(file);
 }
@@ -553,10 +554,11 @@ function clearAttach(ev, kind) {
     if (extraImages.length) attachments.image = extraImages.shift();
     renderExtraImages();
   }
-  if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; updateSendPrice(); } // reset lip-sync price
-  if (kind === 'clip') { clipMeta = null; updateSendPrice(); } // dropping the clip exits v2v billing
+  if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; }
+  if (kind === 'clip') clipMeta = null; // dropping the clip exits v2v billing
   delete imgMeta[kind];
   renderAttach(kind);
+  updateSendPrice(); // any removal can move the tier/duration (esp. Ray i2v ↔ t2v)
 }
 
 // Show only the panel rows the current model actually supports (same rules
@@ -827,6 +829,7 @@ function renderExtraImages() {
     more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
+  updateSendPrice(); // extra images can move the Ray tier
 }
 
 // The three image-input modes — image-to-video, first-&-last frame, and
@@ -886,6 +889,7 @@ function renderRefList() {
   const cnt = document.getElementById('cntRef');
   if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
   renderRefChips();
+  updateSendPrice(); // references can move the tier on ref-capable models
 }
 
 // ── Keyframes (Ray): ≤64 images pinned along the clip's timeline ──
@@ -925,6 +929,7 @@ function renderKfList() {
   }
   const cnt = document.getElementById('cntKf');
   if (cnt) cnt.textContent = kfList.length ? '· ' + kfList.length : '';
+  updateSendPrice(); // keyframes flip Ray onto its i2v tier — reprice
 }
 
 // ── Reference chips in the composer ──

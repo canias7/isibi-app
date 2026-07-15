@@ -1933,11 +1933,14 @@ async function handleRequest(request, env, ctx) {
 
       // Endpoint-specific billing shape (verified on fal's pricing pages):
       // Veo extend always outputs a 7s clip (schema const) regardless of the
-      // duration picker; Ray image-to-video only renders 5s (10s is t2v/
-      // keyframes-only) AND bills its own cheaper i2s tier.
-      const isRayI2V = model.startsWith("luma/") && endpoint.includes("image-to-video") && !input.keyframes;
-      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayI2V ? 5 : duration;
-      if (isRayI2V) input.duration = "5s"; // fal rejects 10s on Ray i2v — force the only valid value
+      // duration picker; Ray's image-to-video endpoint bills its cheaper i2s
+      // tier for EVERYTHING it renders (start image OR keyframes). Only a single
+      // start image is 5s-locked — keyframes can be 10s — so the rate tier
+      // follows the endpoint while the 5s force excludes keyframes.
+      const isRayImgEndpoint = model.startsWith("luma/") && endpoint.includes("image-to-video");
+      const isRayStart5s = isRayImgEndpoint && !input.keyframes;
+      const billDuration = endpoint.includes("/extend-video") ? 7 : isRayStart5s ? 5 : duration;
+      if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         effort: typeof body.effort === "string" ? body.effort : "",
@@ -1950,7 +1953,7 @@ async function handleRequest(request, env, ctx) {
         // Any clip attached = a v2v re-render; creditCost only applies the
         // premium where the model lists v2s rates (Ray, Kling o3).
         v2v: !!clip,
-        i2v: isRayI2V,
+        i2v: isRayImgEndpoint,
         // LipSync bills on the input clip's length — client-reported, clamped
         // to the schema's 2-10s; absent claims bill the 10s max.
         clipSeconds: Number(body.clipDuration) || 0,
