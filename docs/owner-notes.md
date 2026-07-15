@@ -122,6 +122,22 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Model-wide fal input-validation audit (2026-07-14) — most fixed, 2 deferred
+- **Status:** ✅ main gaps fixed; two low-risk items intentionally deferred (below)
+- **Reported:** 2026-07-14 — after a v2v edit 422'd ~50× (root cause: clip was 15.10s, over Kling's strict **15.05s** cap; our attach check had a 0.5s grace so it slipped through). Owner: "check that now for every model."
+- **Where:** every video/image/audio endpoint. Audited each against its live fal OpenAPI schema (`fal.ai/api/openapi/queue/openapi.json?endpoint_id=<id>`).
+- **What / Fixed:**
+  - Clip duration tolerance now matches fal's exactly (0.05s, was 0.5s) — `CLIP_LIMITS`/`clipIssue` in chat.js.
+  - **Veo reference-to-video** locks duration to `"8s"`; we were sending the user's 4/6/8 → 422. Worker now forces `"8s"` for that endpoint.
+  - **Audio limits** added (`AUDIO_LIMITS`/`audioIssue`, chat.js): Kling LipSync (.mp3 ≤5MB 2-60s), OmniHuman (≤30s), Seedance ref audio (MP3/WAV ≤15MB ≤15s) — validated at attach + send.
+  - **Ray prompt cap** was defaulting to 20000 on t2v/i2v; real cap is 6000 (all `luma/`). Worker clamp fixed.
+  - Clips are staged to **fal storage** (hosted URL) before submit (`falUpload`, worker) — data URIs worked for the duration probe, but hosted URLs are universally accepted and keep request bodies small.
+  - fal's exact rejection reason is now surfaced in chat (`falErrorDetail`) + auto-refund on any terminal 4xx.
+- **Confirmed already-correct:** Kling v3 `start_image_url`; Veo `first_frame_url`/`last_frame_url`; Seedance fast/mini 480p/720p tiers; Ray v2v & Gemini edit have no clip limits; Kling prompt cap 2500.
+- **DEFERRED (low risk, owner FYI):**
+  1. **Kling o3 v2v needs 24–60 fps** — a browser `<video>` element doesn't expose fps, so we can't pre-validate it. A sub-24fps clip (e.g. 23.98, common on downloaded video) will still 422, but now with a clear message + refund. To truly prevent it we'd re-encode client-side via the ffmpeg engine (possible; not built).
+  2. **Image min 300×300px / aspect 0.40–2.50** (Kling i2v start-images & refs) not enforced — rare to hit; caught by the error-surfacing net if it happens.
+
 ### delete_account() can leave orphaned usage_log rows + storage objects (FOR AUDIT)
 - **Status:** 🟡 one-time cleanup done 2026-07-14; root fix deferred (owner: "later, just note it for audits")
 - **Reported:** 2026-07-14 (owner deleted their `aniascristian@gmail.com` test account and asked to verify)

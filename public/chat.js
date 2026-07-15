@@ -182,6 +182,7 @@ function onAttach(kind, inputEl) {
     attachments[kind] = reader.result;
     if (kind === 'audio') {
       awName = (file.name || 'audio').replace(/[<>&"]/g, '');
+      awSize = file.size || 0; awType = file.type || ''; // for per-model size/format limits
       if (awPlayer) { try { awPlayer.pause(); } catch (e) {} awPlayer = null; } // re-pick: drop the old clip's player
       awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
@@ -265,6 +266,38 @@ function clipIssue() {
 // ── Audio slot: waveform bars (Wispr-Flow style, design B) ──
 const AW_N = 40;
 let awPeaks = null, awDur = 0, awName = '', awPlayer = null, awDecoding = false;
+let awSize = 0, awType = ''; // attached audio's bytes + mime, for per-model limits
+
+// Per-model driving-audio limits (lip-sync / Seedance audio refs), verified
+// against each endpoint's fal schema. Duration in seconds, size in MB.
+const AUDIO_LIMITS = {
+  // lipsync/audio-to-video: .mp3 only, 2-60s, ≤5MB
+  'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 60, maxMB: 5, formats: ['mp3', 'mpeg'] },
+  // omnihuman: audio must be under 30s
+  'fal-ai/bytedance/omnihuman': { maxDur: 30 },
+  // seedance reference audio: MP3/WAV, ≤15s combined, ≤15MB per file
+  'bytedance/seedance-2.0/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
+  'bytedance/seedance-2.0/fast/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
+};
+// Check the attached audio against the current model's limits (fal 422s a
+// wrong-format / too-big / too-long driving track). Returns an error string or ''.
+function audioIssue() {
+  if (mode !== 'video' || !attachments.audio) return '';
+  const lim = AUDIO_LIMITS[model];
+  if (!lim) return '';
+  if (lim.formats && awType && !lim.formats.some((f) => awType.includes(f))) {
+    const names = lim.formats.filter((f) => f !== 'mpeg').join('/').toUpperCase();
+    return 'This model needs ' + names + ' audio — convert your file and attach it again.';
+  }
+  if (lim.maxMB && awSize && awSize > lim.maxMB * 1024 * 1024) {
+    return 'That audio is ' + (awSize / 1048576).toFixed(1) + ' MB — this model caps at ' + lim.maxMB + ' MB. Use a smaller or compressed file.';
+  }
+  if (awDur) {
+    if (lim.minDur && awDur < lim.minDur) return 'That audio is ' + awDur.toFixed(1) + 's — this model needs at least ' + lim.minDur + 's.';
+    if (lim.maxDur && awDur > lim.maxDur + 0.05) return 'That audio is ' + Math.round(awDur) + 's — this model caps at ' + lim.maxDur + 's. Trim it and attach again.';
+  }
+  return '';
+}
 
 // Decorative envelope for the empty slot; replaced by the real waveform once decoded.
 function awPlaceholder(lo) {
@@ -301,6 +334,16 @@ async function awDecode(dataUrl) {
   awDecoding = false;
   renderAttach('audio');
   updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
+  // Reject an out-of-spec track at attach (wrong format / too big / too long)
+  // with the exact reason, instead of a charge-and-422 at send.
+  const bad = audioIssue();
+  if (bad) {
+    attachments.audio = null;
+    awDur = 0; awPeaks = null; awSize = 0; awType = '';
+    renderAttach('audio');
+    updateSendPrice();
+    addMsg('agent', '⚠️ ' + bad);
+  }
 }
 
 // Live visualization: while playing, an analyser drives the bars with the
@@ -427,7 +470,7 @@ function clearAttach(ev, kind) {
     if (extraImages.length) attachments.image = extraImages.shift();
     renderExtraImages();
   }
-  if (kind === 'audio') { awDur = 0; awPeaks = null; updateSendPrice(); } // reset lip-sync price
+  if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; updateSendPrice(); } // reset lip-sync price
   if (kind === 'clip') { clipMeta = null; updateSendPrice(); } // dropping the clip exits v2v billing
   renderAttach(kind);
 }
@@ -4009,12 +4052,11 @@ function send(fromButton) {
       : "I couldn't read that audio clip — try a different file (mp3, wav, or m4a).");
     return;
   }
-  // Kling LipSync's fal schema bounds the driving audio at 2-60s — out of range
-  // 422s after charging, so bounce it here with the fix instead.
-  if (promptless && model === 'fal-ai/kling-video/lipsync/audio-to-video' && awDur) {
-    if (awDur < 2) { addMsg('agent', '⚠️ That audio is under 2 seconds — this model needs 2–60s of audio. Attach a longer clip.'); return; }
-    if (awDur > 60) { addMsg('agent', '⚠️ That audio is ' + Math.round(awDur) + 's — this model caps at 60s. Trim it and attach again.'); return; }
-  }
+  // Driving audio out of the model's spec (wrong format, too big, too long/short)
+  // 422s after charging — bounce it here with the exact fix instead. Covers Kling
+  // LipSync, OmniHuman, and Seedance audio refs (see AUDIO_LIMITS).
+  const badAudio = audioIssue();
+  if (badAudio) { addMsg('agent', '⚠️ ' + badAudio); return; }
   input.value = '';
   input.style.height = 'auto'; // collapse back to one line after sending
   // Conversational QR control (video only): pull any "add/put a QR … from Xs to

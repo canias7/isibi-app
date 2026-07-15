@@ -1834,7 +1834,8 @@ async function handleRequest(request, env, ctx) {
 
         if (duration && !bareEdit) {
           // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
-          if (isVeo || isRay) input.duration = duration + "s";
+          if (isVeo && endpoint.includes("/reference-to-video")) input.duration = "8s"; // fal locks Veo ref to 8s only
+          else if (isVeo || isRay) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
         }
@@ -1944,9 +1945,9 @@ async function handleRequest(request, env, ctx) {
       // short by design now, but clamp as a safety net so an over-long prompt
       // can never bounce a whole (charged) render.
       if (typeof input.prompt === "string") {
-        const promptCap = endpoint.includes("kling-video") ? 2500
-          : endpoint.includes("/video-to-video") ? 6000
-          : 20000;
+        const promptCap = endpoint.includes("kling-video") ? 2500  // Kling (all tiers/endpoints)
+          : endpoint.startsWith("luma/") ? 6000                    // Ray t2v/i2v/v2v all cap at 6000
+          : 20000;                                                 // Veo/Gemini 20000; Seedance uncapped
         if (input.prompt.length > promptCap) input.prompt = input.prompt.slice(0, promptCap);
       }
 
