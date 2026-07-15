@@ -807,6 +807,15 @@ function openImgSrc(target, ev) {
   ev.stopPropagation();
   imgPickTarget = target;
   const menu = document.getElementById('imgSrcMenu');
+  // Nano Banana Pro can pull a source image from your saved Avatars and
+  // Products too, not just the gallery or a device file. Other models keep the
+  // gallery + device options (their edit flows don't lean on avatars/products).
+  const sources = [];
+  if (model === 'fal-ai/nano-banana-pro') { sources.push(['avatar', 'Avatar'], ['product', 'Product']); }
+  sources.push(['gallery', 'isibi gallery'], ['device', 'Your device']);
+  menu.innerHTML = sources.map(([pick, label]) =>
+    '<div class="model-item" data-act="img-pick" data-pick="' + pick + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
+  wireActions(menu); // bind the freshly-built items
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
 }
@@ -817,9 +826,17 @@ function imgSrcPick(src, ev) {
   if (src === 'device') {
     document.getElementById(imgPickTarget === 'extra' ? 'fileExtra' : 'fileImage').click();
   } else {
-    openGalleryPicker();
+    openGalleryPicker(src); // 'gallery' | 'avatar' | 'product'
   }
 }
+
+// Where each image source pulls from, and how its picker reads. Avatars and
+// products are saved locally with an `image` field (data URI or URL).
+const IMG_SOURCES = {
+  gallery: { title: 'Pick from your gallery', empty: 'Nothing in your gallery yet — images you generate will show up here.', list: () => galleryImages() },
+  avatar:  { title: 'Pick an avatar',         empty: 'No avatars yet — create or import one in the Avatar tab.',           list: () => loadAvatars().map((a) => a.image).filter(Boolean) },
+  product: { title: 'Pick a product',         empty: 'No products yet — add one in the Products tab.',                    list: () => loadProducts().map((p) => p.image).filter(Boolean) },
+};
 
 // Every image generated in any chat (media messages hold permanent URLs).
 function galleryImages() {
@@ -836,17 +853,18 @@ function galleryImages() {
   return out.sort((a, b) => b.at - a.at).map((x) => x.url);
 }
 
-function openGalleryPicker() {
+function openGalleryPicker(source) {
+  const meta = IMG_SOURCES[source] || IMG_SOURCES.gallery;
   const old = document.querySelector('.gal-overlay');
   if (old) old.remove();
   const ov = document.createElement('div');
   ov.className = 'gal-overlay';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
-  const urls = galleryImages();
-  ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">Pick from your gallery</span>'
+  const urls = meta.list();
+  ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">' + esc(meta.title) + '</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
     + '<button class="gal-close">×</button></div>'
-    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">Nothing in your gallery yet — images you generate will show up here.</div>') + '</div>';
+    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">' + esc(meta.empty) + '</div>') + '</div>';
   const closeBtn = ov.querySelector('.gal-close');
   if (closeBtn) closeBtn.onclick = () => ov.remove();
   // Build thumbnails with DOM APIs (never innerHTML) so a stored URL can't
