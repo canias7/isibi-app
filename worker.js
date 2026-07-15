@@ -85,6 +85,10 @@ const VIDEO_USD = {
   // defaulting to the 10s max when unknown (never undercharge).
   "fal-ai/kling-video/lipsync/audio-to-video":    { videoPer5s: 0.014 },
 };
+// GPT Image 2 $/image by quality tier — a small margin over fal's max price for
+// the image_size presets we send (all ≤1024²-class: low ≤$0.006, medium
+// ≤$0.053, high ≤$0.211). Never undercharges; mirrored on the client.
+const GPT_QUALITY_USD = { low: 0.008, medium: 0.06, high: 0.22 };
 const IMAGE_USD = {
   "fal-ai/nano-banana-pro": 0.15,
   // Token-billed; fal's own table puts a High-quality 1024² at $0.211 (edit
@@ -105,10 +109,17 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds, soundOff, vrefSeconds, img4k }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds, soundOff, vrefSeconds, img4k, gptQuality }) {
   let usd;
-  // Nano Banana Pro 4K bills double the base rate; 1K/2K bill base.
-  if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1) * (img4k ? 2 : 1);
+  // GPT Image 2 is priced by quality tier; Nano Banana Pro 4K bills double the
+  // base rate (1K/2K bill base); everything else is a flat per-image rate.
+  if (kind === "image") {
+    if (model === "openai/gpt-image-2") {
+      usd = (GPT_QUALITY_USD[gptQuality] != null ? GPT_QUALITY_USD[gptQuality] : GPT_QUALITY_USD.high) * (num || 1);
+    } else {
+      usd = (IMAGE_USD[model] || 0.15) * (num || 1) * (img4k ? 2 : 1);
+    }
+  }
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
   else {
     const p = VIDEO_USD[model];
@@ -2092,6 +2103,15 @@ async function handleRequest(request, env, ctx) {
         input.aspect_ratio = /^(auto|\d{1,2}:\d{1,2})$/.test(body.ratio || "") ? body.ratio : "auto";
       }
 
+      // GPT Image 2 quality tier (low/medium/high) — swings fal's price a lot, so
+      // it's priced per tier below. Server-authoritative: an unrecognized value
+      // defaults to the schema default "high" (never a cheaper tier). Applies to
+      // both text-to-image and edit.
+      const gptQuality = genKind === "image" && model === "openai/gpt-image-2"
+        ? (/^(low|medium|high)$/i.test(body.quality) ? body.quality.toLowerCase() : "high")
+        : "";
+      if (gptQuality) input.quality = gptQuality;
+
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
       // Driving-audio length for the audio-billed video models (fal charges by
@@ -2160,6 +2180,7 @@ async function handleRequest(request, env, ctx) {
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         img4k: imgRes === "4K",
+        gptQuality,
         audioSeconds,
         hdr: wantHdr,
         exr: wantExr,

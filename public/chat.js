@@ -102,12 +102,14 @@ const IMAGE_RATIOS = {
 // Per-model default aspect. Nano defaults to 'auto' (model picks / keeps source);
 // everything else keeps the square default.
 const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto' };
-// Per-model image resolution tiers — a switcher like the video resolution
-// picker. Nano Banana Pro offers 2K / 4K; 1K is omitted because fal bills it
-// the same $0.15 as 2K for lower quality (no reason to pick it). 2K is the
-// default; 4K is double ($0.30). GPT Image 2 sizes via image_size (no knob).
+// Per-model image quality/resolution switcher (reuses the video resolution
+// section). Nano Banana Pro → Resolution 2K/4K (2K free default, 4K 2×). GPT
+// Image 2 → Quality low/medium/high (high default) — quality swings fal's price
+// hugely (low ≈ 1 credit vs high ≈ 28), so this is a real cost lever. Each
+// entry: { label (section title), def, opts: [[value, chipLabel], …] }.
 const IMAGE_RES = {
-  'fal-ai/nano-banana-pro': ['2K', '4K'],
+  'fal-ai/nano-banana-pro': { label: 'Resolution', def: '2K',   opts: [['2K', '2K'], ['4K', '4K']] },
+  'openai/gpt-image-2':     { label: 'Quality',    def: 'high', opts: [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
 };
 // Image models that support editing (attach an image). MULTI ones take more
 // than one image (so they also get the +Avatar reference picker).
@@ -1666,7 +1668,10 @@ function currentOpts() {
   if (mode === 'image') {
     return {
       ratios: IMAGE_RATIOS[model] || IMAGE_OPTS.ratios, defRatio: IMAGE_DEF_RATIO[model] || IMAGE_OPTS.defRatio,
-      resolutions: IMAGE_RES[model] || null, defRes: '2K',
+      resolutions: IMAGE_RES[model] ? IMAGE_RES[model].opts.map((o) => o[0]) : null,
+      resItems: IMAGE_RES[model] ? IMAGE_RES[model].opts.map(([value, label]) => ({ value, label })) : null,
+      resLabel: IMAGE_RES[model] ? IMAGE_RES[model].label : 'Resolution',
+      defRes: IMAGE_RES[model] ? IMAGE_RES[model].def : '2K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
         // The "Image" row IS the multi-image picker (main + "+ Add image" up to
@@ -1791,7 +1796,7 @@ function buildOptMenus() {
 
   const sections = [];
   if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
-  if (opts.resolutions) sections.push(settingSection('Resolution', 'quality', opts.resolutions.map((q) => ({ value: q, label: q }))));
+  if (opts.resolutions) sections.push(settingSection(opts.resLabel || 'Resolution', 'quality', opts.resItems || opts.resolutions.map((q) => ({ value: q, label: q }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
   if (opts.hdr) sections.push(settingSection('HDR', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On · 2×' }, { value: 'exr', label: 'On + EXR · 3×' }]));
   if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
@@ -3131,6 +3136,10 @@ const VIDEO_PRICE = {
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
   'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
 };
+// GPT Image 2 $/image by quality tier — a small margin over fal's max price for
+// the presets we send (all ≤1024²-class): low ≤$0.006, medium ≤$0.053, high
+// ≤$0.211. Never undercharges; mirrored in the worker.
+const GPT_QUALITY_USD = { low: 0.008, medium: 0.06, high: 0.22 };
 const IMAGE_PRICE = { // $ per image
   'fal-ai/nano-banana-pro': 0.15,
   'openai/gpt-image-2': 0.22, // token-billed; fal's table puts High 1024² at ~$0.21
@@ -3150,6 +3159,11 @@ function fmtPrice(usd) {
 }
 function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   if (mode === 'image') {
+    // GPT Image 2 is priced by quality tier (low/medium/high), not a flat rate.
+    if (model === 'openai/gpt-image-2') {
+      const rate = GPT_QUALITY_USD[quality] != null ? GPT_QUALITY_USD[quality] : GPT_QUALITY_USD.high;
+      return fmtPrice(rate * (numImages || 1));
+    }
     const per = IMAGE_PRICE[model];
     if (per == null) return '';
     // Nano Banana Pro 4K bills double; 2K/1K bill the base rate.
