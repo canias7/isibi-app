@@ -2322,17 +2322,18 @@ function deliverMedia(chatId, kind, url, prompt) {
 function buildMedia(kind, url, prompt) {
   const div = document.createElement('div');
   div.className = 'msg agent ' + kind;
+  const src = mediaSrcOk(url);
   let el;
   if (kind === 'image') {
     el = document.createElement('img');
-    el.src = url; el.alt = '';
+    el.src = src; el.alt = '';
     el.addEventListener('click', () => openLightbox('image', url));
   } else if (kind === 'audio') {
     el = document.createElement('audio');
-    el.controls = true; el.src = url;
+    el.controls = true; el.src = src;
   } else {
     el = document.createElement('video');
-    el.controls = true; el.src = url; el.playsInline = true;
+    el.controls = true; el.src = src; el.playsInline = true;
   }
   div.appendChild(el);
   // Free accounts: on-screen mark over the video player. Only when we KNOW the
@@ -2386,6 +2387,14 @@ async function deleteMedia(el, url) {
   }
 }
 
+// Only assign a real media scheme to an element src — a stored/synced value
+// can't smuggle a javascript:/data:text/html URL into a media element. Passive
+// sink (inert as an <img>/<video> src), but keeps parity with downloadMedia.
+const mediaSrcOk = (u) => /^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(u || '') ? u : '';
+// Open an external link only if it's a real http(s) URL — platform-supplied
+// permalinks/video URLs (YouTube, Instagram) shouldn't be able to carry a
+// javascript: scheme into window.open.
+const openExternal = (u) => { if (/^https?:\/\//i.test(u || '')) window.open(u, '_blank', 'noopener'); };
 async function downloadMedia(url, kind) {
   // Only ever fetch/open a real media URL — never let a stored value smuggle a
   // javascript:/data:text/html URL into fetch's catch → window.open.
@@ -2440,13 +2449,14 @@ function openLightbox(kind, url) {
   spin.className = 'lb-loading';
   stage.appendChild(spin);
   const ready = () => spin.remove();
+  const src = mediaSrcOk(url);
   let el;
-  if (kind === 'image') { el = document.createElement('img'); el.onload = ready; el.onerror = ready; el.src = url; }
+  if (kind === 'image') { el = document.createElement('img'); el.onload = ready; el.onerror = ready; el.src = src; }
   else {
     el = document.createElement('video');
     el.controls = true; el.autoplay = true; el.playsInline = true;
     el.onloadeddata = ready; el.onerror = ready;
-    el.src = url;
+    el.src = src;
   }
   stage.appendChild(el);
   // Free accounts: keep the mark on full-screen playback too (images carry
@@ -2629,16 +2639,24 @@ function queuePendingSave(url, kind) { savesWrite([...savesLoad().filter((p) => 
 // result key (the fal status URL) in shared localStorage; the other sees the
 // claim and skips save+deliver, so a job is copied and shown exactly once.
 const DELIVERED_KEY = 'zephyr_delivered_v1';
-function claimDelivery(key) {
+const TAB_ID = Math.random().toString(36).slice(2) + '-' + Date.now().toString(36); // per-tab id
+const claimAt = (v) => (v && typeof v === 'object') ? v.at : (typeof v === 'number' ? v : 0);
+async function claimDelivery(key) {
   try {
     const now = Date.now();
-    const map = JSON.parse(localStorage.getItem(DELIVERED_KEY) || '{}');
-    if (map[key] && now - map[key] < 3600e3) return false; // already claimed recently
-    map[key] = now;
-    // Keep the map small — drop entries older than a day.
-    for (const k of Object.keys(map)) if (now - map[k] > 86400e3) delete map[k];
+    let map = JSON.parse(localStorage.getItem(DELIVERED_KEY) || '{}');
+    if (map[key] && now - claimAt(map[key]) < 3600e3) return false; // already claimed recently
+    map[key] = { at: now, by: TAB_ID };
+    // Keep the map small — drop entries older than a day (both shapes).
+    for (const k of Object.keys(map)) if (now - claimAt(map[k]) > 86400e3) delete map[k];
     localStorage.setItem(DELIVERED_KEY, JSON.stringify(map));
-    return true;
+    // Two tabs can both read "unclaimed" and both write. localStorage writes are
+    // same-origin serialized, so after a short jittered wait the last writer's
+    // token is what persists — re-read and only the tab whose token won proceeds,
+    // so a job is still saved+delivered exactly once.
+    await new Promise((r) => setTimeout(r, 40 + Math.random() * 90));
+    map = JSON.parse(localStorage.getItem(DELIVERED_KEY) || '{}');
+    return !!(map[key] && typeof map[key] === 'object' && map[key].by === TAB_ID);
   } catch { return true; } // storage broken → don't block delivery
 }
 
@@ -3656,7 +3674,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // a failed result-fetch burned the claim and the paid render was dropped on
     // boot-resume. Another tab that already delivered this job wins the claim;
     // we stop without clearing so the winner's record management stands.
-    if (!claimDelivery(statusUrl)) { jobBumpTries(origin); pauseGen(origin, false); return; } // another tab delivered this — don't re-poll
+    if (!(await claimDelivery(statusUrl))) { jobBumpTries(origin); pauseGen(origin, false); return; } // another tab delivered this — don't re-poll
     // HDR + EXR runs return a pro sidecar file alongside the video — hand the
     // link over in chat (it's a pro-pipeline file; fal links expire in days).
     if (out.exr_file && out.exr_file.url) {
@@ -5579,7 +5597,7 @@ function paintYtAnalytics(body, d) {
     '<div class="stats stats-3">' + tiles + '</div>' +
     (vids ? '<div class="sec-sub">Recent videos</div>' + vids : '');
   body.querySelectorAll('[data-yturl]').forEach((b) => {
-    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+    b.onclick = () => { const u = b.dataset.yturl; openExternal(u); };
   });
 }
 
@@ -5625,7 +5643,7 @@ function paintYtPlaylists(body, d) {
         '<span class="ytv-m">' + (p.count != null ? maNum(p.count) + ' video' + (p.count === 1 ? '' : 's') : 'Playlist') + '</span>' +
       '</button>').join('') + '</div>';
   body.querySelectorAll('[data-yturl]').forEach((b) => {
-    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+    b.onclick = () => { const u = b.dataset.yturl; openExternal(u); };
   });
 }
 
@@ -5679,7 +5697,7 @@ function paintYtVideos(body, d) {
         '<p class="sec-soon-s">Tap + to upload a video to your channel.</p></div>';
   body.innerHTML = head + grid;
   body.querySelectorAll('[data-yturl]').forEach((b) => {
-    b.onclick = () => { const u = b.dataset.yturl; if (u) window.open(u, '_blank', 'noopener'); };
+    b.onclick = () => { const u = b.dataset.yturl; openExternal(u); };
   });
   const add = document.getElementById('ytAdd');
   if (add) add.onclick = () => openYtComposer(body);
@@ -5856,7 +5874,7 @@ function paintPosts(body, d) {
   body.innerHTML = head + gridOrEmpty;
   body.querySelectorAll('[data-sort]').forEach((b) => { b.onclick = () => { postsSort = b.dataset.sort; paintPosts(body, d); }; });
   body.querySelectorAll('[data-perma]').forEach((b) => {
-    b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
+    b.onclick = () => { const u = b.dataset.perma; openExternal(u); };
   });
   const add = document.getElementById('pAdd');
   if (add) add.onclick = () => openPostComposer(body);
@@ -6110,7 +6128,7 @@ function paintComments(body, d) {
         : '<span class="cmt-thumb"' + (c.post_thumb ? ' style="background-image:url(' + esc(c.post_thumb) + ')"' : '') + '></span>') +
     '</div>').join('') + '</div>';
   body.querySelectorAll('[data-perma]').forEach((b) => {
-    b.onclick = () => { const u = b.dataset.perma; if (u) window.open(u, '_blank', 'noopener'); };
+    b.onclick = () => { const u = b.dataset.perma; openExternal(u); };
   });
   body.querySelectorAll('[data-reply]').forEach((b) => {
     b.onclick = () => openCommentReply(b.dataset.reply, b);

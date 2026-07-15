@@ -2288,7 +2288,10 @@ async function handleRequest(request, env, ctx) {
         const uid = meta.user_id;
         const credits = Number(meta.credits) || 0;
         const paid = inv && (inv.status === "paid" || inv.paid === true);
-        if (uid && credits > 0 && paid && inv.id) {
+        // Require money to have actually changed hands — a $0/fully-discounted
+        // invoice (coupon, proration, pause) must not mint a full month of credits.
+        const amountPaid = Number(inv && inv.amount_paid) || 0;
+        if (uid && credits > 0 && paid && amountPaid > 0 && inv.id) {
           const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/add_credits`, {
             method: "POST",
             headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
@@ -3573,7 +3576,10 @@ Return just the line to be voiced — keep it to what should actually come out o
     if (url.pathname === "/api/video/poll" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
       const target = url.searchParams.get("url") || "";
-      if (!target.startsWith("https://queue.fal.run/")) {
+      // Constrain to a fal request's own status/result path (like /api/cancel and
+      // /api/refund do), not any URL under the host — so the key-bearing proxy
+      // can't be pointed at arbitrary fal endpoints.
+      if (!/^https:\/\/queue\.fal\.run\/[a-z0-9/_.-]+\/requests\/[a-z0-9-]+(?:\/status)?(?:\?[^\s]*)?$/i.test(target)) {
         return Response.json({ error: "invalid url" }, { status: 400 });
       }
       if (!env.FAL_KEY) return Response.json({ error: "unavailable" }, { status: 503 });

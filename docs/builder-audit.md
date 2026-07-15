@@ -75,12 +75,14 @@ record" rule. Fix: FK `ON DELETE SET NULL` (or archive before delete).
 - ✅ **M8 (was in H-race set) — stale-attach metadata.** FIXED — `readClipMeta`
   and `measureAttachedImage` now bail if the attachment was swapped mid-load;
   model-switch clearing also resets clipMeta/imgMeta/audio meta.
-- **M4 — `/api/video/poll` path is unconstrained.** Only the host is pinned; the
-  path isn't limited to `/requests/<id>/status` like `/api/cancel` and
-  `/api/refund`. Tighten to the same shape.
-- **M5 — Refund path has no client-side claim gate.** Two tabs resuming the same
-  record both call refund on failure; correctness rests entirely on the DB RPC
-  being idempotent. **Action: confirm `refund_charge` consumes/flags the row.**
+- ✅ **M4 — `/api/video/poll` path is unconstrained.** FIXED — now constrained
+  to a fal request's own `/requests/<id>` or `/requests/<id>/status` path, not
+  any URL under the host.
+- ✅ **M5 — Refund idempotency.** VERIFIED SAFE on the live DB — `refund_charge`
+  row-locks (`FOR UPDATE`), only acts when `refunded=false`, flips it to true,
+  and is scoped to the caller. Two tabs → the second gets `not found` → 0. No
+  fix needed. The double-**delivery** half is hardened via a per-tab token +
+  verify-after-write in `claimDelivery`.
 - **M6 — `useCredits` timeout-after-commit.** If the debit commits but the reply
   is lost, the job is cancelled but no `gen_charges` row exists, so it can't be
   refunded. Record intent before/with the debit.
@@ -115,6 +117,18 @@ record" rule. Fix: FK `ON DELETE SET NULL` (or archive before delete).
   real (shorter) duration resolves (billing itself is correct/lower).
 - Unknown-`quality` default differs (worker → max tier, client → 720p); latent,
   not reachable in normal use.
+
+## Also fixed in the hardening batch
+- ✅ Cross-tab double-delivery — `claimDelivery` now uses a per-tab token +
+  verify-after-write so exactly one tab saves/delivers a job.
+- ✅ `invoice.paid` on a $0/discounted invoice no longer mints credits
+  (requires `amount_paid > 0`).
+- ✅ Media element `src` and social permalinks (`window.open`) now scheme-checked
+  (`mediaSrcOk`/`openExternal`) for parity with `downloadMedia`.
+- ✅ #3 (per owner) — account deletion INTENTIONALLY removes purchases too; docs
+  corrected to match (was claiming purchases are kept).
+- ✅ Docs corrected: `add_credits` is service_role-only; no `director` useQuota
+  gate exists (per-call credit charge is the limiter).
 
 ## Hygiene / INFO
 - Dead add-on RPCs from removed features remain (`set_orchestrator`,
