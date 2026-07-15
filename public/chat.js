@@ -96,6 +96,13 @@ const IMAGE_RATIOS = {
   'fal-ai/nano-banana-pro': ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
   'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
 };
+// Per-model image resolution tiers. Nano Banana Pro: 2K is the free default
+// (fal bills 1K and 2K identically at $0.15), 4K is a paid upgrade (2×). 1K is
+// omitted — it costs the same as 2K for lower quality, so there's no reason to
+// offer it. GPT Image 2 sizes via image_size (no separate resolution knob).
+const IMAGE_RES = {
+  'fal-ai/nano-banana-pro': ['2K', '4K'],
+};
 // Image models that support editing (attach an image). MULTI ones take more
 // than one image (so they also get the +Avatar reference picker).
 const IMAGE_EDIT_MODELS = new Set([
@@ -1615,6 +1622,7 @@ function currentOpts() {
   if (mode === 'image') {
     return {
       ratios: IMAGE_RATIOS[model] || IMAGE_OPTS.ratios, defRatio: IMAGE_OPTS.defRatio,
+      resolutions: IMAGE_RES[model] || null, defRes: '2K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
         image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: IMAGE_MULTI_MODELS.has(model),
@@ -3094,7 +3102,10 @@ function fmtPrice(usd) {
 function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   if (mode === 'image') {
     const per = IMAGE_PRICE[model];
-    return per == null ? '' : fmtPrice(per * (numImages || 1));
+    if (per == null) return '';
+    // Nano Banana Pro 4K bills double; 2K/1K bill the base rate.
+    const resX = (currentOpts().resolutions && quality === '4K') ? 2 : 1;
+    return fmtPrice(per * (numImages || 1) * resX);
   }
   if (mode === 'audio') {
     const per = AUDIO_PRICE[model];
@@ -3630,7 +3641,7 @@ async function generateMedia(text, opts = {}) {
 
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
-        quality: kind === 'video' && currentOpts().resolutions ? quality : undefined,
+        quality: currentOpts().resolutions ? quality : undefined, // video resolution OR image tier (Nano 2K/4K)
         hdr: kind === 'video' && hdrOn && currentOpts().hdr ? true : undefined,
         exr: kind === 'video' && exrOn && currentOpts().hdr ? true : undefined,
         loop: kind === 'video' && loopOn && currentOpts().loop ? true : undefined,

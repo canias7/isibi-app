@@ -105,9 +105,10 @@ const AUDIO_DRIVE_MAX_S = 60;
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds, soundOff, vrefSeconds }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, clipSeconds, soundOff, vrefSeconds, img4k }) {
   let usd;
-  if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1);
+  // Nano Banana Pro 4K bills double the base rate; 1K/2K bill base.
+  if (kind === "image") usd = (IMAGE_USD[model] || 0.15) * (num || 1) * (img4k ? 2 : 1);
   else if (kind === "audio") usd = (Math.max(chars || 0, 40) / 1000) * (AUDIO_USD_PER_1K[model] || 0.10);
   else {
     const p = VIDEO_USD[model];
@@ -2062,11 +2063,15 @@ async function handleRequest(request, env, ctx) {
         }
       }
 
-      // Nano Banana Pro: request the 2K render tier — fal bills 1K and 2K at the
-      // SAME $0.15/image (verified on the pricing page 2026-07-15; only 4K is
-      // 2×), so this is a free quality upgrade over the 1K default. Applies to
-      // both text-to-image and the edit endpoint (same field on each schema).
-      if (genKind === "image" && model === "fal-ai/nano-banana-pro") input.resolution = "2K";
+      // Nano Banana Pro resolution tier. 2K is the default — fal bills 1K and 2K
+      // at the SAME $0.15/image (verified on the pricing page 2026-07-15), so 2K
+      // is a free upgrade over the 1K schema default. 4K bills DOUBLE ($0.30),
+      // priced accordingly below. Server-authoritative: an unrecognized value
+      // falls back to 2K (never the pricier 4K). Applies to both t2i and edit.
+      const imgRes = genKind === "image" && model === "fal-ai/nano-banana-pro"
+        ? (/^4K$/i.test(body.quality) ? "4K" : "2K")
+        : "";
+      if (imgRes) input.resolution = imgRes;
 
       if (genKind === "image" && num && num > 1) input.num_images = num;
 
@@ -2135,6 +2140,7 @@ async function handleRequest(request, env, ctx) {
       if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+        img4k: imgRes === "4K",
         audioSeconds,
         hdr: wantHdr,
         exr: wantExr,
