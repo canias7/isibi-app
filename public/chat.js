@@ -96,12 +96,12 @@ const IMAGE_RATIOS = {
   'fal-ai/nano-banana-pro': ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
   'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
 };
-// Per-model image resolution tiers — a switcher just like the video resolution
-// picker. Nano Banana Pro offers 1K / 2K / 4K; 1K and 2K bill the same $0.15
-// (so 2K is the default — a free upgrade), 4K is double ($0.30). GPT Image 2
-// sizes via image_size (no separate resolution knob).
+// Per-model image resolution tiers — a switcher like the video resolution
+// picker. Nano Banana Pro offers 2K / 4K; 1K is omitted because fal bills it
+// the same $0.15 as 2K for lower quality (no reason to pick it). 2K is the
+// default; 4K is double ($0.30). GPT Image 2 sizes via image_size (no knob).
 const IMAGE_RES = {
-  'fal-ai/nano-banana-pro': ['1K', '2K', '4K'],
+  'fal-ai/nano-banana-pro': ['2K', '4K'],
 };
 // Image models that support editing (attach an image). MULTI ones take more
 // than one image (so they also get the +Avatar reference picker).
