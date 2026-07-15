@@ -2581,13 +2581,16 @@ function endGen(chatId) {
 // Soft stop: drop the in-memory run + loader but KEEP the refresh-proof job
 // record, so a run interrupted by a network drop (not a terminal state) is
 // resumed at the next app boot instead of being lost after it was charged.
-function pauseGen(chatId) {
+function pauseGen(chatId, autoResume = true) {
   activeGens.delete(chatId);
   if (chatStore.active === chatId) {
     const el = document.getElementById('genLoader');
     if (el) el.remove();
   }
   updateSendLock();
+  // A live-but-interrupted render re-picks-up on its own (bounded by tries<4);
+  // session-expired and lost-to-another-tab pauses opt out (autoResume=false).
+  if (autoResume) scheduleResume(chatId);
 }
 
 // ── Refresh-proof generations & gallery saves ──────────────────────────────
@@ -2837,19 +2840,35 @@ function resumeJobs() {
   // running — its fal URL is almost certainly gone, so stop re-polling forever.
   const live = jobs.filter((j) => (j.tries || 0) < 4);
   jobsWrite(live);
-  live.forEach((j) => {
-    if (activeGens.has(j.chatId)) return;
-    const kind = j.kind || 'video';
-    const myGen = { kind, aspect: j.aspect, text: 'Checking on your ' + kind + '…', statusUrl: j.statusUrl };
-    activeGens.set(j.chatId, myGen);
-    updateSendLock();
-    mountGenLoader();
-    // Give even a stale job a real chance — fal keeps results around for days,
-    // and a 4K render may still be going, so floor the resumed window at 5 min.
-    const deadline = Math.max(Date.now() + 5 * 60000, j.deadline || 0);
-    const mins = Math.max(5, Math.round((deadline - Date.now()) / 60000));
-    pollAndDeliver(j.chatId, kind, j.statusUrl, j.responseUrl, j.text || '', j.label || 'the model', deadline, mins, myGen, false);
-  });
+  live.forEach((j) => { if (!activeGens.has(j.chatId)) resumeOne(j); });
+}
+
+// Pick a single on-record job back up into its origin chat's poll loop. Shared
+// by boot-resume, the auto-resume timer, and the "you retried while a render was
+// still finishing" path so none of them re-implement (or diverge on) the setup.
+function resumeOne(j) {
+  if (!j || !j.statusUrl || activeGens.has(j.chatId)) return;
+  const kind = j.kind || 'video';
+  const myGen = { kind, aspect: j.aspect, text: 'Checking on your ' + kind + '…', statusUrl: j.statusUrl };
+  activeGens.set(j.chatId, myGen);
+  updateSendLock();
+  if (chatStore.active === j.chatId) mountGenLoader();
+  // Give even a stale job a real chance — fal keeps results around for days,
+  // and a 4K render may still be going, so floor the resumed window at 5 min.
+  const deadline = Math.max(Date.now() + 5 * 60000, j.deadline || 0);
+  const mins = Math.max(5, Math.round((deadline - Date.now()) / 60000));
+  pollAndDeliver(j.chatId, kind, j.statusUrl, j.responseUrl, j.text || '', j.label || 'the model', deadline, mins, myGen, false);
+}
+
+// A render that outran its window / hit a network drop is paused (record kept,
+// tries bumped). Re-pick it up shortly WITHOUT a reload, so "the app will get it
+// automatically" is literally true — bounded by the tries<4 cap in resumeJobs.
+function scheduleResume(chatId, delayMs) {
+  setTimeout(() => {
+    if (activeGens.has(chatId)) return; // a manual retry/resume already took over
+    const rec = jobsLoad().find((j) => j.chatId === chatId && (j.tries || 0) < 4);
+    if (rec && rec.statusUrl) resumeOne(rec);
+  }, delayMs || 45000);
 }
 
 // While the active chat is generating, the send arrow becomes a stop square.
@@ -3374,6 +3393,16 @@ async function generateMedia(text, opts = {}) {
     addMsg('agent', '⚠️ Hold on — this chat is already generating. Start a new chat to run another.');
     return;
   }
+  // A paused-but-unfinished (already-charged) render for this chat must not be
+  // clobbered by a new run — starting one would overwrite its resume record and
+  // strand the paid job forever (the exact way a slow render gets lost). Pick it
+  // back up instead of charging for a second generation.
+  const pending = jobsLoad().find((j) => j.chatId === origin && j.statusUrl && (j.tries || 0) < 4);
+  if (pending) {
+    addMsg('agent', '⏳ Your previous render is still finishing — picking it back up now (you won’t be charged again).');
+    resumeOne(pending);
+    return;
+  }
   if (opts.announce !== false) { addMsg('user', text || '🎬 Lip-sync from the attached media'); await pushRefStrip(); }
   // Remember what we generated with, so "make it slower" can revise it later.
   const originChat = activeChat();
@@ -3495,7 +3524,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         if (sr.status === 401) {
           // Session expired mid-render — KEEP the record so boot-resume (after
           // re-sign-in) finishes the paid render instead of dropping it.
-          if (alive()) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign back in and the app will pick this up.'); }
+          if (alive()) { jobBumpTries(origin); pauseGen(origin, false); deliverAgent(origin, '⚠️ Your session expired mid-generation — sign back in and the app will pick this up.'); }
           return;
         }
         if (!sr.ok) {
@@ -3615,7 +3644,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // a failed result-fetch burned the claim and the paid render was dropped on
     // boot-resume. Another tab that already delivered this job wins the claim;
     // we stop without clearing so the winner's record management stands.
-    if (!claimDelivery(statusUrl)) { jobBumpTries(origin); pauseGen(origin); return; } // bump so a dead claim doesn't re-poll forever
+    if (!claimDelivery(statusUrl)) { jobBumpTries(origin); pauseGen(origin, false); return; } // another tab delivered this — don't re-poll
     // HDR + EXR runs return a pro sidecar file alongside the video — hand the
     // link over in chat (it's a pro-pipeline file; fal links expire in days).
     if (out.exr_file && out.exr_file.url) {

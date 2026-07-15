@@ -25,7 +25,14 @@ key: 🔴 open · 🟡 in progress · ✅ fixed.
 
 ## HIGH
 
-### H1 — A paused, still-rendering (paid) job is dropped when a new generation starts in the same chat
+### ✅ H1 — A paused, still-rendering (paid) job is dropped when a new generation starts in the same chat
+**FIXED.** A retry in a chat that still holds an unfinished record now *resumes*
+that job (no second charge) instead of clobbering it; `resumeOne`/`scheduleResume`
+also auto-re-pick-up a paused render ~45s later without a reload (bounded by
+tries<4), so "the app will get it automatically" is literally true. Session-
+expired and lost-to-another-tab pauses opt out of auto-resume.
+
+_Original:_
 `public/chat.js` — `pauseGen` keeps the localStorage resume record but frees
 `activeGens`, so the chat is immediately reusable; the next generation's
 `jobRecord`/`endGen` rewrites records filtered by `chatId`, erasing the paused
