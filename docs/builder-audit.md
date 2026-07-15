@@ -64,12 +64,17 @@ record" rule. Fix: FK `ON DELETE SET NULL` (or archive before delete).
   1080p/10s). Also fixed the related **price-tag staleness**: attaching/removing
   a start image, first/last frame, reference, or keyframe now reprices the tag
   (previously only clips did), so Ray's tier switch can't leave a stale quote.
-- **M2 — LipSync clip length trusted from the client.** `clipDuration` is used
-  for billing without a server-side measure (the audio path next to it measures
-  the real length). Add a server-side clip-length derive/floor.
-- **M3 — `/api/direct` charges before it validates.** Empty prompt (400), hit
-  research quota (429), and upstream failures (502) all occur after the debit
-  with no refund. Move the charge after validation, or refund on 4xx/5xx.
+- ✅ **M2 — LipSync clip length trusted from the client.** FIXED — the worker
+  now measures the clip's real duration from its bytes (`videoDurationFromDataUri`
+  → `durMp4`) and bills on that; the client `clipDuration` is ignored. Unparseable
+  → bills the 10s max.
+- ✅ **M3 — `/api/direct` charges before it validates.** FIXED (common cases) —
+  the empty-prompt check and the research daily-quota gate now run BEFORE the
+  charge, so a rejected request never debits. (Residual: a rare Anthropic 5xx
+  after the charge still keeps the small debit — deferred, low value.)
+- ✅ **M8 (was in H-race set) — stale-attach metadata.** FIXED — `readClipMeta`
+  and `measureAttachedImage` now bail if the attachment was swapped mid-load;
+  model-switch clearing also resets clipMeta/imgMeta/audio meta.
 - **M4 — `/api/video/poll` path is unconstrained.** Only the host is pinned; the
   path isn't limited to `/requests/<id>/status` like `/api/cancel` and
   `/api/refund`. Tighten to the same shape.

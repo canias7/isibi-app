@@ -211,7 +211,10 @@ function readClipMeta(dataUri) {
   v.preload = 'metadata';
   v.muted = true;
   v.onloadedmetadata = () => {
-    if (!clipMeta) return;
+    // Bail if this clip was swapped out while its metadata loaded — otherwise a
+    // slow clip A's late callback would stamp its duration/dims onto clip B's
+    // meta (wrong validation + wrong LipSync price).
+    if (!clipMeta || attachments.clip !== dataUri) return;
     clipMeta.dur = v.duration || 0;
     clipMeta.w = v.videoWidth || 0;
     clipMeta.h = v.videoHeight || 0;
@@ -333,8 +336,8 @@ function imageAttachIssue(kind) {
 function measureAttachedImage(kind, dataUri) {
   const img = new Image();
   img.onload = () => {
+    if (attachments[kind] !== dataUri) return; // replaced while loading — don't stamp stale dims
     imgMeta[kind] = { w: img.naturalWidth, h: img.naturalHeight };
-    if (attachments[kind] !== dataUri) return; // replaced while loading
     const bad = imageAttachIssue(kind);
     if (bad) {
       attachments[kind] = null;
@@ -576,7 +579,15 @@ function updateAttachVisibility() {
     btn.style.display = ok ? '' : 'none';
     const row = document.getElementById('row' + kind[0].toUpperCase() + kind.slice(1));
     if (row) row.style.display = ok ? '' : 'none';
-    if (!ok && attachments[kind]) { attachments[kind] = null; renderAttach(kind); }
+    // Clear an attachment the new model can't use — and its cached metadata, so
+    // a later price/validation read can't trust a dead clip's/image's numbers.
+    if (!ok && attachments[kind]) {
+      attachments[kind] = null;
+      if (kind === 'clip') clipMeta = null;
+      if (kind === 'audio') { awDur = 0; awSize = 0; awType = ''; }
+      delete imgMeta[kind];
+      renderAttach(kind);
+    }
   });
   // Switching models re-judges a kept clip against the NEW model's limits
   // (e.g. a 12s clip fine on Kling o3 is over Veo extend's 8s cap) — drop it
@@ -2971,7 +2982,8 @@ function estimatePrice(textForAudio) {
   // LipSync bills on the INPUT VIDEO's seconds, rolled up to the next 5s step
   // ($0.014/s). Unknown clip length quotes the 10s max — same as the worker.
   if (p.videoPer5s != null) {
-    const vs = Math.max(2, Math.min(10, Math.round((clipMeta && clipMeta.dur) || 0) || 10));
+    const dur = attachments.clip && clipMeta ? clipMeta.dur : 0; // ignore a stale/cleared clip's length
+    const vs = Math.max(2, Math.min(10, Math.round(dur || 0) || 10));
     return fmtPrice(p.videoPer5s * Math.ceil(vs / 5) * 5);
   }
   if (p.flat != null) return fmtPrice(p.flat);

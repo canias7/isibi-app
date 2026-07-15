@@ -157,6 +157,21 @@ function audioDurationFromDataUri(dataUri) {
   return durMp3(b);
 }
 
+// Real duration of a video clip data URI (mp4/mov both use moov→mvhd) — so
+// LipSync billing measures the clip instead of trusting the client's claim.
+function videoDurationFromDataUri(dataUri) {
+  if (typeof dataUri !== "string") return null;
+  const comma = dataUri.indexOf(",");
+  if (comma < 0 || !/;base64/i.test(dataUri.slice(0, comma))) return null;
+  let b;
+  try {
+    const bin = atob(dataUri.slice(comma + 1));
+    b = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+  } catch { return null; }
+  return durMp4(b, new DataView(b.buffer, b.byteOffset, b.byteLength));
+}
+
 // RIFF/WAVE: duration = data-chunk bytes / byteRate (exact for PCM).
 function durWav(b, dv) {
   if (b.length < 44) return null;
@@ -1622,7 +1637,13 @@ async function handleRequest(request, env, ctx) {
       // URL for format/duration/resolution and 422s a base64 data URI. Park the
       // clip on fal storage and submit the hosted URL instead. Happens BEFORE
       // the credit charge, so an upload failure costs nothing.
-      let clip = dataVideo(body.clip);
+      const clipDataUri = dataVideo(body.clip);
+      // LipSync bills on the clip's real length — measure it from the bytes here
+      // (before the data URI is swapped for the hosted URL) rather than trusting
+      // the client. Unparseable → 0, which bills the 10s max downstream.
+      const clipSecondsReal = clipDataUri && model === "fal-ai/kling-video/lipsync/audio-to-video"
+        ? (videoDurationFromDataUri(clipDataUri) || 0) : 0;
+      let clip = clipDataUri;
       if (clip) {
         clip = await falUpload(clip, env);
         if (!clip) {
@@ -1954,9 +1975,9 @@ async function handleRequest(request, env, ctx) {
         // premium where the model lists v2s rates (Ray, Kling o3).
         v2v: !!clip,
         i2v: isRayImgEndpoint,
-        // LipSync bills on the input clip's length — client-reported, clamped
-        // to the schema's 2-10s; absent claims bill the 10s max.
-        clipSeconds: Number(body.clipDuration) || 0,
+        // LipSync bills on the clip's length, measured server-side from the
+        // bytes (never the client's claim). Unparseable → 0 → the 10s max.
+        clipSeconds: clipSecondsReal,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never
@@ -2710,16 +2731,25 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
       let step = ["compose", "revise", "error", "studio", "research"].includes(body.step) ? body.step : "ask";
-      // The Orchestrator is no longer a subscription — every director call is
-      // metered through the regular credit ledger at the same $0.008/credit
-      // basis as generations (fractional). The per-call cost is deterministic
-      // (step+effort), so charge it atomically up front (useCredits row-locks
-      // the ledger) — this both gates a broke user AND stops concurrent calls
-      // bursting past the balance. A 402 makes the client fall back to raw
-      // prompting; a ledger hiccup fails the same way (never hand the paid
-      // director out for free, never hard-block the app on a credits outage).
+      const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
+      const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
+      if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
+      // The previous generation's prompt — lets the ask step spot feedback
+      // ("slower", "fix the text") and the revise step edit surgically.
+      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
+      if (step === "revise" && !prevPrompt) step = "compose";
+      // The Orchestrator is metered through the regular credit ledger at the same
+      // $0.008/credit basis as generations. Charge AFTER validation (empty prompt)
+      // and AFTER the research quota gate below, so a rejected request never
+      // debits — but still before the Anthropic call, so useCredits row-locks the
+      // ledger to gate a broke user and stop concurrent calls bursting past the
+      // balance. A 402 makes the client fall back to raw prompting.
       const dirCredits = orchestratorCostMicros(
         step, ["low", "high", "ultra", "max"].includes(body.effort) ? body.effort : "medium") / 8000;
+      // Research spends real money (web_search) and is directly callable, so its
+      // own tighter daily cap is checked BEFORE the charge — a capped user is
+      // told to wait, not debited.
+      if (step === "research" && !(await useQuota(request, "research", 30))) return QUOTA_EXCEEDED();
       let dirBalance;
       try {
         dirBalance = await useCredits(request.headers.get("Authorization") || "", dirCredits);
@@ -2729,15 +2759,6 @@ async function handleRequest(request, env, ctx) {
       if (dirBalance === -1) {
         return Response.json({ error: "not enough credits", locked: true, need: "credits", cost: dirCredits }, { status: 402 });
       }
-      const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
-      const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
-      if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
-      // The previous generation's prompt — lets the ask step spot feedback
-      // ("slower", "fix the text") and the revise step edit surgically.
-      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
-      if (step === "revise" && !prevPrompt) step = "compose";
-      // (The orchestrator budget was already reserved atomically at the gate
-      // above — no separate debit step, which is what let bursts overspend.)
       // Raw pipeline error, for the explain-a-failure step.
       const errText = typeof body.error === "string" ? body.error.slice(0, 700) : "";
       // The chat's running creative brief — per-chat taste memory, maintained
@@ -2761,10 +2782,7 @@ async function handleRequest(request, env, ctx) {
       // (~$0.01 each), so it is gated behind that judgment and capped by
       // max_uses; any failure degrades gracefully to "no facts".
       if (step === "research") {
-        // Each research call spends real money (web_search, ~$0.01/search,
-        // up to max_uses per call), and the step is directly callable — so
-        // it gets its own much tighter daily cap on top of the director one.
-        if (!(await useQuota(request, "research", 30))) return QUOTA_EXCEEDED();
+        // (The research daily cap was already checked before the charge above.)
         const rHistory = Array.isArray(body.history)
           ? body.history
               .filter((h) => h && (h.role === "user" || h.role === "assistant") && typeof h.text === "string")
