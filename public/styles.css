@@ -344,9 +344,21 @@
 .msg.audio audio { display: block; width: 320px; max-width: 100%; }
 .msg.image img { cursor: zoom-in; }
 
-/* ── Generated-media actions (download / full screen) ── */
-.msg.image, .msg.video, .msg.audio { position: relative; }
-.media-actions { position: absolute; top: .7rem; right: .7rem; display: flex; gap: .4rem; }
+/* ── Generated-media actions (full screen / download / delete) ──
+   A vertical column sitting just OUTSIDE the media's right edge, as a flex
+   sibling of the player — never an overlay, so it can't collide with the
+   video's own controls (scrubber, volume, native PiP/full-screen), and it
+   lands correctly for every aspect ratio and model (portrait, square,
+   ultrawide) since it tracks the media's real rendered width. */
+.msg.image, .msg.video, .msg.audio {
+  position: relative;
+  display: inline-flex; align-items: flex-start; gap: .5rem;
+  align-self: flex-start; /* shrink-wrap to media + buttons, don't stretch */
+}
+/* The media element must be allowed to shrink on narrow screens so the button
+   column always stays beside it (never pushed off / overlapping). */
+.msg.video video, .msg.image img, .msg.audio audio { min-width: 0; }
+.media-actions { display: flex; flex-direction: column; gap: .4rem; flex-shrink: 0; }
 .media-btn {
   width: 34px; height: 34px; border-radius: 9px; border: none;
   background: rgba(10, 10, 11, .72); color: var(--text); cursor: pointer;
