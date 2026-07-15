@@ -2541,6 +2541,43 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // The gallery reads what's ACTUALLY saved in the caller's storage, not what
+    // their chat history happens to still reference — so a saved file survives
+    // deleting the chat it was made in (files were orphaning otherwise). Returns
+    // one row per stored object: its public URL, kind (from extension), size,
+    // and created_at. The frontend overlays chat metadata (prompt/poster) when
+    // it still has it, but existence is driven by storage.
+    if (url.pathname === "/api/gallery" && request.method === "GET") {
+      if (!(await authUser(request))) return UNAUTHED();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/list_media`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: request.headers.get("Authorization") || "" },
+          body: "{}",
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) throw 0;
+        const rows = await r.json();
+        const kindOf = (name) => {
+          const ext = String(name).split(".").pop().toLowerCase();
+          if (["mp4", "mov", "webm", "m4v"].includes(ext)) return "video";
+          if (["mp3", "wav", "m4a", "ogg", "aac", "flac"].includes(ext)) return "audio";
+          return "image"; // jpg/jpeg/png/webp/gif
+        };
+        const items = (Array.isArray(rows) ? rows : []).map((o) => {
+          const name = String(o.name || "");
+          // Filenames are `<ms>-<hash>.<ext>`; the leading ms is the creation
+          // time (falls back to the row's created_at).
+          const tsM = name.split("/").pop().match(/^(\d{10,})-/);
+          const at = tsM ? Number(tsM[1]) : (Date.parse(o.created_at) || 0);
+          return { url: `${SUPABASE_URL}/storage/v1/object/public/media/${name}`, kind: kindOf(name), size: Number(o.size) || 0, at };
+        });
+        return Response.json({ items });
+      } catch {
+        return Response.json({ error: "gallery unavailable" }, { status: 503 });
+      }
+    }
+
     // ── Media Agent: social account connections via Composio ──
     // Connection status for the current user's Instagram + YouTube.
     if (url.pathname === "/api/social/status" && request.method === "GET") {

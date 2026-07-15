@@ -7506,16 +7506,52 @@ function isSavedMedia(url) {
   return typeof url === 'string' && typeof SUPABASE_URL === 'string' &&
     url.startsWith(SUPABASE_URL + '/storage/');
 }
+// The authoritative list of saved objects in the caller's storage, fetched
+// from /api/gallery on gallery open. Existence is driven by storage (so a save
+// survives deleting its chat); chat messages only supply prompt/poster overlay.
+let serverGallery = null; // [{ url, kind, size, at }] or null before first load
+
+async function loadServerGallery() {
+  try {
+    const r = await apiFetch('/api/gallery');
+    if (r && r.ok) {
+      const j = await r.json();
+      if (j && Array.isArray(j.items)) serverGallery = j.items;
+    }
+  } catch {}
+}
+
 function galleryItems() {
   const seen = new Set();
   const out = [];
   let seq = 0;
+  // Chat-message metadata by URL — the prompt/poster/chatId overlay for a
+  // stored file, when the originating chat still exists.
+  const meta = new Map();
   chatStore.chats.forEach((c) => (c.msgs || []).forEach((m) => {
-    if (m.t === 'media' && isSavedMedia(m.url) && !seen.has(m.url)) {
-      seen.add(m.url);
-      out.push({ chatId: c.id, kind: m.kind || 'video', url: m.url, prompt: m.prompt, poster: m.poster, at: m.at || 0, seq: seq++ });
+    if (m.t === 'media' && isSavedMedia(m.url) && !meta.has(m.url)) {
+      meta.set(m.url, { chatId: c.id, kind: m.kind, prompt: m.prompt, poster: m.poster, at: m.at || 0 });
     }
   }));
+  // Storage is authoritative for what exists. Merge in the chat overlay; a file
+  // whose chat was deleted still shows (with no prompt), which is the whole fix.
+  if (Array.isArray(serverGallery)) {
+    serverGallery.forEach((o) => {
+      if (!isSavedMedia(o.url) || seen.has(o.url)) return;
+      seen.add(o.url);
+      const md = meta.get(o.url) || {};
+      out.push({ chatId: md.chatId, kind: o.kind || md.kind || 'video', url: o.url, prompt: md.prompt, poster: md.poster, at: o.at || md.at || 0, seq: seq++ });
+    });
+  }
+  // Before the server list has loaded (or if it failed), fall back to the chat-
+  // derived view so the gallery is never blank when we do have local records.
+  if (!Array.isArray(serverGallery)) {
+    meta.forEach((md, url) => {
+      if (seen.has(url)) return;
+      seen.add(url);
+      out.push({ chatId: md.chatId, kind: md.kind || 'video', url, prompt: md.prompt, poster: md.poster, at: md.at || 0, seq: seq++ });
+    });
+  }
   const filtered = galFilter === 'all' ? out : out.filter((i) => i.kind === galFilter);
   // Old media has no timestamp — insertion order stands in for age.
   filtered.sort((a, b) => (a.at - b.at) || (a.seq - b.seq));
@@ -7588,6 +7624,13 @@ function paintStorageBar() {
       ? '<div class="gs-note">Your gallery is full — free up space or <button class="gs-cta" data-act="gal-upgrade">move up a tier →</button></div>'
       : '');
   wireActions(el);
+}
+
+// Fetch the authoritative storage list, then repaint — called on gallery open
+// so a saved file shows even when its chat is gone (or on a fresh device).
+async function refreshGallery() {
+  await loadServerGallery();
+  renderGallery();
 }
 
 function renderGallery() {
@@ -7666,6 +7709,9 @@ async function galleryDelete(it, el) {
   }
   const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
   if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
+  // Drop it from the authoritative storage list too, so the card doesn't
+  // reappear on the next repaint before /api/gallery is re-fetched.
+  if (Array.isArray(serverGallery)) serverGallery = serverGallery.filter((o) => o.url !== it.url);
   renderGallery();
   refreshStorageBar(); // freed space → refresh the usage bar
 }
@@ -7682,7 +7728,7 @@ function showView(name) {
   const sd = document.getElementById('scrollDown');
   if (sd && name !== 'home') sd.classList.remove('show');
   if (name === 'landing') renderLanding();
-  if (name === 'gallery') { renderGallery(); refreshStorageBar(); }
+  if (name === 'gallery') { renderGallery(); refreshGallery(); refreshStorageBar(); }
   if (name === 'products') renderProducts();
   if (name === 'avatar') renderAvatar();
   if (name === 'mediaAgent') renderMediaAgent();

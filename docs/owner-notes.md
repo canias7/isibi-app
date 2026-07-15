@@ -489,3 +489,30 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Still not live-tested (needs fal credit, owner's go):** the four sweep
   items above + first real runs of multi-shot / @Video ref / Gemini i2v /
   silent-flag billing.
+
+### Gallery no longer loses saved media when a chat is deleted (2026-07-15)
+- **Bug the owner hit:** saved a dog image, later deleted the chat it was in,
+  and it vanished from the Gallery — but Storage still showed 1.2 MB used.
+- **Root cause:** `galleryItems()` rebuilt the whole gallery by scanning
+  `chatStore.chats[].msgs[]` for media messages. So a saved file only showed if
+  a chat message still pointed at it — delete the chat, lose the card, and the
+  file is orphaned in storage (still billed against the quota). "Save to
+  gallery" was really just "a media message exists in a chat."
+- **Fix:** the Gallery now reads what's ACTUALLY in the caller's storage.
+  - New RPC `list_media()` (SECURITY DEFINER, auth-only, mirrors
+    `storage_status()`'s `media/<uid>/` prefix scope) → returns each object's
+    name/size/created_at.
+  - New `GET /api/gallery` → maps rows to `{url, kind (from extension), size,
+    at (parsed from the `<ms>-` filename)}`.
+  - `galleryItems()` now merges: **storage is authoritative for existence**;
+    chat messages only overlay prompt/poster when the originating chat still
+    exists. A file whose chat was deleted still shows (no prompt). Falls back to
+    the old chat-derived view if `/api/gallery` hasn't loaded / failed.
+  - `galleryDelete` still removes the file + chat msg, and now also drops it
+    from the storage-list cache. `refreshGallery()` fetches on gallery open.
+- **Recovers the owner's dog automatically** (it was always in storage —
+  `1216004` bytes, matches the 1.2 MB the bar showed). Also fixes the orphaned-
+  storage class of bug for everyone, cross-device.
+- Still open (documented, from the round-3 audit, NOT yet fixed): Stripe
+  chargeback handling, the auto-reply prompt-injection surface, `delete_account`
+  not clearing `gen_charges`, the jobs-record cap, and the CSP nit.
