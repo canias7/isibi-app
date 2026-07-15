@@ -838,23 +838,34 @@ const IMG_SOURCES = {
   product: { title: 'Pick a product',         empty: 'No products yet — add one in the Products tab.',                    list: () => loadProducts().map((p) => p.image).filter(Boolean) },
 };
 
-// Every image generated in any chat (media messages hold permanent URLs).
+// Images the user actually SAVED to their gallery — the authoritative storage
+// list (serverGallery), same source the Gallery view renders. Only falls back
+// to scanning chat media if that list hasn't loaded yet (openGalleryPicker
+// loads it first, so the fallback is rare). Never a temp/unsaved link.
 function galleryImages() {
+  if (Array.isArray(serverGallery)) {
+    return serverGallery
+      .filter((o) => (o.kind || 'image') === 'image' && isSavedMedia(o.url))
+      .sort((a, b) => (b.at || 0) - (a.at || 0))
+      .map((o) => o.url);
+  }
   const seen = new Set();
   const out = [];
   (chatStore.chats || []).forEach((c) => (c.msgs || []).forEach((m) => {
-    if (m.t === 'media' && m.kind === 'image' && m.url && !seen.has(m.url)) {
+    if (m.t === 'media' && m.kind === 'image' && m.url && isSavedMedia(m.url) && !seen.has(m.url)) {
       seen.add(m.url);
       out.push({ url: m.url, at: m.at || 0 });
     }
   }));
-  // Sort by capture time so the genuinely newest image is first, regardless of
-  // which chat it came from.
   return out.sort((a, b) => b.at - a.at).map((x) => x.url);
 }
 
-function openGalleryPicker(source) {
+async function openGalleryPicker(source) {
   const meta = IMG_SOURCES[source] || IMG_SOURCES.gallery;
+  // The gallery source is the authoritative storage list — fetch it if this
+  // session hasn't yet (otherwise galleryImages() falls back to a chat scan,
+  // which is exactly the "picks from chats not the gallery" bug).
+  if (source === 'gallery' && !Array.isArray(serverGallery)) await loadServerGallery();
   const old = document.querySelector('.gal-overlay');
   if (old) old.remove();
   const ov = document.createElement('div');
