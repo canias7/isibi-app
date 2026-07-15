@@ -7085,10 +7085,13 @@ function crtSelect() {
 function initCrtStage() {
   const stage = document.getElementById('leadStage');
   if (!stage) return;
-  const cell = (n) => '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
+  // 'v' → a real AI-made clip playing on loop in one of the squares.
+  const cell = (n) => n === 'v'
+    ? '<div class="mkt-cell mkt-cvid"><video class="mkt-cell-vid" src="/mkt/reel1.mp4" poster="/mkt/reel1.jpg" muted loop autoplay playsinline preload="metadata"></video></div>'
+    : '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
   const col = (arr) => { const one = arr.map(cell).join(''); return one + one; };  // doubled for seamless loop
   const cols = stage.querySelectorAll('.lp-col');
-  if (cols[0]) cols[0].innerHTML = col([1, 3, 5, 7, 9, 11, 13]);
+  if (cols[0]) cols[0].innerHTML = col(['v', 3, 5, 7, 9, 11, 13]);
   if (cols[1]) cols[1].innerHTML = col([2, 4, 6, 8, 10, 12, 14]);
   const cascade = document.getElementById('mbCascade');
   const slots = cascade ? Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot')) : [];
