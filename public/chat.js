@@ -132,6 +132,7 @@ let ratio = '16:9';
 let quality = '720p';
 let voice = 'Rachel';
 let numImages = 1; // per-image billing — always defaults back to 1
+let gptSize = '1K'; // GPT Image 2 output resolution tier (1K/2K/4K)
 // Each mode remembers its own model, so switching modes doesn't reset the pick.
 const selectedModels = { ...DEFAULT_MODELS };
 let model = selectedModels.video;
@@ -1780,6 +1781,9 @@ function currentOpts() {
       resItems: IMAGE_RES[model] ? IMAGE_RES[model].opts.map(([value, label]) => ({ value, label })) : null,
       resLabel: IMAGE_RES[model] ? IMAGE_RES[model].label : 'Resolution',
       defRes: IMAGE_RES[model] ? IMAGE_RES[model].def : '2K',
+      // GPT Image 2 output resolution tier (separate axis from its Quality) —
+      // 1K uses the ratio's named preset; 2K/4K send explicit larger dimensions.
+      sizes: model === 'openai/gpt-image-2' ? ['1K', '2K', '4K'] : null, defSize: '1K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
         // The "Image" row IS the multi-image picker (main + "+ Add image" up to
@@ -1897,6 +1901,7 @@ function buildOptMenus() {
   // reset to this model's defaults
   if (opts.durations) duration = opts.defDur;
   if (opts.resolutions) quality = opts.defRes;
+  if (opts.sizes) gptSize = opts.defSize;
   if (opts.ratios) ratio = opts.defRatio;
   if (opts.nums) numImages = 1;
   if (opts.voices) voice = opts.defVoice;
@@ -1905,6 +1910,7 @@ function buildOptMenus() {
   const sections = [];
   if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
   if (opts.resolutions) sections.push(settingSection(opts.resLabel || 'Resolution', 'quality', opts.resItems || opts.resolutions.map((q) => ({ value: q, label: q }))));
+  if (opts.sizes) sections.push(settingSection('Resolution', 'gptSize', opts.sizes.map((s) => ({ value: s, label: s }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
   if (opts.hdr) sections.push(settingSection('HDR', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On · 2×' }, { value: 'exr', label: 'On + EXR · 3×' }]));
   if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
@@ -1944,7 +1950,7 @@ function buildOptMenus() {
 // A settings section: a label + selectable chips. Long lists (>6) collapse
 // behind a "View all" toggle.
 function settingSection(label, kind, items, isVoice) {
-  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode }[kind];
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode }[kind];
   const collapsible = items.length > 6;
   const chips = items.map((it) => {
     const active = String(it.value) === String(cur) ? ' active' : '';
@@ -1966,6 +1972,7 @@ function pickSetting(chip) {
   const kind = chip.dataset.kind, val = chip.dataset.value;
   if (kind === 'ratio') ratio = val;
   else if (kind === 'quality') quality = val;
+  else if (kind === 'gptSize') gptSize = val;
   else if (kind === 'duration') duration = Number(val);
   else if (kind === 'num') numImages = Number(val);
   else if (kind === 'voice') voice = val;
@@ -2003,6 +2010,7 @@ function updateSettingsSummary() {
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
+  if (opts.sizes && gptSize !== '1K') parts.push(gptSize);
   if (opts.durations) parts.push(duration + 's');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');
@@ -3244,10 +3252,14 @@ const VIDEO_PRICE = {
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
   'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
 };
-// GPT Image 2 $/image by quality tier — a small margin over fal's max price for
-// the presets we send (all ≤1024²-class): low ≤$0.006, medium ≤$0.053, high
-// ≤$0.211. Never undercharges; mirrored in the worker.
-const GPT_QUALITY_USD = { low: 0.008, medium: 0.06, high: 0.22 };
+// GPT Image 2 $/image by SIZE tier × QUALITY. Each cell is a small margin over
+// fal's max price for that tier's pixel budget (1K ≤1024²-class, 2K ≤2560×1440,
+// 4K ≤3840×2160), so it never undercharges. Mirrored in the worker.
+const GPT_PRICE = {
+  '1K': { low: 0.008, medium: 0.06,  high: 0.22 },
+  '2K': { low: 0.008, medium: 0.06,  high: 0.23 },
+  '4K': { low: 0.014, medium: 0.104, high: 0.41 },
+};
 const IMAGE_PRICE = { // $ per image
   'fal-ai/nano-banana-pro': 0.15,
   'openai/gpt-image-2': 0.22, // token-billed; fal's table puts High 1024² at ~$0.21
@@ -3267,9 +3279,10 @@ function fmtPrice(usd) {
 }
 function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   if (mode === 'image') {
-    // GPT Image 2 is priced by quality tier (low/medium/high), not a flat rate.
+    // GPT Image 2 is priced by size tier × quality, not a flat rate.
     if (model === 'openai/gpt-image-2') {
-      const rate = GPT_QUALITY_USD[quality] != null ? GPT_QUALITY_USD[quality] : GPT_QUALITY_USD.high;
+      const t = GPT_PRICE[gptSize] || GPT_PRICE['1K'];
+      const rate = t[quality] != null ? t[quality] : t.high;
       return fmtPrice(rate * (numImages || 1));
     }
     const per = IMAGE_PRICE[model];
@@ -3805,6 +3818,7 @@ async function generateMedia(text, opts = {}) {
         clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
         shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, nothing attached)
         mask: (kind === 'image' && maskCapable() && maskData) ? maskData : undefined, // GPT inpainting region
+        size: (kind === 'image' && currentOpts().sizes) ? gptSize : undefined, // GPT resolution tier (1K/2K/4K)
         sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
         negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
         stability: kind === 'audio' ? genExtras.stability : undefined, // voice delivery tuning
