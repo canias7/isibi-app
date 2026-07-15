@@ -7085,9 +7085,14 @@ function crtSelect() {
 function initCrtStage() {
   const stage = document.getElementById('leadStage');
   if (!stage) return;
-  // 'v' → a real AI-made clip playing on loop in one of the squares.
+  // 'v' → a real AI-made clip playing on loop in one of the squares, with a
+  // tap-to-unmute sound button top-right (autoplay must start muted).
+  const soundBtn = '<button class="mkt-vid-sound" type="button" aria-label="Play sound">'
+    + '<svg class="ico-off" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>'
+    + '<svg class="ico-on" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 4.5a9 9 0 0 1 0 15"/></svg>'
+    + '</button>';
   const cell = (n) => n === 'v'
-    ? '<div class="mkt-cell mkt-cvid"><video class="mkt-cell-vid" src="/mkt/reel1.mp4" poster="/mkt/reel1.jpg" muted loop autoplay playsinline preload="metadata"></video></div>'
+    ? '<div class="mkt-cell mkt-cvid"><video class="mkt-cell-vid" src="/mkt/reel1.mp4" poster="/mkt/reel1.jpg" muted loop autoplay playsinline preload="metadata"></video>' + soundBtn + '</div>'
     : '<div class="mkt-cell mkt-c' + n + '"><span class="mkt-cell-img" style="background-image:url(/mkt/f' + n + '.jpg)"></span></div>';
   const col = (arr) => { const one = arr.map(cell).join(''); return one + one; };  // doubled for seamless loop
   const cols = stage.querySelectorAll('.lp-col');
@@ -7103,6 +7108,20 @@ function initCrtStage() {
   });
   requestAnimationFrame(setDrift);
   let driftT; window.addEventListener('resize', () => { clearTimeout(driftT); driftT = setTimeout(setDrift, 150); });
+  // Tap-to-unmute: clicking a clip's sound button unmutes THAT copy and mutes
+  // every other (the strip is doubled, so both copies exist — no echo).
+  stage.querySelectorAll('.mkt-vid-sound').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const cvid = btn.closest('.mkt-cvid');
+      const vid = cvid && cvid.querySelector('.mkt-cell-vid');
+      if (!vid) return;
+      const turnOn = vid.muted;
+      stage.querySelectorAll('.mkt-cell-vid').forEach((v) => { v.muted = true; });
+      stage.querySelectorAll('.mkt-vid-sound').forEach((b) => b.classList.remove('on'));
+      if (turnOn) { vid.muted = false; try { vid.play(); } catch (e2) {} btn.classList.add('on'); }
+    });
+  });
   const cascade = document.getElementById('mbCascade');
   const slots = cascade ? Array.prototype.slice.call(cascade.querySelectorAll('.mb-slot')) : [];
   const N = slots.length;
