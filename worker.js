@@ -1712,7 +1712,7 @@ async function handleRequest(request, env, ctx) {
       }
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
-        ? body.images.slice(0, 8).map(dataImage).filter(Boolean)
+        ? body.images.slice(0, 13).map(dataImage).filter(Boolean) // + main = up to 14 (Nano combine max)
         : [];
       // Veo 3.1's dedicated image-input modes (mutually exclusive with i2v):
       //  first + last  → first-last-frame-to-video (2 frames)
@@ -2036,7 +2036,7 @@ async function handleRequest(request, env, ctx) {
         // Size comes from the source image, so no aspect_ratio here.
         const edit = IMAGE_EDIT[model];
         endpoint = edit.endpoint;
-        const urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 9);
+        const urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 14);
         if (edit.multi) input.image_urls = urls;
         else input.image_url = urls[0];
         // GPT Image 2's edit endpoint has no aspect_ratio/resolution — it sizes
@@ -3126,6 +3126,11 @@ async function handleRequest(request, env, ctx) {
       const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
       const hasImage = !!body.hasImage;
       const hasEnd = !!body.hasEnd;
+      // How many images are attached for an image edit/combine (Nano/GPT take
+      // several). >1 means the composer should describe EACH image's role,
+      // referenced by position ("the first image", "the second image") — these
+      // models bind by position, not by an @Image tag.
+      const imageCount = kind === "image" ? Math.min(14, Math.max(0, Math.round(+body.imageCount) || 0)) : 0;
       const hasClip = kind === "video" && !!body.hasClip;
       const hasAvatar = kind === "video" && !!body.hasAvatar;
       const hasAudio = kind === "video" && !!body.hasAudio;
@@ -3205,7 +3210,8 @@ async function handleRequest(request, env, ctx) {
       if (kind === "video" && genDuration) ctxBits.push(`clip length: ${genDuration}s`);
       if (genRatio) ctxBits.push(`aspect ratio: ${genRatio}`);
       if (kind !== "audio") {
-        ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
+        if (kind === "image" && imageCount > 1) ctxBits.push(`${imageCount} images attached to combine/edit — refer to each by position (the first image, the second image, …)`);
+        else ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
         if (hasClip) ctxBits.push(clipIsSeedanceRef ? "a video clip IS attached as a @Video1 reference" : "a source video clip IS attached (video-to-video edit)");
         if (hasAvatar) ctxBits.push("an avatar face image IS attached");
@@ -3213,6 +3219,12 @@ async function handleRequest(request, env, ctx) {
         if (refCount) ctxBits.push(`${refCount} reference image${refCount > 1 ? "s" : ""} attached`);
       }
       const ctxLine = ctxBits.join(" · ");
+      // Multi-image edit/combine guidance (Nano/GPT take several images). The
+      // edit branch below is written for a single source; when >1 is attached,
+      // tell the writer to describe each image's role by POSITION.
+      const multiImgLine = (kind === "image" && imageCount > 1)
+        ? `\n- ${imageCount} images are attached to combine/edit. Say clearly what to take from EACH, referring to them by position ("the first image", "the second image", …) and how they merge — this model binds images by position, NOT by any @Image tag, so never write @Image1.`
+        : "";
       // References work differently per family. Seedance binds each reference by
       // an @-tag written INTO the prompt; Veo uses them holistically for identity.
       const refLine = (refCount && kind === "video")
@@ -3322,7 +3334,7 @@ Context: ${ctxLine}`
 Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Do NOT re-describe the whole scene, do NOT write a full generation prompt, do NOT pad for length. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Change the sky behind the building to a dramatic orange sunset; leave everything else untouched." · "Turn the man's jacket red and add subtle rain on the window." · "Restyle the photo into a soft watercolour painting while keeping the composition exactly."${familyHint ? `
-- ${familyHint}` : ""}${briefLine}${memoryLine}
+- ${familyHint}` : ""}${multiImgLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.

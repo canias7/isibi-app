@@ -608,7 +608,10 @@ function renderAttach(kind) {
     const preview = kind === 'clip'
       ? '<span class="audio-chip">🎬 clip</span>'
       : '<img src="' + esc(attachments[kind]) + '" alt="" />';
-    btn.innerHTML = preview + '<span class="x">×</span>';
+    // With several images attached, badge the main one as #1 so the prompt can
+    // refer to "the first image" (Nano references images by position, not tags).
+    const num = (kind === 'image' && extraImages.length) ? '<span class="slot-num">1</span>' : '';
+    btn.innerHTML = preview + num + '<span class="x">×</span>';
     const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
     btn.classList.remove('has');
@@ -914,7 +917,8 @@ function renderExtraImages() {
   extraImages.forEach((src, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
-    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="x">×</span>';
+    // Number continues from the main image (#1), so extras are #2, #3, …
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="slot-num">' + (i + 2) + '</span><span class="x">×</span>';
     d.querySelector('.x').onclick = () => removeExtraImage(i);
     host.appendChild(d);
   });
@@ -1633,12 +1637,11 @@ function currentOpts() {
       caps: {
         // The "Image" row IS the multi-image picker (main + "+ Add image" up to
         // maxImages). No separate avatar slot in image mode — it duplicated the
-        // Image row, was mislabeled "Avatar" (a video-only concept), and snuck a
-        // 5th image past the stated cap. All references go through Image, capped
-        // at 9 to match the worker's image_urls slice (the edit endpoints
-        // document no hard max, so 9 is our shared ceiling).
+        // Image row and was mislabeled "Avatar" (a video-only concept). All
+        // references go through Image, capped at 14 — Nano Banana Pro's
+        // documented max ("combine up to 14 images in a single composition").
         image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: false,
-        maxImages: IMAGE_MULTI_MODELS.has(model) ? 9 : 1,
+        maxImages: IMAGE_MULTI_MODELS.has(model) ? 14 : 1,
       },
     };
   }
@@ -4025,6 +4028,10 @@ function directorContext() {
     // separately so the director can cite them (Seedance) or lean on them (Veo).
     hasImage: !!(attachments.image || attachments.ffirst),
     hasEnd: !!(attachments.end || attachments.flast),
+    // How many images are attached for an image edit/combine — so the composer
+    // can describe EACH one's role ("the product from the first image on the
+    // second image's background"). Nano references by position, not @tags.
+    imageCount: mode === 'image' ? ((attachments.image ? 1 : 0) + extraImages.length) : undefined,
     // Every attachment the director can't render as an image (video clip,
     // avatar face, audio track) still gets flagged so the orchestrator KNOWS
     // it's there — never denies seeing it, and writes for the actual inputs.
