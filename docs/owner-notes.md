@@ -81,6 +81,22 @@ _(empty)_
 
 ## Shipped
 
+- **Workspace restructure — Builder is home, other views float (2026-07-15):**
+  owner: "delete home and all the stuff in it, and builder will be the new home,
+  all the other options will be floating logo in the screen for now." Done:
+  the old **Home landing** (`viewLanding`/`renderLanding`) and the whole sidebar
+  **Workspace nav** (the 6-item Home/Builder/Gallery/Products/Avatar/Media Agent
+  list) were removed. The **Builder chatbox** (`viewHome`) is now the home screen
+  and the only thing `enterApp` opens. The **sidebar stays slim** — chats only
+  (owner picked "Keep slim sidebar for chats"). Gallery/Products/Avatar/Media
+  Agent moved to a **floating logo menu, top-right** (owner picked "Top-right"):
+  `#floatNav` (a `.float-logo` button under the profile pill) opens `#floatMenu`
+  with the 4 `.float-item` links; `toggleFloatMenu`/`closeFloatMenu`, outside-click
+  closes, picking a view closes it. `showView('landing')` now redirects to `'home'`
+  so nothing that still asks for the old landing breaks (`renderLanding` is dead).
+  Gallery's "Newest first" sort + Avatar's Generate/Import buttons got a 52px
+  right pad so they clear the fixed float-logo lane.
+
 - **Public marketing landing (2026-07-12, redesigned 2026-07-13, owner approved
   "main" 2026-07-13 → merged):** logged-out
   visitors see a marketing page BEFORE the auth gate (owner picked option 1).

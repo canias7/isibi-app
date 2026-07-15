@@ -143,29 +143,7 @@
 
   <div class="shell">
     <aside class="sidebar">
-      <div class="side-logo" data-view="landing" data-act="view"><img class="logo-mark" src="/logo.png" alt="" /><span>isibi</span></div>
-
-      <div class="side-label">Workspace</div>
-      <div class="side-nav">
-        <div class="side-item active" data-view="landing" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V20h13V9.5"/></svg></span><span>Home</span>
-        </div>
-        <div class="side-item" data-view="home" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 21 12-12"/><path d="M15 5l4 4"/><path d="M18 2l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2Z"/></svg></span><span>Builder</span>
-        </div>
-        <div class="side-item" data-view="gallery" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span><span>Gallery</span>
-        </div>
-        <div class="side-item" data-view="products" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span><span>Products</span>
-        </div>
-        <div class="side-item" data-view="avatar" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></span><span>Avatar</span>
-        </div>
-        <div class="side-item" data-view="mediaAgent" data-act="view">
-          <span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg></span><span>Media Agent</span>
-        </div>
-      </div>
+      <div class="side-logo" data-view="home" data-act="view"><img class="logo-mark" src="/logo.png" alt="" /><span>isibi</span></div>
 
       <div id="homeChats">
         <div class="side-label">Chats</div>
@@ -232,12 +210,20 @@
       </div>
     </div>
 
+    <!-- Floating logo menu (top-right): the views that used to live in the sidebar -->
+    <div class="float-nav" id="floatNav">
+      <button class="float-logo" data-act="float-menu" aria-label="Open menu" aria-haspopup="true"><img class="logo-mark" src="/logo.png" alt="isibi menu" /></button>
+      <div class="float-menu" id="floatMenu" role="menu">
+        <button class="float-item" role="menuitem" data-view="gallery" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span>Gallery</button>
+        <button class="float-item" role="menuitem" data-view="products" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span>Products</button>
+        <button class="float-item" role="menuitem" data-view="avatar" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></span>Avatar</button>
+        <button class="float-item" role="menuitem" data-view="mediaAgent" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg></span>Media Agent</button>
+      </div>
+    </div>
+
     <main class="main">
 
-      <!-- Home landing/dashboard (built by renderLanding) -->
-      <div id="viewLanding" class="view view-landing active"></div>
-
-      <div id="viewHome" class="view view-home">
+      <div id="viewHome" class="view view-home active">
       <div class="home-slide" id="homeSlide">
       <div class="home-screen">
       <section class="chat active">
