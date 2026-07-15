@@ -3256,7 +3256,9 @@ const VIDEO_PRICE = {
 // fal's max price for that tier's pixel budget (1K ≤1024²-class, 2K ≤2560×1440,
 // 4K ≤3840×2160), so it never undercharges. Mirrored in the worker.
 const GPT_PRICE = {
-  '1K': { low: 0.008, medium: 0.06,  high: 0.22 },
+  // 1K high is $0.23 (not $0.211) to cover the worst case where fal's undocumented
+  // named preset maps to a 2560×1440-class image ($0.222) instead of ~1024².
+  '1K': { low: 0.008, medium: 0.06,  high: 0.23 },
   '2K': { low: 0.008, medium: 0.06,  high: 0.23 },
   '4K': { low: 0.014, medium: 0.104, high: 0.41 },
 };
