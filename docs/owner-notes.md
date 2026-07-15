@@ -470,3 +470,22 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   `output_format`, Kling **elements** mode (character consistency — real
   feature, deferred to its own pass: needs elements↔image_urls live testing
   and the voice_id half trips the voice-control price tier).
+
+### Post-round-2 free checks (2026-07-15, same day)
+- **Supabase security advisors run:** one real WARN actioned — the six dead
+  add-on RPCs from the removed Orchestrator/Video-Editor products
+  (`orchestrator_status` was ANON-callable) are now **dropped** from the live DB
+  (migration `drop_dead_addon_rpcs`; zero code references, verified incl. the
+  demo copies). Remaining WARNs are by-design (auth-callable credits/storage
+  RPCs; deny-all RLS tables). One recommendation for the owner: enable
+  **leaked-password protection** (HaveIBeenPwned check) in Supabase Auth
+  settings — one toggle, dashboard or Management API.
+- **`sbFFScale` verified headless in a real browser engine:** a 1920×1080 H.264
+  clip conformed to 1278×718 (917,604 px — inside Seedance's reference band),
+  16:9 preserved, even dims, audio intact, duration intact; output re-probed
+  with native ffmpeg. (Headless note: plain Chromium has no H.264 *decoder*, so
+  in-browser playback of the result can't be asserted there — real
+  Chrome/Safari decode it fine.)
+- **Still not live-tested (needs fal credit, owner's go):** the four sweep
+  items above + first real runs of multi-shot / @Video ref / Gemini i2v /
+  silent-flag billing.
