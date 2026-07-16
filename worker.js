@@ -682,15 +682,19 @@ function extractProduct(html, pageUrl, host) {
   const desc = (ld.desc || meta("og:description") || meta("twitter:description") || meta("description"))
     .replace(/\s+/g, " ").trim().slice(0, 300);
 
-  // ── 2-5. Image, in priority order ──
-  let image = ld.image
-    || allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).find(ok)
-    || "";
-  if (!image) { const mi = abs(meta("image")); if (ok(mi)) image = mi; }          // microdata itemprop=image
-  if (!image) {
+  // ── 2-5. Image, in priority order. Collect ALL candidates (deduped, best
+  // first) — one CDN can 403/throttle the server while another serves fine,
+  // so the caller works down the list until an inline sticks. ──
+  const candidates = [];
+  const push = (v) => { if (v && ok(v) && !candidates.includes(v)) candidates.push(v); };
+  push(ld.image);
+  allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).forEach(push);
+  push(abs(meta("image")));                                                       // microdata itemprop=image
+  {
     const href = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
-    if (href) { const a = abs(href[1]); if (ok(a)) image = a; }
+    if (href) push(abs(href[1]));
   }
+  let image = candidates[0] || "";
   if (!image) {
     const junk = /sprite|logo|icon|placeholder|favicon|1x1|pixel|badge|spacer|blank|loading/i;
     const largestFromSrcset = (ss) => {
@@ -709,13 +713,37 @@ function extractProduct(html, pageUrl, host) {
       const src = at("data-src") || at("data-original") || at("data-lazy-src") || (ss && largestFromSrcset(ss)) || at("src");
       if (!src || junk.test(src)) continue;
       const a = abs(src);
-      if (ok(a)) { image = a; break; }
+      if (ok(a)) { image = a; push(a); break; }
     }
   }
 
   const price = (ld.price || meta("product:price:amount") || meta("og:price:amount") || "").slice(0, 20);
   const currency = (ld.currency || meta("product:price:currency") || meta("og:price:currency") || "").slice(0, 8);
-  return { name, site, image, desc, price, currency };
+  return { name, site, image, images: candidates.slice(0, 4), desc, price, currency };
+}
+
+// Fetch a product image (SSRF-guarded) and inline it as a ≤2MB data URI.
+// One retry on 429/5xx: stores like Shopify burst-throttle a second hit from
+// the same egress seconds after the page fetch — that throttle was how a
+// product could save with a name but no picture.
+async function inlineImageDataUri(imgUrl) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let ir;
+    try {
+      ir = await safeFetch(imgUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" },
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch { return ""; }
+    const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
+    if (ir && ir.ok && ict.startsWith("image/")) {
+      const bytes = await readCapped(ir, 2_000_001); // one over the cap so oversize is rejected, not truncated into a corrupt data URI
+      return bytes.length && bytes.length <= 2_000_000 ? "data:" + ict + ";base64," + b64FromBuffer(bytes) : "";
+    }
+    if (!(ir && (ir.status === 429 || ir.status >= 500))) return ""; // 403/404 won't heal — don't stall the scan
+    await new Promise((res) => setTimeout(res, 1200));
+  }
+  return "";
 }
 
 // ── SSRF guard for user-supplied URLs (product scan). Normalizes the host and
@@ -4225,8 +4253,9 @@ Return just the line to be voiced — keep it to what should actually come out o
     if (url.pathname === "/api/product/scan" && request.method === "POST") {
       const scanUser = await authUser(request);
       if (!scanUser) return UNAUTHED();
-      // Each scan makes up to 2 server-side outbound fetches; gate it so a
-      // logged-in user can't drive unbounded outbound requests through us.
+      // Each scan makes a small bounded set of server-side outbound fetches
+      // (page + up to 4 image candidates, or the AI path's rescue pages); gate
+      // it so a logged-in user can't drive unbounded outbound requests through us.
       if (!(await useQuota(request, "scan", 60))) return QUOTA_EXCEEDED();
       let body;
       try { body = await request.json(); } catch {
@@ -4266,7 +4295,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
         const refund = () => creditBack(env, scanUser.id, AI_SCAN_CR);
 
-        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, and image_urls — up to 3 candidate DIRECT product-image links (plain https URLs ending in an image path, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's product photo). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
+        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, image_urls — up to 3 candidate DIRECT product-image links (plain https URLs ending in an image path, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's product photo; only URLs you actually saw in results, never guessed paths) — and page_urls: up to 2 OTHER product pages for this exact product that likely serve robots (the BRAND's own website first, then smaller retailers; never the blocked store itself). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
         let lkMsgs = [{ role: "user", content: `Store product URL: ${u.toString()}` }];
         let product = null;
         for (let round = 0; round < 4; round++) {
@@ -4284,6 +4313,7 @@ Return just the line to be voiced — keep it to what should actually come out o
                   { name: "report_product", description: "Report the identified product.", input_schema: { type: "object", properties: {
                     name: { type: "string" }, desc: { type: "string" }, price: { type: "string" }, currency: { type: "string" },
                     image_url: { type: "string" }, image_urls: { type: "array", items: { type: "string" }, description: "up to 3 direct https product-image links, best first" },
+                    page_urls: { type: "array", items: { type: "string" }, description: "up to 2 https product PAGES on other sites selling this exact product (brand's own site first) that likely don't block robots" },
                   }, required: ["name"] } },
                 ],
                 messages: lkMsgs,
@@ -4308,17 +4338,38 @@ Return just the line to be voiced — keep it to what should actually come out o
           .filter((s, i, a) => a.indexOf(s) === i)
           .slice(0, 4);
         for (const cand of candidates) {
-          try {
-            const ir = await safeFetch(cand, {
-              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" },
-              signal: AbortSignal.timeout(8000),
-            });
-            const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
-            if (ir && ir.ok && ict.startsWith("image/")) {
-              const bytes = await readCapped(ir, 2_000_001);
-              if (bytes.length && bytes.length <= 2_000_000) { aiImage = "data:" + ict + ";base64," + b64FromBuffer(bytes); break; }
+          aiImage = await inlineImageDataUri(cand);
+          if (aiImage) break;
+        }
+        // Direct image links out of a TEXT search are often stale or guessed —
+        // that's exactly how a looked-up product saved with a name but no
+        // picture. Rescue: scan the alternate product PAGES Claude found (the
+        // brand's own site usually serves robots fine) with the normal
+        // extractor and inline whatever image that yields.
+        if (!aiImage) {
+          const pages = (Array.isArray(product.page_urls) ? product.page_urls : [])
+            .filter((s) => typeof s === "string" && /^https:\/\//i.test(s))
+            .slice(0, 2);
+          for (const pageUrl of pages) {
+            let pu;
+            try { pu = new URL(pageUrl); } catch { continue; }
+            if (hostIsBlocked(pu.hostname.toLowerCase()) || pu.hostname.toLowerCase() === host) continue;
+            let pageHtml = "";
+            try {
+              const pr = await safeFetch(pu.toString(), {
+                headers: { "User-Agent": "Mozilla/5.0 (compatible; isibiBot/1.0; +https://isibi.ai)", "Accept": "text/html,application/xhtml+xml" },
+                signal: AbortSignal.timeout(8000),
+              });
+              if (!pr || !pr.ok) continue;
+              pageHtml = new TextDecoder("utf-8").decode(await readCapped(pr, 1_500_000));
+            } catch { continue; }
+            const pInfo = extractProduct(pageHtml, pu.toString(), pu.hostname.toLowerCase());
+            for (const cand of (pInfo.images || []).slice(0, 2)) {
+              aiImage = await inlineImageDataUri(cand);
+              if (aiImage) break;
             }
-          } catch {}
+            if (aiImage) break;
+          }
         }
         return Response.json({
           name: String(product.name || "").slice(0, 200),
@@ -4356,19 +4407,12 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
       // Inline the product image as a data URI: the app CSP blocks arbitrary
       // remote image hosts, and going through safeFetch keeps it SSRF-guarded.
+      // Every extracted candidate gets a shot — one CDN 403/throttling no
+      // longer means a pictureless product.
       let imageData = "";
-      if (info.image) {
-        try {
-          const ir = await safeFetch(info.image, {
-            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" },
-            signal: AbortSignal.timeout(8000),
-          });
-          const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
-          if (ir && ir.ok && ict.startsWith("image/")) {
-            const bytes = await readCapped(ir, 2_000_001); // one over the cap so an oversized image is rejected, not truncated into a corrupt data URI
-            if (bytes.length && bytes.length <= 2_000_000) imageData = "data:" + ict + ";base64," + b64FromBuffer(bytes);
-          }
-        } catch {}
+      for (const cand of (info.images && info.images.length ? info.images : (info.image ? [info.image] : []))) {
+        imageData = await inlineImageDataUri(cand);
+        if (imageData) break;
       }
       return Response.json({ name: info.name || info.site, site: info.site, image: imageData, desc: info.desc, price: info.price, currency: info.currency });
     }

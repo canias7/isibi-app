@@ -690,3 +690,25 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Known edge:** another device whose chat sync hasn't pulled the rewritten
   URL yet can 404 the old URL and self-heal-remove the message before syncing.
   Narrow window; accepted.
+
+### Product scan: pictureless products fixed (2026-07-16)
+- **Owner's report:** "PRODUCT IS NOT CACHING IT" — Molly's Suds product card
+  saved with a name but the 📦 placeholder. Balance dropped exactly 3 credits
+  → it was the AI lookup path (walled Walmart listing).
+- **Why images went missing:**
+  1. AI path: web_search returns TEXT — Claude's "direct image links" are
+     often stale or guessed, so all candidates 403/404'd → name, no image.
+  2. Normal path: only ONE extracted image was tried, and stores like Shopify
+     burst-throttle (429) a second hit from the same egress right after the
+     page fetch → single candidate dies, no picture.
+- **Fixes (worker):** `extractProduct` now returns `images` (≤4 deduped
+  candidates, priority order); shared `inlineImageDataUri()` helper retries
+  once on 429/5xx (1.2s backoff); normal path walks all candidates. AI path:
+  `report_product` gains `page_urls` (≤2 alternate product PAGES, brand site
+  first, never the blocked store) — when every direct image link fails, the
+  worker scans those pages with the normal extractor and inlines from there
+  (brand sites rarely wall robots; verified mollyssuds.com serves isibiBot
+  fine, image is 80KB). Prompt also tells Claude image URLs must be ones it
+  actually SAW, not guessed paths.
+- Owner's existing pictureless card: remove + re-run the lookup (or scan the
+  brand-site link directly — free path, no wall).
