@@ -2864,7 +2864,12 @@ function buildMedia(kind, url, prompt) {
   let el;
   if (kind === 'image') {
     el = document.createElement('img');
+    el.decoding = 'async'; el.loading = 'lazy';
+    // Appear whole: hidden until decoded, so big originals never paint top-down.
+    el.className = 'img-fade';
+    el.addEventListener('load', () => el.classList.add('img-ready'), { once: true });
     el.src = src; el.alt = '';
+    if (el.complete) el.classList.add('img-ready'); // instant from cache
     el.addEventListener('click', () => openLightbox('image', url));
   } else if (kind === 'audio') {
     el = document.createElement('audio');
@@ -5900,7 +5905,7 @@ function renderAvatar() {
         '</div>' +
         '<div class="av-grid">' + avatars.map((a) =>
           '<div class="av-card" data-id="' + esc(a.id) + '">' +
-            (a.image ? '<div class="av-thumb"><img src="' + esc(a.image) + '" alt="" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
+            (a.image ? '<div class="av-thumb"><img class="img-fade" src="' + esc(a.image) + '" alt="" loading="lazy" decoding="async" onload="this.classList.add(\'img-ready\')" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
             '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
             '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
           '</div>').join('') + '</div>' +
@@ -5959,9 +5964,12 @@ function avTileSrc(s, o) {
 // click) — used by acGenerate and by rebuild-preservation below.
 function acShowResult(stage, url) {
   stage.classList.remove('ac-empty', 'ac-loading');
-  stage.innerHTML = '<img class="ac-result" src="' + esc(url) + '" alt="Your avatar" title="Click to view full size" />';
+  stage.innerHTML = '<img class="ac-result img-fade" src="' + esc(url) + '" alt="Your avatar" title="Click to view full size" decoding="async" onload="this.classList.add(\'img-ready\')" />';
   const img = stage.querySelector('.ac-result');
-  if (img) { img.style.cursor = 'zoom-in'; img.onclick = () => openLightbox('image', url); }
+  if (img) {
+    img.style.cursor = 'zoom-in'; img.onclick = () => openLightbox('image', url);
+    if (img.complete && img.naturalWidth) img.classList.add('img-ready');
+  }
 }
 
 function renderAvatarCreator(view) {
@@ -8256,7 +8264,11 @@ function renderGallery() {
     let media;
     if (it.kind === 'image') {
       media = document.createElement('img');
-      media.src = it.url; media.loading = 'lazy'; media.alt = '';
+      media.loading = 'lazy'; media.decoding = 'async'; media.alt = '';
+      media.classList.add('img-fade');
+      media.addEventListener('load', () => media.classList.add('img-ready'), { once: true });
+      media.src = it.url;
+      if (media.complete) media.classList.add('img-ready');
       media.onclick = () => openLightbox('image', it.url);
     } else if (it.kind === 'audio') {
       media = document.createElement('div');

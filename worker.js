@@ -4137,7 +4137,10 @@ Return just the line to be voiced — keep it to what should actually come out o
       try {
         up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct },
+          // Filenames are unique + immutable, so saved media can cache forever —
+          // without this the browser re-downloaded multi-MB originals on every
+          // refresh (the "images render again" the owner noticed).
+          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct, "cache-control": "max-age=31536000" },
           body: bytes || media.body,
           signal: AbortSignal.timeout(30000),
         });

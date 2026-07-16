@@ -4456,3 +4456,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 *::-webkit-scrollbar-thumb { background: rgba(255, 184, 77, .4); border-radius: 999px; }
 *::-webkit-scrollbar-thumb:hover { background: rgba(255, 184, 77, .75); }
 *::-webkit-scrollbar-corner { background: transparent; }
+
+/* Images appear whole (no top-down progressive paint): hidden until decoded. */
+.img-fade { opacity: 0; transition: opacity .22s ease; }
+.img-fade.img-ready { opacity: 1; }
