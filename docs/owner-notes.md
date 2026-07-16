@@ -18,6 +18,9 @@ and fixed, and add a preference line whenever the owner signals one.
 - Small, surgical changes — don't restyle or refactor beyond what's asked.
 - One thing at a time. Owner prefers reviewing/fixing bugs one-by-one over big batches.
 - Ship flow: change → commit → open PR → squash-merge to `main` (auto-deploys).
+- **Desktop-first, no mobile** (owner, 2026-07-16): "I'm not preparing my app
+  to be mobile friendly honestly." Don't build or pitch mobile layout work
+  unless the owner re-opens it.
 
 ---
 

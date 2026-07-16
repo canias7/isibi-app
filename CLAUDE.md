@@ -45,6 +45,6 @@ All auth emails (sign-in codes, confirmations, resets) go through Go Farther via
 
 - fal balance top-up → then run the live model sweep (one cheap job per family across the 13 video + 11 image models)
 - User should change their password via the sidebar "Change password" button (the temp one appeared in a chat log)
-- Mobile layout (sidebar/chat history hidden below 900px)
+- ~~Mobile layout~~ — owner's call 2026-07-16: NOT making the app mobile-friendly for now; desktop-first. Don't build or suggest mobile work uninvited.
 
 Auth config (set 2026-07-03 via Management API): Site URL `https://isibi.ai`, redirect allow-list `https://isibi.ai/**, https://www.isibi.ai/**`, email rate limit 100/hour.
