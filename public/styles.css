@@ -4495,3 +4495,25 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   animation: media-shimmer 1.3s linear infinite;
 }
 @keyframes media-shimmer { to { background-position: -200% 0; } }
+
+/* Multi-select in the image-source picker (gallery/avatar/product) — same as
+   picking several files from the device. Selected thumbs get the accent ring;
+   the footer bar confirms. */
+.gal-grid img.sel {
+  border-color: var(--neon);
+  box-shadow: 0 0 0 2px rgba(255, 184, 77, .65), 0 10px 28px rgba(0, 0, 0, .45);
+  transform: scale(.97);
+}
+.gal-foot {
+  display: flex; align-items: center; gap: .9rem; justify-content: flex-end;
+  margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid rgba(255, 255, 255, .09);
+  position: sticky; bottom: 0; background: inherit;
+}
+.gal-count { color: var(--muted); font-size: .84rem; }
+.gal-add {
+  background: var(--split); color: #0a0a0b; border: none; border-radius: 11px;
+  padding: .6rem 1.2rem; font: inherit; font-weight: 700; font-size: .9rem; cursor: pointer;
+  transition: transform .12s ease, opacity .12s ease;
+}
+.gal-add:hover { transform: translateY(-1px); }
+.gal-add:disabled { opacity: .4; cursor: default; transform: none; }

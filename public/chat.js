@@ -997,47 +997,86 @@ async function openGalleryPicker(source) {
   ov.className = 'gal-overlay';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   const urls = meta.list();
+  // How many more images this model can still take — decides whether the
+  // picker is instant single-pick (1 slot left / single-image models) or
+  // multi-select with an Add bar (like the device file dialog).
+  const capNow = ((currentOpts() || {}).caps || {}).maxImages || 1;
+  const remaining = Math.max(0, capNow - (attachments.image ? 1 : 0) - extraImages.length)
+    || 1; // replacing the only image still counts as one pick
+  const multi = remaining > 1 && urls.length > 1;
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">' + esc(meta.title) + '</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
     + '<button class="gal-close">×</button></div>'
-    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">' + esc(meta.empty) + '</div>') + '</div>';
+    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">' + esc(meta.empty) + '</div>')
+    + (multi ? '<div class="gal-foot"><span class="gal-count">Tap to select · up to ' + remaining + '</span><button class="gal-add" disabled>Add</button></div>' : '')
+    + '</div>';
   const closeBtn = ov.querySelector('.gal-close');
   if (closeBtn) closeBtn.onclick = () => ov.remove();
   // Build thumbnails with DOM APIs (never innerHTML) so a stored URL can't
   // break out of the src attribute and inject markup.
   const gridEl = ov.querySelector('.gal-grid');
+  const picked = []; // insertion order = attach order
+  const countEl = ov.querySelector('.gal-count');
+  const addBtn = ov.querySelector('.gal-add');
+  const paintBar = () => {
+    if (!addBtn) return;
+    addBtn.disabled = !picked.length;
+    addBtn.textContent = picked.length ? 'Add ' + picked.length + (picked.length === 1 ? ' image' : ' images') : 'Add';
+    countEl.textContent = picked.length ? picked.length + ' / ' + remaining + ' selected' : 'Tap to select · up to ' + remaining;
+  };
   if (gridEl) urls.forEach((u) => {
     const img = document.createElement('img');
     img.alt = '';
     img.src = u;
-    img.onclick = () => { useGalleryImage(u); ov.remove(); };
+    if (!multi) {
+      img.onclick = () => { useGalleryImages([u]); ov.remove(); };
+    } else {
+      img.onclick = () => {
+        const i = picked.indexOf(u);
+        if (i >= 0) { picked.splice(i, 1); img.classList.remove('sel'); }
+        else if (picked.length < remaining) { picked.push(u); img.classList.add('sel'); }
+        paintBar();
+      };
+    }
     gridEl.appendChild(img);
   });
+  if (addBtn) addBtn.onclick = () => { if (picked.length) { useGalleryImages(picked.slice()); ov.remove(); } };
   document.body.appendChild(ov);
 }
 
-// Fetch the stored image and attach it like a picked file (the API wants data URIs).
-async function useGalleryImage(url) {
-  try {
-    const blob = await (await fetch(url)).blob();
-    const dataUrl = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(r.result);
-      r.onerror = rej;
-      r.readAsDataURL(blob);
-    });
-    const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
-    if (imgPickTarget === 'extra' && attachments.image) {
-      if (extraImages.length < cap - 1) extraImages.push(dataUrl);
-    } else {
-      attachments.image = dataUrl;
-      clearImageInputsExcept('image'); // keep image-input modes exclusive
-    }
-    renderAttach('image');
-    renderExtraImages();
-  } catch {
-    alert("Couldn't load that image — try saving it to your device instead.");
+// Fetch the stored image(s) and attach them like picked files (the API wants
+// data URIs). Several at once fill the main slot first, then the extras —
+// same as multi-selecting files from the device.
+async function useGalleryImages(urls) {
+  const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+  let failed = 0, first = true;
+  for (const url of urls) {
+    try {
+      const blob = await (await fetch(url)).blob();
+      const dataUrl = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result);
+        r.onerror = rej;
+        r.readAsDataURL(blob);
+      });
+      // The 'extra' + tile always appends; the main tile's FIRST pick replaces
+      // the main image (that's what its + means), the rest flow into extras.
+      if (imgPickTarget === 'extra' && attachments.image) {
+        if (extraImages.length < cap - 1) extraImages.push(dataUrl);
+      } else if (first && imgPickTarget !== 'extra') {
+        attachments.image = dataUrl;
+        clearImageInputsExcept('image'); // keep image-input modes exclusive
+      } else if (!attachments.image) {
+        attachments.image = dataUrl;
+      } else if (extraImages.length < cap - 1) {
+        extraImages.push(dataUrl);
+      }
+      first = false;
+    } catch { failed++; }
   }
+  renderAttach('image');
+  renderExtraImages();
+  if (failed) alert("Couldn't load " + (failed === 1 ? 'one of those images' : failed + ' of those images') + ' — try saving to your device instead.');
 }
 
 // Extra images beyond the first, for models that take several references.
