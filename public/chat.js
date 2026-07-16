@@ -5352,8 +5352,12 @@ function enterApp() {
   // and re-copy any media whose gallery save failed.
   resumeJobs();
   retryPendingSaves();
-  // The Builder chatbox is now the home screen — always land here.
-  showView('home');
+  // Land back on the view the user was on before the refresh (Builder for a
+  // fresh session or anything unknown).
+  let lastView = 'home';
+  try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
+  const KNOWN_VIEWS = ['home', 'gallery', 'products', 'avatar', 'mediaAgent', 'integrations', 'settings'];
+  showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
 }
 
 // Signed in via the nav buttons (not the chatbox): stay on the landing but flip
@@ -5951,7 +5955,23 @@ function avTileSrc(s, o) {
 // The avatar generator screen: preview in the middle, a "Builder" panel of
 // body-part options on the right (Higgsfield-style). Generates with Nano
 // Banana Pro.
+// Show a finished avatar in the preview stage (with the full-size lightbox
+// click) — used by acGenerate and by rebuild-preservation below.
+function acShowResult(stage, url) {
+  stage.classList.remove('ac-empty', 'ac-loading');
+  stage.innerHTML = '<img class="ac-result" src="' + esc(url) + '" alt="Your avatar" title="Click to view full size" />';
+  const img = stage.querySelector('.ac-result');
+  if (img) { img.style.cursor = 'zoom-in'; img.onclick = () => openLightbox('image', url); }
+}
+
 function renderAvatarCreator(view) {
+  // The Builder re-renders on gender picks and on Reset (both swap the section
+  // set). That must never wipe a freshly generated avatar out of the preview
+  // stage — capture it and restore it after the rebuild.
+  const prevResult = (() => {
+    const img = document.querySelector('#acPreview .ac-result');
+    return img ? img.getAttribute('src') : null;
+  })();
   const secHtml = AV_SECTIONS.map((s) => {
     if (s.menOnly && avGender() !== 'men') return ''; // facial hair: men only
     const open = acOpen[s.key] === true; // default collapsed until opened
@@ -6065,6 +6085,7 @@ function renderAvatarCreator(view) {
     renderAvatarCreator(view);
   };
   view.querySelector('#acGen').onclick = () => acGenerate();
+  if (prevResult) acShowResult(view.querySelector('#acPreview'), prevResult);
 }
 
 function buildAvatarPrompt() {
@@ -6149,11 +6170,7 @@ async function acGenerate() {
     let finalUrl = url;
     try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; } catch (e) {}
     if (avatarMode !== 'create') return; // user navigated away mid-render
-    stage.classList.remove('ac-loading');
-    stage.innerHTML = '<img class="ac-result" src="' + esc(finalUrl) + '" alt="Your avatar" title="Click to view full size" />';
-    // Click the finished avatar → full-size lightbox (same viewer as chat media).
-    const resImg = stage.querySelector('.ac-result');
-    if (resImg) { resImg.style.cursor = 'zoom-in'; resImg.onclick = () => openLightbox('image', finalUrl); }
+    acShowResult(stage, finalUrl);
     // Persist it so it shows in the avatar grid.
     const list = loadAvatars();
     list.unshift({ id: prUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
@@ -7601,6 +7618,7 @@ function openCreateProduct() {
     imgData = '';
     fileInput.value = '';
     inner.innerHTML = uploadPrompt;
+    ov.querySelector('.pr-upload').classList.remove('has'); // back to the square drop zone
     refresh();
   };
   fileInput.onchange = async () => {
@@ -7611,6 +7629,7 @@ function openCreateProduct() {
       inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />' +
         '<button type="button" class="pr-upload-x" aria-label="Remove image">✕</button>';
       inner.querySelector('.pr-upload-x').onclick = clearImg;
+      ov.querySelector('.pr-upload').classList.add('has'); // frame hugs the image's real shape
     }
     refresh();
   };
@@ -8258,11 +8277,8 @@ function renderGallery() {
       if (paidKnown && !isPaid) d.appendChild(wmBadge());
     }
     d.appendChild(media);
-    if (it.prompt) {
-      const p = document.createElement('div');
-      p.className = 'g-prompt'; p.textContent = it.prompt;
-      d.appendChild(p);
-    }
+    // No prompt caption on gallery cards (owner 2026-07-16: some cards carried
+    // the generation prompt as an overlay, some didn't — none should).
     const actions = document.createElement('div');
     actions.className = 'g-actions';
     const dl = document.createElement('a');
@@ -8306,10 +8322,14 @@ async function galleryDelete(it, el) {
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
 const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
+const VIEW_KEY = 'zephyr_view_v1';
 function showView(name) {
   // The old Home landing is gone — the Builder chatbox is now home. Any lingering
   // request to open 'landing' is redirected there.
   if (name === 'landing') name = 'home';
+  // Refresh-proof: remember where the user is so a reload reopens the same
+  // view instead of bouncing back to the Builder.
+  try { localStorage.setItem(VIEW_KEY, name); } catch {}
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');

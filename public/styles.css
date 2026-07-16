@@ -290,8 +290,8 @@
   /* Long lists (15 durations, 16 voices) must never run off-screen. */
   max-height: min(48vh, 430px); overflow-y: auto;
 }
-.model-menu::-webkit-scrollbar { width: 8px; }
-.model-menu::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.model-menu::-webkit-scrollbar { width: 6px; }
+.model-menu::-webkit-scrollbar-thumb { background: rgba(255, 184, 77, .4); border-radius: 999px; }
 .model-menu::-webkit-scrollbar-track { background: transparent; }
 .model-menu.open { display: block; }
 .model-item {
@@ -992,6 +992,11 @@
 .pr-upload-sub { font-size: .74rem; margin-top: .15rem; }
 .pr-upload-inner { position: relative; }
 .pr-upload-img { width: 100%; height: 100%; object-fit: cover; }
+/* With an image attached the frame stops being a forced square and hugs the
+   image's real shape instead (owner 2026-07-16). */
+.pr-upload.has { aspect-ratio: auto; display: block; height: auto; align-self: flex-start; }
+.pr-upload.has .pr-upload-inner { padding: 0; }
+.pr-upload.has .pr-upload-img { width: auto; height: auto; max-width: 100%; max-height: 340px; display: block; margin: 0 auto; }
 .pr-upload-x {
   position: absolute; top: .4rem; right: .4rem; width: 26px; height: 26px; border-radius: 50%;
   border: none; background: rgba(8, 7, 12, .72); color: var(--text); font-size: .8rem; line-height: 1;
@@ -2006,15 +2011,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .sidebar.collapsed .side-collapse { margin: 0; }
 .sidebar.collapsed .side-collapse svg { transform: rotate(180deg); }
 .sidebar.collapsed #homeChats { display: none; }
-/* Rail-only "+" (new chat) — hidden while expanded (the full button exists). */
-.side-mini-new {
-  display: none; width: 38px; height: 38px; margin: .6rem auto 0;
-  place-items: center; cursor: pointer; font-size: 1.25rem; line-height: 1;
-  background: var(--panel-2); border: 1px dashed var(--line-2); border-radius: 50%;
-  color: var(--text); transition: border-color .15s ease, background .12s ease;
-}
-.side-mini-new:hover { border-color: #4a4a52; background: rgba(255, 255, 255, .07); }
-.sidebar.collapsed .side-mini-new { display: grid; }
+/* (The collapsed rail deliberately has NO new-chat + — owner 2026-07-16.) */
 
 /* Outline nav icons + gold active state. */
 .nav-ico { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; color: var(--muted); transition: color .15s ease; }
@@ -2071,8 +2068,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .send-price:empty { display: none; }
 
-/* Mode switch → pill; active tab takes the gradient. */
-.mode-switch { border-radius: 99px; }
+/* Mode switch (owner mock 2026-07-16): rounded-rect stack; the active mode is
+   a gradient pill flanked by ‹ › chevrons. */
+.mode-switch { border-radius: 16px; }
+.mode-btn.active::before { content: '‹'; margin-right: .5rem; font-weight: 700; opacity: .75; }
+.mode-btn.active::after { content: '›'; margin-left: .5rem; font-weight: 700; opacity: .75; }
 @media (min-width: 1100px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
 .mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
@@ -2295,8 +2295,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   padding: .45rem;
   backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
-.attach-panel::-webkit-scrollbar { width: 8px; }
-.attach-panel::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+.attach-panel::-webkit-scrollbar { width: 6px; }
+.attach-panel::-webkit-scrollbar-thumb { background: rgba(255, 184, 77, .4); border-radius: 999px; }
 .ap-row { position: relative; }
 .ap-row + .ap-row { border-top: 1px solid var(--line); }
 .ap-head {
@@ -2349,8 +2349,15 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* Position number on multi-image thumbnails (main = 1, extras 2,3,…), so the
    prompt can say "the first image / the second image" — Nano references by
    position, not by an @Image tag. */
+#extraImages .slot, .attach-btn.has { margin-left: 44px; }
+/* The outside-left badge must not be clipped: these slots stop clipping and
+   the image itself carries the rounding instead. */
+#extraImages .slot { overflow: visible; }
+#extraImages .slot img { border-radius: inherit; }
+/* Position badge lane: the n/14 pill sits OUTSIDE the thumbnail, to its left
+   (owner 2026-07-16) — the frame carrying it reserves the lane via margin. */
 .slot-num {
-  position: absolute; left: 5px; top: 5px; z-index: 2;
+  position: absolute; left: -44px; top: 6px; z-index: 2;
   min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: .68rem; font-weight: 800; line-height: 1; color: #0a0a0b;
@@ -4437,3 +4444,14 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   .crt-stage{display:none}
   .crt-crest-h{font-size:clamp(1.3rem,5vw,1.8rem)}
 }
+
+
+/* ── Scrollbars, everywhere (owner mock: peach hairline · minimal) ──
+   Thin amber thumb on a transparent track; containers use overflow:auto, so a
+   bar only exists when the content actually overflows. */
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 184, 77, .45) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(255, 184, 77, .4); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255, 184, 77, .75); }
+*::-webkit-scrollbar-corner { background: transparent; }
