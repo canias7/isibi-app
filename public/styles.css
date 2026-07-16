@@ -358,6 +358,10 @@
 /* The media element must be allowed to shrink on narrow screens so the button
    column always stays beside it (never pushed off / overlapping). */
 .msg.video video, .msg.image img, .msg.audio audio { min-width: 0; }
+/* A media message whose file is gone (expired temp link) collapses into a
+   small note instead of a blank box; dead gallery files self-delete instead. */
+.media-gone { display: inline-block; color: var(--muted); font-size: .85rem; padding: .55rem .8rem; border: 1px dashed var(--line-2); border-radius: 12px; }
+
 .media-actions { display: flex; flex-direction: column; gap: .4rem; flex-shrink: 0; }
 .media-btn {
   width: 34px; height: 34px; border-radius: 9px; border: none;

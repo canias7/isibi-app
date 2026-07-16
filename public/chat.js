@@ -2757,6 +2757,24 @@ function buildMedia(kind, url, prompt) {
     el = document.createElement('video');
     el.controls = true; el.src = src; el.playsInline = true;
   }
+  // A media URL can die after the fact: deleted from the gallery on another
+  // surface/device (chat sync has no per-message tombstones, so the message can
+  // outlive its file) or an expired temporary fal link. Without a handler that
+  // renders as a big blank box in the thread. Self-heal: a dead OUR-storage URL
+  // means the file was deliberately deleted → drop the whole message; any other
+  // dead link collapses into a small note instead of dead air.
+  el.onerror = () => {
+    if (isSavedMedia(url)) {
+      div.remove();
+      const chat = activeChat();
+      if (chat) {
+        const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
+        if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
+      }
+    } else {
+      div.innerHTML = '<span class="media-gone">This media is no longer available.</span>';
+    }
+  };
   div.appendChild(el);
   // Free accounts: on-screen mark over the video player. Only when we KNOW the
   // account is free — otherwise refreshVideoBadges() adds it once credits load,
@@ -8107,6 +8125,9 @@ async function galleryDelete(it, el) {
   if (chat) {
     const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === it.url);
     if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
+    // The deleted item's chat may be open behind the gallery — repaint it now
+    // so returning to the thread never shows a stale/blank media message.
+    if (chatStore.active === chat.id) renderThread();
   }
   const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
   if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
