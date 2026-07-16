@@ -3428,19 +3428,32 @@ function replaceMediaUrl(oldUrl, newUrl) {
 }
 
 // Boot: retry gallery copies that failed, while their fal URL is still alive.
+let retryingSaves = false; // in-session retries can overlap boot's run — don't double-post
 async function retryPendingSaves() {
-  const list = savesLoad();
-  if (!list.length) return;
-  const keep = [];
-  for (const p of list) {
-    if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
-    // saveOutput just posts the URL; the server watermarks free-account images.
-    const { url: perm, block } = await saveOutput(p.url, p.kind);
-    if (perm) replaceMediaUrl(p.url, perm);
-    else if (block) { /* paid gate (free/full) — retrying won't help, drop it */ }
-    else keep.push(p);
-  }
-  savesWrite(keep);
+  if (retryingSaves) return;
+  retryingSaves = true;
+  try {
+    const list = savesLoad();
+    if (!list.length) return;
+    const keep = [];
+    for (const p of list) {
+      if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
+      // saveOutput just posts the URL; the server watermarks free-account images.
+      const { url: perm, block } = await saveOutput(p.url, p.kind);
+      if (perm) replaceMediaUrl(p.url, perm);
+      else if (block) { /* paid gate (free/full) — retrying won't help, drop it */ }
+      else keep.push(p);
+    }
+    savesWrite(keep);
+  } finally { retryingSaves = false; }
+}
+// A save just failed mid-session: retry soon while the tab is open (90s, then
+// 5 min), instead of parking it until the next full page load — the user
+// shouldn't need to refresh for their gallery copy to appear.
+let saveRetryTimers = [];
+function scheduleSaveRetries() {
+  saveRetryTimers.forEach(clearTimeout);
+  saveRetryTimers = [90_000, 300_000].map((ms) => setTimeout(retryPendingSaves, ms));
 }
 
 // Boot: pick up any generation that was in flight when the tab last died.
@@ -4415,7 +4428,10 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       finals.forEach((f) => deliverMedia(origin, kind, f, text));
       if (blocked === 'free') deliverAgent(origin, 'ℹ️ Saving to your gallery is a paid feature — this one is a temporary link. Upgrade to keep your generations in the gallery.');
       else if (blocked === 'full') deliverAgent(origin, '⚠️ Your gallery storage is full, so this is a temporary link. Free up space in the gallery or move up a tier to keep saving.');
-      else if (saveFailed) deliverAgent(origin, '⚠️ Delivered with a temporary link — the gallery copy failed, so I queued a retry for the next time the app opens.');
+      else if (saveFailed) {
+        deliverAgent(origin, '⏳ Still saving this to your gallery — big files can take a minute. It\'ll land there on its own.');
+        scheduleSaveRetries(); // keep retrying IN this session, not just at next boot
+      }
       // The inputs were consumed — clear them so they don't ride the next
       // prompt. Only when the user is still on this chat: a background finish
       // must not wipe attachments they've since staged in another chat.

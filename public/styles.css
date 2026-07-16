@@ -4476,3 +4476,18 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    a two-line placeholder or long input scrolls fine, just without the bar. */
 #input { scrollbar-width: none; }
 #input::-webkit-scrollbar { display: none; }
+
+/* While a big image is still downloading, its frame shows a live shimmer —
+   a silent blank reads as broken (owner, 2026-07-16). Scoped to chat +
+   gallery, whose error handlers remove/replace the img, so a dead link can't
+   leave a shimmer running forever. */
+.msg.image:has(> img.img-fade:not(.img-ready)) { min-height: 220px; min-width: 260px; position: relative; }
+.g-item:has(> img.img-fade:not(.img-ready)) { position: relative; min-height: 120px; }
+.msg.image:has(> img.img-fade:not(.img-ready))::after,
+.g-item:has(> img.img-fade:not(.img-ready))::after {
+  content: ''; position: absolute; inset: 0; border-radius: 14px; pointer-events: none;
+  background: linear-gradient(100deg, rgba(255,255,255,.04) 40%, rgba(255,255,255,.11) 50%, rgba(255,255,255,.04) 60%);
+  background-size: 200% 100%;
+  animation: media-shimmer 1.3s linear infinite;
+}
+@keyframes media-shimmer { to { background-position: -200% 0; } }
