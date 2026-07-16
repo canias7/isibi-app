@@ -2269,7 +2269,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .q-skip:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 .attach-panel {
-  position: absolute; left: 14px; top: 72px; max-height: calc(100% - 86px); width: 272px;
+  position: absolute; left: 14px; top: 24px; max-height: calc(100% - 38px); width: 272px;
   z-index: 2; overflow-y: auto;
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
