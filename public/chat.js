@@ -7482,22 +7482,59 @@ async function addProductFromUrl(url) {
       body: JSON.stringify({ url }),
     });
     if (!res.ok) {
-      // Surface the server's reason (e.g. the store's bot-check wall) verbatim.
-      let reason = '';
-      try { reason = ((await res.json()) || {}).error || ''; } catch {}
-      throw new Error(reason);
+      // Surface the server's reason verbatim; a bot-wall (wall:true) gets an
+      // AI-lookup offer instead of a dead end.
+      let j = null;
+      try { j = await res.json(); } catch {}
+      if (j && j.wall) { prOfferAiLookup(loader, url); return; }
+      throw new Error((j || {}).error || '');
     }
     const data = await res.json();
-    const img = data.image || '';
-    const p = { id: prUid(), name: data.name || 'Product', desc: (data.desc || '').slice(0, 300), image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
-    const list = loadProducts(); list.unshift(p); saveProducts(list);
-    renderProductGrid();
+    prAddScanned(data);
   } catch (e) {
     loader.className = 'pr-card pr-loading pr-error';
     const why = (e && e.message) ? esc(e.message) : 'Try “Create manually” instead.';
     loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">' + why + '</div>';
     setTimeout(() => loader.remove(), 6500);
   }
+}
+
+// Save a scanned/looked-up product and repaint the grid.
+function prAddScanned(data) {
+  const img = data.image || '';
+  const p = { id: prUid(), name: data.name || 'Product', desc: (data.desc || '').slice(0, 300), image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
+  const list = loadProducts(); list.unshift(p); saveProducts(list);
+  renderProductGrid();
+}
+
+// The store blocked our server (bot check) — offer the paid AI lookup:
+// Claude web-searches the product (the page is walled, the search index and
+// the store's image CDN aren't) for 3 credits, charged only on success.
+function prOfferAiLookup(card, url) {
+  card.className = 'pr-card pr-loading pr-error';
+  card.innerHTML = '<div class="pr-load-t">This store blocks robots</div>' +
+    '<div class="pr-load-s">I can look the product up with AI instead.</div>' +
+    '<button type="button" class="pr-ai-btn">Look it up with AI · ✦ 3</button>';
+  card.querySelector('.pr-ai-btn').onclick = async () => {
+    card.className = 'pr-card pr-loading';
+    card.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">Looking it up with AI</div><div class="pr-load-s">Searching the product…</div>';
+    try {
+      const res = await apiFetch('/api/product/scan', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, ai: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 402) throw new Error('Not enough credits — tap your ✦ balance to top up.');
+      if (!res.ok) throw new Error(data.error || 'Lookup failed — nothing charged.');
+      if (typeof data.balance === 'number' && typeof setCredits === 'function') setCredits(data.balance);
+      card.remove();
+      prAddScanned(data);
+    } catch (e) {
+      card.className = 'pr-card pr-loading pr-error';
+      card.innerHTML = '<div class="pr-load-t">Couldn’t look that up</div><div class="pr-load-s">' + esc((e && e.message) || 'Nothing was charged.') + '</div>';
+      setTimeout(() => card.remove(), 6500);
+    }
+  };
 }
 
 function downscaleImage(file, max) {

@@ -4178,7 +4178,8 @@ Return just the line to be voiced — keep it to what should actually come out o
     // product's name + images from OpenGraph / product meta, so the Products
     // tab can create a product from a store link.
     if (url.pathname === "/api/product/scan" && request.method === "POST") {
-      if (!(await authUser(request))) return UNAUTHED();
+      const scanUser = await authUser(request);
+      if (!scanUser) return UNAUTHED();
       // Each scan makes up to 2 server-side outbound fetches; gate it so a
       // logged-in user can't drive unbounded outbound requests through us.
       if (!(await useQuota(request, "scan", 60))) return QUOTA_EXCEEDED();
@@ -4199,6 +4200,85 @@ Return just the line to be voiced — keep it to what should actually come out o
       if (hostIsBlocked(host)) {
         return Response.json({ error: "blocked" }, { status: 400 });
       }
+
+      // ── AI product lookup (the bot-wall escape hatch) ──
+      // Big retailers wall our server fetch, but the product's facts live in
+      // the web-search index and their image CDNs are open. On request
+      // (body.ai, offered by the client after a wall), Claude + web_search
+      // looks the product up — same rig as the director's research step.
+      // Real money per call: own daily cap, charged up front (3 credits),
+      // refunded on any failure.
+      if (body.ai === true) {
+        if (!env.ANTHROPIC_API_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+        if (!(await useQuota(request, "scanai", 20))) return QUOTA_EXCEEDED();
+        const AI_SCAN_CR = 3;
+        let balance;
+        try { balance = await readCredits(request.headers.get("Authorization") || ""); }
+        catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
+        if (!(balance >= AI_SCAN_CR)) return Response.json({ error: "not enough credits", cost: AI_SCAN_CR }, { status: 402 });
+        let newBalance = null;
+        try { newBalance = await useCredits(request.headers.get("Authorization") || "", AI_SCAN_CR); }
+        catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
+        const refund = () => creditBack(env, scanUser.id, AI_SCAN_CR);
+
+        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, image_url (a DIRECT https product-image link — prefer the store's own image CDN, e.g. i5.walmartimages.com or m.media-amazon.com). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
+        let lkMsgs = [{ role: "user", content: `Store product URL: ${u.toString()}` }];
+        let product = null;
+        for (let round = 0; round < 4; round++) {
+          let lr;
+          try {
+            lr = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+              body: JSON.stringify({
+                model: "claude-sonnet-5",
+                max_tokens: 800,
+                system: lkSystem,
+                tools: [
+                  { type: "web_search_20250305", name: "web_search", max_uses: 2 },
+                  { name: "report_product", description: "Report the identified product.", input_schema: { type: "object", properties: {
+                    name: { type: "string" }, desc: { type: "string" }, price: { type: "string" }, currency: { type: "string" }, image_url: { type: "string" },
+                  }, required: ["name"] } },
+                ],
+                messages: lkMsgs,
+              }),
+              signal: AbortSignal.timeout(90000),
+            });
+          } catch { await refund(); return Response.json({ error: "lookup failed — nothing charged" }, { status: 502 }); }
+          const ld = await lr.json().catch(() => ({}));
+          if (!lr.ok) { await refund(); return Response.json({ error: "lookup failed — nothing charged" }, { status: 502 }); }
+          const content = Array.isArray(ld.content) ? ld.content : [];
+          const call = content.find((c) => c.type === "tool_use" && c.name === "report_product");
+          if (call && call.input && call.input.name) { product = call.input; break; }
+          if (ld.stop_reason === "pause_turn") { lkMsgs = lkMsgs.concat([{ role: "assistant", content }]); continue; }
+          break;
+        }
+        if (!product) { await refund(); return Response.json({ error: "couldn't identify that product — nothing charged" }, { status: 422 }); }
+        // Inline the image via the SSRF-guarded fetch (store CDNs are usually open).
+        let aiImage = "";
+        const imgUrl = typeof product.image_url === "string" && /^https:\/\//i.test(product.image_url) ? product.image_url : "";
+        if (imgUrl) {
+          try {
+            const ir = await safeFetch(imgUrl, { signal: AbortSignal.timeout(8000) });
+            const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
+            if (ir && ir.ok && ict.startsWith("image/")) {
+              const bytes = await readCapped(ir, 2_000_001);
+              if (bytes.length && bytes.length <= 2_000_000) aiImage = "data:" + ict + ";base64," + b64FromBuffer(bytes);
+            }
+          } catch {}
+        }
+        return Response.json({
+          name: String(product.name || "").slice(0, 200),
+          site: host,
+          image: aiImage,
+          desc: String(product.desc || "").slice(0, 500),
+          price: typeof product.price === "string" ? product.price.slice(0, 40) : "",
+          currency: typeof product.currency === "string" ? product.currency.slice(0, 8) : "",
+          ai: true,
+          balance: newBalance,
+        });
+      }
+
       let html = "";
       try {
         const r = await safeFetch(u.toString(), {
@@ -4219,7 +4299,7 @@ Return just the line to be voiced — keep it to what should actually come out o
       // Detect the wall and fail with a friendly, actionable error instead.
       const wall = /robot or human|are you a (?:human|robot)|verify you are human|just a moment|attention required|access denied|pardon our interruption|请开启|captcha/i;
       if (wall.test(info.name || "") || (!info.image && wall.test(html.slice(0, 4000)))) {
-        return Response.json({ error: "That store blocked automated reading (bot check). Save the product image to your device and use Create manually instead." }, { status: 422 });
+        return Response.json({ error: "That store blocked automated reading (bot check).", wall: true }, { status: 422 });
       }
       // Inline the product image as a data URI: the app CSP blocks arbitrary
       // remote image hosts, and going through safeFetch keeps it SSRF-guarded.

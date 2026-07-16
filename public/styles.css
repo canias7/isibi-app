@@ -964,6 +964,13 @@
 .pr-name { margin-top: .55rem; font-size: .88rem; font-weight: 600; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pr-menu-btn { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; border: none; background: rgba(10, 9, 14, .6); backdrop-filter: blur(6px); color: #fff; font-size: 1rem; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .12s ease; }
 .pr-card:hover .pr-menu-btn, .pr-card.menu-open .pr-menu-btn { opacity: 1; }
+.pr-ai-btn {
+  margin-top: .7rem; padding: .5rem .95rem; border-radius: 11px; cursor: pointer;
+  background: var(--split); border: none; color: #0a0a0b; font: inherit; font-weight: 700; font-size: .86rem;
+  transition: transform .12s ease, box-shadow .15s ease;
+}
+.pr-ai-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(255, 121, 198, .3); }
+
 .pr-menu { position: absolute; top: 40px; right: 8px; z-index: 5; display: none; flex-direction: column; min-width: 130px; background: #17161d; border: 1px solid var(--line-2); border-radius: 10px; padding: .3rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
 .pr-card.menu-open .pr-menu { display: flex; }
 .pr-menu button { background: none; border: none; color: var(--text); font: inherit; font-size: .85rem; text-align: left; padding: .5rem .6rem; border-radius: 7px; cursor: pointer; }
