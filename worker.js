@@ -1758,9 +1758,10 @@ async function handleRequest(request, env, ctx) {
         ? body.keyframes.slice(0, 64).map(dataImage).filter(Boolean)
         : [];
       // Kling multi-shot (shot-list): an ordered list of {prompt, duration}
-      // shots rendered as one cut sequence. fal's `multi_prompt` lives ONLY on
-      // Kling's text-to-video endpoints; each shot is 1–15s. Ignored for any
-      // other model (the gate below also requires the pure t2v endpoint).
+      // shots rendered as one cut sequence. fal's `multi_prompt` lives on
+      // Kling's text-to-video AND image-to-video endpoints (verified per schema
+      // 2026-07-16) — each shot is 1–15s. Ignored for any other model (the gate
+      // below also requires a t2v/i2v endpoint; the o3 edit has no multi_prompt).
       const shots = (model.includes("kling-video") && /\/text-to-video$/.test(model) && Array.isArray(body.shots))
         ? body.shots.slice(0, 8).map((s) => {
             const p = s && typeof s.prompt === "string" ? s.prompt.trim().slice(0, 2500) : "";
@@ -1971,11 +1972,12 @@ async function handleRequest(request, env, ctx) {
           if (end && (isSeedance || isKlingV3 || isKlingO3 || isRay)) input.end_image_url = end;
         }
 
-        // Kling multi-shot: swap the single prompt for the shot list, but ONLY
-        // on the untouched text-to-video endpoint — any attachment above rerouted
-        // it to an i2v/edit/reference endpoint, and fal accepts multi_prompt only
-        // on pure t2v. `prompt` and `multi_prompt` are mutually exclusive.
-        if (shots.length >= 2 && endpoint === model) {
+        // Kling multi-shot: swap the single prompt for the shot list. fal takes
+        // multi_prompt on Kling's t2v AND i2v endpoints (schema-verified), so a
+        // start image / first-&-last pair can carry a shot list too. A clip
+        // reroutes to o3's edit endpoint, which has no multi_prompt — excluded
+        // by the endpoint check. `prompt` and `multi_prompt` are mutually exclusive.
+        if (shots.length >= 2 && (endpoint === model || (isKling && endpoint === i2v))) {
           useShots = true;
           input.multi_prompt = shots;
           delete input.prompt;
@@ -2021,6 +2023,12 @@ async function handleRequest(request, env, ctx) {
           else if (isVeo || isRay) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
+        } else if (isSeedance && !bareEdit && !useShots) {
+          // No duration given: every other family's schema default equals the 5s/8s
+          // billing base, but Seedance defaults to "auto" (model-chosen length, up
+          // to 15s) while the charge falls back to 5s — a duration-less submit
+          // could render 3× what it billed. Pin the render to the billed length.
+          input.duration = "5";
         }
 
         // Kling image-to-video has no aspect_ratio; Ray video-to-video (and the
@@ -3200,13 +3208,14 @@ async function handleRequest(request, env, ctx) {
       // short edit-instruction path.
       const clipIsSeedanceRef = hasClip && /seedance/.test(genModel);
       const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
-      // Kling multi-shot (shot-list) is available on the pure text-to-video
-      // endpoints only — an attached image/clip/frame/ref routes to i2v/edit,
-      // where multi_prompt isn't accepted. When capable, the composer MAY return
-      // a `shots` array instead of relying on one continuous prompt.
+      // Kling multi-shot (shot-list) rides the text-to-video AND image-to-video
+      // endpoints (schema-verified 2026-07-16) — so a start image / end frame
+      // still allows shots. A clip routes to o3's edit endpoint (no
+      // multi_prompt), so a clip disables them. When capable, the composer MAY
+      // return a `shots` array instead of relying on one continuous prompt.
       const shotsCapable = kind === "video" &&
         /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(genModel) &&
-        !hasImage && !hasEnd && !hasClip && !hasAvatar && !hasAudio && !refCount;
+        !hasClip && !hasAvatar && !hasAudio && !refCount;
       // Director-driven knobs (owner's call: the AI sets these from the user's
       // words, no new UI). sound: families with an audio-track switch
       // (generate_audio / o3-edit keep_audio). negative: only Kling v3 and Veo
@@ -3300,7 +3309,7 @@ async function handleRequest(request, env, ctx) {
         : "";
       // Kling multi-shot: the model can render a cut sequence of distinct shots.
       const shotsLine = shotsCapable
-        ? `\nMULTI-SHOT: this model can CUT between several shots in one video. If — and ONLY if — the user wants a sequence that cuts between distinct shots (a montage, a multi-beat ad, changing scenes/subjects), return the \`shots\` array: 2-5 shots, each a full self-contained prompt plus a 2-10s duration, repeating any recurring character/setting description WORD-FOR-WORD across shots so they stay consistent. For a single continuous shot, omit \`shots\` entirely and just write the one prompt.`
+        ? `\nMULTI-SHOT: this model can CUT between several shots in one video. If — and ONLY if — the user wants a sequence that cuts between distinct shots (a montage, a multi-beat ad, changing scenes/subjects), return the \`shots\` array: 2-5 shots, each a full self-contained prompt plus a 2-10s duration, repeating any recurring character/setting description WORD-FOR-WORD across shots so they stay consistent. For a single continuous shot, omit \`shots\` entirely and just write the one prompt.${hasImage || hasEnd ? " An attached start/end frame still applies — the sequence opens on the attached start image (write shot 1 to grow out of it) and/or lands on the end frame." : ""}`
         : "";
       // Recent conversation so the director remembers what was said.
       const history = Array.isArray(body.history)

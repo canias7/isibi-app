@@ -3331,7 +3331,7 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   //    input), so the bill follows the clip's length, not the picker.
   //  · Ray from a start image (no keyframes) only renders 5s.
   //  · A Kling multi-shot bills the SUM of its shot durations.
-  const shots = (shotsOverride && modelSupportsShots(model) && pureT2V()) ? sanitizeShots(shotsOverride) : null;
+  const shots = (shotsOverride && shotsApply(model)) ? sanitizeShots(shotsOverride) : null;
   const isVeoExtend = /veo/.test(model) && !!attachments.clip;
   const isVeoRef = /veo/.test(model) && refList.length > 0;
   const isClipEdit = !!attachments.clip && (/kling-video\/o3/.test(model) || /gemini/.test(model));
@@ -3777,7 +3777,7 @@ async function generateMedia(text, opts = {}) {
   const label = document.getElementById('modelLabel').textContent;
   // Kling multi-shot: only a Kling t2v generation with nothing attached can send
   // a shot list (the worker double-gates the same way). null otherwise.
-  const genShots = (kind === 'video' && modelSupportsShots(model) && pureT2V() && sanitizeShots(opts.shots)) || null;
+  const genShots = (kind === 'video' && shotsApply(model) && sanitizeShots(opts.shots)) || null;
   // Director-driven knobs (silent flag / negative list / voice tuning) — the
   // worker re-validates and applies each only where the endpoint supports it.
   const genExtras = sanitizeExtras(opts.extras) || {};
@@ -3818,7 +3818,7 @@ async function generateMedia(text, opts = {}) {
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
         clipDuration: attachments.clip && clipMeta && clipMeta.dur ? clipMeta.dur : undefined, // LipSync bills on the clip's length
-        shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, nothing attached)
+        shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, or i2v with start/end frames)
         mask: (kind === 'image' && maskCapable() && maskData) ? maskData : undefined, // GPT inpainting region
         size: (kind === 'image' && currentOpts().sizes) ? gptSize : undefined, // GPT resolution tier (1K/2K/4K)
         sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
@@ -4248,11 +4248,13 @@ function sanitizeExtras(data) {
 function modelSupportsShots(m) {
   return /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
 }
-// multi_prompt is a pure text-to-video feature — any attachment routes to a
-// different endpoint, so shots only apply when nothing is attached.
-function pureT2V() {
-  return mode === 'video' && !attachments.image && !attachments.clip && !attachments.avatar &&
-    !attachments.end && !attachments.ffirst && !attachments.flast && !refList.length && !kfList.length;
+// Where a shot-list actually applies: Kling's t2v (nothing attached) AND its
+// i2v endpoint (start/end/first-&-last frames — fal's schema takes multi_prompt
+// there too). A clip routes to o3's video-to-video edit, which has NO
+// multi_prompt, so any clip disables shots.
+function shotsApply(m) {
+  if (mode !== 'video' || !modelSupportsShots(m)) return false;
+  return !attachments.clip && !attachments.avatar && !refList.length && !kfList.length;
 }
 // Validate a shots array from the director: 2-5 shots, each {prompt, 2-10s}.
 // Returns a clean array, or null when it isn't a real multi-shot list.
@@ -4535,7 +4537,7 @@ function deliverPrompt(prompt) {
   // A multi-shot bills the SUM of its shot durations — often far more than the
   // single-duration send-button quote the user last saw. Auto mode never shows
   // a review card, so surface the real total in the chat before it bills.
-  const liveShots = (mode === 'video' && shots && modelSupportsShots(model) && pureT2V()) ? sanitizeShots(shots) : null;
+  const liveShots = (mode === 'video' && shots && shotsApply(model)) ? sanitizeShots(shots) : null;
   if (liveShots) {
     const secs = liveShots.reduce((t, s) => t + s.duration, 0);
     addMsg('agent', '🎬 Multi-shot: ' + liveShots.length + ' shots · ' + secs + 's total — ' + (estimatePrice(undefined, liveShots, extras && extras.sound) || '✦'));
@@ -4556,7 +4558,7 @@ function clearQDock() {
 function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, cardExtras) {
   const m = cardMode || mode;
   // A shot list only applies to a Kling t2v generation with nothing attached.
-  const shots = (m === 'video' && sanitizeShots(cardShots) && modelSupportsShots() && pureT2V()) ? sanitizeShots(cardShots) : null;
+  const shots = (m === 'video' && sanitizeShots(cardShots) && shotsApply(model)) ? sanitizeShots(cardShots) : null;
   const extras = sanitizeExtras(cardExtras);
   const box = document.createElement('div');
   box.className = 'review-card';

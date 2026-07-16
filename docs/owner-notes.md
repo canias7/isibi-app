@@ -138,6 +138,48 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - **Fix:** <what was done, once fixed> (PR #___)
 -->
 
+### Video-model schema audit round 3 (2026-07-16) — 2 fixed, 6 catalogued
+- **Status:** ✅ fixes shipped; the catalogued items await owner decisions
+- **Reported:** 2026-07-16 — owner: "now that we checked the image models, we
+  gotta check the video models." Method: fresh fal OpenAPI schema pulled for all
+  **29 endpoints** across the 11 video models, diffed against worker wiring +
+  chat.js UI + billing (no fal credits spent).
+- **Fixed 1 (money):** Seedance's schema `duration` default is **"auto"** (model
+  picks the length, up to 15s) — a duration-less submit (tampered client; the
+  real UI always sends one) would render up to 15s while billing fell back to
+  the 5s base (~3× undercharge, worst case ~$16 at 4K). Worker now pins
+  `duration:"5"` whenever none is given, so the render always matches the bill.
+  Every other family's schema default already equals its billing base — checked.
+- **Fixed 2 (feature):** **Kling multi-shot now works with a start image /
+  first-&-last frames.** fal takes `multi_prompt` on Kling's i2v endpoints too
+  (the old code comment claimed t2v-only — the fresh schema disproved it). New
+  shared `shotsApply()` gate client-side (a clip still disables shots — the o3
+  edit endpoint has no multi_prompt), worker gate relaxed to the i2v endpoint,
+  director's shotsCapable updated + told the sequence opens on the attached
+  frame. Parity bench: all 27 existing + 4 new i2v-shot cases pass.
+- **Verified clean:** every model's durations/ratios/resolutions match schema
+  exactly (incl. Veo 4s/6s + 4K, Ray 21:9/3:4/4:3, Kling 3–15s, Gemini 3–10s);
+  all special billing bases (Veo extend 7s / ref 8s, clip edits on measured
+  length, Ray i2s + 5s lock, LipSync per-5s, OmniHuman per-sec, shot sums,
+  Seedance vref 0.6×(in+out)); Seedance `generate_audio` confirmed free in
+  schema text; prompt caps per family.
+- **Catalogued, NOT wired (owner to decide):**
+  1. **Seedance `bitrate_mode` standard|high** (full+fast, not mini) — bigger-
+     file/higher-quality encode. Schema is silent on price (unlike
+     generate_audio, which explicitly says it's free) → do a cheap live-job
+     price check when the fal balance lands before wiring.
+  2. **Kling `shot_type:"intelligent"`** — Kling auto-splits the prompt into
+     shots itself; our director already does this, so skipped.
+  3. **Kling v3 `cfg_scale` 0–1** — prompt-adherence dial; director-knob candidate.
+  4. **Kling `elements`** (v3 i2v + o3 edit) — @Element character consistency
+     (frontal + 1–3 angle refs each). Already parked in the backlog.
+  5. **Ray v2v granular `controls`** (pose/depth/normals/trajectory/face, per-
+     signal dials) — we wire auto_controls / the edit-strength dial; this is a
+     pro layer on top.
+  6. **Veo `seed` + `safety_tolerance` (1–6)** — left at defaults deliberately.
+  - Seedance "auto" duration as a UI pick: skipped on purpose — can't price an
+    unknown output length.
+
 ### Model-wide fal input-validation audit (2026-07-14) — most fixed, 2 deferred
 - **Status:** ✅ main gaps fixed; two low-risk items intentionally deferred (below)
 - **Reported:** 2026-07-14 — after a v2v edit 422'd ~50× (root cause: clip was 15.10s, over Kling's strict **15.05s** cap; our attach check had a 0.5s grace so it slipped through). Owner: "check that now for every model."
