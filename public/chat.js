@@ -7715,7 +7715,6 @@ function renderProductGrid() {
         : '<div class="pr-thumb pr-thumb-empty">📦</div>') +
       '<button class="pr-menu-btn" aria-label="Options">⋯</button>' +
       '<div class="pr-menu">' +
-        '<button data-act="gen">Generate ad</button>' +
         '<button data-act="del" class="pr-menu-del">Remove</button>' +
       '</div>' +
       '<div class="pr-name">' + esc(p.name || 'Product') + '</div>' +
@@ -7723,7 +7722,6 @@ function renderProductGrid() {
   grid.querySelectorAll('.pr-card').forEach((card) => {
     const id = card.dataset.id;
     card.querySelector('.pr-menu-btn').onclick = (e) => { e.stopPropagation(); toggleProductMenu(card); };
-    card.querySelector('[data-act="gen"]').onclick = (e) => { e.stopPropagation(); startProductAd(id); };
     card.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeProduct(id); };
     // Click the product photo → full-size lightbox (same viewer as chat media).
     const timg = card.querySelector('.pr-thumb img');
@@ -7901,19 +7899,6 @@ function openCreateProduct() {
   onKey = (e) => { if (e.key === 'Escape') close(); };
   document.addEventListener('keydown', onKey);
   setTimeout(() => nameInp.focus(), 30);
-}
-
-// Start an ad from a saved product: drop into the composer prefilled.
-function startProductAd(id) {
-  const p = loadProducts().find((x) => x.id === id);
-  if (!p) return;
-  showView('home');
-  const input = document.getElementById('input');
-  if (input) {
-    input.value = 'Create a polished, scroll-stopping ad for ' + (p.name || 'my product') + (p.desc ? ' — ' + p.desc : '') + '.';
-    if (typeof autoGrow === 'function') autoGrow(input);
-    input.focus();
-  }
 }
 
 function initAuthGate() {
