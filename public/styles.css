@@ -4468,3 +4468,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* Images appear whole (no top-down progressive paint): hidden until decoded. */
 .img-fade { opacity: 0; transition: opacity .22s ease; }
 .img-fade.img-ready { opacity: 1; }
+
+/* The chat box itself never shows a scrollbar (owner's call, 2026-07-16) —
+   a two-line placeholder or long input scrolls fine, just without the bar. */
+#input { scrollbar-width: none; }
+#input::-webkit-scrollbar { display: none; }
