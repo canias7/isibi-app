@@ -1823,7 +1823,7 @@ async function handleRequest(request, env, ctx) {
       }
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
-        ? body.images.slice(0, 13).map(dataImage).filter(Boolean) // + main = up to 14 (Nano combine max)
+        ? body.images.slice(0, 14).map(dataImage).filter(Boolean) // references stand alone (≤14); with an edit base the combined list is capped to 14 below
         : [];
       // Veo 3.1's dedicated image-input modes (mutually exclusive with i2v):
       //  first + last  → first-last-frame-to-video (2 frames)
@@ -2239,8 +2239,10 @@ async function handleRequest(request, env, ctx) {
         // true on t2v but FALSE on i2v/flf/ref/extend — normalize it on so an
         // i2v run self-heals instead of failing a charged submit. Price-neutral.
         if (isVeo) input.auto_fix = true;
-      } else if ((image || avatar) && IMAGE_EDIT[model]) {
-        // Image editing: route to the model's edit / image-to-image endpoint.
+      } else if ((image || avatar || extraImages.length) && IMAGE_EDIT[model]) {
+        // Image editing/composing: route to the model's edit endpoint. The
+        // inputs are EITHER one edit base (image-to-image) OR a stack of
+        // references to build a new image from — never both (client enforces).
         // Size comes from the source image, so no aspect_ratio here.
         const edit = IMAGE_EDIT[model];
         endpoint = edit.endpoint;
@@ -3521,7 +3523,7 @@ async function handleRequest(request, env, ctx) {
       if (kind === "video" && genDuration) ctxBits.push(`clip length: ${genDuration}s`);
       if (genRatio) ctxBits.push(`aspect ratio: ${genRatio}`);
       if (kind !== "audio") {
-        if (kind === "image" && imageCount > 1) ctxBits.push(`${imageCount} images attached to combine/edit — refer to each by position (the first image, the second image, …)`);
+        if (kind === "image" && imageCount > 1) ctxBits.push(`${imageCount} reference images attached — refer to each by position (the first image, the second image, …)`);
         else ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
         if (hasClip) ctxBits.push(clipIsSeedanceRef ? "a video clip IS attached as a @Video1 reference" : "a source video clip IS attached (video-to-video edit)");
@@ -3534,7 +3536,7 @@ async function handleRequest(request, env, ctx) {
       // edit branch below is written for a single source; when >1 is attached,
       // tell the writer to describe each image's role by POSITION.
       const multiImgLine = (kind === "image" && imageCount > 1)
-        ? `\n- ${imageCount} images are attached. Image 1 sits in the user's "Image to image" slot (the picture being edited); Images 2-${imageCount} sit in their "Reference to image" row (material the edit can draw on). The attached images are shown to you labeled "Image 1"…"Image ${imageCount}" in that same order — when the user says "image 5" they mean the one labeled Image 5; LOOK at it before describing it, and never assume it's the first one. Set the \`useImages\` field to ONLY the panel numbers this request involves, in the order you reference them — the model receives exactly those images in that order. Refer to them in the prompt by position IN THAT SELECTION ("the first image" = the first number in useImages), never by @Image tag. Say clearly what to take from each and how they merge.`
+        ? `\n- ${imageCount} REFERENCE images are attached (the user's "Reference to image" row — references build a NEW image; there is no edit base, that would be a single "Image to image" instead). They are shown to you labeled "Image 1"…"Image ${imageCount}" in the panel's order — when the user says "image 5" they mean the one labeled Image 5; LOOK at it before describing it, and never assume it's the first one. Set the \`useImages\` field to ONLY the panel numbers this request involves, in the order you reference them — the model receives exactly those images in that order. Refer to them in the prompt by position IN THAT SELECTION ("the first image" = the first number in useImages), never by @Image tag. Describe the image to create and say clearly what to take from each reference.`
         : "";
       // No image model here can output a real transparent (alpha) background —
       // files come back opaque, and a "transparent background" prompt only

@@ -288,7 +288,10 @@ function onAttach(kind, inputEl) {
       renderAttach(kind);
       if (kind === 'image') {
         clearImageInputsExcept('image');
-        renderExtraImages(); // the "+ Add image" tile appears once a main image is in
+        // Image mode is EITHER one edit base OR references, never both —
+        // attaching the base clears the reference row.
+        if (mode === 'image' && extraImages.length) { extraImages.length = 0; }
+        renderExtraImages();
       } else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
       updateSendPrice();
     });
@@ -760,7 +763,7 @@ function updateApCounts() {
   // Image mode splits into "Image to image" (the one being edited, 0/1) and
   // "Reference to image" (the rest, 0/13) — one number each, no blending.
   set('cntImage', attachments.image ? 1 : 0, caps.image ? 1 : 0);
-  set('cntImgRef', extraImages.length, (mode === 'image' && caps.image && (caps.maxImages || 1) > 1) ? (caps.maxImages - 1) : 0);
+  set('cntImgRef', extraImages.length, (mode === 'image' && caps.image && (caps.maxImages || 1) > 1) ? caps.maxImages : 0);
   set('cntAvatar', attachments.avatar ? 1 : 0, caps.avatar ? 1 : 0);
   set('cntAudio', attachments.audio ? 1 : 0, caps.audio ? 1 : 0);
   set('cntClip', attachments.clip ? 1 : 0, caps.clip ? 1 : 0);
@@ -846,10 +849,13 @@ function updateAttachVisibility() {
   if (!caps.kf) kfList.length = 0;
   else if (kfList.length > caps.kf) kfList.length = caps.kf;
   renderKfList();
-  // Multi-image slots follow the model's cap (Seedance refs take up to 9).
+  // Reference images follow the model's cap; they stand alone (either ONE
+  // edit base or references, never both — normalize any stale mixed state
+  // in favor of the edit base).
   const cap = caps.maxImages || 1;
-  if (!caps.image) extraImages.length = 0;
-  else if (extraImages.length > cap - 1) extraImages.length = Math.max(0, cap - 1);
+  if (!caps.image || cap <= 1) extraImages.length = 0;
+  else if (extraImages.length > cap) extraImages.length = cap;
+  if (mode === 'image' && attachments.image && extraImages.length) extraImages.length = 0;
   // "Reference to image" row: image mode only, and only on multi-image models.
   const rowIR = document.getElementById('rowImgref');
   if (rowIR) rowIR.style.display = (mode === 'image' && caps.image && cap > 1) ? '' : 'none';
@@ -878,7 +884,7 @@ const AP_INFO = {
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
-  imgref: 'References for the edit: up to 13 images that ride along with the one being edited — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"); the image being edited is always image 1.',
+  imgref: 'Build a NEW image from up to 14 references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the single Image-to-image slot, and vice versa.',
   kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {
@@ -1011,12 +1017,13 @@ async function openGalleryPicker(source) {
   ov.className = 'gal-overlay';
   ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
   const urls = meta.list();
-  // How many more images this model can still take — decides whether the
-  // picker is instant single-pick (1 slot left / single-image models) or
-  // multi-select with an Add bar (like the device file dialog).
+  // How many more images this pick can take — the Image-to-image slot is
+  // always exactly one; the reference row runs to the model's cap. Decides
+  // instant single-pick vs multi-select with an Add bar.
   const capNow = ((currentOpts() || {}).caps || {}).maxImages || 1;
-  const remaining = Math.max(0, capNow - (attachments.image ? 1 : 0) - extraImages.length)
-    || 1; // replacing the only image still counts as one pick
+  const remaining = imgPickTarget === 'extra'
+    ? Math.max(1, capNow - extraImages.length)
+    : 1;
   const multi = remaining > 1 && urls.length > 1;
   ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">' + esc(meta.title) + '</span>'
     + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' image' : ' images') : '') + '</span>'
@@ -1059,11 +1066,13 @@ async function openGalleryPicker(source) {
 }
 
 // Fetch the stored image(s) and attach them like picked files (the API wants
-// data URIs). Several at once fill the main slot first, then the extras —
-// same as multi-selecting files from the device.
+// data URIs). The Image-to-image slot takes exactly one (and clears the
+// references); the reference row appends up to the cap (and clears the edit
+// base) — it's one input mode or the other, never both.
 async function useGalleryImages(urls) {
   const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
-  let failed = 0, first = true;
+  let failed = 0;
+  if (imgPickTarget === 'extra' && attachments.image) { attachments.image = null; }
   for (const url of urls) {
     try {
       const blob = await (await fetch(url)).blob();
@@ -1073,38 +1082,34 @@ async function useGalleryImages(urls) {
         r.onerror = rej;
         r.readAsDataURL(blob);
       });
-      // The 'extra' + tile always appends; the main tile's FIRST pick replaces
-      // the main image (that's what its + means), the rest flow into extras.
-      if (imgPickTarget === 'extra' && attachments.image) {
-        if (extraImages.length < cap - 1) extraImages.push(dataUrl);
-      } else if (first && imgPickTarget !== 'extra') {
-        attachments.image = dataUrl;
-        clearImageInputsExcept('image'); // keep image-input modes exclusive
-      } else if (!attachments.image) {
-        attachments.image = dataUrl;
-      } else if (extraImages.length < cap - 1) {
-        extraImages.push(dataUrl);
+      if (imgPickTarget === 'extra') {
+        if (extraImages.length < cap) extraImages.push(dataUrl);
+      } else {
+        attachments.image = dataUrl;      // the one edit base (last pick wins)
+        if (mode === 'image') extraImages.length = 0;
+        clearImageInputsExcept('image');  // keep image-input modes exclusive
       }
-      first = false;
     } catch { failed++; }
   }
   renderAttach('image');
   renderExtraImages();
+  updateSendPrice();
   if (failed) alert("Couldn't load " + (failed === 1 ? 'one of those images' : failed + ' of those images') + ' — try saving to your device instead.');
 }
 
-// Extra images beyond the first, for models that take several references.
+// Reference images (the "Reference to image" row) — EITHER these OR the one
+// edit base, never both: adding references clears the Image-to-image slot.
 function onAttachExtra(inputEl) {
   const files = Array.from(inputEl.files || []);
   inputEl.value = '';
   const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
+  if (attachments.image) { attachments.image = null; renderAttach('image'); }
   files.forEach((file) => {
     readImageConformed(file).then((uri) => {
       if (!uri) { tooBigMsg(); return; }
-      if (!attachments.image) attachments.image = uri;
-      else if (extraImages.length < cap - 1) extraImages.push(uri);
-      renderAttach('image');
+      if (extraImages.length < cap) extraImages.push(uri);
       renderExtraImages();
+      updateSendPrice();
     });
   });
 }
@@ -1123,28 +1128,23 @@ function renderExtraImages() {
   extraImages.forEach((src, i) => {
     const d = document.createElement('div');
     d.className = 'slot';
-    // Position out of the max ("2/14", "3/14"): the main image is #1, extras
-    // continue from #2. Lets the user see which image is which (the composer
-    // refers to them by position) and how many more can be added.
-    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="slot-num">' + (i + 2) + '/' + cap + '</span><span class="x">×</span>';
+    // References number 1..cap (they stand alone — there's no edit base when
+    // references are attached, it's one or the other).
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" /><span class="slot-num">' + (i + 1) + '/' + cap + '</span><span class="x">×</span>';
     d.querySelector('.x').onclick = () => removeExtraImage(i);
     host.appendChild(d);
   });
   const more = document.getElementById('btnMoreImages');
   if (more) {
     const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
-    const total = (attachments.image ? 1 : 0) + extraImages.length;
     // Hide the add tile once the cap is reached (was a dead, clickable control at N/N).
-    more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
-    more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + extraImages.length + '/' + (cap - 1) + '</span>';
+    more.style.display = (cap > 1 && extraImages.length < cap) ? '' : 'none';
+    more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + extraImages.length + '/' + cap + '</span>';
   }
-  // The 44px badge gutter exists only while the n/14 badges show (2+ images) —
-  // otherwise a lone image sits full-width with no dead lane on its left.
-  // Both rows carry badges: refs (2/14…) here, the edit base's 1/14 in rowImage.
+  // The 44px badge gutter exists only while the n/14 badges show —
+  // otherwise the slots sit full-width with no dead lane on the left.
   const body = host.closest('.ap-body');
   if (body) body.classList.toggle('has-nums', extraImages.length > 0);
-  const mainBody = document.querySelector('#rowImage .ap-body');
-  if (mainBody) mainBody.classList.toggle('has-nums', extraImages.length > 0);
   updateApCounts();
   updateSendPrice(); // extra images can move the Ray tier
   renderMaskState(); // a second image disables inpainting (mask maps to one base)
