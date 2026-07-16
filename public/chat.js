@@ -7940,6 +7940,9 @@ function showView(name) {
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .top-tab[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
+  // Back-to-Builder arrow: only while a section view (not home) is open.
+  const back = document.getElementById('topBack');
+  if (back) back.classList.toggle('show', name !== 'home');
   // Chat history is Home-only.
   const chats = document.getElementById('homeChats');
   if (chats) chats.style.display = name === 'home' ? '' : 'none';

@@ -692,6 +692,18 @@
   background: rgba(10, 9, 14, .38);
   backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
+/* Back-to-Builder button — only shown while a section view is open. */
+.top-back {
+  display: none; align-items: center; gap: .35rem; cursor: pointer;
+  height: 40px; padding: 0 .8rem 0 .55rem; margin-right: .3rem;
+  border-radius: 11px; border: 1px solid var(--line-2); background: transparent;
+  color: var(--text); font: inherit; font-weight: 600; font-size: .9rem; white-space: nowrap;
+  transition: background .12s ease, border-color .12s ease, transform .12s ease;
+}
+.top-back.show { display: inline-flex; }
+.top-back svg { width: 19px; height: 19px; }
+.top-back:hover { background: rgba(255, 255, 255, .07); border-color: rgba(255, 170, 110, .5); }
+.top-back:active { transform: scale(.97); }
 .top-tab {
   height: 40px; border-radius: 11px; cursor: pointer; padding: 0 .85rem;
   display: inline-flex; align-items: center; gap: .5rem;
