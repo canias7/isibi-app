@@ -2740,13 +2740,40 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   position: relative; border-radius: 14px; overflow: hidden;
   border: 1px solid var(--line-2); background: #101016;
   transition: border-color .15s ease, transform .18s ease, box-shadow .18s ease;
+  /* Scroll perf (owner 2026-07-16: "laggy scrolling"): skip layout/paint/
+     decode for off-screen cards — a page of <video> elements otherwise keeps
+     every decoder + full-res original live at once. The intrinsic size keeps
+     the scrollbar from jumping while cards are skipped. */
+  content-visibility: auto;
+  contain-intrinsic-size: 280px 190px;
 }
 .g-item:hover { border-color: var(--neon); transform: translateY(-2px); box-shadow: 0 14px 34px rgba(0, 0, 0, .45); }
 .g-item img, .g-item video { width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block; cursor: pointer; }
-.g-item:has(.g-audio) { align-self: start; }
-.g-audio { display: flex; align-items: center; gap: .7rem; padding: 1rem .9rem; }
-.g-audio .note { font-size: 1.3rem; }
-.g-audio audio { flex: 1; height: 36px; }
+.g-item:has(.au-card) { align-self: start; }
+/* Custom audio card (owner 2026-07-16: native <audio controls> read as
+   broken): brand equalizer bars that dance while playing, gradient
+   play/pause, seekable track, tabular time. */
+.au-card { display: flex; flex-direction: column; gap: .8rem; padding: 1rem .95rem .85rem; }
+.au-card audio { display: none; }
+.au-viz { display: flex; align-items: flex-end; gap: 3px; height: 44px; padding: 0 .1rem; }
+.au-viz i { flex: 1; height: 22%; border-radius: 2px; background: linear-gradient(180deg, #ff79c6, #ffb84d); opacity: .3; transform-origin: bottom; transition: opacity .25s ease; }
+.au-viz i:nth-child(2n) { height: 46%; }
+.au-viz i:nth-child(3n) { height: 68%; }
+.au-viz i:nth-child(4n) { height: 34%; }
+.au-viz i:nth-child(5n) { height: 88%; }
+.au-viz i:nth-child(7n) { height: 56%; }
+.au-card.playing .au-viz i { opacity: .95; animation: auDance .9s ease-in-out infinite alternate; }
+@keyframes auDance { from { transform: scaleY(.35); } to { transform: scaleY(1.12); } }
+.au-row { display: flex; align-items: center; gap: .6rem; }
+.au-play { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--split); color: #0a0a0b; cursor: pointer; display: grid; place-items: center; flex-shrink: 0; transition: transform .12s ease; }
+.au-play:hover { transform: scale(1.07); }
+.au-play svg { width: 15px; height: 15px; }
+.au-ic-pause { display: none; }
+.au-card.playing .au-ic-play { display: none; }
+.au-card.playing .au-ic-pause { display: block; }
+.au-track { flex: 1; height: 5px; border-radius: 99px; background: rgba(255, 255, 255, .1); cursor: pointer; }
+.au-fill { height: 100%; width: 0%; border-radius: 99px; background: var(--split); }
+.au-time { font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .g-actions {
   position: absolute; top: 7px; right: 8px; display: flex; gap: .35rem;
   opacity: 0; transition: opacity .15s ease; z-index: 2;

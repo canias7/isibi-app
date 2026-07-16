@@ -868,3 +868,22 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   Walmart + IMDb → wall detected, would route to the AI rescue. 11 unit tests
   on pageImageCandidates against the shipped code. NOT live-tested: the paid
   Claude lookup itself (real money — needs an owner test with a Walmart link).
+
+### Gallery audio cards redesigned + scroll-lag fix (2026-07-16)
+- **Owner:** "FOR THE AUDIOS … I NEED BETTER DESIGN" + "FEELS KINDA LAGGY
+  SCROLLING UP AND DOWN ON THAT PAGE, WHY?"
+- **Audio cards:** native `<audio controls>` rows (grey browser chrome, dead
+  0:00/0:00) replaced with a custom card — pink→amber equalizer bars that
+  dance while playing, gradient round play/pause, seekable progress track,
+  tabular time. Playing one card pauses the rest (`buildAudioCard`, gallery
+  only for now; the chat's audio messages still use the native player — ask
+  before touching those).
+- **The lag:** every card on the page stayed fully live — a dozen `<video>`
+  elements each holding a decoder + full-res originals painting off-screen.
+  Fix: `content-visibility: auto` + `contain-intrinsic-size` on `.g-item`,
+  so the browser skips layout/paint/decode for cards outside the viewport.
+- Headless-verified: cards render (no native controls), duration paints,
+  exclusive playback, content-visibility computed 'auto'. Seek verified
+  against a range-serving audio server (Playwright's route stub can't serve
+  ranges — Chromium clamps seeks to 0 on it; real Supabase storage serves
+  ranges fine).

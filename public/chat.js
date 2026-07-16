@@ -8342,12 +8342,7 @@ function renderGallery() {
       if (media.complete) media.classList.add('img-ready');
       media.onclick = () => openLightbox('image', it.url);
     } else if (it.kind === 'audio') {
-      media = document.createElement('div');
-      media.className = 'g-audio';
-      media.innerHTML = '<span class="note">♪</span>';
-      const au = document.createElement('audio');
-      au.controls = true; au.preload = 'none'; au.src = it.url;
-      media.appendChild(au);
+      media = buildAudioCard(it.url);
     } else {
       media = document.createElement('video');
       media.src = it.url; media.preload = 'metadata'; media.muted = true;
@@ -8379,6 +8374,60 @@ function renderGallery() {
     d.appendChild(actions);
     grid.appendChild(d);
   });
+}
+
+// Custom audio card (owner 2026-07-16: the native <audio controls> rows read
+// as broken). Brand equalizer bars animate while playing, gradient play/pause,
+// a seekable track, tabular time. Playing one card pauses the others.
+function buildAudioCard(url) {
+  const card = document.createElement('div');
+  card.className = 'au-card';
+  card.innerHTML =
+    '<div class="au-viz">' + Array.from({ length: 26 }, (_, i) => '<i style="animation-delay:' + ((i % 7) * 0.11).toFixed(2) + 's"></i>').join('') + '</div>' +
+    '<div class="au-row">' +
+      '<button class="au-play" type="button" aria-label="Play">' +
+        '<svg class="au-ic-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>' +
+        '<svg class="au-ic-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>' +
+      '</button>' +
+      '<div class="au-track"><div class="au-fill"></div></div>' +
+      '<span class="au-time">–:––</span>' +
+    '</div>';
+  const au = document.createElement('audio');
+  au.preload = 'metadata';
+  au.src = mediaSrcOk(url);
+  card.appendChild(au);
+  const btn = card.querySelector('.au-play');
+  const fill = card.querySelector('.au-fill');
+  const time = card.querySelector('.au-time');
+  const track = card.querySelector('.au-track');
+  const fmt = (s) => { s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  const durOk = () => au.duration && isFinite(au.duration);
+  const paint = () => {
+    fill.style.width = durOk() ? (au.currentTime / au.duration) * 100 + '%' : '0%';
+    time.textContent = card.classList.contains('playing') || au.currentTime > 0
+      ? fmt(au.currentTime) + (durOk() ? ' / ' + fmt(au.duration) : '')
+      : (durOk() ? fmt(au.duration) : '–:––');
+  };
+  au.addEventListener('loadedmetadata', paint);
+  au.addEventListener('timeupdate', paint);
+  au.addEventListener('play', () => { card.classList.add('playing'); btn.setAttribute('aria-label', 'Pause'); paint(); });
+  au.addEventListener('pause', () => { card.classList.remove('playing'); btn.setAttribute('aria-label', 'Play'); paint(); });
+  au.addEventListener('ended', () => { au.currentTime = 0; paint(); });
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    if (au.paused) {
+      document.querySelectorAll('.au-card audio').forEach((a) => { if (a !== au) a.pause(); });
+      au.play().catch(() => {});
+    } else au.pause();
+  };
+  track.onclick = (e) => {
+    e.stopPropagation();
+    if (!durOk()) return;
+    const r = track.getBoundingClientRect();
+    au.currentTime = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1) * au.duration;
+    paint();
+  };
+  return card;
 }
 
 // Delete from the GALLERY only (owner's call, 2026-07-16): a chat message
