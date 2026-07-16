@@ -8097,6 +8097,29 @@ function toggleProfileMenu(e) {
   if (pop) pop.classList.toggle('open');
 }
 
+// Collapsible chats sidebar — collapses to a slim rail; persists per browser.
+const SIDE_KEY = 'zephyr_side_v1';
+function toggleSidebar() {
+  const sb = document.getElementById('sideBar');
+  if (!sb) return;
+  const collapsed = sb.classList.toggle('collapsed');
+  const btn = document.getElementById('sideCollapse');
+  if (btn) { btn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar'; btn.setAttribute('aria-label', btn.title); }
+  try { localStorage.setItem(SIDE_KEY, collapsed ? 'collapsed' : 'open'); } catch {}
+}
+// Apply the saved state at boot (before first paint matters little — the rail
+// transition is suppressed by applying it immediately at script init).
+(() => {
+  try {
+    if (localStorage.getItem(SIDE_KEY) === 'collapsed') {
+      const sb = document.getElementById('sideBar');
+      if (sb) sb.classList.add('collapsed');
+      const btn = document.getElementById('sideCollapse');
+      if (btn) { btn.title = 'Expand sidebar'; btn.setAttribute('aria-label', 'Expand sidebar'); }
+    }
+  } catch {}
+})();
+
 // ── Declarative event wiring (CSP-safe) ───────────────────────────────────
 // The HTML carries data-act / data-change / data-input / data-keydown hooks
 // instead of inline on* handlers, so the CSP can drop script-src 'unsafe-inline'.
@@ -8111,6 +8134,7 @@ const CLICK_ACTIONS = {
     showView(el.dataset.view);
   },
   'new-chat': () => newChat(),
+  'side-toggle': () => toggleSidebar(),
   'credits': () => openCredits(),
   'credits-topup': () => openCredits(true),
   'profile-menu': (e) => toggleProfileMenu(e),
