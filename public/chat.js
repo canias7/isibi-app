@@ -887,7 +887,7 @@ const AP_INFO = {
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
-  imgref: 'Build a NEW image from up to 14 references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the single Image-to-image slot, and vice versa.',
+  imgref: 'Build a NEW image from up to {N} references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the single Image-to-image slot, and vice versa.',
   kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {
@@ -897,6 +897,8 @@ function showApInfo(kind, ev, el) {
   const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : 'imageVideo') : kind;
   let txt = AP_INFO[key];
   if (!txt) return;
+  // The reference cap is per-model (Nano 14, GPT 16) — fill it in live.
+  if (kind === 'imgref') txt = txt.replace('{N}', String(((currentOpts() || {}).caps || {}).maxImages || 14));
   // Reference-capable models: teach the @ImageN syntax right where the refs live.
   if (kind === 'ref' && refTagBinding()) {
     txt += ' Cite them in your message as @Image1, @Image2… where each should appear — isibi makes sure the model gets them either way.';
