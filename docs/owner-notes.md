@@ -782,3 +782,20 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   800px product photo.
 - Headless-verified: remote row adopted at boot, local edit pushes with
   merge-duplicates, an older remote never clobbers newer local.
+
+### 14-image edit refused by Gemini → director now sends only the images it uses (2026-07-16)
+- **Owner's test:** "EDIT IMAGE 10, ADD A WHITE BACKGROUND" with 14 attached →
+  the plan targeted image 10 CORRECTLY (numbering fix works), but fal 422'd:
+  "Could not generate images with the given prompts and images." $0 charged,
+  auto-refund worked. fal request log: "error validating the input", 2.27s.
+- **Two causes addressed:**
+  1. All 14 images went as inline data URIs — a huge request, and one stray
+     attachment (the batch included a Messi photo — real-person content) can
+     get the WHOLE render refused by Gemini even when untouched.
+  2. New `useImages` field on the compose/revise tool: the director lists the
+     panel numbers the prompt actually uses, in reference order; the client
+     sends ONLY those (positions in the prompt refer to that selection).
+     Worker safety net: >4 images or >5MB inline → stage data URIs on fal
+     storage (falUpload, per-image fallback to inline) before submitting.
+- Verified headless: useImages [3,1] of three attached → body carries exactly
+  3rd-as-main + 1st-as-extra. Retest the 14-image edit live.

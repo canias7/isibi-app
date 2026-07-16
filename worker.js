@@ -2244,7 +2244,17 @@ async function handleRequest(request, env, ctx) {
         // Size comes from the source image, so no aspect_ratio here.
         const edit = IMAGE_EDIT[model];
         endpoint = edit.endpoint;
-        const urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 14);
+        let urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 14);
+        // A stack of inline data URIs can blow past what the downstream model
+        // accepts (a 14-image edit came back 422 "could not generate with the
+        // given prompts and images"). Big batches get staged on fal storage
+        // and submitted as real URLs; a failed upload falls back to its data
+        // URI rather than dropping the image.
+        const inlineBytes = urls.reduce((n, u) => n + (typeof u === "string" && u.startsWith("data:") ? u.length * 0.75 : 0), 0);
+        if (urls.length > 4 || inlineBytes > 5_000_000) {
+          urls = await Promise.all(urls.map(async (u) =>
+            (typeof u === "string" && u.startsWith("data:")) ? ((await falUpload(u, env)) || u) : u));
+        }
         if (edit.multi) input.image_urls = urls;
         else input.image_url = urls[0];
         // GPT Image 2's edit endpoint has no aspect_ratio/resolution — it sizes
@@ -3524,7 +3534,7 @@ async function handleRequest(request, env, ctx) {
       // edit branch below is written for a single source; when >1 is attached,
       // tell the writer to describe each image's role by POSITION.
       const multiImgLine = (kind === "image" && imageCount > 1)
-        ? `\n- ${imageCount} images are attached to combine/edit. Say clearly what to take from EACH, referring to them by position ("the first image", "the second image", …) and how they merge — this model binds images by position, NOT by any @Image tag, so never write @Image1. The attached images are shown to you labeled "Image 1"…"Image ${imageCount}" in that same order — when the user says "image 5" they mean the one labeled Image 5; LOOK at it before describing it, and never assume it's the first one.`
+        ? `\n- ${imageCount} images are attached. The attached images are shown to you labeled "Image 1"…"Image ${imageCount}" in that same order — when the user says "image 5" they mean the one labeled Image 5; LOOK at it before describing it, and never assume it's the first one. Set the \`useImages\` field to ONLY the panel numbers this request involves, in the order you reference them — the model receives exactly those images in that order. Refer to them in the prompt by position IN THAT SELECTION ("the first image" = the first number in useImages), never by @Image tag. Say clearly what to take from each and how they merge.`
         : "";
       // No image model here can output a real transparent (alpha) background —
       // files come back opaque, and a "transparent background" prompt only
@@ -3812,6 +3822,9 @@ Return just the line to be voiced — keep it to what should actually come out o
                 ...(cfgCapable ? {
                   cfg: { type: "number", description: "ONLY when the user asks for stricter or looser prompt adherence ('follow my prompt exactly' → ~0.8, 'take creative liberties / go loose' → ~0.2): CFG scale 0-1. Omit otherwise — the model default (0.5) is right for normal requests." },
                 } : {}),
+                ...(kind === "image" && imageCount > 1 ? {
+                  useImages: { type: "array", items: { type: "integer" }, description: `Panel numbers of the attached images this prompt actually USES, in the order you reference them — [10] for "edit image 10", [2,1] for "put image 2's product into image 1's scene". The model receives EXACTLY these images in this order, so any position words in your prompt ("the first image") mean positions in THIS list. Sending unused images bloats the request and can get the whole render refused — omit this only when the prompt genuinely needs every attached image.` },
+                } : {}),
                 ...(bitrateCapable ? {
                   bitrate: { type: "string", enum: ["high"], description: "ONLY when the user asks for maximum quality / a crisp master / high bitrate: 'high' (same price, larger file). Omit otherwise." },
                 } : {}),
@@ -4000,6 +4013,11 @@ Return just the line to be voiced — keep it to what should actually come out o
           ? parsed.negative.trim().slice(0, 300)
           : undefined,
         shotType: shotsCapable && parsed.shotType === "intelligent" && !(Array.isArray(parsed.shots) && parsed.shots.length >= 2) ? "intelligent" : undefined,
+        // Which attached images the prompt actually uses (1-based panel
+        // numbers, reference order) — lets the client send ONLY those.
+        useImages: (kind === "image" && imageCount > 1 && Array.isArray(parsed.useImages))
+          ? [...new Set(parsed.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= imageCount))].slice(0, 14)
+          : undefined,
         cfg: cfgCapable && typeof parsed.cfg === "number" && Number.isFinite(parsed.cfg) ? Math.min(1, Math.max(0, parsed.cfg)) : undefined,
         bitrate: bitrateCapable && parsed.bitrate === "high" ? "high" : undefined,
         controls: rayCtlCapable ? sanitizeRayControls(parsed.controls) || undefined : undefined,

@@ -4159,6 +4159,17 @@ async function generateMedia(text, opts = {}) {
   // Director-driven knobs (silent flag / negative list / voice tuning) — the
   // worker re-validates and applies each only where the endpoint supports it.
   const genExtras = sanitizeExtras(opts.extras) || {};
+  // The director can narrow an edit/combine to the images it actually uses:
+  // "edit image 10" sends ONE image (in the director's reference order), not
+  // the whole panel — smaller request, and an unrelated attachment can't get
+  // the render refused. No selection → send everything, as before.
+  let genImage = attachments.image || undefined;
+  let genImages = extraImages.length ? extraImages.slice() : undefined;
+  if (kind === 'image' && Array.isArray(genExtras.useImages) && genExtras.useImages.length) {
+    const all = [attachments.image, ...extraImages].filter(Boolean);
+    const picked = genExtras.useImages.map((n) => all[n - 1]).filter(Boolean);
+    if (picked.length) { genImage = picked[0]; genImages = picked.length > 1 ? picked.slice(1) : undefined; }
+  }
   // Identity token: cancel deletes it, and a fresh generation in this chat
   // replaces it — either way this run notices and quietly stops.
   const myGen = { kind, aspect: ratioAspect(ratio), text: 'Sending to ' + label, statusUrl: null };
@@ -4184,8 +4195,8 @@ async function generateMedia(text, opts = {}) {
         model,
         idem,
         prompt: text,
-        image: attachments.image || undefined,
-        images: extraImages.length ? extraImages.slice() : undefined,
+        image: genImage,
+        images: genImages,
         avatar: attachments.avatar || undefined,
         end: attachments.end || undefined,
         first: attachments.ffirst || undefined, // Veo first-&-last-frame
@@ -4729,6 +4740,13 @@ function sanitizeExtras(data) {
   if (stab != null) out.stability = stab;
   if (spd != null) out.speed = spd;
   if (sty != null) out.style = sty;
+  // Which attached images the composed prompt actually uses (1-based panel
+  // numbers, reference order) — "edit image 10" then sends ONE image, not all.
+  if (Array.isArray(data.useImages)) {
+    const total = (attachments.image ? 1 : 0) + extraImages.length;
+    const sel = [...new Set(data.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= total))].slice(0, 14);
+    if (sel.length) out.useImages = sel;
+  }
   // Video knobs (all price-neutral; the worker re-validates every one):
   // cfg → Kling v3 prompt adherence · bitrate → Seedance high-bitrate encode ·
   // shotType → Kling auto-directed cuts · controls → Ray v2v per-signal dials.
