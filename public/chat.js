@@ -973,7 +973,7 @@ function galleryImages() {
   const seen = new Set();
   const out = [];
   (chatStore.chats || []).forEach((c) => (c.msgs || []).forEach((m) => {
-    if (m.t === 'media' && m.kind === 'image' && m.url && isSavedMedia(m.url) && !seen.has(m.url)) {
+    if (m.t === 'media' && m.kind === 'image' && m.url && isSavedMedia(m.url) && !isChatOnlyMedia(m.url) && !seen.has(m.url)) {
       seen.add(m.url);
       out.push({ url: m.url, at: m.at || 0 });
     }
@@ -2817,8 +2817,20 @@ function deleteChat(id) {
   // re-poll a render into a chat that no longer exists.
   jobClear(id);
   delete stagedByChat[id];
+  // Chat-only files (already gallery-deleted) whose ONLY references live in
+  // this chat become invisible everywhere once it's gone — free their storage.
+  const dying = chatStore.chats.find((c) => c.id === id);
+  const orphanCandidates = new Set();
+  if (dying) (dying.msgs || []).forEach((m) => {
+    if (m.t === 'media' && isChatOnlyMedia(m.url)) orphanCandidates.add(m.url);
+  });
   const wasActive = chatStore.active === id;
   chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
+  orphanCandidates.forEach((u) => {
+    if (anyChatMediaRef(u)) return; // another chat still shows it
+    const m = u.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+    if (m && window.Auth) { try { Auth.storageDelete(m[1]); } catch {} }
+  });
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
   if (wasActive) {
@@ -2917,7 +2929,8 @@ function buildMedia(kind, url, prompt) {
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
   const del = document.createElement('button');
-  del.className = 'media-btn'; del.type = 'button'; del.title = 'Remove from chat (gallery copy stays)'; del.textContent = '🗑';
+  del.className = 'media-btn'; del.type = 'button'; del.textContent = '🗑';
+  del.title = isSavedMedia(url) && !isChatOnlyMedia(url) ? 'Remove from chat (gallery copy stays)' : 'Remove from chat';
   del.setAttribute('aria-label', 'Remove from chat');
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
   actions.appendChild(del);
@@ -2929,7 +2942,7 @@ function buildMedia(kind, url, prompt) {
 // (owner's call, 2026-07-16): a chat delete never touches the stored file —
 // deleting the file itself happens in the Gallery view's own 🗑.
 async function deleteMedia(el, url) {
-  if (!confirm(isSavedMedia(url)
+  if (!confirm(isSavedMedia(url) && !isChatOnlyMedia(url)
     ? 'Remove this from the chat? Your gallery copy stays.'
     : 'Remove this from the chat?')) return;
   el.remove();
@@ -2937,6 +2950,13 @@ async function deleteMedia(el, url) {
   if (chat) {
     const i = chat.msgs.findIndex((mm) => mm.t === 'media' && mm.url === url);
     if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
+  }
+  // A chat-only file (already deleted from the gallery) that no chat shows
+  // anymore is invisible everywhere — free its storage for real.
+  if (isChatOnlyMedia(url) && !anyChatMediaRef(url)) {
+    const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+    if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
+    if (galStorage) refreshStorageBar();
   }
 }
 
@@ -5905,7 +5925,7 @@ function renderAvatar() {
         '</div>' +
         '<div class="av-grid">' + avatars.map((a) =>
           '<div class="av-card" data-id="' + esc(a.id) + '">' +
-            (a.image ? '<div class="av-thumb"><img class="img-fade" src="' + esc(a.image) + '" alt="" loading="lazy" decoding="async" onload="this.classList.add(\'img-ready\')" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
+            (a.image ? '<div class="av-thumb"><img class="img-fade" src="' + esc(a.image) + '" alt="" loading="lazy" decoding="async" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
             '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
             '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
           '</div>').join('') + '</div>' +
@@ -5915,9 +5935,14 @@ function renderAvatar() {
   view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
   view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
   // Click a saved avatar → full-size lightbox (same viewer as chat media).
+  // Fade-in wired HERE, not as an inline onload= attribute — the CSP has no
+  // 'unsafe-inline' for scripts, so inline handlers never run in production
+  // (an inline version left avatars invisible at opacity 0).
   view.querySelectorAll('.av-card .av-thumb img').forEach((img) => {
     img.style.cursor = 'zoom-in';
     img.onclick = () => openLightbox('image', img.getAttribute('src'));
+    img.addEventListener('load', () => img.classList.add('img-ready'), { once: true });
+    if (img.complete && img.naturalWidth) img.classList.add('img-ready');
   });
 }
 
@@ -5964,10 +5989,12 @@ function avTileSrc(s, o) {
 // click) — used by acGenerate and by rebuild-preservation below.
 function acShowResult(stage, url) {
   stage.classList.remove('ac-empty', 'ac-loading');
-  stage.innerHTML = '<img class="ac-result img-fade" src="' + esc(url) + '" alt="Your avatar" title="Click to view full size" decoding="async" onload="this.classList.add(\'img-ready\')" />';
+  stage.innerHTML = '<img class="ac-result img-fade" src="' + esc(url) + '" alt="Your avatar" title="Click to view full size" decoding="async" />';
   const img = stage.querySelector('.ac-result');
   if (img) {
     img.style.cursor = 'zoom-in'; img.onclick = () => openLightbox('image', url);
+    // addEventListener, never an inline onload= — the CSP blocks inline handlers.
+    img.addEventListener('load', () => img.classList.add('img-ready'), { once: true });
     if (img.complete && img.naturalWidth) img.classList.add('img-ready');
   }
 }
@@ -5999,7 +6026,7 @@ function renderAvatarCreator(view) {
         // hides itself (revealing the placeholder) if the file isn't there yet.
         return '<button type="button" class="ab-img' + (has(o.v) ? ' on' : '') + '" data-k="' + s.key + '" data-v="' + esc(o.v) + '">' +
           '<span class="ab-img-ph ab-ph' + (i % 3) + '"></span>' +
-          (src ? '<img class="ab-img-photo" src="' + esc(src) + '" alt="" loading="lazy" onerror="this.remove()" />' : '') +
+          (src ? '<img class="ab-img-photo" src="' + esc(src) + '" alt="" loading="lazy" />' : '') +
           '<span class="ab-img-l">' + esc(o.v) + '</span>' +
         '</button>';
       }).join('') + '</div>';
@@ -6066,6 +6093,13 @@ function renderAvatarCreator(view) {
   view.querySelectorAll('.ab-sec-h').forEach((h) => { h.onclick = () => {
     const sec = h.closest('.ab-sec'); acOpen[sec.dataset.sec] = sec.classList.toggle('open');
   }; });
+  // A missing preview photo hides itself, revealing the colored placeholder.
+  // Wired here (addEventListener), never inline onerror= — the CSP has no
+  // 'unsafe-inline' for scripts, so inline handlers silently never run.
+  view.querySelectorAll('.ab-img-photo').forEach((img) => {
+    img.addEventListener('error', () => img.remove(), { once: true });
+    if (img.complete && img.naturalWidth === 0 && img.getAttribute('src')) img.remove();
+  });
   view.querySelectorAll('.ab-card, .ab-img, .ab-swatch').forEach((el) => { el.onclick = () => {
     const k = el.dataset.k, v = el.dataset.v;
     // Gender is single-select (you're one): clicking sets it, clicking the
@@ -8116,6 +8150,15 @@ function isSavedMedia(url) {
   return typeof url === 'string' && typeof SUPABASE_URL === 'string' &&
     url.startsWith(SUPABASE_URL + '/storage/');
 }
+// A file deleted from the gallery while a chat still showed it lives on under
+// media/<uid>/chat/ — "in the chat but no longer in the gallery".
+function isChatOnlyMedia(url) {
+  return isSavedMedia(url) && /\/object\/public\/media\/[^/]+\/chat\//.test(url);
+}
+// Does any chat message (across ALL chats) still reference this URL?
+function anyChatMediaRef(url) {
+  return (chatStore.chats || []).some((c) => (c.msgs || []).some((m) => m.t === 'media' && m.url === url));
+}
 // The authoritative list of saved objects in the caller's storage, fetched
 // from /api/gallery on gallery open. Existence is driven by storage (so a save
 // survives deleting its chat); chat messages only supply prompt/poster overlay.
@@ -8157,7 +8200,7 @@ function galleryItems() {
   // derived view so the gallery is never blank when we do have local records.
   if (!Array.isArray(serverGallery)) {
     meta.forEach((md, url) => {
-      if (seen.has(url)) return;
+      if (seen.has(url) || isChatOnlyMedia(url)) return; // chat-only files were gallery-deleted
       seen.add(url);
       out.push({ chatId: md.chatId, kind: md.kind || 'video', url, prompt: md.prompt, poster: md.poster, at: md.at || 0, seq: seq++ });
     });
@@ -8310,24 +8353,50 @@ function renderGallery() {
   });
 }
 
+// Delete from the GALLERY only (owner's call, 2026-07-16): a chat message
+// showing the same file must keep working. So: if no chat references it, the
+// file is truly orphaned → hard-delete from storage (frees space). If a chat
+// still shows it, the worker MOVES the file to media/<uid>/chat/ (out of the
+// gallery listing, still alive) and we rewrite the chat messages to the new
+// URL. The mirror lives in deleteMedia(): removing the last chat reference to
+// a chat-only file hard-deletes it, since it's invisible everywhere by then.
 async function galleryDelete(it, el) {
-  if (!confirm('Delete this from your gallery and its chat?')) return;
+  const referenced = anyChatMediaRef(it.url);
+  if (!confirm(referenced
+    ? 'Delete this from your gallery? The copy in your chat stays.'
+    : 'Delete this from your gallery?')) return;
   el.remove();
-  const chat = chatStore.chats.find((c) => c.id === it.chatId);
-  if (chat) {
-    const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === it.url);
-    if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
-    // The deleted item's chat may be open behind the gallery — repaint it now
-    // so returning to the thread never shows a stale/blank media message.
-    if (chatStore.active === chat.id) renderThread();
+  if (referenced) {
+    try {
+      const r = await apiFetch('/api/media/unlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: it.url }),
+      });
+      const j = r && r.ok ? await r.json() : null;
+      if (j && j.url) {
+        chatStore.chats.forEach((c) => {
+          let hit = false;
+          (c.msgs || []).forEach((m) => { if (m.t === 'media' && m.url === it.url) { m.url = j.url; hit = true; } });
+          if (hit) touchSync(c.id);
+        });
+        persistStore();
+        // The chat may be open behind the gallery — repaint so it picks up the
+        // file's new URL instead of the (now dead) gallery one.
+        renderThread();
+      }
+      // Move failed → do NOT delete the object; the card comes back on the
+      // next gallery load, but a chat message is never left broken.
+    } catch {}
+  } else {
+    const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+    if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
   }
-  const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-  if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
   // Drop it from the authoritative storage list too, so the card doesn't
   // reappear on the next repaint before /api/gallery is re-fetched.
   if (Array.isArray(serverGallery)) serverGallery = serverGallery.filter((o) => o.url !== it.url);
   renderGallery();
-  refreshStorageBar(); // freed space → refresh the usage bar
+  refreshStorageBar(); // freed/moved space → refresh the usage bar
 }
 
 // ── Workspace views (Home / Projects / Gallery / Studio) ──

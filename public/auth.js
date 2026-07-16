@@ -242,13 +242,21 @@ const Auth = (() => {
       const token = await accessToken();
       const uid = (session && session.user && session.user.id) || '';
       if (!token || !uid) return;
-      const list = await fetch(SUPABASE_URL + '/storage/v1/object/list/media', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ prefix: uid + '/', limit: 1000 }),
-      });
-      if (!list.ok) return;
-      const names = (await list.json()).map((o) => uid + '/' + o.name).filter((n) => !n.endsWith('/'));
+      // The storage list API is one level deep — sweep the top folder AND the
+      // chat/ subfolder (gallery-deleted files that chats still showed).
+      const names = [];
+      for (const dir of [uid + '/', uid + '/chat/']) {
+        const list = await fetch(SUPABASE_URL + '/storage/v1/object/list/media', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ prefix: dir, limit: 1000 }),
+        });
+        if (!list.ok) continue;
+        (await list.json()).forEach((o) => {
+          // Folder rows have no id — they're prefixes, not objects.
+          if (o && o.id && o.name) names.push(dir + o.name);
+        });
+      }
       if (!names.length) return;
       await fetch(SUPABASE_URL + '/storage/v1/object/media', {
         method: 'DELETE',

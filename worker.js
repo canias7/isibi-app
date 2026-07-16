@@ -2788,17 +2788,59 @@ async function handleRequest(request, env, ctx) {
           if (["mp3", "wav", "m4a", "ogg", "aac", "flac"].includes(ext)) return "audio";
           return "image"; // jpg/jpeg/png/webp/gif
         };
-        const items = (Array.isArray(rows) ? rows : []).map((o) => {
-          const name = String(o.name || "");
-          // Filenames are `<ms>-<hash>.<ext>`; the leading ms is the creation
-          // time (falls back to the row's created_at).
-          const tsM = name.split("/").pop().match(/^(\d{10,})-/);
-          const at = tsM ? Number(tsM[1]) : (Date.parse(o.created_at) || 0);
-          return { url: `${SUPABASE_URL}/storage/v1/object/public/media/${name}`, kind: kindOf(name), size: Number(o.size) || 0, at };
-        });
+        const items = (Array.isArray(rows) ? rows : [])
+          // Files under <uid>/chat/ were deleted from the gallery but kept for
+          // the chat message(s) that still show them — not gallery cards.
+          .filter((o) => String(o.name || "").split("/")[1] !== "chat")
+          .map((o) => {
+            const name = String(o.name || "");
+            // Filenames are `<ms>-<hash>.<ext>`; the leading ms is the creation
+            // time (falls back to the row's created_at).
+            const tsM = name.split("/").pop().match(/^(\d{10,})-/);
+            const at = tsM ? Number(tsM[1]) : (Date.parse(o.created_at) || 0);
+            return { url: `${SUPABASE_URL}/storage/v1/object/public/media/${name}`, kind: kindOf(name), size: Number(o.size) || 0, at };
+          });
         return Response.json({ items });
       } catch {
         return Response.json({ error: "gallery unavailable" }, { status: 503 });
+      }
+    }
+
+    // Delete-from-gallery while a chat message still shows the file: the file
+    // must stay alive (a gallery delete may not break the chat — owner's call,
+    // 2026-07-16), so instead of deleting we move it out of the gallery listing
+    // to media/<uid>/chat/<file>. The client then rewrites its chat messages to
+    // the new URL. Needs the service key (the bucket's RLS has no UPDATE
+    // policy), so the caller's own-prefix is enforced strictly.
+    if (url.pathname === "/api/media/unlist" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ error: "unavailable" }, { status: 503 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "bad body" }, { status: 400 }); }
+      const m = String((body && body.url) || "").match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
+      const key = m ? decodeURIComponent(m[1]) : "";
+      // Only the caller's own TOP-LEVEL files: `<their uid>/<file>` exactly —
+      // never another user's object, never a subpath (already-unlisted chat/
+      // files, traversal tricks).
+      const fname = key.startsWith(`${user.id}/`) ? key.slice(user.id.length + 1) : "";
+      if (!fname || fname.includes("/")) return Response.json({ error: "bad key" }, { status: 400 });
+      const dest = `${user.id}/chat/${fname}`;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/storage/v1/object/move`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: env.SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          },
+          body: JSON.stringify({ bucketId: "media", sourceKey: key, destinationKey: dest }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!r.ok) throw 0;
+        return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${dest}` });
+      } catch {
+        return Response.json({ error: "move failed" }, { status: 502 });
       }
     }
 

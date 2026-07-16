@@ -654,3 +654,39 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - Headless-verified on all three surfaces (fade class applies, ready fires,
   no page errors). Product thumbs skipped on purpose — they're inline data
   URIs (instant already).
+
+### Avatar page went invisible — CSP vs inline handlers (2026-07-16)
+- **Owner's report:** "AVATAR NEVER RENDERED" — blank card where the avatar
+  thumbnail should be, right after the fade-in deploy.
+- **Root cause (mine):** the avatar fade was wired with an inline
+  `onload="..."` attribute. The worker's CSP has NO 'unsafe-inline' for
+  scripts, so in production the handler never ran → `.img-fade` stayed at
+  opacity 0 forever. The headless test passed because the local test server
+  didn't send the CSP header.
+- **Fixes:** avatar thumbs + creator result rewired via addEventListener
+  (the app's convention); also killed the only other inline handler
+  (`onerror="this.remove()"` on Builder preview photos — silently dead under
+  CSP too). **Harness lesson, applied:** the fade test server now sends the
+  production `script-src` so an inline-handler regression fails locally.
+
+### Gallery delete no longer touches the chat (and vice versa) (2026-07-16)
+- **Owner's call:** deleting from the gallery must not remove the chat copy;
+  deleting from a chat must not remove the gallery copy (that half already
+  worked). Confirm text was literally "Delete this from your gallery and its
+  chat?" — no more.
+- **Mechanics** (one stored file, reference-counted by location):
+  - Gallery delete, file still shown in a chat → new `POST /api/media/unlist`
+    MOVES it to `media/<uid>/chat/<file>` (service key — bucket RLS has no
+    UPDATE policy; caller's own top-level prefix strictly enforced), client
+    rewrites every referencing chat message to the new URL. Still counts
+    against the storage cap (the file exists). `/api/gallery` filters
+    `<uid>/chat/` out of the listing; the chat-scan fallbacks + picker skip
+    chat-only URLs too. If the move fails, nothing is deleted (card comes
+    back; a chat message is never left broken).
+  - Gallery delete, nothing references it → hard delete (frees space), as before.
+  - Chat delete of a chat-only file's LAST reference → hard delete (it's
+    invisible everywhere by then). Same sweep when deleting a whole chat.
+  - `storageWipeOwn` (account deletion) now also sweeps the `chat/` subfolder.
+- **Known edge:** another device whose chat sync hasn't pulled the rewritten
+  URL yet can 404 the old URL and self-heal-remove the message before syncing.
+  Narrow window; accepted.
