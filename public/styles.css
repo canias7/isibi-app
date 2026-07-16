@@ -954,7 +954,11 @@
 .pr-url-ico svg { width: 16px; height: 16px; }
 .pr-url input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .9rem; padding: .55rem 0; }
 .pr-url input::placeholder { color: rgba(237, 234, 243, .4); }
-.pr-url-go { flex-shrink: 0; width: 36px; height: 36px; border-radius: 9px; border: none; background: var(--split); color: #0a0a0b; font-size: 1.1rem; font-weight: 700; cursor: pointer; display: grid; place-items: center; transition: transform .12s ease; }
+/* A hair bigger + the ✦3 shown up front (owner's call, 2026-07-16): a walled
+   store now auto-falls-back to the paid AI lookup, so the button says the
+   worst-case price. A clean scan still charges nothing. */
+.pr-url-go { flex-shrink: 0; height: 40px; border-radius: 10px; border: none; background: var(--split); color: #0a0a0b; font-size: 1.1rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: .35rem; padding: 0 .75rem; transition: transform .12s ease; }
+.pr-url-go .pr-go-cr { font-size: .76rem; font-weight: 800; letter-spacing: .02em; }
 .pr-url-go:hover { transform: translateY(-1px); }
 .pr-or { color: var(--muted); font-size: .9rem; }
 .pr-manual { background: #fff; color: #0a0a0b; border: none; border-radius: 11px; padding: .62rem 1.1rem; font: inherit; font-weight: 600; font-size: .9rem; cursor: pointer; transition: transform .12s ease; }

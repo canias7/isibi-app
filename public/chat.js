@@ -7603,7 +7603,7 @@ function renderProducts() {
         '<div class="pr-url">' +
           '<span class="pr-url-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span>' +
           '<input id="prUrl" type="url" placeholder="www.yourproduct.com" autocomplete="off" spellcheck="false" />' +
-          '<button type="button" class="pr-url-go" id="prUrlGo" aria-label="Add product">→</button>' +
+          '<button type="button" class="pr-url-go" id="prUrlGo" aria-label="Add product">→<span class="pr-go-cr">✦ 3</span></button>' +
         '</div>' +
         '<span class="pr-or">or</span>' +
         '<button type="button" class="pr-manual" id="prManual">Create manually</button>' +
@@ -7681,7 +7681,7 @@ async function addProductFromUrl(url) {
       // AI-lookup offer instead of a dead end.
       let j = null;
       try { j = await res.json(); } catch {}
-      if (j && j.wall) { prOfferAiLookup(loader, url); return; }
+      if (j && j.wall) { prAiLookup(loader, url); return; } // auto — the ✦3 on the button already said so
       throw new Error((j || {}).error || '');
     }
     const data = await res.json();
@@ -7702,34 +7702,29 @@ function prAddScanned(data) {
   renderProductGrid();
 }
 
-// The store blocked our server (bot check) — offer the paid AI lookup:
-// Claude web-searches the product (the page is walled, the search index and
-// the store's image CDN aren't) for 3 credits, charged only on success.
-function prOfferAiLookup(card, url) {
-  card.className = 'pr-card pr-loading pr-error';
-  card.innerHTML = '<div class="pr-load-t">This store blocks robots</div>' +
-    '<div class="pr-load-s">I can look the product up with AI instead.</div>' +
-    '<button type="button" class="pr-ai-btn">Look it up with AI · ✦ 3</button>';
-  card.querySelector('.pr-ai-btn').onclick = async () => {
-    card.className = 'pr-card pr-loading';
-    card.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">Looking it up with AI</div><div class="pr-load-s">Searching the product…</div>';
-    try {
-      const res = await apiFetch('/api/product/scan', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, ai: true }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.status === 402) throw new Error('Not enough credits — tap your ✦ balance to top up.');
-      if (!res.ok) throw new Error(data.error || 'Lookup failed — nothing charged.');
-      if (typeof data.balance === 'number' && typeof setCredits === 'function') setCredits(data.balance);
-      card.remove();
-      prAddScanned(data);
-    } catch (e) {
-      card.className = 'pr-card pr-loading pr-error';
-      card.innerHTML = '<div class="pr-load-t">Couldn’t look that up</div><div class="pr-load-s">' + esc((e && e.message) || 'Nothing was charged.') + '</div>';
-      setTimeout(() => card.remove(), 6500);
-    }
-  };
+// The store blocked our server (bot check) — go STRAIGHT to the paid AI
+// lookup, no second click (owner's call, 2026-07-16 — the URL button
+// advertises ✦ 3 up front): Claude web-searches the product (the page is
+// walled, the search index and image CDNs aren't), charged only on success.
+async function prAiLookup(card, url) {
+  card.className = 'pr-card pr-loading';
+  card.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">This store blocks robots</div><div class="pr-load-s">Looking it up with AI instead · ✦ 3</div>';
+  try {
+    const res = await apiFetch('/api/product/scan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, ai: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 402) throw new Error('Not enough credits — tap your ✦ balance to top up.');
+    if (!res.ok) throw new Error(data.error || 'Lookup failed — nothing charged.');
+    if (typeof data.balance === 'number' && typeof setCredits === 'function') setCredits(data.balance);
+    card.remove();
+    prAddScanned(data);
+  } catch (e) {
+    card.className = 'pr-card pr-loading pr-error';
+    card.innerHTML = '<div class="pr-load-t">Couldn’t look that up</div><div class="pr-load-s">' + esc((e && e.message) || 'Nothing was charged.') + '</div>';
+    setTimeout(() => card.remove(), 6500);
+  }
 }
 
 function downscaleImage(file, max) {
