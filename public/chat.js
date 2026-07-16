@@ -957,11 +957,11 @@ function openImgSrc(target, ev, btn) {
     if (menu.parentElement !== btn.offsetParent) btn.offsetParent.appendChild(menu);
     menu.style.top = (btn.offsetTop + 10) + 'px';
   }
-  // Nano Banana Pro can pull a source image from your saved Avatars and
-  // Products too, not just the gallery or a device file. Other models keep the
-  // gallery + device options (their edit flows don't lean on avatars/products).
+  // Multi-image editors (Nano AND GPT) can pull a source image from your
+  // saved Avatars and Products too, not just the gallery or a device file.
+  // Single-image models keep gallery + device only.
   const sources = [];
-  if (model === 'fal-ai/nano-banana-pro') { sources.push(['avatar', 'Avatar'], ['product', 'Product']); }
+  if (IMAGE_MULTI_MODELS.has(model)) { sources.push(['avatar', 'Avatar'], ['product', 'Product']); }
   sources.push(['gallery', 'isibi gallery'], ['device', 'Your device']);
   menu.innerHTML = sources.map(([pick, label]) =>
     '<div class="model-item" data-act="img-pick" data-pick="' + pick + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
