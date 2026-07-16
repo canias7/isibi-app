@@ -2304,7 +2304,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   text-underline-offset: 3px; cursor: help;
 }
 .ap-title[data-info]:hover { text-decoration-color: var(--text); }
-.ap-count { color: var(--neon); font-weight: 700; margin-left: .45rem; font-size: .82rem; }
+.ap-count { color: var(--muted); font-weight: 600; margin-left: .45rem; font-size: .82rem; }
 .ap-head > svg { margin-left: auto; color: var(--muted); transition: transform .22s ease; flex-shrink: 0; }
 .ap-row.open .ap-head > svg { transform: rotate(180deg); }
 .ap-body { display: none; padding: .15rem .5rem .85rem 3.3rem; }
