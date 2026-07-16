@@ -592,7 +592,8 @@
 
 /* ── Settings panel (grouped composer options) ── */
 /* Fully solid so the chips read clearly over content (matches the model picker). */
-.settings-panel { min-width: 300px; max-width: 340px; padding: .5rem; background: #16161b; }
+/* Double-class beats .model-menu.drop-up's min-width:130px override. */
+.model-menu.settings-panel { min-width: 380px; max-width: 430px; padding: .6rem; background: #16161b; }
 .set-section { padding: .55rem .45rem; }
 .set-section + .set-section { border-top: 1px solid var(--line); }
 .set-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .55rem; }
