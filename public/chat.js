@@ -8283,6 +8283,8 @@ async function importGalleryUrl() {
       body: JSON.stringify({ url: m[0] }),
     });
     const j = r ? await r.json().catch(() => null) : null;
+    // A walled page fell back to the paid AI lookup (✦3) — repaint the pill.
+    if (j && typeof j.balance === 'number') setCredits(j.balance);
     if (r && r.ok && j && j.data) {
       const s = await apiFetch('/api/save', {
         method: 'POST',
@@ -8299,7 +8301,7 @@ async function importGalleryUrl() {
     } else msg = (j && j.error) || 'Couldn’t fetch that link.';
   } catch { msg = 'Network hiccup — try again.'; }
   if (inp) { inp.disabled = false; if (ok) inp.value = ''; }
-  if (go) { go.disabled = false; go.textContent = '→'; }
+  if (go) { go.disabled = false; go.innerHTML = '→ <span class="gi-go-cr">✦3</span>'; }
   if (ok) await refreshGallery();
   refreshStorageBar();
   if (msg && typeof sbToast === 'function') sbToast(msg);

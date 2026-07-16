@@ -598,6 +598,89 @@ function decodeEntities(s) {
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
 }
 
+// Anti-bot walls (Walmart's "Robot or human?", Amazon's captcha, Cloudflare's
+// "Just a moment…", PerimeterX…) return 200 with a real <title> — detect them
+// so the import-from-link box can say what actually happened instead of a
+// misleading "no image found".
+const WALL_RE = /robot or human|are you a (?:human|robot)|you're not a robot|verify you are human|just a moment|attention required|access denied|pardon our interruption|automated access|请开启|captcha/i;
+// Site chrome that must never become "the imported image".
+const JUNK_IMG_RE = /sprite|logo|icon|placeholder|favicon|1x1|pixel|badge|spacer|blank|loading|captcha/i;
+const CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36";
+
+// All plausible "main image" candidates from a page's HTML, best first:
+// JSON-LD schema.org image → og:image/twitter:image → microdata → <link
+// image_src> → the best real <img> (lazy-load + srcset aware, skips chrome).
+// Ported from the removed product scanner's extractProduct (2026-07-16).
+function pageImageCandidates(html, pageUrl) {
+  const abs = (s) => { if (!s) return null; try { return new URL(s, pageUrl).toString(); } catch { return null; } };
+  const ok = (s) => s && /^https?:\/\//i.test(s);
+  const candidates = [];
+  const push = (v) => { if (v && ok(v) && !JUNK_IMG_RE.test(v) && !candidates.includes(v)) candidates.push(v); };
+  const allMeta = (prop) => {
+    const re = new RegExp('<meta[^>]+(?:property|name|itemprop)=["\\\']' + prop + '["\\\'][^>]*>', "ig");
+    const out = []; let m;
+    while ((m = re.exec(html)) && out.length < 8) {
+      const c = m[0].match(/content=["']([^"']*)["']/i);
+      if (c && c[1]) out.push(decodeEntities(c[1]).trim());
+    }
+    return out;
+  };
+  // JSON-LD image (any @type — a pasted link isn't necessarily a Product page)
+  {
+    const imgOf = (v) => {
+      if (!v) return "";
+      if (typeof v === "string") return v;
+      if (Array.isArray(v)) { for (const x of v) { const r = imgOf(x); if (r) return r; } return ""; }
+      if (typeof v === "object") return imgOf(v.url || v.contentUrl);
+      return "";
+    };
+    const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/ig;
+    let m, blocks = 0;
+    while ((m = re.exec(html)) && blocks < 30 && candidates.length < 4) {
+      blocks++;
+      let data; try { data = JSON.parse(m[1].trim()); } catch { continue; }
+      const stack = Array.isArray(data) ? data.slice() : [data];
+      let guard = 0;
+      while (stack.length && guard < 300) {
+        guard++;
+        const node = stack.shift();
+        if (!node || typeof node !== "object") continue;
+        if (Array.isArray(node)) { stack.push(...node); continue; }
+        if (node["@graph"]) stack.push(...(Array.isArray(node["@graph"]) ? node["@graph"] : [node["@graph"]]));
+        const im = abs(imgOf(node.image));
+        if (im) push(im);
+      }
+    }
+  }
+  allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image"), allMeta("twitter:image:src")).map(abs).forEach(push);
+  push(abs(allMeta("image")[0]));
+  {
+    const link = ((html.match(/<link[^>]+rel=["']image_src["'][^>]*>/i) || [])[0] || "").match(/href=["']([^"']+)["']/i);
+    if (link) push(abs(link[1]));
+  }
+  if (!candidates.length) {
+    const largestFromSrcset = (ss) => {
+      let best = "", bestW = -1;
+      for (const part of ss.split(",")) {
+        const bits = part.trim().split(/\s+/);
+        const w = bits[1] && /^(\d+)w$/.test(bits[1]) ? parseInt(bits[1]) : 0;
+        if (bits[0] && w >= bestW) { bestW = w; best = bits[0]; }
+      }
+      return best;
+    };
+    for (const mm of [...html.matchAll(/<img\b[^>]*>/ig)].slice(0, 150)) {
+      const tag = mm[0];
+      const at = (a) => (tag.match(new RegExp(a + '=["\\\']([^"\\\']+)["\\\']', "i")) || [])[1] || "";
+      const ss = at("data-srcset") || at("srcset");
+      const src = at("data-src") || at("data-original") || at("data-lazy-src") || (ss && largestFromSrcset(ss)) || at("src");
+      if (!src || JUNK_IMG_RE.test(src)) continue;
+      const a = abs(src);
+      if (ok(a)) { push(a); if (candidates.length >= 3) break; }
+    }
+  }
+  return candidates.slice(0, 5);
+}
+
 // ── SSRF guard for user-supplied URLs (the gallery's Import-from-link).
 // Normalizes the host and rejects loopback / link-local / private / metadata
 // targets across the usual encodings (bracketed IPv6, IPv4-mapped,
@@ -3986,37 +4069,164 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
       const target = String((body && body.url) || "").trim();
       if (!/^https?:\/\//i.test(target)) return Response.json({ error: "invalid url" }, { status: 400 });
-      const UA = { "User-Agent": "Mozilla/5.0 (compatible; isibi/1.0; +https://isibi.ai)", Accept: "*/*" };
+      // A real browser UA — stores and CDNs 403 (or wall) obviously-bot agents.
+      const PAGE_HDRS = {
+        "User-Agent": CHROME_UA,
+        Accept: "text/html,application/xhtml+xml,image/avif,image/webp,image/*,video/*,audio/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      };
       // Sized to fit under /api/save's base64 ceilings (12M/40M/20M chars).
       const MAXES = { image: 8_500_000, video: 29_000_000, audio: 14_000_000 };
-      const fetchOnce = async (t) => {
-        try {
-          const r = await safeFetch(t, { headers: UA, signal: AbortSignal.timeout(20000) });
-          return r && r.ok ? r : null;
-        } catch { return null; }
-      };
-      let r = await fetchOnce(target);
-      if (!r) return Response.json({ error: "couldn't reach that link" }, { status: 502 });
-      let ct = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      const ctOf = (resp) => ((resp && resp.headers.get("content-type")) || "").split(";")[0].trim().toLowerCase();
+      let r;
+      try { r = await safeFetch(target, { headers: PAGE_HDRS, signal: AbortSignal.timeout(20000) }); } catch { r = null; }
+      if (!r || !r.ok) return Response.json({ error: "couldn't reach that link" }, { status: 502 });
+      let ct = ctOf(r);
+      let aiBalance = null; // set when the paid AI rescue ran — client repaints the pill
       if (ct === "text/html" || ct === "application/xhtml+xml") {
-        const html = new TextDecoder().decode(await readCapped(r, 2_000_000));
-        const pick =
-          html.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i) ||
-          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["']/i) ||
-          html.match(/<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i) ||
-          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image(?::src)?["']/i) ||
-          html.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i);
-        let mediaUrl = null;
-        try { mediaUrl = pick ? new URL(decodeEntities(pick[1]), r.url || target).toString() : null; } catch {}
-        if (!mediaUrl) return Response.json({ error: "no image found on that page" }, { status: 422 });
-        r = await fetchOnce(mediaUrl);
-        if (!r) return Response.json({ error: "couldn't fetch the page's image" }, { status: 502 });
-        ct = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+        const html = new TextDecoder().decode(await readCapped(r, 3_000_000));
+        const candidates = pageImageCandidates(html, r.url || target);
+        // Work down the candidate list — one CDN can 403/throttle while the
+        // next serves fine. One retry on 429/5xx (Shopify-style burst
+        // throttling of a second hit from the same egress). Referer helps
+        // hotlink-protected CDNs.
+        const IMG_HDRS = { "User-Agent": CHROME_UA, Accept: "image/avif,image/webp,image/*,video/*,*/*;q=0.8" };
+        const tryImage = async (cand, referer) => {
+          for (let attempt = 0; attempt < 2; attempt++) {
+            let ir;
+            try { ir = await safeFetch(cand, { headers: referer ? { ...IMG_HDRS, Referer: referer } : IMG_HDRS, signal: AbortSignal.timeout(10000) }); } catch { ir = null; }
+            if (ir && ir.ok) return ir;
+            if (!(ir && (ir.status === 429 || ir.status >= 500))) return null; // 403/404 won't heal
+            await new Promise((res) => setTimeout(res, 1000));
+          }
+          return null;
+        };
+        const pageHref = r.url || target;
+        r = null;
+        for (const cand of candidates) {
+          r = await tryImage(cand, pageHref);
+          if (r) break;
+        }
+        if (!r) {
+          // ── The free path came up dry (bot wall, no image, or every CDN
+          // refused) → the paid AI lookup, same escape hatch the product
+          // scanner had (owner's call: auto-fallback, ✦3 shown up front on
+          // the button, charged only when it actually runs, refunded on any
+          // failure). Claude + web_search identifies what the page sells/
+          // shows and returns OPEN image links. ──
+          const title = (html.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
+          const walled = WALL_RE.test(title) || WALL_RE.test(html.slice(0, 6000));
+          const freeFail = () => Response.json({
+            error: candidates.length ? "couldn't fetch the page's image"
+              : walled ? "that store blocks robots — save the image to your device and use ⤒ Import"
+              : "no image found on that page",
+          }, { status: 422 });
+          if (!env.ANTHROPIC_API_KEY) return freeFail();
+          if (!(await useQuota(request, "scanai", 20))) return QUOTA_EXCEEDED();
+          const AI_CR = 3;
+          const auth = request.headers.get("Authorization") || "";
+          let balance;
+          try { balance = await readCredits(auth); }
+          catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
+          if (!(balance >= AI_CR)) return Response.json({ error: "not enough credits", cost: AI_CR }, { status: 402 });
+          let newBalance = null;
+          try { newBalance = await useCredits(auth, AI_CR); }
+          catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
+          const refund = () => creditBack(env, user.id, AI_CR);
+          const blockedHost = (() => { try { return new URL(target).hostname.toLowerCase(); } catch { return ""; } })();
+          const lkSystem = `You are an image-lookup assistant. The user pasted a link whose page blocks robots (or shows no readable image). From the URL slug and site name, use web_search (1-2 focused searches) to identify the EXACT product or subject the page is about, then call report_image once with: name (concise title of what it is), image_urls — up to 3 candidate DIRECT image links (plain https URLs, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's photo; only URLs you actually saw in results, never guessed paths) — and page_urls: up to 2 OTHER pages showing this exact product/subject that serve robots (the brand's own website first, then small shops; NEVER the blocked site, and never Amazon/Walmart/Target/BestBuy/Costco — they all block robots too). Report only what you actually found. Always finish by calling report_image.`;
+          let lkMsgs = [{ role: "user", content: `Blocked page URL: ${target}` }];
+          let found = null;
+          for (let round = 0; round < 4; round++) {
+            let lr;
+            try {
+              lr = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+                body: JSON.stringify({
+                  model: "claude-sonnet-5",
+                  max_tokens: 700,
+                  system: lkSystem,
+                  tools: [
+                    { type: "web_search_20250305", name: "web_search", max_uses: 2 },
+                    { name: "report_image", description: "Report the identified image sources.", input_schema: { type: "object", properties: {
+                      name: { type: "string" },
+                      image_urls: { type: "array", items: { type: "string" }, description: "up to 3 direct https image links, best first" },
+                      page_urls: { type: "array", items: { type: "string" }, description: "up to 2 https pages on other sites showing this exact product/subject that likely don't block robots" },
+                    }, required: ["name"] } },
+                  ],
+                  messages: lkMsgs,
+                }),
+                signal: AbortSignal.timeout(90000),
+              });
+            } catch { await refund(); return Response.json({ error: "lookup failed — nothing charged" }, { status: 502 }); }
+            const ld = await lr.json().catch(() => ({}));
+            if (!lr.ok) { await refund(); return Response.json({ error: "lookup failed — nothing charged" }, { status: 502 }); }
+            const content = Array.isArray(ld.content) ? ld.content : [];
+            const call = content.find((c) => c.type === "tool_use" && c.name === "report_image");
+            if (call && call.input && call.input.name) { found = call.input; break; }
+            if (ld.stop_reason === "pause_turn") { lkMsgs = lkMsgs.concat([{ role: "assistant", content }]); continue; }
+            break;
+          }
+          if (!found) { await refund(); return Response.json({ error: "couldn't identify that page's image — nothing charged" }, { status: 422 }); }
+          const aiCands = (Array.isArray(found.image_urls) ? found.image_urls : [])
+            .filter((s) => typeof s === "string" && /^https:\/\//i.test(s) && !JUNK_IMG_RE.test(s))
+            .filter((s, i, a) => a.indexOf(s) === i)
+            .slice(0, 4);
+          for (const cand of aiCands) {
+            r = await tryImage(cand, null);
+            if (r && ctOf(r).startsWith("image/")) break;
+            r = null;
+          }
+          // Direct image links out of a TEXT search are often stale or guessed
+          // — rescue via the alternate PAGES Claude found (a brand's own site
+          // usually serves robots fine), run through the normal extractor.
+          if (!r) {
+            const pages = (Array.isArray(found.page_urls) ? found.page_urls : [])
+              .filter((s) => typeof s === "string" && /^https:\/\//i.test(s))
+              .slice(0, 2);
+            for (const pageUrl of pages) {
+              let pu;
+              try { pu = new URL(pageUrl); } catch { continue; }
+              const pHost = pu.hostname.toLowerCase();
+              if (hostIsBlocked(pHost) || pHost === blockedHost) continue;
+              if (/(^|\.)(amazon|walmart|target|bestbuy|costco|samsclub|homedepot|lowes)\.[a-z.]+$/i.test(pHost)) continue;
+              let pageHtml = "";
+              let pageHref2 = pageUrl;
+              try {
+                const pr = await safeFetch(pu.toString(), { headers: PAGE_HDRS, signal: AbortSignal.timeout(10000) });
+                if (!pr || !pr.ok) continue;
+                pageHref2 = pr.url || pageUrl;
+                pageHtml = new TextDecoder().decode(await readCapped(pr, 1_500_000));
+              } catch { continue; }
+              const pTitle = (pageHtml.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || "";
+              if (WALL_RE.test(pTitle) || WALL_RE.test(pageHtml.slice(0, 4000))) continue;
+              // Sanity: the rescue page must actually be about the same thing —
+              // one real word from the found name in the page's title.
+              const tokens = String(found.name || "").toLowerCase().match(/[a-z0-9]{4,}/g) || [];
+              if (tokens.length && !tokens.some((t) => pTitle.toLowerCase().includes(t))) continue;
+              for (const cand of pageImageCandidates(pageHtml, pageHref2).slice(0, 2)) {
+                r = await tryImage(cand, pageHref2);
+                if (r && ctOf(r).startsWith("image/")) break;
+                r = null;
+              }
+              if (r) break;
+            }
+          }
+          if (!r) { await refund(); return Response.json({ error: "the AI couldn't rescue that link's image — nothing charged" }, { status: 422 }); }
+          aiBalance = newBalance;
+        }
+        ct = ctOf(r);
       }
       let kind = ct.startsWith("image/") ? "image" : ct.startsWith("video/") ? "video" : ct.startsWith("audio/") ? "audio" : null;
       const cap = MAXES[kind || "image"];
       const bytes = await readCapped(r, cap + 1);
-      if (bytes.length > cap) return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
+      // Past here a failure must refund the AI charge if one happened — the
+      // user only pays for a rescue that actually delivers a file.
+      if (bytes.length > cap) {
+        if (aiBalance !== null) await creditBack(env, user.id, 3);
+        return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
+      }
       if (!kind) {
         // Ambiguous CT (octet-stream etc.) — sniff. /api/save re-validates by
         // magic bytes anyway, so this only decides which caps/kind to report.
@@ -4024,8 +4234,11 @@ Return just the line to be voiced — keep it to what should actually come out o
         const isWebm = bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
         kind = sniffImageType(bytes) ? "image" : (isMp4 || isWebm) ? "video" : null;
       }
-      if (!kind) return Response.json({ error: "that link isn't an image, video, or audio file" }, { status: 422 });
-      return Response.json({ kind, data: b64FromBuffer(bytes) });
+      if (!kind) {
+        if (aiBalance !== null) await creditBack(env, user.id, 3);
+        return Response.json({ error: "that link isn't an image, video, or audio file" }, { status: 422 });
+      }
+      return Response.json(aiBalance === null ? { kind, data: b64FromBuffer(bytes) } : { kind, data: b64FromBuffer(bytes), ai: true, balance: aiBalance });
     }
 
     // Copies a finished fal output into Supabase Storage so chats keep a

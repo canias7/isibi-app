@@ -2793,7 +2793,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .gi-ico svg { width: 14px; height: 14px; }
 .gi-url input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: .84rem; padding: .42rem 0; }
 .gi-url input::placeholder { color: rgba(237, 234, 243, .4); }
-.gi-go { flex-shrink: 0; height: 30px; width: 34px; border-radius: 9px; border: none; background: var(--split); color: #0a0a0b; font-size: .95rem; font-weight: 700; cursor: pointer; transition: transform .12s ease; }
+/* A hair wider + the ✦3 shown up front (same call as the old product box): a
+   walled page auto-falls-back to the paid AI lookup, so the button says the
+   worst-case price. A clean fetch still charges nothing. */
+.gi-go { flex-shrink: 0; height: 30px; border-radius: 9px; border: none; background: var(--split); color: #0a0a0b; font-size: .95rem; font-weight: 700; cursor: pointer; transition: transform .12s ease; display: flex; align-items: center; gap: .25rem; padding: 0 .55rem; }
+.gi-go-cr { font-size: .7rem; font-weight: 800; letter-spacing: .02em; }
 .gi-go:hover:not(:disabled) { transform: translateY(-1px); }
 .gi-go:disabled { opacity: .6; cursor: default; }
 .g-import { border-radius: 99px; padding: .45rem .9rem; font-size: .82rem; white-space: nowrap; }

@@ -841,3 +841,30 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   skipped with a toast, 402 stops the batch after one request, cap-0 click
   opens pricing instead of the file picker, link flow pipes fetch→save and
   clears the box, junk input never leaves the page, server errors toast.
+
+### Import-from-link: Walmart fix + the ✦3 AI rescue (2026-07-16)
+- **Owner's report:** Walmart link → "no image found on that page" ("FIX THE
+  FETCH THING"), then "MAKE SURE YOU CHARGE THE 3 CREDITS PLS".
+- **Why it failed:** Walmart's PerimeterX wall returns 200 with a "Robot or
+  human?" page — no og:image — and the v1 fetch used a bot-ish UA with only a
+  basic og/twitter regex.
+- **Fixed (worker, /api/import/fetch):** Chrome UA + Accept-Language on every
+  fetch; the product scanner's full extraction stack ported back as
+  `pageImageCandidates` (JSON-LD any-@type → og/twitter → microdata → link
+  image_src → lazy-load/srcset <img> scan), candidates tried in order with a
+  429/5xx retry + page Referer; wall detection checked only AFTER extraction
+  comes up empty (v1 checked first and false-positived on Wikipedia, which
+  mentions "captcha" in its head scripts).
+- **AI rescue (the 3 credits):** when the free path still comes up dry, the
+  route auto-falls-back to the product scanner's escape hatch — Sonnet 5 +
+  web_search (max 2) identifies the product/subject and returns direct CDN
+  image links + up to 2 alternate open pages (brand site first, never the
+  big-box walls), each tried through the SSRF guard. ✦3 charged up front,
+  refunded on EVERY failure path (lookup fail, no image sticks, oversize,
+  wrong type), `scanai` quota 20/day. Clean fetches still charge nothing.
+  Response carries `balance`; the client repaints the credit pill. The go
+  button now reads "→ ✦3" (worst-case price up front, old product-box style).
+- Live-tested extraction: Wikipedia → real image (was false-walled in v1),
+  Walmart + IMDb → wall detected, would route to the AI rescue. 11 unit tests
+  on pageImageCandidates against the shipped code. NOT live-tested: the paid
+  Claude lookup itself (real money — needs an owner test with a Walmart link).
