@@ -179,8 +179,8 @@ let mode = 'video';
 
 const MODEL_LISTS = {
   video: [
-    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend' },
-    { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio' },
+    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend', group: 'veo' },
+    { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio', group: 'veo' },
     { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
@@ -191,8 +191,8 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio', group: 'kling' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync', group: 'kling' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
-    { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
-    { id: 'fal-ai/bytedance/omnihuman/v1.5', label: 'OmniHuman 1.5', note: 'lip-sync · 1080p' },
+    { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync', group: 'omnihuman' },
+    { id: 'fal-ai/bytedance/omnihuman/v1.5', label: 'OmniHuman 1.5', note: 'lip-sync · 1080p', group: 'omnihuman' },
   ],
   image: [
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro', note: 'Google · flagship' },
@@ -207,8 +207,10 @@ const MODEL_LISTS = {
 // Families collapsed into one picker row (hover → side flyout with the variants).
 // `variant` derives the short name shown on the parent when one is selected.
 const GROUP_META = {
-  seedance: { label: 'Seedance 2.0', variant: (l) => l.replace(/^Seedance 2\.0\s*/, '').trim() || 'Standard' },
-  kling:    { label: 'Kling',        variant: (l) => l.replace(/^Kling\s*/, '').trim() },
+  seedance:  { label: 'Seedance 2.0', variant: (l) => l.replace(/^Seedance 2\.0\s*/, '').trim() || 'Standard' },
+  kling:     { label: 'Kling',        variant: (l) => l.replace(/^Kling\s*/, '').trim() },
+  veo:       { label: 'Veo 3.1',      variant: (l) => l.replace(/^Veo 3\.1\s*/, '').trim() || 'Standard' },
+  omnihuman: { label: 'OmniHuman',    variant: (l) => l.replace(/^OmniHuman\s*/, '').trim() || '1.0' },
 };
 
 const modelMenu = document.getElementById('modelMenu');

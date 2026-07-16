@@ -2053,9 +2053,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .send:hover { box-shadow: 0 8px 30px rgba(0, 0, 0, .45); }
 .send-spark { color: var(--muted); font-weight: 700; font-size: 1.05rem; }
-/* Empty box on a prompt-required model: the button greys out and takes no hover
-   lift, so it never looks ready and then silently no-ops. */
-.send:disabled, .send:disabled:hover { opacity: .4; box-shadow: none; transform: none; cursor: default; }
+/* Empty box on a prompt-required model: the arrow/spark grey out (no hover
+   lift) but the count chip keeps its full color — it never goes muddy. */
+.send:disabled, .send:disabled:hover { opacity: 1; box-shadow: none; transform: none; cursor: default; }
+.send:disabled svg, .send:disabled .send-spark { opacity: .4; }
 .send-price {
   background: var(--split); color: #0a0a0b; border-radius: 999px;
   padding: .3rem .66rem; font-weight: 800; font-size: .9rem;
