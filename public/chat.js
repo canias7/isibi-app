@@ -1081,6 +1081,10 @@ function renderExtraImages() {
     more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
+  // The 44px badge gutter exists only while the n/14 badges show (2+ images) —
+  // otherwise a lone image sits full-width with no dead lane on its left.
+  const body = host.closest('.ap-body');
+  if (body) body.classList.toggle('has-nums', extraImages.length > 0);
   updateApCounts();
   updateSendPrice(); // extra images can move the Ray tier
   renderMaskState(); // a second image disables inpainting (mask maps to one base)

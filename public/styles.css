@@ -2351,8 +2351,15 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 /* Position number on multi-image thumbnails (main = 1, extras 2,3,…), so the
    prompt can say "the first image / the second image" — Nano references by
-   position, not by an @Image tag. */
-#extraImages .slot, .attach-btn.has { margin-left: 44px; }
+   position, not by an @Image tag. The 44px badge gutter applies ONLY while
+   the badges show (2+ images — .has-nums, toggled by renderExtraImages), and
+   slots SHRINK by the gutter instead of being pushed past the panel edge —
+   the old push made image 1 wider than the rest and scrolled the panel
+   sideways (it also silently shoved the avatar/end/audio slots, which never
+   have badges at all). */
+#rowImage .ap-body.has-nums .attach-btn.has,
+#rowImage .ap-body.has-nums .ap-add,
+#rowImage .ap-body.has-nums #extraImages .slot { margin-left: 44px; width: calc(100% - 44px); }
 /* The outside-left badge must not be clipped: these slots stop clipping and
    the image itself carries the rounding instead. */
 #extraImages .slot { overflow: visible; }
