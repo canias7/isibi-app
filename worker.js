@@ -3493,8 +3493,15 @@ async function handleRequest(request, env, ctx) {
       // not just video-to-video. NB: a start image for image-TO-video is NOT an
       // edit — the model generates new motion, so that keeps the full ladder.
       const isEdit = (hasClip && !clipIsSeedanceRef) || (kind === "image" && hasImage);
+      // Edits follow the effort dial too (owner's call, 2026-07-16) — but depth
+      // on an edit means detailing the CHANGE, never re-describing the source
+      // (that invites the model to repaint untouched content).
       const effortLine = isEdit
-        ? `\nThis is an EDIT of media the model already has — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No elaborate treatment, no re-describing the source, no length padding.`
+        ? (effort === "low"
+          ? `\nThis is an EDIT of media the model already has. Effort: LOW — ONE plain sentence (~10-25 words) stating only the change. Never re-describe the source.`
+          : effort === "medium"
+          ? `\nThis is an EDIT of media the model already has — keep it SHORT: one or two plain sentences (~15-45 words) stating only the change. No elaborate treatment, no re-describing the source, no length padding.`
+          : `\nThis is an EDIT of media the model already has. Effort: ${effort.toUpperCase()} — write a DETAILED edit instruction (~60-140 words): specify the change precisely (the new content's look, materials, palette, lighting and how it integrates with what stays — shadows, reflections, color spill, edge quality) and close by naming exactly what must remain untouched. All that detail goes on the CHANGE — never re-describe unchanged parts of the source, which invites the model to repaint them.`)
         : kind === "audio" ? "" : effort === "low"
         ? `\nEffort: LOW — a quick take. 1-2 tight sentences (30-50 words): the idea at its purest — subject, action, setting, one defining style note. Keep the non-negotiables (camera named, on-screen text pinned) and let the model improvise everything else.`
         : effort === "high"
@@ -3631,10 +3638,10 @@ Context: ${ctxLine}`
         : kind === "video" && hasClip && !clipIsSeedanceRef
         ? `You are the edit writer for isibi, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
 
-Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. When it helps, name what to KEEP from the original vs. what to CHANGE. Do NOT write a cinematic treatment, do NOT narrate the whole scene, do NOT pad for length. Return nothing but the instruction.
+Write ONE direct instruction that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. Name what to KEEP from the original vs. what to CHANGE. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE, never on narrating the source footage. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Restyle the footage into a polished, photoreal cinematic AI look — cleaner textures, warmer light — while keeping the exact framing, motion and timing." · "Keep everything as-is but relight the scene for golden-hour warmth." · "Swap the car for a red vintage convertible; leave the road, motion and background unchanged."${familyHint ? `
-- ${familyHint}` : ""}${briefLine}${memoryLine}${refLine}
+- ${familyHint}` : ""}${effortLine}${briefLine}${memoryLine}${refLine}
 Context: ${ctxLine}`
         : kind === "video"
         ? `You are the prompt writer for isibi, an AI video studio. Using the conversation, the request and the user's picks, write ONE video-generation prompt: a single paragraph of concrete visual language — no lists, no headers, nothing but the prompt.
@@ -3656,10 +3663,10 @@ Context: ${ctxLine}`
         : kind === "image" && hasImage
         ? `You are the edit writer for isibi, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.
 
-Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Do NOT re-describe the whole scene, do NOT write a full generation prompt, do NOT pad for length. Return nothing but the instruction.
+Write ONE direct instruction that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE (and what must stay untouched), never on re-describing the rest of the picture. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Change the sky behind the building to a dramatic orange sunset; leave everything else untouched." · "Turn the man's jacket red and add subtle rain on the window." · "Restyle the photo into a soft watercolour painting while keeping the composition exactly."${familyHint ? `
-- ${familyHint}` : ""}${multiImgLine}${transparencyLine}${briefLine}${memoryLine}
+- ${familyHint}` : ""}${effortLine}${multiImgLine}${transparencyLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.

@@ -1967,16 +1967,15 @@ function renderLpChip() {
 }
 
 // An edit of attached media — a clip in video mode (video-to-video) or a
-// source image in image mode (image editing) — makes the director write a short
-// edit instruction, so the effort/depth ladder (which only shapes written
-// from-scratch prompts) does not apply. NB: a start image for image-to-video is
-// NOT an edit — the model generates new motion — so that keeps the ladder.
+// source image in image mode (image editing). The effort ladder applies to
+// edits too (owner's call, 2026-07-16) — this now only routes reruns of edits
+// into a fresh compose instead of replaying a stale prompt.
 function isEditMode() {
   return (mode === 'video' && !!attachments.clip) || (mode === 'image' && !!attachments.image);
 }
 function toggleEffortMenu(e) {
   e.stopPropagation();
-  if (directorMode === 'off' || !orchActive() || isEditMode()) return; // raw / no add-on / edit: effort has nothing to control
+  if (directorMode === 'off' || !orchActive()) return; // raw / no add-on: effort has nothing to control
   const menu = document.getElementById('effortMenu');
   document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
   menu.classList.toggle('open');
@@ -1987,13 +1986,12 @@ function renderEffortLock() {
   const pick = document.querySelector('.effort-pick');
   if (!pick) return;
   const subbed = orchActive();
-  const edit = isEditMode();
-  const off = directorMode === 'off' || !subbed || edit;
+  // Effort applies to EDITS too (owner's call, 2026-07-16): High+ writes a
+  // detailed edit instruction, Low a terse one — user picks the dial.
+  const off = directorMode === 'off' || !subbed;
   pick.classList.toggle('locked', off);
   pick.querySelector('.opt-btn').title = !subbed
     ? 'Effort is part of the AI Orchestrator add-on ($19.99/mo)'
-    : edit
-    ? 'Effort is for written prompts — an edit just takes a short instruction'
     : directorMode === 'off'
     ? 'Effort applies when isibi.ai writes the prompt — turn the orchestrator on to use it'
     : 'How detailed the written prompt gets';
