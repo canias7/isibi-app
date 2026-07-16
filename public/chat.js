@@ -35,9 +35,9 @@ const SEEDANCE_OPTS = {
 const KLING_OPTS = {
   durations: range(3, 15), defDur: 5,
   ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-  // Kling v3 i2v takes start+end frames; the "elements" reference mode is a
-  // nested combo feature left for later.
-  caps: { image: true, flf: true },
+  // v3 i2v: start+end frames + character elements (@ElementN — fal only takes
+  // elements on i2v, so they need a start image; enforced at send).
+  caps: { image: true, flf: true, el: 4 },
 };
 const MODEL_OPTS = {
   'bytedance/seedance-2.0/text-to-video': { ...SEEDANCE_OPTS, resolutions: ['480p', '720p', '1080p', '4k'], defRes: '720p' },
@@ -89,12 +89,12 @@ const MODEL_OPTS = {
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    caps: { image: true, flf: true, ref: 4, clip: true },
+    caps: { image: true, flf: true, ref: 4, el: 4, clip: true },
   },
   'fal-ai/kling-video/o3/standard/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    caps: { image: true, flf: true, ref: 4, clip: true },
+    caps: { image: true, flf: true, ref: 4, el: 4, clip: true },
   },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
@@ -218,6 +218,8 @@ const attachments = { image: null, avatar: null, end: null, audio: null, clip: n
 const extraImages = [];
 // Veo reference-to-video images (its own row, capped per model at caps.ref).
 const refList = [];
+// Kling character elements (@Element1-4): one frontal image per character.
+const elList = [];
 // Ray keyframes (≤64 images pinned along the clip's timeline, evenly spaced).
 const kfList = [];
 const ATTACH_LABELS = {
@@ -767,6 +769,10 @@ function updateAttachVisibility() {
   if (rowRef) rowRef.style.display = caps.ref ? '' : 'none';
   if (!caps.ref) refList.length = 0;
   else if (refList.length > caps.ref) refList.length = caps.ref;
+  const rowEl = document.getElementById('rowEl');
+  if (rowEl) rowEl.style.display = caps.el ? '' : 'none';
+  if (!caps.el) elList.length = 0;
+  else if (elList.length > caps.el) elList.length = caps.el;
   renderRefList();
   // Keyframes row (Ray: ≤64 timeline-pinned images).
   const rowKf = document.getElementById('rowKf');
@@ -1134,6 +1140,7 @@ function clearImageInputsExcept(keep) {
   }
   if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
   if (keep !== 'kf' && kfList.length) { kfList.length = 0; renderKfList(); }
+  if (keep !== 'el' && elList.length) { elList.length = 0; renderElList(); }
 }
 
 // Reference-to-video images (Veo ≤3, Seedance ≤9): its own row, capped at caps.ref.
@@ -1180,6 +1187,48 @@ function renderRefList() {
   if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
   renderRefChips();
   updateSendPrice(); // references can move the tier on ref-capable models
+}
+
+// ── Character elements (Kling): each image is one character/object whose
+// identity holds across the video, cited in the prompt as @Element1-4.
+// Kept separate from style references (@ImageN) — fal treats them differently.
+function elCap() { return ((currentOpts() || {}).caps || {}).el || 0; }
+function onAttachEl(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  const cap = elCap();
+  files.forEach((file) => {
+    if (elList.length >= cap) return;
+    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => { if (elList.length < cap) { elList.push(reader.result); clearImageInputsExcept('el'); renderElList(); } };
+    reader.readAsDataURL(file);
+  });
+}
+function removeEl(i) { elList.splice(i, 1); renderElList(); }
+function renderElList() {
+  const host = document.getElementById('elImages');
+  if (!host) return;
+  host.innerHTML = '';
+  elList.forEach((src, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<img src="' + esc(src) + '" alt="" />' +
+      '<span class="slot-tag">@Element' + (i + 1) + '</span>' +
+      '<span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeEl(i);
+    host.appendChild(d);
+  });
+  const add = document.getElementById('btnEl');
+  const cap = elCap();
+  if (add) {
+    add.style.display = elList.length < cap ? '' : 'none';
+    add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + elList.length + '/' + cap + '</span>';
+  }
+  const cnt = document.getElementById('cntEl');
+  if (cnt) cnt.textContent = elList.length ? '· ' + elList.length : '';
+  renderRefChips();
+  updateSendPrice();
 }
 
 // ── Keyframes (Ray): ≤64 images pinned along the clip's timeline ──
@@ -1234,7 +1283,7 @@ function renderRefChips() {
   if (!composer) return;
   let bar = document.getElementById('refChips');
   const vidRef = clipIsVideoRef();
-  const want = (refTagBinding() && refList.length) || vidRef;
+  const want = (refTagBinding() && refList.length) || elList.length || vidRef;
   if (!want) { if (bar) bar.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -1250,6 +1299,15 @@ function renderRefChips() {
     chip.title = 'Insert @Image' + (i + 1) + ' into your message';
     chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Image' + (i + 1);
     chip.onclick = () => insertAtCursor('@Image' + (i + 1));
+    bar.appendChild(chip);
+  });
+  elList.forEach((src, i) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'ref-chip';
+    chip.title = 'Insert @Element' + (i + 1) + ' into your message';
+    chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Element' + (i + 1);
+    chip.onclick = () => insertAtCursor('@Element' + (i + 1));
     bar.appendChild(chip);
   });
   if (vidRef) {
@@ -3860,6 +3918,7 @@ async function generateMedia(text, opts = {}) {
         first: attachments.ffirst || undefined, // Veo first-&-last-frame
         last: attachments.flast || undefined,
         refs: refList.length ? refList.slice() : undefined, // Veo reference-to-video
+        elements: elList.length ? elList.slice() : undefined, // Kling @ElementN characters
         keyframes: kfList.length ? kfList.slice() : undefined, // Ray timeline keyframes
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
@@ -4146,7 +4205,9 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         extraImages.length = 0;
         renderExtraImages();
         refList.length = 0;
+        elList.length = 0;
         renderRefList();
+        renderElList();
       }
     } else {
       endGen(origin);
@@ -4263,6 +4324,7 @@ function directorContext() {
     hasAvatar: mode === 'video' && !!attachments.avatar,
     hasAudio: mode === 'video' && !!attachments.audio,
     refCount: (mode === 'video' && refList.length) ? refList.length : undefined,
+    elCount: (mode === 'video' && elList.length) ? elList.length : undefined,
     brief: (activeChat() || {}).brief || undefined,
     // Universal taste — only when enabled and there's something to apply.
     memory: memoryEnabled() && mode !== 'audio' && memoryItems().length ? memoryItems() : undefined,
@@ -4332,7 +4394,7 @@ function sanitizeShots(arr) {
 async function directorImage() {
   // Show the director whatever image is attached: the start image, the first
   // frame, or the first reference — so it can look before it writes.
-  const src = attachments.image || attachments.ffirst || (mode === 'video' ? refList[0] : null);
+  const src = attachments.image || attachments.ffirst || (mode === 'video' ? refList[0] || elList[0] : null);
   if (!src || mode === 'audio') return {};
   try {
     const img = new Image();
@@ -4724,6 +4786,19 @@ function send(fromButton) {
   // clear fix instead of a charge and a dead render.
   const badClip = clipIssue();
   if (badClip) { addMsg('agent', '⚠️ ' + badClip); return; }
+  // Character elements constraints (fal): Kling 3.0 only takes elements on its
+  // image-to-video endpoint (needs a start image); o3's edit endpoint caps
+  // characters + reference images at 4 combined.
+  if (mode === 'video' && elList.length) {
+    if (/kling-video\/v3/.test(model) && !attachments.image && !attachments.ffirst) {
+      addMsg('agent', '⚠️ Kling 3.0 needs a start image alongside characters — add one (or switch to Kling o3, which takes characters on their own).');
+      return;
+    }
+    if (/kling-video\/o3/.test(model) && attachments.clip && elList.length + refList.length > 4) {
+      addMsg('agent', '⚠️ On a clip re-render, characters + reference images are capped at 4 combined — remove ' + (elList.length + refList.length - 4) + '.');
+      return;
+    }
+  }
   // Image models set a minimum prompt length (nano-banana-pro: 3 chars) and 422
   // anything shorter — only bites raw mode, since composed prompts are long.
   if (mode === 'image' && directorMode === 'off' && text.length < 3) {
@@ -8063,6 +8138,7 @@ const CHANGE_ACTIONS = {
   'attach': (e, el) => onAttach(el.dataset.attach, el),
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
+  'attach-el': (e, el) => onAttachEl(el),
   'attach-kf': (e, el) => onAttachKf(el),
 };
 const INPUT_ACTIONS = {

@@ -1794,6 +1794,11 @@ async function handleRequest(request, env, ctx) {
       const refs = Array.isArray(body.refs)
         ? body.refs.slice(0, 9).map(dataImage).filter(Boolean)
         : [];
+      // Kling character elements: each entry is one frontal image, cited in the
+      // prompt as @Element1-4. Input-only — no fal price dimension.
+      const elements = Array.isArray(body.elements)
+        ? body.elements.slice(0, 4).map(dataImage).filter(Boolean)
+        : [];
       // Ray timeline keyframes (≤64, Luma only) — order is playback order.
       const kfs = model.startsWith("luma/") && Array.isArray(body.keyframes)
         ? body.keyframes.slice(0, 64).map(dataImage).filter(Boolean)
@@ -1972,20 +1977,23 @@ async function handleRequest(request, env, ctx) {
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
-        } else if (isKlingO3 && refs.length && !clip) {
-          // Kling o3 reference-to-video (pro + standard): ≤4 reference images
-          // bound as native @Image1..@Image4 prompt tags (Seedance-style). A
-          // start and/or end frame can ride along; a clip instead routes to the
-          // edit endpoint below (which takes image_urls itself).
+        } else if (isKlingO3 && (refs.length || elements.length) && !clip) {
+          // Kling o3 reference-to-video (pro + standard): ≤4 style references
+          // bound as native @Image1..@Image4 tags (Seedance-style) and/or ≤4
+          // character elements bound as @Element1..@Element4 (identity holds
+          // across the video). A start and/or end frame can ride along; a clip
+          // instead routes to the edit endpoint below.
           endpoint = model.replace("/text-to-video", "/reference-to-video");
-          input.image_urls = refs.slice(0, 4);
+          if (refs.length) input.image_urls = refs.slice(0, 4);
+          if (elements.length) input.elements = elements.map((u) => ({ frontal_image_url: u }));
           const rStart = image || first;
           const rEnd = end || last;
           if (rStart) input.start_image_url = rStart;
           if (rEnd) input.end_image_url = rEnd;
-          // For a raw prompt with no tags, cite the references so they're used.
-          const tags = input.image_urls.map((_, i) => "@Image" + (i + 1));
-          if (typeof input.prompt === "string" && !/@Image\d/i.test(input.prompt)) {
+          // For a raw prompt with no tags, cite the attachments so they're used.
+          const tags = (input.image_urls || []).map((_, i) => "@Image" + (i + 1))
+            .concat(elements.map((_, i) => "@Element" + (i + 1)));
+          if (typeof input.prompt === "string" && !/@(?:Image|Element)\d/i.test(input.prompt)) {
             input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
           }
         } else if (isGemini && clip) {
@@ -1999,7 +2007,11 @@ async function handleRequest(request, env, ctx) {
           // ride along as @ImageN refs, and the source audio is kept by default.
           endpoint = model.replace("/text-to-video", "/video-to-video/edit");
           input.video_url = clip;
-          if (refs.length) input.image_urls = refs.slice(0, 4);
+          // fal caps characters + style refs at 4 COMBINED on the edit endpoint
+          // (elements get the slots first — identity beats style).
+          const els = elements.slice(0, 4);
+          if (els.length) input.elements = els.map((u) => ({ frontal_image_url: u }));
+          if (refs.length && els.length < 4) input.image_urls = refs.slice(0, 4 - els.length);
           bareEdit = true;
         } else if (isVeo && clip) {
           // Veo 3.1 extend — continue/lengthen the clip, driven by the prompt.
@@ -2062,6 +2074,12 @@ async function handleRequest(request, env, ctx) {
           if (end && (isSeedance || isKlingV3 || isKlingO3 || isRay)) input.end_image_url = end;
         }
 
+        // Kling v3 character elements ride ONLY its image-to-video endpoint
+        // (the client requires a start image before letting them submit).
+        if (isKlingV3 && elements.length && endpoint === i2v) {
+          input.elements = elements.map((u) => ({ frontal_image_url: u }));
+        }
+
         // Kling multi-shot: swap the single prompt for the shot list. fal takes
         // multi_prompt on Kling's t2v AND i2v endpoints (schema-verified), so a
         // start image / first-&-last pair can carry a shot list too. A clip
@@ -2117,6 +2135,16 @@ async function handleRequest(request, env, ctx) {
               .replace(/\s*@(?:Image|Video|Audio)\d+/gi, "");
           }
           input.prompt = input.prompt.replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
+        }
+        // @ElementN hygiene, same idea as @ImageN: with elements attached, drop
+        // only tags pointing past the attached count; with none, strip them all
+        // (a rerun of an old element prompt must not leave dangling tags).
+        if (typeof input.prompt === "string" && /@Element\d/i.test(input.prompt)) {
+          const elN = Array.isArray(input.elements) ? input.elements.length : 0;
+          input.prompt = input.prompt
+            .replace(/\s*\bFeature\s+@(?:Image|Element)\d+(?:\s*,\s*@(?:Image|Element)\d+)*\s*\.?/gi, (m) => (elN ? m : ""))
+            .replace(/@Element(\d+)/gi, (m, d) => (+d >= 1 && +d <= elN ? m : ""))
+            .replace(/\s{2,}/g, " ").replace(/\s+([.,;:!?])/g, "$1").trim();
         }
 
         if (duration && !bareEdit && !useShots) {
@@ -3310,6 +3338,7 @@ async function handleRequest(request, env, ctx) {
       // short edit-instruction path.
       const clipIsSeedanceRef = hasClip && /seedance/.test(genModel);
       const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
+      const elCount = Math.min(4, Math.max(0, Math.round(+body.elCount) || 0));
       // Kling multi-shot (shot-list) rides the text-to-video AND image-to-video
       // endpoints (schema-verified 2026-07-16) — so a start image / end frame
       // still allows shots. A clip routes to o3's edit endpoint (no
@@ -3412,6 +3441,11 @@ async function handleRequest(request, env, ctx) {
           ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. This model binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.${/kling/.test(genModel) ? " If you also return a `shots` list, cite the @ImageN tags inside the shot prompts the same way." : ""}`
           : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words. The UI labels them @Image1…@Image${refCount} in order, so if the user's message cites @ImageN, that's the reference they mean — refer to it naturally in the prompt (e.g. "the subject from reference image ${refCount > 1 ? "N" : "1"}"), not by tag.`)
         : "";
+      // Kling character elements (@ElementN): each holds a character/object's
+      // IDENTITY across the video — different from style refs (@ImageN).
+      const elLine = (elCount && kind === "video")
+        ? `\nThe user attached ${elCount} character element${elCount > 1 ? "s" : ""} — image${elCount > 1 ? "s" : ""} of specific characters/objects whose exact identity must appear in the video. Cite them as ${Array.from({ length: elCount }, (_, i) => "@Element" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag into the sentence where that character acts (e.g. "@Element1 walks in and hands @Element2 the keys"). Don't re-describe their appearance — the tag carries it. If you return a \`shots\` list, cite the @ElementN tags inside the shot prompts the same way.`
+        : "";
       // Seedance video reference (@Video1): a clip whose motion/subject carries
       // into a fresh generated scene. Cite it by tag, like the image refs.
       const vidRefLine = clipIsSeedanceRef
@@ -3506,7 +3540,7 @@ ${hasImage
 - ${familyHint}` : ""}
 
 Example of the register (never copy its content): "Fixed camera, no camera movement. Steady rain falls on a neon-lit alley at night; puddles ripple, steam drifts from the food stall, the paper lantern sways gently. The cook flips noodles in one small motion. All signage stays exactly as printed. Cinematic, moody, photorealistic."
-${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}${vidRefLine}${shotsLine}
+${effortLine}${briefLine}${factsLine}${memoryLine}${refLine}${elLine}${vidRefLine}${shotsLine}
 Context: ${ctxLine}`
         : kind === "image" && hasImage
         ? `You are the edit writer for isibi, an AI image-editing studio. A source IMAGE is already attached (it's in the conversation — look at it) and the model will edit THAT picture — this is an EDIT, not a new generation. The model can already see it, so never re-describe the rest of the image.

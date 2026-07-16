@@ -210,11 +210,28 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
     with undocumented output-length semantics; billing it blind risks under-
     charging. Needs one cheap live job when the fal balance lands. Clip+refs
     meanwhile still works via the o3 edit endpoint (image_urls).
+- **Round-3d (2026-07-16, owner: "Kling elements + bitrate sanity check"):**
+  - ✅ **Kling character elements SHIPPED (v1)** — a new **Characters** attach
+    row on all four Kling models (o3 pro/std, v3 pro/std): up to 4 characters,
+    each ONE frontal image, badged **@Element1–4** with tap-to-cite chips in
+    the composer (same rail as @ImageN). Identity holds across the video.
+    Routing: o3 + characters (no clip) → reference-to-video (characters and
+    style refs can combine, start/end frames ride along) · o3 + clip →
+    edit endpoint (fal caps characters+refs at 4 COMBINED — characters get the
+    slots first, pre-send guard blocks over-cap) · v3 → i2v only, so a start
+    image is REQUIRED (friendly pre-send message points at o3 otherwise).
+    Director cites @ElementN (incl. inside shot prompts) and can see the first
+    character image. @ElementN tag hygiene mirrors @ImageN (dangling dropped).
+    Price-neutral (elements are an input on already-priced endpoints).
+    10-case routing/hygiene test + full 40-case parity bench pass.
+    **v2 later (if wanted):** per-character angle shots (fal takes 1–3
+    `reference_image_urls` per element) — needs a per-slot "+ angles" UI.
+  - 🟡 **Seedance bitrate_mode billing** — three independent FREE signals say
+    high bitrate is not billed (pricing page has no bitrate dimension; the
+    token formula h×w×dur×24/1024 has no bitrate term; web sweep finds zero
+    mention). Final 100% = one live job, folded into the fal-balance live sweep.
 - **Still NOT wired (deliberate):**
-  1. **Kling `elements`** (v3 i2v + o3 edit/ref) — @Element character
-     consistency (frontal + 1–3 angle refs each). Parked in the backlog: needs
-     a real UI decision (per-element image sets), not just a knob.
-  2. **Veo `seed` + `safety_tolerance` (1–6)** — defaults kept: seed has no
+  1. **Veo `seed` + `safety_tolerance` (1–6)** — defaults kept: seed has no
      reproducibility story in the chat flow; safety_tolerance is a policy knob.
   - Seedance "auto" duration as a UI pick: skipped on purpose — can't price an
     unknown output length.
