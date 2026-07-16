@@ -32,6 +32,7 @@ Every generation is metered in credits (1 credit = $0.008 fal cost). Postgres RP
 
 - Static voice previews — **user adds the files**: drop MP3s at `public/voices/<name>.mp3`, lowercase (rachel.mp3, aria.mp3, sarah.mp3, laura.mp3, charlotte.mp3, alice.mp3, matilda.mp3, jessica.mp3, lily.mp3, roger.mp3, george.mp3, callum.mp3, liam.mp3, will.mp3, brian.mp3, daniel.mp3). The preview button already checks these before spending a TTS call.
 - Gallery view is built (browse/filter/download/delete all saved media, per-message 🗑 too). Remaining monetization TODO: server-side video-file watermark burn (fal ffmpeg), Stripe activation + billing-portal ("Cancel anytime"), media bucket size/mime caps.
+- **Real background removal (owner OK'd 2026-07-16, build later):** no image model in the lineup can output true alpha (the director now says so instead of faking a checkerboard). Wire a fal background-removal utility (BiRefNet / imageutils/rembg — pennies/image, verify price first) as an ORCHESTRATOR-ROUTED step, NOT a picker model: "remove the background" → cutout endpoint → real transparent PNG; add a checkerboard backdrop in the media viewer (UI-only) so transparency reads; meter through the credit ledger (≥1 credit); chains with edits ("cutout → composite onto X"). Live test needs the fal balance top-up.
 
 ## Rate limits
 
