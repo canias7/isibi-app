@@ -2910,29 +2910,21 @@ function buildMedia(kind, url, prompt) {
   dl.onclick = (e) => { e.stopPropagation(); downloadMedia(url, kind); };
   actions.appendChild(dl);
   const del = document.createElement('button');
-  del.className = 'media-btn'; del.type = 'button'; del.title = 'Delete'; del.textContent = '🗑';
-  del.setAttribute('aria-label', 'Delete');
+  del.className = 'media-btn'; del.type = 'button'; del.title = 'Remove from chat (gallery copy stays)'; del.textContent = '🗑';
+  del.setAttribute('aria-label', 'Remove from chat');
   del.onclick = (e) => { e.stopPropagation(); deleteMedia(div, url); };
   actions.appendChild(del);
   div.appendChild(actions);
   return div;
 }
 
-// Remove a generation from the chat and (if it lives in our storage) from
-// the gallery bucket too — RLS only lets users delete their own files.
+// Remove a generation from the CHAT only. The gallery is its own space
+// (owner's call, 2026-07-16): a chat delete never touches the stored file —
+// deleting the file itself happens in the Gallery view's own 🗑.
 async function deleteMedia(el, url) {
-  if (!confirm('Delete this from your chat and gallery?')) return;
-  // Delete the stored file FIRST — only clear it from the chat/UI once we know
-  // it's actually gone. Otherwise a failed storage delete leaves the file in the
-  // bucket (still counting against the storage cap) while the UI says it's gone.
-  const m = url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-  if (m && window.Auth) {
-    try { await Auth.storageDelete(m[1]); }
-    catch {
-      alert('Couldn’t remove this from your gallery just now — it’s still there. Check your connection and try again.');
-      return;
-    }
-  }
+  if (!confirm(isSavedMedia(url)
+    ? 'Remove this from the chat? Your gallery copy stays.'
+    : 'Remove this from the chat?')) return;
   el.remove();
   const chat = activeChat();
   if (chat) {
