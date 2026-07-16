@@ -1612,6 +1612,7 @@ function setMode(m) {
     m === 'audio' ? 'Type what you want the voice to say…' :
     'Describe your scene…';
   buildOptMenus();
+  stampComposer();
 }
 
 // Effort picker (top-left of the main chat) — how detailed the director's
@@ -1627,6 +1628,7 @@ function setEffort(level) {
   document.getElementById('effortLabel').textContent = EFFORT_LABELS[level];
   document.getElementById('effortMenu').classList.remove('open');
   updateSendPrice(); // High+ runs the Sonnet director → +1 credit on the tag
+  stampComposer();
 }
 // Web search (Settings toggle). When on, a request the director judges to
 // need current real-world facts triggers a billed web-search step before the
@@ -1696,6 +1698,7 @@ function setDirectorMode(m) {
   renderEffortLock();
   document.getElementById('dirMenu').classList.remove('open');
   updateSendPrice(); // raw mode drops the director surcharge from the tag
+  stampComposer();
 }
 function toggleDirMenu(e) {
   e.stopPropagation();
@@ -2056,14 +2059,17 @@ function buildOptMenus() {
   if (!panel || !wrap) return;
   const opts = currentOpts() || {}; // a model id missing from MODEL_OPTS must not throw here
 
-  // reset to this model's defaults
-  if (opts.durations) duration = opts.defDur;
-  if (opts.resolutions) quality = opts.defRes;
-  if (opts.sizes) gptSize = opts.defSize;
-  if (opts.ratios) ratio = opts.defRatio;
-  if (opts.nums) numImages = 1;
-  if (opts.voices) voice = opts.defVoice;
-  hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto';
+  // reset to this model's defaults — skipped while a chat's saved composer
+  // state is being restored (the restorer already validated its own values)
+  if (!restoringComp) {
+    if (opts.durations) duration = opts.defDur;
+    if (opts.resolutions) quality = opts.defRes;
+    if (opts.sizes) gptSize = opts.defSize;
+    if (opts.ratios) ratio = opts.defRatio;
+    if (opts.nums) numImages = 1;
+    if (opts.voices) voice = opts.defVoice;
+    hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto';
+  }
 
   const sections = [];
   if (opts.ratios) sections.push(settingSection('Aspect ratio', 'ratio', opts.ratios.map((r) => ({ value: r, label: r }))));
@@ -2158,6 +2164,7 @@ function pickSetting(chip) {
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
   updateSendPrice();
+  stampComposer();
 }
 
 // The Settings button shows the current picks at a glance (e.g. "16:9 · 720p · 5s").
@@ -2199,6 +2206,7 @@ function pickModel(el) {
   modelMenu.classList.remove('open');
   buildMenu();       // repaint rows (incl. group parent's active-variant state) + label
   buildOptMenus();
+  stampComposer();
 }
 
 if (modelMenu) {
@@ -2243,10 +2251,13 @@ function newChat() {
   const search = document.getElementById('chatSearch');
   if (search) search.value = '';
   // Always start a fresh chat — even if the current one is still empty.
+  stashStaged(chatStore.active); // keep the outgoing chat's staged attachments
   const fresh = newChatEntry();
+  fresh.comp = composerState();  // "stays as last used": inherit the current setup
   chatStore.chats.unshift(fresh);
   chatStore.active = fresh.id;
   persistStore();
+  restoreStaged(fresh.id);       // no entry yet → clears the staged slots
   touchSync(fresh.id);
   renderChatList();
   renderThread();
@@ -2689,10 +2700,105 @@ function renderChatList() {
   });
 }
 
+// ── Per-chat composer state ──
+// Everything the composer remembers — mode, model per mode, effort,
+// orchestrator, and every setting — lives ON the chat (chat.comp). Switching
+// chats restores each chat's own setup, and because chats persist locally and
+// sync, a refresh restores it too. Staged attachments are multi-MB data URIs,
+// so they stay per-chat IN MEMORY only (survive switching, not a refresh).
+// `var` (hoisted) — setEffort/setDirectorMode run during top-level init, before
+// this line executes; a `let` here would TDZ-crash the whole script at load.
+var restoringComp = false;
+function composerState() {
+  return {
+    mode, effort, dir: directorMode,
+    models: { ...selectedModels },
+    ratio, quality, gptSize, duration, num: numImages, voice,
+    hdr: hdrOn, exr: exrOn, loop: loopOn, editMode,
+  };
+}
+function stampComposer() {
+  if (restoringComp) return;
+  // Some callers (setEffort/setDirectorMode paints) run during top-level init,
+  // before the chat store's declarations execute — skip silently then.
+  let chat; try { chat = activeChat(); } catch { return; }
+  if (!chat) return;
+  chat.comp = composerState();
+  persistStore(); // local write only — comp rides along on the next real sync push
+}
+function applyComposerState(cs) {
+  if (!cs) { stampComposer(); return; } // chat without saved state inherits the current setup
+  restoringComp = true;
+  try {
+    if (cs.models) Object.keys(selectedModels).forEach((k) => {
+      const id = cs.models[k];
+      if (id && (MODEL_LISTS[k] || []).some((m) => m.id === id)) selectedModels[k] = id;
+    });
+    if (['video', 'image', 'audio'].includes(cs.mode)) mode = cs.mode;
+    model = selectedModels[mode];
+    if (EFFORT_LABELS[cs.effort]) {
+      effort = cs.effort;
+      document.querySelectorAll('.effort-item').forEach((i) => i.classList.toggle('selected', i.dataset.effort === effort));
+      const lb = document.getElementById('effortLabel');
+      if (lb) lb.textContent = EFFORT_LABELS[effort];
+    }
+    if (DIR_MODES[cs.dir]) {
+      directorMode = cs.dir;
+      if (cs.dir !== 'off') lastOrchMode = cs.dir;
+      renderDirChip(); renderOrchSwitch(); renderEffortLock();
+    }
+    // Settings — each restored only if the (restored) model still offers it;
+    // anything invalid falls back to that model's default.
+    const o = currentOpts() || {};
+    duration = (o.durations || []).includes(cs.duration) ? cs.duration : (o.defDur || duration);
+    quality = (o.resolutions || []).includes(cs.quality) ? cs.quality : (o.defRes || quality);
+    gptSize = (o.sizes || []).includes(cs.gptSize) ? cs.gptSize : (o.defSize || gptSize);
+    ratio = (o.ratios || []).includes(cs.ratio) ? cs.ratio : (o.defRatio || ratio);
+    numImages = o.nums && (o.nums || []).includes(cs.num) ? cs.num : 1;
+    voice = (o.voices || []).includes(cs.voice) ? cs.voice : (o.defVoice || voice);
+    hdrOn = !!(o.hdr && cs.hdr); exrOn = !!(o.hdr && cs.exr); loopOn = !!(o.loop && cs.loop);
+    editMode = ['auto', 'adhere', 'flex', 'reimagine'].includes(cs.editMode) ? cs.editMode : 'auto';
+    setMode(mode); // paints mode buttons + menus; buildOptMenus keeps our values (restoringComp)
+  } finally {
+    restoringComp = false;
+  }
+}
+// Staged attachments per chat (in-memory) — each chat keeps its own set while
+// the tab lives; they don't survive a refresh (too big for localStorage).
+const stagedByChat = {};
+function stashStaged(id) {
+  if (!id) return;
+  stagedByChat[id] = {
+    att: { ...attachments }, extras: extraImages.slice(), refs: refList.slice(),
+    els: elList.slice(), kfs: kfList.slice(), mask: maskData, clipMeta,
+    awDur, awPeaks, awName, awSize, awType, imgMeta: { ...imgMeta },
+  };
+}
+function restoreStaged(id) {
+  const s = stagedByChat[id];
+  Object.keys(attachments).forEach((k) => { attachments[k] = s ? s.att[k] || null : null; });
+  extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0;
+  if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); }
+  maskData = s ? s.mask : null;
+  clipMeta = s ? s.clipMeta : null;
+  awDur = s ? s.awDur : 0; awPeaks = s ? s.awPeaks : null;
+  awName = s ? s.awName : ''; awSize = s ? s.awSize : 0; awType = s ? s.awType : '';
+  Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
+  if (s && s.imgMeta) Object.assign(imgMeta, s.imgMeta);
+  Object.keys(attachments).forEach((k) => renderAttach(k));
+  renderExtraImages(); renderRefList(); renderElList(); renderKfList();
+  updateAttachVisibility();
+  updateSendPrice();
+}
+
 function switchChat(id) {
   if (id === chatStore.active) return;
+  stampComposer();               // save the outgoing chat's composer setup
+  stashStaged(chatStore.active); // and its staged attachments (in-memory)
   chatStore.active = id;
   persistStore();
+  applyComposerState((activeChat() || {}).comp);
+  restoreStaged(id);
   renderChatList();
   renderThread();
   document.getElementById('input').focus();
@@ -2706,9 +2812,15 @@ function deleteChat(id) {
   // activeGens but keeps the refresh-proof record) so boot-resume doesn't
   // re-poll a render into a chat that no longer exists.
   jobClear(id);
+  delete stagedByChat[id];
+  const wasActive = chatStore.active === id;
   chatStore.chats = chatStore.chats.filter((c) => c.id !== id);
   if (!chatStore.chats.length) chatStore.chats = [newChatEntry()];
   if (chatStore.active === id) chatStore.active = chatStore.chats[0].id;
+  if (wasActive) {
+    applyComposerState((activeChat() || {}).comp);
+    restoreStaged(chatStore.active);
+  }
   persistStore();
   deleteSync(id);
   renderChatList();
@@ -4278,6 +4390,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // The inputs were consumed — clear them so they don't ride the next
       // prompt. Only when the user is still on this chat: a background finish
       // must not wipe attachments they've since staged in another chat.
+      delete stagedByChat[origin]; // consumed — never restore stale inputs on switch-back
       if (clearInputs && chatStore.active === origin) {
         Object.keys(attachments).forEach((k) => {
           if (attachments[k]) { attachments[k] = null; renderAttach(k); }
@@ -8296,6 +8409,9 @@ loadStore();
 loadMemory();
 renderChatList();
 renderThread();
+// Refresh-proof composer: restore the active chat's saved setup (mode/model/
+// effort/orchestrator/settings) instead of booting back to defaults.
+applyComposerState((activeChat() || {}).comp);
 
 // Hero ambience stays static (no cursor drift) — the greeting screen holds still.
 
