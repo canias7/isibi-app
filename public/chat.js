@@ -924,10 +924,14 @@ document.addEventListener('click', (e) => {
 // ── Image source chooser: device files or the isibi gallery ──
 let imgPickTarget = 'main'; // which slot the chosen image lands in
 
-function openImgSrc(target, ev) {
+function openImgSrc(target, ev, btn) {
   ev.stopPropagation();
   imgPickTarget = target;
   const menu = document.getElementById('imgSrcMenu');
+  // Anchor the menu to the tile that was clicked (the main + sits at the top,
+  // the add-more + can be several images down) instead of pinning it to the
+  // top of the row.
+  if (btn && btn.offsetParent) menu.style.top = (btn.offsetTop + 10) + 'px';
   // Nano Banana Pro can pull a source image from your saved Avatars and
   // Products too, not just the gallery or a device file. Other models keep the
   // gallery + device options (their edit flows don't lean on avatars/products).
@@ -8500,7 +8504,7 @@ const CLICK_ACTIONS = {
   'effort-menu': (e) => toggleEffortMenu(e),
   'set-effort': (e, el) => setEffort(el.dataset.effort),
   'ap-row': (e, el) => toggleApRow(el.dataset.row),
-  'img-src': (e, el) => openImgSrc(el.dataset.src, e),
+  'img-src': (e, el) => openImgSrc(el.dataset.src, e, el),
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'mask-edit': () => openMaskEditor(),
   'mask-clear': (e) => { e.stopPropagation(); clearMask(); },
