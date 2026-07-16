@@ -7517,6 +7517,12 @@ function renderProductGrid() {
     card.querySelector('.pr-menu-btn').onclick = (e) => { e.stopPropagation(); toggleProductMenu(card); };
     card.querySelector('[data-act="gen"]').onclick = (e) => { e.stopPropagation(); startProductAd(id); };
     card.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeProduct(id); };
+    // Click the product photo → full-size lightbox (same viewer as chat media).
+    const timg = card.querySelector('.pr-thumb img');
+    if (timg) {
+      timg.style.cursor = 'zoom-in';
+      timg.onclick = (e) => { e.stopPropagation(); openLightbox('image', timg.getAttribute('src')); };
+    }
   });
 }
 
