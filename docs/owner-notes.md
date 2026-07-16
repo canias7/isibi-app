@@ -712,3 +712,20 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   actually SAW, not guessed paths.
 - Owner's existing pictureless card: remove + re-run the lookup (or scan the
   brand-site link directly — free path, no wall).
+
+### AI lookup returned the AMAZON LOGO as the product photo (2026-07-16)
+- **Owner's screenshot:** Molly's Suds card wearing the Amazon smile logo.
+- **Chain of failure:** the new rescue-pages path → Claude offered an
+  amazon.com page (despite "never the blocked store") → Amazon 200s its
+  captcha wall → extractor's og:image on that page IS the Amazon logo →
+  junk filter only covered the last-resort <img> scan, not og:image → logo
+  inlined as "the product".
+- **Guards added (worker):** `JUNK_IMG_RE` (logo/sprite/icon/captcha/…) now
+  filters EVERY candidate — extractor's og/JSON-LD list AND Claude's direct
+  links; `WALL_RE` hoisted + applied to rescue pages (skip walled pages
+  outright); rescue-page title must share ≥1 real word with the product
+  name; hard host blocklist on rescue pages (amazon/walmart/target/bestbuy/
+  costco/samsclub/homedepot/lowes) since they all wall robots; prompt now
+  names those stores as forbidden page_urls.
+- Unit-tested: real Shopify page keeps all 4 candidates; a mock Amazon
+  captcha page yields ZERO candidates and trips WALL_RE.

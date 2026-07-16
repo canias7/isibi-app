@@ -598,6 +598,15 @@ function decodeEntities(s) {
     .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
 }
 
+// Anti-bot walls (Walmart's "Robot or human?", Amazon's captcha, Cloudflare's
+// "Just a moment…", PerimeterX…) return 200 with a real <title> — shared so
+// the scan endpoint AND the AI-rescue page loop both refuse to read them.
+const WALL_RE = /robot or human|are you a (?:human|robot)|you're not a robot|verify you are human|just a moment|attention required|access denied|pardon our interruption|automated access|请开启|captcha/i;
+// Site chrome that must never become "the product photo" — applied to every
+// image candidate, not just the <img> scan (an Amazon wall page's og:image is
+// the Amazon logo, which is how a looked-up product got a "mazon" picture).
+const JUNK_IMG_RE = /sprite|logo|icon|placeholder|favicon|1x1|pixel|badge|spacer|blank|loading|captcha/i;
+
 // Pull a product's name / image / description / price out of a page's HTML.
 // Priority: JSON-LD schema.org Product (the canonical block real stores embed)
 // → OpenGraph/Twitter → microdata → <link image_src> → the best real <img>
@@ -686,7 +695,7 @@ function extractProduct(html, pageUrl, host) {
   // first) — one CDN can 403/throttle the server while another serves fine,
   // so the caller works down the list until an inline sticks. ──
   const candidates = [];
-  const push = (v) => { if (v && ok(v) && !candidates.includes(v)) candidates.push(v); };
+  const push = (v) => { if (v && ok(v) && !JUNK_IMG_RE.test(v) && !candidates.includes(v)) candidates.push(v); };
   push(ld.image);
   allMeta("og:image").concat(allMeta("og:image:secure_url"), allMeta("twitter:image")).map(abs).forEach(push);
   push(abs(meta("image")));                                                       // microdata itemprop=image
@@ -696,7 +705,7 @@ function extractProduct(html, pageUrl, host) {
   }
   let image = candidates[0] || "";
   if (!image) {
-    const junk = /sprite|logo|icon|placeholder|favicon|1x1|pixel|badge|spacer|blank|loading/i;
+    const junk = JUNK_IMG_RE;
     const largestFromSrcset = (ss) => {
       let best = "", bestW = -1;
       for (const part of ss.split(",")) {
@@ -4295,7 +4304,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
         const refund = () => creditBack(env, scanUser.id, AI_SCAN_CR);
 
-        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, image_urls — up to 3 candidate DIRECT product-image links (plain https URLs ending in an image path, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's product photo; only URLs you actually saw in results, never guessed paths) — and page_urls: up to 2 OTHER product pages for this exact product that likely serve robots (the BRAND's own website first, then smaller retailers; never the blocked store itself). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
+        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, image_urls — up to 3 candidate DIRECT product-image links (plain https URLs ending in an image path, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's product photo; only URLs you actually saw in results, never guessed paths) — and page_urls: up to 2 OTHER product pages for this exact product that serve robots (the BRAND's own website first, then small shops; NEVER the blocked store, and never Amazon/Walmart/Target/BestBuy/Costco — they all block robots too). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
         let lkMsgs = [{ role: "user", content: `Store product URL: ${u.toString()}` }];
         let product = null;
         for (let round = 0; round < 4; round++) {
@@ -4334,7 +4343,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         // order with browser-like headers (some CDNs 403 headerless fetches).
         let aiImage = "";
         const candidates = [product.image_url].concat(Array.isArray(product.image_urls) ? product.image_urls : [])
-          .filter((s) => typeof s === "string" && /^https:\/\//i.test(s))
+          .filter((s) => typeof s === "string" && /^https:\/\//i.test(s) && !JUNK_IMG_RE.test(s))
           .filter((s, i, a) => a.indexOf(s) === i)
           .slice(0, 4);
         for (const cand of candidates) {
@@ -4353,7 +4362,11 @@ Return just the line to be voiced — keep it to what should actually come out o
           for (const pageUrl of pages) {
             let pu;
             try { pu = new URL(pageUrl); } catch { continue; }
-            if (hostIsBlocked(pu.hostname.toLowerCase()) || pu.hostname.toLowerCase() === host) continue;
+            const pHost = pu.hostname.toLowerCase();
+            // Never the blocked store again, and never the big-box stores that
+            // wall robots — their 200-with-captcha pages only yield chrome.
+            if (hostIsBlocked(pHost) || pHost === host) continue;
+            if (/(^|\.)(amazon|walmart|target|bestbuy|costco|samsclub|homedepot|lowes)\.[a-z.]+$/i.test(pHost)) continue;
             let pageHtml = "";
             try {
               const pr = await safeFetch(pu.toString(), {
@@ -4364,6 +4377,14 @@ Return just the line to be voiced — keep it to what should actually come out o
               pageHtml = new TextDecoder("utf-8").decode(await readCapped(pr, 1_500_000));
             } catch { continue; }
             const pInfo = extractProduct(pageHtml, pu.toString(), pu.hostname.toLowerCase());
+            // A walled rescue page (Amazon's captcha etc.) still 200s with a
+            // logo as its only "image" — refuse it rather than inline chrome.
+            if (WALL_RE.test(pInfo.name || "") || WALL_RE.test(pageHtml.slice(0, 4000))) continue;
+            // Sanity: the rescue page must actually be about this product —
+            // require one real word from the product name in the page's title.
+            const tokens = String(product.name || "").toLowerCase().match(/[a-z0-9]{4,}/g) || [];
+            const pName = (pInfo.name || "").toLowerCase();
+            if (tokens.length && !tokens.some((t) => pName.includes(t))) continue;
             for (const cand of (pInfo.images || []).slice(0, 2)) {
               aiImage = await inlineImageDataUri(cand);
               if (aiImage) break;
@@ -4401,7 +4422,7 @@ Return just the line to be voiced — keep it to what should actually come out o
       // moment...", PerimeterX, hCaptcha pages…) return 200 with a real
       // <title>, so they used to get SAVED as junk products with no image.
       // Detect the wall and fail with a friendly, actionable error instead.
-      const wall = /robot or human|are you a (?:human|robot)|verify you are human|just a moment|attention required|access denied|pardon our interruption|请开启|captcha/i;
+      const wall = WALL_RE;
       if (wall.test(info.name || "") || (!info.image && wall.test(html.slice(0, 4000)))) {
         return Response.json({ error: "That store blocked automated reading (bot check).", wall: true }, { status: 422 });
       }
