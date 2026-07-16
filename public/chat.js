@@ -5905,6 +5905,11 @@ function renderAvatar() {
   view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => { avatarMode = 'create'; renderAvatar(); }; });
   view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
   view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
+  // Click a saved avatar → full-size lightbox (same viewer as chat media).
+  view.querySelectorAll('.av-card .av-thumb img').forEach((img) => {
+    img.style.cursor = 'zoom-in';
+    img.onclick = () => openLightbox('image', img.getAttribute('src'));
+  });
 }
 
 function importAvatar() {
@@ -6145,7 +6150,10 @@ async function acGenerate() {
     try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; } catch (e) {}
     if (avatarMode !== 'create') return; // user navigated away mid-render
     stage.classList.remove('ac-loading');
-    stage.innerHTML = '<img class="ac-result" src="' + esc(finalUrl) + '" alt="Your avatar" />';
+    stage.innerHTML = '<img class="ac-result" src="' + esc(finalUrl) + '" alt="Your avatar" title="Click to view full size" />';
+    // Click the finished avatar → full-size lightbox (same viewer as chat media).
+    const resImg = stage.querySelector('.ac-result');
+    if (resImg) { resImg.style.cursor = 'zoom-in'; resImg.onclick = () => openLightbox('image', finalUrl); }
     // Persist it so it shows in the avatar grid.
     const list = loadAvatars();
     list.unshift({ id: prUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
