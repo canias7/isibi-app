@@ -228,7 +228,7 @@ const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
   avatar: '<span class="plus-big">+</span>',
   audio: '+ Audio',
-  clip: '+ Video clip',
+  clip: '<span class="plus-big">+</span><span class="slot-lab">Video clip</span>',
   end: '<span class="plus-big">+</span>',
   ffirst: '<span class="plus-big">+</span><span class="slot-lab">First frame</span>',
   flast: '<span class="plus-big">+</span><span class="slot-lab">Last frame</span>',
