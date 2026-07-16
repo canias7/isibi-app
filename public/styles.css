@@ -2235,7 +2235,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .tl-ax:hover { color: #f43f5e; }
 
 /* ── Effort chip: floats just right of the attach panel ── */
-.effort-pick { position: absolute; top: 72px; left: 298px; z-index: 3; }
+.effort-pick { position: absolute; top: 10px; left: 298px; z-index: 3; }
 .effort-pick .opt-btn {
   border-radius: 99px; padding: .5rem .95rem; font-size: .84rem;
   background: var(--panel);
@@ -2269,7 +2269,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .q-skip:hover { color: var(--text); background: rgba(255, 255, 255, .08); }
 .attach-panel {
-  position: absolute; left: 14px; top: 24px; max-height: calc(100% - 38px); width: 272px;
+  position: absolute; left: 14px; top: 10px; max-height: calc(100% - 24px); width: 272px;
   z-index: 2; overflow-y: auto;
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
