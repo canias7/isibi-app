@@ -4399,6 +4399,15 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         console.error('fal rejected render:', rr.status, errBody);
         const why = falErrorDetail(errBody);
         const refunded = await requestRefund(statusUrl);
+        const refundNote = refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '';
+        // Gemini's opaque "could not generate with the given prompts and
+        // images" = it refused the IMAGE BATCH (a flagged image — photos of
+        // real people are the usual one — or too many/too heavy inputs).
+        // Explain that instead of parroting the raw shrug (owner, 2026-07-16).
+        if (/could not generate (images )?with the given prompts and images/i.test(JSON.stringify(errBody))) {
+          deliverAgent(origin, '⚠️ The model refused this set of images rather than a specific mistake on your end. That usually means one of the attached pictures tripped its content check (photos of real people are the most common cause), or the batch was too heavy. Try again with only the image(s) this edit actually needs — and leave out photos of recognizable people. Nothing was produced.' + refundNote);
+          return;
+        }
         deliverAgent(origin, '⚠️ fal rejected this render (' + rr.status + ')'
           + (why ? ' — ' + why : ' — the clip or prompt didn’t pass its input checks') + '. Nothing was produced'
           + (refunded > 0 ? '; your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
