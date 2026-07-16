@@ -124,6 +124,29 @@ const AUDIO_USD_PER_1K = {
 // the driving clip's real length, so we cap and charge by measured seconds.
 const AUDIO_DRIVE_MAX_S = 60;
 
+// Ray 3.2 video-to-video per-signal conditioning (schema: RayEditControls).
+// Validates a director-written controls object down to exactly the shape fal
+// accepts — unknown keys dropped, numbers clamped 0-1. Returns null when
+// nothing valid remains (caller falls back to auto_controls / edit_strength).
+function sanitizeRayControls(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const num01 = (x) => (Number.isFinite(+x) ? Math.min(1, Math.max(0, +x)) : null);
+  const out = {};
+  const sig = (name, extra) => {
+    const s = v[name];
+    if (!s || typeof s !== "object" || Array.isArray(s)) return;
+    const o = { enabled: s.enabled !== false };
+    if (extra) extra(s, o);
+    out[name] = o;
+  };
+  sig("pose", (s, o) => { if (s.strength === "precise" || s.strength === "coarse") o.strength = s.strength; });
+  sig("depth", (s, o) => { const n = num01(s.blur); if (n != null) o.blur = n; });
+  sig("normals", (s, o) => { const n = num01(s.augmentation); if (n != null) o.augmentation = n; });
+  sig("trajectory", (s, o) => { const n = num01(s.sparsity); if (n != null) o.sparsity = n; });
+  sig("face", () => {});
+  return Object.keys(out).length ? out : null;
+}
+
 // Generation credits are now PURE fal cost — the director's Claude bill is no
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
@@ -1784,6 +1807,16 @@ async function handleRequest(request, env, ctx) {
       const soundOff = body.sound === false;
       // A short "avoid X" list for families with a real negative_prompt field.
       const negative = typeof body.negative === "string" ? body.negative.trim().slice(0, 500) : "";
+      // More director-driven knobs (all price-neutral, schema-verified 2026-07-16):
+      // cfg → Kling v3 cfg_scale (prompt adherence, 0-1); bitrate "high" →
+      // Seedance bitrate_mode (full/fast only — fal's pricing page has no bitrate
+      // dimension, so it's a free bigger-file encode); shotType "intelligent" →
+      // Kling auto-directs the cut structure; controls → Ray v2v per-signal
+      // conditioning (pose/depth/normals/trajectory/face).
+      const cfg = typeof body.cfg === "number" && Number.isFinite(body.cfg) ? Math.min(1, Math.max(0, body.cfg)) : null;
+      const bitrateHigh = body.bitrate === "high";
+      const intelligentShots = body.shotType === "intelligent";
+      const rayControls = sanitizeRayControls(body.controls);
 
       const ratio =
         typeof body.ratio === "string" && /^\d{1,2}:\d{1,2}$/.test(body.ratio)
@@ -1928,7 +1961,11 @@ async function handleRequest(request, env, ctx) {
           endpoint = model.replace("/text-to-video", "/video-to-video");
           input.video_url = clip;
           const em = typeof body.editMode === "string" ? body.editMode : "";
-          if (/^(adhere|flex|reimagine)$/.test(em)) input.edit_strength = em + "_2";
+          // Precedence: director-written per-signal controls > the edit-strength
+          // dial > auto_controls. fal rejects controls alongside auto_controls,
+          // so exactly one of the three is ever sent.
+          if (rayControls) input.controls = rayControls;
+          else if (/^(adhere|flex|reimagine)$/.test(em)) input.edit_strength = em + "_2";
           else input.auto_controls = true;
           if (kfs.length) {
             input.keyframes = kfs;
@@ -1982,6 +2019,18 @@ async function handleRequest(request, env, ctx) {
           input.multi_prompt = shots;
           delete input.prompt;
         }
+
+        // Kling "intelligent" shot mode: the model auto-directs the cut
+        // structure from the single prompt. Meaningless next to an explicit
+        // shot list (customize is implied there) and absent from the o3 edit
+        // endpoint (bareEdit). Same duration billing — price-neutral.
+        if (isKling && intelligentShots && !bareEdit && !useShots) input.shot_type = "intelligent";
+        // Kling v3 CFG scale — how tightly the render follows the prompt
+        // (0-1, schema default 0.5). o3's schema has no cfg_scale.
+        if (isKlingV3 && cfg != null && !bareEdit) input.cfg_scale = cfg;
+        // Seedance high-bitrate encode (full + fast tiers; mini's schema lacks
+        // the field). fal's pricing has no bitrate dimension — free quality knob.
+        if (isSeedance && bitrateHigh && !model.includes("/mini/")) input.bitrate_mode = "high";
 
         // Reconcile @ImageN reference tags with the ACTUAL generation. Seedance
         // binds tags natively; Veo's reference endpoint has no tag concept, so
@@ -3222,6 +3271,12 @@ async function handleRequest(request, env, ctx) {
       // have a real negative_prompt field. tune: ElevenLabs voice delivery.
       const soundCapable = kind === "video" && /seedance|kling-video\/(?:o3|v3)|veo/.test(genModel);
       const negCapable = kind === "video" && /kling-video\/v3|veo/.test(genModel);
+      // cfg_scale exists only on Kling v3 (pro/standard) — o3's schema lacks it.
+      const cfgCapable = kind === "video" && /kling-video\/v3/.test(genModel);
+      // bitrate_mode exists on Seedance full + fast (not mini). Price-free.
+      const bitrateCapable = kind === "video" && /^bytedance\/seedance/.test(genModel) && !/\/mini\//.test(genModel);
+      // Ray v2v per-signal conditioning — only when a clip is attached (v2v).
+      const rayCtlCapable = kind === "video" && /^luma\//.test(genModel) && hasClip;
       const tuneCapable = kind === "audio" && /elevenlabs/.test(genModel);
       const tuneFull = tuneCapable && !/eleven-v3/.test(genModel); // v3 accepts stability only
       // The attached image itself (downscaled by the client) so the director
@@ -3558,6 +3613,26 @@ Return just the line to be voiced — keep it to what should actually come out o
                       required: ["prompt", "duration"],
                     },
                   },
+                  shotType: { type: "string", enum: ["intelligent"], description: "ONLY when the user asks the MODEL to decide the cut structure itself ('let it direct the cuts', 'auto shots', 'cut it however feels right'): 'intelligent'. Never alongside a `shots` list (an explicit list already directs the cuts). Omit otherwise." },
+                } : {}),
+                ...(cfgCapable ? {
+                  cfg: { type: "number", description: "ONLY when the user asks for stricter or looser prompt adherence ('follow my prompt exactly' → ~0.8, 'take creative liberties / go loose' → ~0.2): CFG scale 0-1. Omit otherwise — the model default (0.5) is right for normal requests." },
+                } : {}),
+                ...(bitrateCapable ? {
+                  bitrate: { type: "string", enum: ["high"], description: "ONLY when the user asks for maximum quality / a crisp master / high bitrate: 'high' (same price, larger file). Omit otherwise." },
+                } : {}),
+                ...(rayCtlCapable ? {
+                  controls: {
+                    type: "object",
+                    description: "ONLY for this clip re-render, when the user says which aspects of the SOURCE clip to keep or free (body pose, face identity, scene geometry, camera/motion path, surface detail): per-signal conditioning. Include ONLY the signals the user mentioned; omit the whole object otherwise (auto mode already balances them).",
+                    properties: {
+                      pose: { type: "object", description: "body-pose conditioning", properties: { enabled: { type: "boolean" }, strength: { type: "string", enum: ["precise", "coarse"], description: "precise = follow the source pose tightly" } } },
+                      face: { type: "object", description: "face-identity conditioning (keep the same face)", properties: { enabled: { type: "boolean" } } },
+                      depth: { type: "object", description: "scene-geometry conditioning", properties: { enabled: { type: "boolean" }, blur: { type: "number", description: "0-1, higher = more geometric freedom" } } },
+                      normals: { type: "object", description: "surface-detail conditioning", properties: { enabled: { type: "boolean" }, augmentation: { type: "number", description: "0-1, higher = more surface reinterpretation" } } },
+                      trajectory: { type: "object", description: "camera/motion-path conditioning", properties: { enabled: { type: "boolean" }, sparsity: { type: "number", description: "0-1, higher = fewer motion anchors" } } },
+                    },
+                  },
                 } : {}),
                 ...(soundCapable ? {
                   sound: { type: "boolean", description: "Set false ONLY when the user explicitly asks for a silent / muted / no-sound video (this model generates an audio track by default, and silent renders can cost less). Omit entirely otherwise — never set it true." },
@@ -3727,6 +3802,10 @@ Return just the line to be voiced — keep it to what should actually come out o
         negative: negCapable && typeof parsed.negative === "string" && parsed.negative.trim()
           ? parsed.negative.trim().slice(0, 300)
           : undefined,
+        shotType: shotsCapable && parsed.shotType === "intelligent" && !(Array.isArray(parsed.shots) && parsed.shots.length >= 2) ? "intelligent" : undefined,
+        cfg: cfgCapable && typeof parsed.cfg === "number" && Number.isFinite(parsed.cfg) ? Math.min(1, Math.max(0, parsed.cfg)) : undefined,
+        bitrate: bitrateCapable && parsed.bitrate === "high" ? "high" : undefined,
+        controls: rayCtlCapable ? sanitizeRayControls(parsed.controls) || undefined : undefined,
         stability: tuneCapable && Number.isFinite(+parsed.stability) ? Math.min(1, Math.max(0, +parsed.stability)) : undefined,
         speed: tuneFull && Number.isFinite(+parsed.speed) ? Math.min(1.2, Math.max(0.7, +parsed.speed)) : undefined,
         style: tuneFull && Number.isFinite(+parsed.style) ? Math.min(1, Math.max(0, +parsed.style)) : undefined,

@@ -163,20 +163,31 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   length, Ray i2s + 5s lock, LipSync per-5s, OmniHuman per-sec, shot sums,
   Seedance vref 0.6×(in+out)); Seedance `generate_audio` confirmed free in
   schema text; prompt caps per family.
-- **Catalogued, NOT wired (owner to decide):**
-  1. **Seedance `bitrate_mode` standard|high** (full+fast, not mini) — bigger-
-     file/higher-quality encode. Schema is silent on price (unlike
-     generate_audio, which explicitly says it's free) → do a cheap live-job
-     price check when the fal balance lands before wiring.
-  2. **Kling `shot_type:"intelligent"`** — Kling auto-splits the prompt into
-     shots itself; our director already does this, so skipped.
-  3. **Kling v3 `cfg_scale` 0–1** — prompt-adherence dial; director-knob candidate.
-  4. **Kling `elements`** (v3 i2v + o3 edit) — @Element character consistency
-     (frontal + 1–3 angle refs each). Already parked in the backlog.
-  5. **Ray v2v granular `controls`** (pose/depth/normals/trajectory/face, per-
-     signal dials) — we wire auto_controls / the edit-strength dial; this is a
-     pro layer on top.
-  6. **Veo `seed` + `safety_tolerance` (1–6)** — left at defaults deliberately.
+- **Round-3b (same day, owner: "add that stuff"): four knobs wired**, all
+  director-driven (no new UI), all price-neutral, all riding the existing
+  extras rail (sanitizeExtras → body → worker re-validates):
+  1. ✅ **Seedance `bitrate_mode:"high"`** (full+fast; mini's schema lacks it) —
+     fal's pricing page has NO bitrate dimension (checked 2026-07-16), so it's a
+     free bigger-file/higher-quality encode. Director sets it when the user asks
+     for max quality / a crisp master.
+  2. ✅ **Kling `shot_type:"intelligent"`** — the model auto-directs the cut
+     structure; set when the user asks the model to decide the cuts. Suppressed
+     next to an explicit shot list and on the o3 edit endpoint.
+  3. ✅ **Kling v3 `cfg_scale` 0–1** — prompt-adherence dial ("follow it
+     exactly" ~0.8 / "go loose" ~0.2). o3 has no such field — gated off there.
+  4. ✅ **Ray v2v per-signal `controls`** (pose/depth/normals/trajectory/face,
+     each with its dial) — set when the user says what to keep/free on a clip
+     re-render ("keep my face, loosen the camera"). Precedence: controls >
+     edit-strength dial > auto_controls (fal rejects combos; exactly one sent).
+     `sanitizeRayControls()` shared by /api/direct and /api/video.
+  - 20-case functional test on the new sanitizers/gates + full 31-case price
+    parity bench: all pass.
+- **Still NOT wired (deliberate):**
+  1. **Kling `elements`** (v3 i2v + o3 edit) — @Element character consistency
+     (frontal + 1–3 angle refs each). Parked in the backlog: needs a real UI
+     decision (per-element image sets), not just a knob.
+  2. **Veo `seed` + `safety_tolerance` (1–6)** — defaults kept: seed has no
+     reproducibility story in the chat flow; safety_tolerance is a policy knob.
   - Seedance "auto" duration as a UI pick: skipped on purpose — can't price an
     unknown output length.
 

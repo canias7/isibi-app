@@ -3823,6 +3823,10 @@ async function generateMedia(text, opts = {}) {
         size: (kind === 'image' && currentOpts().sizes) ? gptSize : undefined, // GPT resolution tier (1K/2K/4K)
         sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
         negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
+        cfg: kind === 'video' ? genExtras.cfg : undefined, // Kling v3 prompt-adherence 0-1
+        bitrate: kind === 'video' ? genExtras.bitrate : undefined, // Seedance 'high' encode (free)
+        shotType: kind === 'video' ? genExtras.shotType : undefined, // Kling 'intelligent' auto-cuts
+        controls: kind === 'video' ? genExtras.controls : undefined, // Ray v2v per-signal conditioning
         stability: kind === 'audio' ? genExtras.stability : undefined, // voice delivery tuning
         speed: kind === 'audio' ? genExtras.speed : undefined,
         style: kind === 'audio' ? genExtras.style : undefined,
@@ -4242,9 +4246,16 @@ function sanitizeExtras(data) {
   if (stab != null) out.stability = stab;
   if (spd != null) out.speed = spd;
   if (sty != null) out.style = sty;
+  // Video knobs (all price-neutral; the worker re-validates every one):
+  // cfg → Kling v3 prompt adherence · bitrate → Seedance high-bitrate encode ·
+  // shotType → Kling auto-directed cuts · controls → Ray v2v per-signal dials.
+  if (typeof data.cfg === 'number' && Number.isFinite(data.cfg)) out.cfg = Math.min(1, Math.max(0, data.cfg));
+  if (data.bitrate === 'high') out.bitrate = 'high';
+  if (data.shotType === 'intelligent') out.shotType = 'intelligent';
+  if (data.controls && typeof data.controls === 'object' && !Array.isArray(data.controls)) out.controls = data.controls;
   return Object.keys(out).length ? out : null;
 }
-// The Kling text-to-video endpoints are the only ones that accept multi_prompt.
+// Kling is the only family with multi_prompt (its t2v AND i2v endpoints take it).
 function modelSupportsShots(m) {
   return /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
 }
@@ -4557,7 +4568,7 @@ function clearQDock() {
 // chats, a background sync-renderThread, or a reload lost the composed prompt.
 function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, cardExtras) {
   const m = cardMode || mode;
-  // A shot list only applies to a Kling t2v generation with nothing attached.
+  // A shot list applies on Kling t2v/i2v (a clip disables it — edit endpoint).
   const shots = (m === 'video' && sanitizeShots(cardShots) && shotsApply(model)) ? sanitizeShots(cardShots) : null;
   const extras = sanitizeExtras(cardExtras);
   const box = document.createElement('div');
