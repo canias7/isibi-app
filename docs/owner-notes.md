@@ -799,3 +799,22 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
      storage (falUpload, per-image fallback to inline) before submitting.
 - Verified headless: useImages [3,1] of three attached → body carries exactly
   3rd-as-main + 1st-as-extra. Retest the 14-image edit live.
+
+### Products feature removed entirely (2026-07-16)
+- **Owner's call:** "I DONT THINK PRODUCT SHOULD A THING BRO" — the whole
+  Products library is gone: the page/tab, URL scanner + AI lookup, the
+  "Generate ad" flow, the Product picker source, and the Home "From product
+  URL" preset (it depended on the deleted `/api/product/scan` endpoint).
+- **Worker:** `/api/product/scan` route + its helper stack removed
+  (extractProduct, safeFetch + SSRF guard, inlineImageDataUri, etc.).
+- **Client:** all renderProducts/scan/create code out; `user_assets` sync is
+  avatars-only now (`?select=avatars`); the `products` column in `user_assets`
+  is orphaned but harmless. `zephyr_products_v1` stays in the wipe lists so
+  account deletion / sign-out still clears the legacy key on old devices.
+- **Kept on purpose:** `downscaleImage` (avatar import), QR-burn (still fires
+  from any URL typed in a message — only the preset's auto-stamp of
+  `chat.productUrl` is gone; old chats with a stored productUrl still burn),
+  the "Product" preset CATEGORY on Home (pack shot / floating product / macro
+  — those are creative presets, not the library), and the `.pr-head`/`.pr-or`/
+  `.pr-manual` header CSS (the Avatar page uses that pattern). A new `avUid()`
+  replaces the deleted `prUid()` for avatar IDs.

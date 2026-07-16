@@ -957,11 +957,10 @@ function openImgSrc(target, ev, btn) {
     if (menu.parentElement !== btn.offsetParent) btn.offsetParent.appendChild(menu);
     menu.style.top = (btn.offsetTop + 10) + 'px';
   }
-  // Multi-image editors (Nano AND GPT) can pull a source image from your
-  // saved Avatars and Products too, not just the gallery or a device file.
-  // Single-image models keep gallery + device only.
+  // Multi-image editors can pull a source image from your saved Avatars too,
+  // not just the gallery or a device file.
   const sources = [];
-  if (IMAGE_MULTI_MODELS.has(model)) { sources.push(['avatar', 'Avatar'], ['product', 'Product']); }
+  if (IMAGE_MULTI_MODELS.has(model)) { sources.push(['avatar', 'Avatar']); }
   sources.push(['gallery', 'isibi gallery'], ['device', 'Your device']);
   menu.innerHTML = sources.map(([pick, label]) =>
     '<div class="model-item" data-act="img-pick" data-pick="' + pick + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
@@ -976,7 +975,7 @@ function imgSrcPick(src, ev) {
   if (src === 'device') {
     document.getElementById(imgPickTarget === 'extra' ? 'fileExtra' : 'fileImage').click();
   } else {
-    openGalleryPicker(src); // 'gallery' | 'avatar' | 'product'
+    openGalleryPicker(src); // 'gallery' | 'avatar'
   }
 }
 
@@ -985,7 +984,6 @@ function imgSrcPick(src, ev) {
 const IMG_SOURCES = {
   gallery: { title: 'Pick from your gallery', empty: 'Nothing in your gallery yet — images you generate will show up here.', list: () => galleryImages() },
   avatar:  { title: 'Pick an avatar',         empty: 'No avatars yet — create or import one in the Avatar tab.',           list: () => loadAvatars().map((a) => a.image).filter(Boolean) },
-  product: { title: 'Pick a product',         empty: 'No products yet — add one in the Products tab.',                    list: () => loadProducts().map((p) => p.image).filter(Boolean) },
 };
 
 // Images the user actually SAVED to their gallery — the authoritative storage
@@ -1818,9 +1816,6 @@ const PRESET_CATS = [
     { label: 'Product Animation', kind: 'video', desc: 'Show your product in motion.',
       model: 'bytedance/seedance-2.0/text-to-video', ratio: '16:9', dur: 10, res: '720p',
       prompt: 'Photoreal exploded-view product animation of [your product]: the product hangs centered in a rich dark gradient void, then separates into its individual components in slow synchronized motion — every part suspended mid-air in perfect formation, rotating subtly, dramatic rim light tracing each piece against the glow. The camera drifts slowly through the suspended field, then every component glides back along its own path and reassembles seamlessly into the intact product, ending on a locked hero shot with the label clean and readable for the final second. Premium engineering-ad aesthetic, tasteful motion blur, no text or watermarks; parts move rigidly and never deform.' },
-    { label: 'From product URL', kind: 'video', desc: 'Paste a store link — isibi does the rest.',
-      urlScan: true, model: 'bytedance/seedance-2.0/text-to-video', ratio: '9:16', dur: 10, res: '720p',
-      prompt: 'Premium photoreal vertical social ad built around the attached product image — the product is the hero and must faithfully match the attachment: container, colors, label. Open on a tight appetizing detail of the product, then one elegant continuous camera move pulls back to reveal it centered in a styled scene that matches its category and vibe, warm premium lighting with a soft rim, subtle atmosphere. Settle into a final hero framing with the label clean and readable for the last two seconds. Ad-grade and concrete, no on-screen text or watermarks; the product stays intact and undeformed.' },
   ] },
   { key: 'cinematic', label: 'Cinematic', items: [
     { label: 'Epic establishing shot', kind: 'video', desc: 'Sweeping golden-hour drone.',
@@ -1925,9 +1920,7 @@ function usePreset(it) {
   renderLpChip();
   const box = document.getElementById('lpInput');
   if (box) {
-    box.placeholder = it.urlScan
-      ? 'Paste the product page URL — isibi reads it and builds the ad…'
-      : 'Your idea — the “' + it.label + '” preset shapes it…';
+    box.placeholder = 'Your idea — the “' + it.label + '” preset shapes it…';
     box.focus();
     box.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }
@@ -4662,19 +4655,10 @@ async function pushAssets() {
       if (!a || !a.id) continue;
       avatars.push({ id: String(a.id), name: String(a.name || 'Avatar').slice(0, 80), image: await compactAssetImage(a.image) });
     }
-    const products = [];
-    for (const p of loadProducts().slice(0, 60)) {
-      if (!p || !p.id) continue;
-      products.push({
-        id: String(p.id), name: String(p.name || 'Product').slice(0, 200),
-        desc: String(p.desc || '').slice(0, 300), site: String(p.site || '').slice(0, 120),
-        at: +p.at || 0, image: await compactAssetImage(p.image),
-      });
-    }
     await fetch(ASSETS_ENDPOINT + '?on_conflict=user_id', {
       method: 'POST',
       headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
-      body: JSON.stringify({ user_id: uid, avatars, products, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
+      body: JSON.stringify({ user_id: uid, avatars, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
     });
   } catch {}
 }
@@ -4682,13 +4666,13 @@ async function pullAssets() {
   const h = await syncHeaders();
   if (!h) return;
   try {
-    const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,products,updated_at&limit=1', { headers: h });
+    const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,updated_at&limit=1', { headers: h });
     if (!res.ok) return;
     const rows = await res.json();
     if (!Array.isArray(rows) || !rows.length) {
       // No server row yet — seed it from this device's existing collections,
       // so a plain refresh (no edit) is enough to start following the account.
-      if (loadAvatars().length || loadProducts().length) touchAssets();
+      if (loadAvatars().length) touchAssets();
       return;
     }
     const r = rows[0];
@@ -4700,20 +4684,10 @@ async function pullAssets() {
         .slice(0, 60);
       try { localStorage.setItem(AVATARS_KEY, JSON.stringify(av)); } catch {}
     }
-    if (Array.isArray(r.products)) {
-      const pr = r.products.filter((p) => p && p.id)
-        .map((p) => {
-          const img = assetSrcOk(p.image);
-          return { id: String(p.id), name: String(p.name || 'Product').slice(0, 200), desc: String(p.desc || '').slice(0, 300), site: String(p.site || '').slice(0, 120), at: +p.at || 0, image: img, images: img ? [img] : [] };
-        })
-        .slice(0, 60);
-      try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(pr)); } catch {}
-    }
     assetsAt = remoteAt;
     try { localStorage.setItem(ASSETS_AT_KEY, String(remoteAt)); } catch {}
     // Repaint whichever of the two pages is on screen right now.
     try { const v = document.getElementById('viewAvatar'); if (v && v.classList.contains('active')) renderAvatar(); } catch {}
-    try { renderProductGrid(); } catch {}
   } catch {}
 }
 
@@ -5601,7 +5575,7 @@ function enterApp() {
   // fresh session or anything unknown).
   let lastView = 'home';
   try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
-  const KNOWN_VIEWS = ['home', 'gallery', 'products', 'avatar', 'mediaAgent', 'integrations', 'settings'];
+  const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'integrations', 'settings'];
   showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
 }
 
@@ -5967,71 +5941,20 @@ function renderLanding() {
   // rides along as creative direction for the director.
   lpPreset = null; // view re-rendered — chip host is fresh
   const lpIn = view.querySelector('#lpInput');
-  let lpBusy = false; // a URL scan is in flight — don't double-fire
   const lpGo = async () => {
-    if (lpBusy) return;
     const text = (lpIn.value || '').trim();
     if (!text && !lpPreset) return;
-    let outgoing = lpPreset
+    const outgoing = lpPreset
       ? (text
         ? text + '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt
         : lpPreset.prompt)
       : text;
-    // "From product URL" preset: scan the pasted store page server-side, then
-    // build the ad around the REAL product — its image rides along as the
-    // generation's start image, its facts go to the director.
-    let scanImage = null;
-    if (lpPreset && lpPreset.urlScan) {
-      const m = text.match(/https?:\/\/\S+/);
-      if (!m) { lpIn.placeholder = 'That needs a product link — paste the full URL (https://…)'; return; }
-      const chipLabel = document.querySelector('.lp-chip b');
-      if (chipLabel) chipLabel.textContent = 'Reading the page…';
-      lpIn.disabled = true; lpBusy = true;
-      let data = null;
-      try {
-        const res = await apiFetch('/api/product/scan', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: m[0] }),
-        });
-        if (res.ok) data = await res.json();
-      } catch {}
-      lpIn.disabled = false; lpBusy = false;
-      if (!data || !(data.name || data.image)) {
-        if (chipLabel) chipLabel.textContent = lpPreset.label;
-        lpIn.placeholder = 'Couldn’t read that link — try another product URL…';
-        lpIn.value = text;
-        return;
-      }
-      scanImage = data.image || null;
-      const rest = text.replace(m[0], '').trim();
-      const facts = 'The product (from its store page): ' + (data.name || 'unknown') +
-        (data.price ? ' · ' + data.price + (data.currency ? ' ' + data.currency : '') : '') +
-        (data.desc ? '. ' + String(data.desc).slice(0, 300) : '');
-      outgoing = (rest ? rest + '\n\n' : '') + facts +
-        '\n\nCreative direction — follow this “' + lpPreset.label + '” preset: ' + lpPreset.prompt;
-    }
     // The rig behind the card: pin the preset's best model + settings so the
     // generation actually runs the way the card promises.
     applyPresetRig(lpPreset);
-    // Attach AFTER the rig lands (the settings rebuild clears unsupported slots).
-    if (scanImage) {
-      attachments.image = scanImage;
-      clearImageInputsExcept('image');
-      renderAttach('image');
-    }
-    // Reaching here on a urlScan preset means the scan succeeded (failures
-    // returned above) — remember the link for the QR burn.
-    const scannedUrl = lpPreset && lpPreset.urlScan
-      ? (text.match(/https?:\/\/\S+/) || [])[0] || null : null;
     lpIn.value = '';
     clearLpPreset();
     newChat();
-    // Product-URL chats remember their link — videos born here get the
-    // product-page QR burned in before saving (saveVideoWithQr).
-    if (scannedUrl) {
-      const oc = activeChat();
-      if (oc) { oc.productUrl = scannedUrl; persistStore(); }
-    }
     showView('home');
     const input = document.getElementById('input');
     if (input) { input.value = outgoing; autoGrow(input); }
@@ -6049,6 +5972,7 @@ function renderLanding() {
 // ── Avatar: talking-avatar workspace. Empty state offers "Generate with AI"
 // or "Import"; imported/saved avatars show in a grid (zephyr_avatars_v1). ──
 const AVATARS_KEY = 'zephyr_avatars_v1';
+function avUid() { return 'av_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
 function saveAvatars(list) {
   try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); touchAssets(); return true; }
@@ -6162,7 +6086,7 @@ function importAvatar() {
     if (!f) return;
     const image = await downscaleImage(f, 720);
     const list = loadAvatars();
-    list.unshift({ id: prUid(), name: (f.name || 'Avatar').replace(/\.[^.]+$/, '').slice(0, 60), image, at: Date.now() });
+    list.unshift({ id: avUid(), name: (f.name || 'Avatar').replace(/\.[^.]+$/, '').slice(0, 60), image, at: Date.now() });
     saveAvatars(list);
     renderAvatar();
   };
@@ -6423,7 +6347,7 @@ async function acGenerate() {
     acShowResult(stage, finalUrl);
     // Persist it so it shows in the avatar grid.
     const list = loadAvatars();
-    list.unshift({ id: prUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
+    list.unshift({ id: avUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
     saveAvatars(list);
   } catch (e) {
     fail('Network hiccup — please try again.');
@@ -6437,15 +6361,6 @@ async function acGenerate() {
 // front-end — no button, no page. It learns and applies silently (see the
 // memory store above and directorContext().memory). ──
 
-// ── Products: save a product from a store link or a manual upload, then reuse
-// it across generations. Stored locally for now (zephyr_products_v1). ──
-const PRODUCTS_KEY = 'zephyr_products_v1';
-function loadProducts() { try { return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); } catch { return []; } }
-function saveProducts(list) {
-  try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); touchAssets(); return true; }
-  catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this product may not stick after a reload. Remove a few to free space.'); return false; }
-}
-function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
 // ── Media Agent ───────────────────────────────────────────────────────────
 // Chat, DMs and publishing over the user's Instagram / YouTube. Linking the
@@ -7678,139 +7593,6 @@ async function disconnectSocial(key) {
   paintSocial();
 }
 
-function renderProducts() {
-  const view = document.getElementById('viewProducts');
-  if (!view) return;
-  view.innerHTML =
-    '<div class="products-page">' +
-      '<div class="pr-head"><h1>Add your product</h1>' +
-        '<p>Add a link or upload an image to use your product across generations.</p></div>' +
-      '<div class="pr-add">' +
-        '<div class="pr-url">' +
-          '<span class="pr-url-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg></span>' +
-          '<input id="prUrl" type="url" placeholder="www.yourproduct.com" autocomplete="off" spellcheck="false" />' +
-          '<button type="button" class="pr-url-go" id="prUrlGo" aria-label="Add product">→<span class="pr-go-cr">✦ 3</span></button>' +
-        '</div>' +
-        '<span class="pr-or">or</span>' +
-        '<button type="button" class="pr-manual" id="prManual">Create manually</button>' +
-      '</div>' +
-      '<div class="pr-grid" id="prGrid"></div>' +
-    '</div>';
-  renderProductGrid();
-  const urlInput = view.querySelector('#prUrl');
-  const go = () => { const v = urlInput.value.trim(); if (v) addProductFromUrl(v); };
-  view.querySelector('#prUrlGo').onclick = go;
-  urlInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
-  view.querySelector('#prManual').onclick = () => openCreateProduct();
-}
-
-function renderProductGrid() {
-  const grid = document.getElementById('prGrid');
-  if (!grid) return;
-  const products = loadProducts();
-  grid.innerHTML = products.map((p) =>
-    '<div class="pr-card" data-id="' + esc(p.id) + '">' +
-      (p.image
-        ? '<div class="pr-thumb"><img src="' + esc(p.image) + '" alt="" loading="lazy" /></div>'
-        : '<div class="pr-thumb pr-thumb-empty">📦</div>') +
-      '<button class="pr-menu-btn" aria-label="Options">⋯</button>' +
-      '<div class="pr-menu">' +
-        '<button data-act="del" class="pr-menu-del">Remove</button>' +
-      '</div>' +
-      '<div class="pr-name">' + esc(p.name || 'Product') + '</div>' +
-    '</div>').join('');
-  grid.querySelectorAll('.pr-card').forEach((card) => {
-    const id = card.dataset.id;
-    card.querySelector('.pr-menu-btn').onclick = (e) => { e.stopPropagation(); toggleProductMenu(card); };
-    card.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); removeProduct(id); };
-    // Click the product photo → full-size lightbox (same viewer as chat media).
-    const timg = card.querySelector('.pr-thumb img');
-    if (timg) {
-      timg.style.cursor = 'zoom-in';
-      timg.onclick = (e) => { e.stopPropagation(); openLightbox('image', timg.getAttribute('src')); };
-    }
-  });
-}
-
-function toggleProductMenu(card) {
-  const open = card.classList.contains('menu-open');
-  document.querySelectorAll('.pr-card.menu-open').forEach((c) => c.classList.remove('menu-open'));
-  if (!open) {
-    card.classList.add('menu-open');
-    const close = (e) => { if (!card.contains(e.target)) { card.classList.remove('menu-open'); document.removeEventListener('click', close); } };
-    setTimeout(() => document.addEventListener('click', close), 0);
-  }
-}
-
-function removeProduct(id) {
-  saveProducts(loadProducts().filter((p) => p.id !== id));
-  renderProductGrid();
-}
-
-async function addProductFromUrl(url) {
-  const grid = document.getElementById('prGrid');
-  if (!grid) return;
-  const inp = document.getElementById('prUrl'); if (inp) inp.value = '';
-  const loader = document.createElement('div');
-  loader.className = 'pr-card pr-loading';
-  loader.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">Creating product</div><div class="pr-load-s">It takes a few seconds</div>';
-  grid.insertBefore(loader, grid.firstChild);
-  try {
-    const res = await apiFetch('/api/product/scan', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url }),
-    });
-    if (!res.ok) {
-      // Surface the server's reason verbatim; a bot-wall (wall:true) gets an
-      // AI-lookup offer instead of a dead end.
-      let j = null;
-      try { j = await res.json(); } catch {}
-      if (j && j.wall) { prAiLookup(loader, url); return; } // auto — the ✦3 on the button already said so
-      throw new Error((j || {}).error || '');
-    }
-    const data = await res.json();
-    prAddScanned(data);
-  } catch (e) {
-    loader.className = 'pr-card pr-loading pr-error';
-    const why = (e && e.message) ? esc(e.message) : 'Try “Create manually” instead.';
-    loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">' + why + '</div>';
-    setTimeout(() => loader.remove(), 6500);
-  }
-}
-
-// Save a scanned/looked-up product and repaint the grid.
-function prAddScanned(data) {
-  const img = data.image || '';
-  const p = { id: prUid(), name: data.name || 'Product', desc: (data.desc || '').slice(0, 300), image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
-  const list = loadProducts(); list.unshift(p); saveProducts(list);
-  renderProductGrid();
-}
-
-// The store blocked our server (bot check) — go STRAIGHT to the paid AI
-// lookup, no second click (owner's call, 2026-07-16 — the URL button
-// advertises ✦ 3 up front): Claude web-searches the product (the page is
-// walled, the search index and image CDNs aren't), charged only on success.
-async function prAiLookup(card, url) {
-  card.className = 'pr-card pr-loading';
-  card.innerHTML = '<div class="pr-ring"></div><div class="pr-load-t">This store blocks robots</div><div class="pr-load-s">Looking it up with AI instead · ✦ 3</div>';
-  try {
-    const res = await apiFetch('/api/product/scan', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, ai: true }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 402) throw new Error('Not enough credits — tap your ✦ balance to top up.');
-    if (!res.ok) throw new Error(data.error || 'Lookup failed — nothing charged.');
-    if (typeof data.balance === 'number' && typeof setCredits === 'function') setCredits(data.balance);
-    card.remove();
-    prAddScanned(data);
-  } catch (e) {
-    card.className = 'pr-card pr-loading pr-error';
-    card.innerHTML = '<div class="pr-load-t">Couldn’t look that up</div><div class="pr-load-s">' + esc((e && e.message) || 'Nothing was charged.') + '</div>';
-    setTimeout(() => card.remove(), 6500);
-  }
-}
-
 function downscaleImage(file, max) {
   return new Promise((resolve) => {
     const img = new Image();
@@ -7827,78 +7609,6 @@ function downscaleImage(file, max) {
     img.onerror = () => { URL.revokeObjectURL(src); resolve(''); };
     img.src = src;
   });
-}
-
-function openCreateProduct() {
-  if (document.querySelector('.credits-overlay')) return;
-  let imgData = '';
-  const ov = document.createElement('div');
-  ov.className = 'credits-overlay';
-  ov.innerHTML = '<div class="cp-box pr-modal">' +
-    '<div class="cp-head"><div class="cp-title">Create product</div><button type="button" class="cp-close">✕</button></div>' +
-    '<div class="pr-modal-body">' +
-      '<label class="pr-upload" id="prUpload">' +
-        '<input type="file" accept="image/*" id="prFile" hidden />' +
-        '<div class="pr-upload-inner" id="prUploadInner">' +
-          '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image <span class="pr-req">*</span></div><div class="pr-upload-sub">PNG or JPG</div>' +
-        '</div>' +
-      '</label>' +
-      '<div class="pr-fields">' +
-        '<label class="pr-flabel">Product name <span class="pr-req">*</span></label>' +
-        '<input class="pr-in" id="prName" placeholder="Enter product name" autocomplete="off" required />' +
-        '<label class="pr-flabel">Description</label>' +
-        '<textarea class="pr-ta" id="prDesc" placeholder="Describe your product"></textarea>' +
-        '<button type="button" class="pr-create" id="prCreate" disabled>Create product</button>' +
-      '</div>' +
-    '</div>' +
-  '</div>';
-  document.body.appendChild(ov);
-  const fileInput = ov.querySelector('#prFile');
-  const inner = ov.querySelector('#prUploadInner');
-  const nameInp = ov.querySelector('#prName');
-  const descInp = ov.querySelector('#prDesc');
-  const createBtn = ov.querySelector('#prCreate');
-  // Both a product name and an image are required to save.
-  const uploadPrompt = '<div class="pr-upload-ico">⬆</div><div class="pr-upload-t">Upload product image</div><div class="pr-upload-sub">PNG or JPG</div>';
-  const refresh = () => { createBtn.disabled = !nameInp.value.trim() || !imgData; };
-  // Clear an accidentally-added image; Create stays disabled until one is re-added.
-  const clearImg = (e) => {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    imgData = '';
-    fileInput.value = '';
-    inner.innerHTML = uploadPrompt;
-    ov.querySelector('.pr-upload').classList.remove('has'); // back to the square drop zone
-    refresh();
-  };
-  fileInput.onchange = async () => {
-    const f = fileInput.files && fileInput.files[0];
-    if (!f) return;
-    imgData = await downscaleImage(f, 720);
-    if (imgData) {
-      inner.innerHTML = '<img class="pr-upload-img" src="' + esc(imgData) + '" alt="" />' +
-        '<button type="button" class="pr-upload-x" aria-label="Remove image">✕</button>';
-      inner.querySelector('.pr-upload-x').onclick = clearImg;
-      ov.querySelector('.pr-upload').classList.add('has'); // frame hugs the image's real shape
-    }
-    refresh();
-  };
-  nameInp.oninput = refresh;
-  // One close path so the keydown listener is always removed (closing via ✕ or
-  // the backdrop used to leak one listener per open).
-  let onKey;
-  const close = () => { ov.remove(); if (onKey) document.removeEventListener('keydown', onKey); };
-  createBtn.onclick = () => {
-    if (createBtn.disabled) return;
-    const p = { id: prUid(), name: nameInp.value.trim().slice(0, 120), desc: descInp.value.trim().slice(0, 500), image: imgData, images: imgData ? [imgData] : [], site: '', at: Date.now() };
-    const list = loadProducts(); list.unshift(p); saveProducts(list);
-    close();
-    renderProducts();
-  };
-  ov.onclick = (e) => { if (e.target === ov) close(); };
-  ov.querySelector('.cp-close').onclick = close;
-  onKey = (e) => { if (e.key === 'Escape') close(); };
-  document.addEventListener('keydown', onKey);
-  setTimeout(() => nameInp.focus(), 30);
 }
 
 function initAuthGate() {
@@ -8596,7 +8306,7 @@ async function galleryDelete(it, el) {
 // ── Workspace views (Home / Projects / Gallery / Studio) ──
 // Navigation is a dropdown in the topbar; the left sidebar (chat history) shows
 // on Home only, so every other view gets the full width.
-const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', products: 'Products', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
+const VIEW_LABELS = { landing: 'Home', home: 'Builder', gallery: 'Gallery', avatar: 'Avatar', mediaAgent: 'Media Agent', integrations: 'Integrations', settings: 'Settings' };
 const VIEW_KEY = 'zephyr_view_v1';
 function showView(name) {
   // The old Home landing is gone — the Builder chatbox is now home. Any lingering
@@ -8612,7 +8322,6 @@ function showView(name) {
   const sd = document.getElementById('scrollDown');
   if (sd && name !== 'home') sd.classList.remove('show');
   if (name === 'gallery') { renderGallery(); refreshGallery(); refreshStorageBar(); }
-  if (name === 'products') renderProducts();
   if (name === 'avatar') renderAvatar();
   if (name === 'mediaAgent') renderMediaAgent();
   if (name === 'integrations') renderIntegrations();
