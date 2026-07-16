@@ -4213,6 +4213,14 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
       const info = extractProduct(html, u, host);
       if (!info.name && !info.image) return Response.json({ error: "no product info" }, { status: 422 });
+      // Anti-bot walls (Walmart's "Robot or human?", Cloudflare's "Just a
+      // moment...", PerimeterX, hCaptcha pages…) return 200 with a real
+      // <title>, so they used to get SAVED as junk products with no image.
+      // Detect the wall and fail with a friendly, actionable error instead.
+      const wall = /robot or human|are you a (?:human|robot)|verify you are human|just a moment|attention required|access denied|pardon our interruption|请开启|captcha/i;
+      if (wall.test(info.name || "") || (!info.image && wall.test(html.slice(0, 4000)))) {
+        return Response.json({ error: "That store blocked automated reading (bot check). Save the product image to your device and use Create manually instead." }, { status: 422 });
+      }
       // Inline the product image as a data URI: the app CSP blocks arbitrary
       // remote image hosts, and going through safeFetch keeps it SSRF-guarded.
       let imageData = "";

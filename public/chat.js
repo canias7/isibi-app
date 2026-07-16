@@ -7477,16 +7477,22 @@ async function addProductFromUrl(url) {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     });
-    if (!res.ok) throw 0;
+    if (!res.ok) {
+      // Surface the server's reason (e.g. the store's bot-check wall) verbatim.
+      let reason = '';
+      try { reason = ((await res.json()) || {}).error || ''; } catch {}
+      throw new Error(reason);
+    }
     const data = await res.json();
     const img = data.image || '';
     const p = { id: prUid(), name: data.name || 'Product', desc: (data.desc || '').slice(0, 300), image: img, images: img ? [img] : [], site: data.site || '', at: Date.now() };
     const list = loadProducts(); list.unshift(p); saveProducts(list);
     renderProductGrid();
-  } catch {
+  } catch (e) {
     loader.className = 'pr-card pr-loading pr-error';
-    loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">Try “Create manually” instead.</div>';
-    setTimeout(() => loader.remove(), 4500);
+    const why = (e && e.message) ? esc(e.message) : 'Try “Create manually” instead.';
+    loader.innerHTML = '<div class="pr-load-t">Couldn’t read that link</div><div class="pr-load-s">' + why + '</div>';
+    setTimeout(() => loader.remove(), 6500);
   }
 }
 
