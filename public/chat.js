@@ -236,14 +236,58 @@ function attachBtn(kind) {
   return document.getElementById('btn' + kind[0].toUpperCase() + kind.slice(1));
 }
 
+// Read an image file as a data URI, auto-conforming oversized ones: anything
+// past the 8MB payload budget is redrawn at ≤3840px (the 4K-class ceiling —
+// no model uses more pixels) and re-encoded as JPEG, stepping quality down
+// until it fits. Our OWN 4K Nano outputs are 15-25MB PNGs, so without this
+// the generate → re-attach → edit loop rejected the app's own files.
+// Returns null only when the image can't be decoded/shrunk at all.
+const IMG_BYTE_CAP = 8 * 1024 * 1024;
+async function readImageConformed(file) {
+  const raw = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => ok(null); r.readAsDataURL(file); });
+  if (typeof raw !== 'string') return null;
+  if (file.size <= IMG_BYTE_CAP) return raw; // small enough — keep the original bytes
+  const img = new Image();
+  const loaded = await new Promise((ok) => { img.onload = () => ok(true); img.onerror = () => ok(false); img.src = raw; });
+  if (!loaded || !img.width) return null;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  for (let edge = 3840; edge >= 1280; edge = Math.round(edge * 0.75)) {
+    const scale = Math.min(1, edge / Math.max(img.width, img.height));
+    canvas.width = Math.max(1, Math.round(img.width * scale));
+    canvas.height = Math.max(1, Math.round(img.height * scale));
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    for (const q of [0.92, 0.85, 0.78]) {
+      const out = canvas.toDataURL('image/jpeg', q);
+      if (out.length <= IMG_BYTE_CAP * 1.34) return out; // data URI ≈ bytes × 1.34
+    }
+  }
+  return null;
+}
+function tooBigMsg() { alert("Couldn't shrink that image enough — try a smaller file."); }
+
 function onAttach(kind, inputEl) {
   const file = inputEl.files[0];
   inputEl.value = '';
   if (!file) return;
-  // Caps must stay under the Worker's base64 ceilings (data URI ≈ size × 1.34).
-  const cap = kind === 'clip' ? 20 : kind === 'audio' ? 20 : 8;
-  if (file.size > cap * 1024 * 1024) {
-    alert('File too big — max ' + cap + ' MB.');
+  // Images auto-conform (downscale/re-encode) below; clips and audio can't be
+  // recompressed in the browser, so they keep a hard cap under the Worker's
+  // base64 ceilings (data URI ≈ size × 1.34).
+  if (kind === 'clip' || kind === 'audio') {
+    if (file.size > 20 * 1024 * 1024) {
+      alert('File too big — max 20 MB.');
+      return;
+    }
+  } else {
+    readImageConformed(file).then((uri) => {
+      if (!uri) { tooBigMsg(); return; }
+      attachments[kind] = uri;
+      if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, uri);
+      renderAttach(kind);
+      if (kind === 'image') clearImageInputsExcept('image');
+      else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
+      updateSendPrice();
+    });
     return;
   }
   const reader = new FileReader();
@@ -994,15 +1038,13 @@ function onAttachExtra(inputEl) {
   inputEl.value = '';
   const cap = ((currentOpts() || {}).caps || {}).maxImages || 1;
   files.forEach((file) => {
-    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (!attachments.image) attachments.image = reader.result;
-      else if (extraImages.length < cap - 1) extraImages.push(reader.result);
+    readImageConformed(file).then((uri) => {
+      if (!uri) { tooBigMsg(); return; }
+      if (!attachments.image) attachments.image = uri;
+      else if (extraImages.length < cap - 1) extraImages.push(uri);
       renderAttach('image');
       renderExtraImages();
-    };
-    reader.readAsDataURL(file);
+    });
   });
 }
 
@@ -1168,10 +1210,10 @@ function onAttachRef(inputEl) {
   const cap = refCap();
   files.forEach((file) => {
     if (refList.length >= cap) return;
-    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => { if (refList.length < cap) { refList.push(reader.result); clearImageInputsExcept('ref'); renderRefList(); } };
-    reader.readAsDataURL(file);
+    readImageConformed(file).then((uri) => {
+      if (!uri) { tooBigMsg(); return; }
+      if (refList.length < cap) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
+    });
   });
 }
 function removeRef(i) { refList.splice(i, 1); renderRefList(); }
@@ -1215,10 +1257,10 @@ function onAttachEl(inputEl) {
   const cap = elCap();
   files.forEach((file) => {
     if (elList.length >= cap) return;
-    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => { if (elList.length < cap) { elList.push(reader.result); clearImageInputsExcept('el'); renderElList(); } };
-    reader.readAsDataURL(file);
+    readImageConformed(file).then((uri) => {
+      if (!uri) { tooBigMsg(); return; }
+      if (elList.length < cap) { elList.push(uri); clearImageInputsExcept('el'); renderElList(); }
+    });
   });
 }
 function removeEl(i) { elList.splice(i, 1); renderElList(); }
@@ -1255,10 +1297,10 @@ function onAttachKf(inputEl) {
   const cap = kfCap();
   files.forEach((file) => {
     if (kfList.length >= cap) return;
-    if (file.size > 8 * 1024 * 1024) { alert('File too big — max 8 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = () => { if (kfList.length < cap) { kfList.push(reader.result); clearImageInputsExcept('kf'); renderKfList(); } };
-    reader.readAsDataURL(file);
+    readImageConformed(file).then((uri) => {
+      if (!uri) { tooBigMsg(); return; }
+      if (kfList.length < cap) { kfList.push(uri); clearImageInputsExcept('kf'); renderKfList(); }
+    });
   });
 }
 function removeKf(i) { kfList.splice(i, 1); renderKfList(); }
