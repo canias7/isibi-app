@@ -2358,8 +2358,8 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    sideways (it also silently shoved the avatar/end/audio slots, which never
    have badges at all). */
 #rowImage .ap-body.has-nums .attach-btn.has,
-#rowImage .ap-body.has-nums .ap-add,
-#rowImage .ap-body.has-nums #extraImages .slot { margin-left: 44px; width: calc(100% - 44px); }
+#rowImgref .ap-body.has-nums .ap-add,
+#rowImgref .ap-body.has-nums #extraImages .slot { margin-left: 44px; width: calc(100% - 44px); }
 /* The outside-left badge must not be clipped: these slots stop clipping and
    the image itself carries the rounding instead. */
 #extraImages .slot { overflow: visible; }
@@ -2612,7 +2612,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    body's display to the .ap-row.open toggle — forcing display here would pin
    the row permanently open.) */
 #rowFlf .ap-body, #rowRef .ap-body, #rowKf .ap-body, #rowEl .ap-body, #rowClip .ap-body { padding-left: .6rem; }
+#rowImgref .ap-body { padding-left: .6rem; position: relative; }
 #rowFlf .attach-btn:not(.has),
+#rowImgref .ap-add,
 #rowClip .attach-btn:not(.has),
 #rowRef .ap-add,
 #rowEl .ap-add,
@@ -2627,9 +2629,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   position: absolute; top: 10px; right: 14px; font-size: 1.15rem;
   color: #fff; text-shadow: 0 0 6px #000;
 }
-#rowFlf .plus-big, #rowRef .plus-big, #rowKf .plus-big, #rowEl .plus-big, #rowClip .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
-#rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count, #rowKf .slot-count, #rowEl .slot-count, #rowClip .slot-lab { font-size: .75rem; color: var(--muted); }
-#rowRef .ap-extra, #rowEl .ap-extra { gap: .55rem; margin-bottom: .55rem; }
+#rowFlf .plus-big, #rowRef .plus-big, #rowKf .plus-big, #rowEl .plus-big, #rowClip .plus-big, #rowImgref .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
+#rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count, #rowKf .slot-count, #rowEl .slot-count, #rowClip .slot-lab, #rowImgref .slot-count { font-size: .75rem; color: var(--muted); }
+#rowRef .ap-extra, #rowEl .ap-extra, #rowImgref .ap-extra { gap: .55rem; margin-bottom: .55rem; }
 /* Keyframes: up to 64 tiles — a 2-up grid of small ordered thumbs, not the
    full-width reference cards (which would scroll forever at this count). */
 #rowKf .ap-extra { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; margin-bottom: .55rem; }

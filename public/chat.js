@@ -757,7 +757,10 @@ function clearAttach(ev, kind) {
 function updateApCounts() {
   const caps = (currentOpts() && currentOpts().caps) || {};
   const set = (id, n, cap) => { const el = document.getElementById(id); if (el) el.textContent = cap ? n + '/' + cap : ''; };
-  set('cntImage', (attachments.image ? 1 : 0) + extraImages.length, caps.image ? (caps.maxImages || 1) : 0);
+  // Image mode splits into "Image to image" (the one being edited, 0/1) and
+  // "Reference to image" (the rest, 0/13) — one number each, no blending.
+  set('cntImage', attachments.image ? 1 : 0, caps.image ? 1 : 0);
+  set('cntImgRef', extraImages.length, (mode === 'image' && caps.image && (caps.maxImages || 1) > 1) ? (caps.maxImages - 1) : 0);
   set('cntAvatar', attachments.avatar ? 1 : 0, caps.avatar ? 1 : 0);
   set('cntAudio', attachments.audio ? 1 : 0, caps.audio ? 1 : 0);
   set('cntClip', attachments.clip ? 1 : 0, caps.clip ? 1 : 0);
@@ -847,6 +850,12 @@ function updateAttachVisibility() {
   const cap = caps.maxImages || 1;
   if (!caps.image) extraImages.length = 0;
   else if (extraImages.length > cap - 1) extraImages.length = Math.max(0, cap - 1);
+  // "Reference to image" row: image mode only, and only on multi-image models.
+  const rowIR = document.getElementById('rowImgref');
+  if (rowIR) rowIR.style.display = (mode === 'image' && caps.image && cap > 1) ? '' : 'none';
+  // The Image slot reads as the edit base in image mode, the start frame in video.
+  const ti = document.getElementById('titleImage');
+  if (ti) ti.textContent = mode === 'image' ? 'Image to image' : 'Image';
   renderExtraImages();
   renderMaskState(); // the GPT inpainting button depends on model + single image
   updateApCounts();
@@ -869,6 +878,7 @@ const AP_INFO = {
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
+  imgref: 'References for the edit: up to 13 images that ride along with the one being edited — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"); the image being edited is always image 1.',
   kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {
@@ -930,8 +940,12 @@ function openImgSrc(target, ev, btn) {
   const menu = document.getElementById('imgSrcMenu');
   // Anchor the menu to the tile that was clicked (the main + sits at the top,
   // the add-more + can be several images down) instead of pinning it to the
-  // top of the row.
-  if (btn && btn.offsetParent) menu.style.top = (btn.offsetTop + 10) + 'px';
+  // top of the row. The two + tiles now live in DIFFERENT rows, so hop the
+  // menu into the clicked tile's row first.
+  if (btn && btn.offsetParent) {
+    if (menu.parentElement !== btn.offsetParent) btn.offsetParent.appendChild(menu);
+    menu.style.top = (btn.offsetTop + 10) + 'px';
+  }
   // Nano Banana Pro can pull a source image from your saved Avatars and
   // Products too, not just the gallery or a device file. Other models keep the
   // gallery + device options (their edit flows don't lean on avatars/products).
@@ -1122,12 +1136,15 @@ function renderExtraImages() {
     const total = (attachments.image ? 1 : 0) + extraImages.length;
     // Hide the add tile once the cap is reached (was a dead, clickable control at N/N).
     more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
-    more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
+    more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + extraImages.length + '/' + (cap - 1) + '</span>';
   }
   // The 44px badge gutter exists only while the n/14 badges show (2+ images) —
   // otherwise a lone image sits full-width with no dead lane on its left.
+  // Both rows carry badges: refs (2/14…) here, the edit base's 1/14 in rowImage.
   const body = host.closest('.ap-body');
   if (body) body.classList.toggle('has-nums', extraImages.length > 0);
+  const mainBody = document.querySelector('#rowImage .ap-body');
+  if (mainBody) mainBody.classList.toggle('has-nums', extraImages.length > 0);
   updateApCounts();
   updateSendPrice(); // extra images can move the Ray tier
   renderMaskState(); // a second image disables inpainting (mask maps to one base)
