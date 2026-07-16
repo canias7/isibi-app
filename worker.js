@@ -2409,7 +2409,10 @@ async function handleRequest(request, env, ctx) {
       const genCost = creditCost(genKind, model, {
         duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
         img4k: imgRes === "4K",
-        gptQuality, gptSize,
+        gptQuality,
+        // At 'auto' ratio there are no explicit dimensions — 2K/4K can't apply,
+        // so they must not bill either (gptSizePx returned null above).
+        gptSize: gptSize && ratio === "auto" ? "1K" : gptSize,
         audioSeconds,
         hdr: wantHdr,
         exr: wantExr,

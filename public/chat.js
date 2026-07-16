@@ -135,11 +135,14 @@ const IMAGE_RATIOS = {
   // edit endpoint, keeps the SOURCE image's shape — so it's the safe default for
   // edits (a concrete ratio reframes/outpaints instead).
   'fal-ai/nano-banana-pro': ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
-  'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
+  // 'auto' keeps the SOURCE shape on edits (GPT's own default) and lets the
+  // model pick on text-to-image — same safe default as Nano. NB: 2K/4K need
+  // explicit dimensions, so at 'auto' the run quotes and bills 1K.
+  'openai/gpt-image-2': ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'],
 };
 // Per-model default aspect. Nano defaults to 'auto' (model picks / keeps source);
 // everything else keeps the square default.
-const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto' };
+const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto', 'openai/gpt-image-2': 'auto' };
 // Per-model image quality/resolution switcher (reuses the video resolution
 // section). Nano Banana Pro → Resolution 2K/4K (2K free default, 4K 2×). GPT
 // Image 2 → Quality low/medium/high (high default) — quality swings fal's price
@@ -3668,7 +3671,9 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   if (mode === 'image') {
     // GPT Image 2 is priced by size tier × quality, not a flat rate.
     if (model === 'openai/gpt-image-2') {
-      const t = GPT_PRICE[gptSize] || GPT_PRICE['1K'];
+      // 'auto' ratio has no explicit dimensions, so 2K/4K can't apply — the
+      // run goes out (and bills) at 1K. Worker enforces the same.
+      const t = GPT_PRICE[ratio === 'auto' ? '1K' : gptSize] || GPT_PRICE['1K'];
       const rate = t[quality] != null ? t[quality] : t.high;
       return fmtPrice(rate * (numImages || 1));
     }
