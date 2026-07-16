@@ -2013,13 +2013,11 @@ function currentOpts() {
       sizes: model === 'openai/gpt-image-2' ? ['1K', '2K', '4K'] : null, defSize: '1K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
-        // The "Image" row IS the multi-image picker (main + "+ Add image" up to
-        // maxImages). No separate avatar slot in image mode — it duplicated the
-        // Image row and was mislabeled "Avatar" (a video-only concept). All
-        // references go through Image, capped at 14 — Nano Banana Pro's
-        // documented max ("combine up to 14 images in a single composition").
+        // Reference caps are the PROVIDERS' documented input maxima: Nano
+        // Banana Pro combines up to 14 images (Google), GPT Image 2's edit
+        // API takes up to 16 (OpenAI). fal's schemas declare no bound.
         image: IMAGE_EDIT_MODELS.has(model), end: false, avatar: false,
-        maxImages: IMAGE_MULTI_MODELS.has(model) ? 14 : 1,
+        maxImages: model === 'openai/gpt-image-2' ? 16 : IMAGE_MULTI_MODELS.has(model) ? 14 : 1,
       },
     };
   }
@@ -4768,7 +4766,7 @@ function sanitizeExtras(data) {
   // numbers, reference order) — "edit image 10" then sends ONE image, not all.
   if (Array.isArray(data.useImages)) {
     const total = (attachments.image ? 1 : 0) + extraImages.length;
-    const sel = [...new Set(data.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= total))].slice(0, 14);
+    const sel = [...new Set(data.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= total))].slice(0, 16);
     if (sel.length) out.useImages = sel;
   }
   // Video knobs (all price-neutral; the worker re-validates every one):
@@ -4819,7 +4817,7 @@ async function directorImage() {
   // pixels than generating, and 14 originals would blow the request budget.
   const edge = srcs.length > 6 ? 512 : srcs.length > 2 ? 640 : 1024;
   const out = [];
-  for (const src of srcs.slice(0, 14)) {
+  for (const src of srcs.slice(0, 16)) {
     try {
       const img = new Image();
       await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });

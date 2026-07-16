@@ -1823,7 +1823,7 @@ async function handleRequest(request, env, ctx) {
       }
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
-        ? body.images.slice(0, 14).map(dataImage).filter(Boolean) // references stand alone (≤14); with an edit base the combined list is capped to 14 below
+        ? body.images.slice(0, 16).map(dataImage).filter(Boolean) // provider maxima: Nano 14, GPT 16 — the edit branch caps per model below
         : [];
       // Veo 3.1's dedicated image-input modes (mutually exclusive with i2v):
       //  first + last  → first-last-frame-to-video (2 frames)
@@ -2246,7 +2246,7 @@ async function handleRequest(request, env, ctx) {
         // Size comes from the source image, so no aspect_ratio here.
         const edit = IMAGE_EDIT[model];
         endpoint = edit.endpoint;
-        let urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, 14);
+        let urls = [image, avatar, ...extraImages].filter(Boolean).slice(0, model === "openai/gpt-image-2" ? 16 : 14);
         // A stack of inline data URIs can blow past what the downstream model
         // accepts (a 14-image edit came back 422 "could not generate with the
         // given prompts and images"). Big batches get staged on fal storage
@@ -3422,7 +3422,7 @@ async function handleRequest(request, env, ctx) {
       // several). >1 means the composer should describe EACH image's role,
       // referenced by position ("the first image", "the second image") — these
       // models bind by position, not by an @Image tag.
-      const imageCount = kind === "image" ? Math.min(14, Math.max(0, Math.round(+body.imageCount) || 0)) : 0;
+      const imageCount = kind === "image" ? Math.min(16, Math.max(0, Math.round(+body.imageCount) || 0)) : 0;
       const hasClip = kind === "video" && !!body.hasClip;
       const hasAvatar = kind === "video" && !!body.hasAvatar;
       const hasAudio = kind === "video" && !!body.hasAudio;
@@ -3462,7 +3462,7 @@ async function handleRequest(request, env, ctx) {
       // (≈2MB binary) and ~12M total keep the API request bounded.
       const imageBlocks = [];
       if (kind !== "audio") {
-        const list = Array.isArray(body.images) ? body.images.slice(0, 14)
+        const list = Array.isArray(body.images) ? body.images.slice(0, 16)
           : body.image != null ? [body.image] : [];
         let total = 0;
         for (const s of list) {
@@ -4027,7 +4027,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         // Which attached images the prompt actually uses (1-based panel
         // numbers, reference order) — lets the client send ONLY those.
         useImages: (kind === "image" && imageCount > 1 && Array.isArray(parsed.useImages))
-          ? [...new Set(parsed.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= imageCount))].slice(0, 14)
+          ? [...new Set(parsed.useImages.map((n) => Math.round(+n)).filter((n) => Number.isFinite(n) && n >= 1 && n <= imageCount))].slice(0, 16)
           : undefined,
         cfg: cfgCapable && typeof parsed.cfg === "number" && Number.isFinite(parsed.cfg) ? Math.min(1, Math.max(0, parsed.cfg)) : undefined,
         bitrate: bitrateCapable && parsed.bitrate === "high" ? "high" : undefined,
