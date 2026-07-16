@@ -2097,7 +2097,7 @@ function pickSetting(chip) {
   } else if (loopOn && duration === 10) {
     loopOn = false;
   }
-  const cur = { ratio: ratio, quality: quality, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
