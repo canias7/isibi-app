@@ -7938,7 +7938,7 @@ function showView(name) {
   if (name === 'mediaAgent') renderMediaAgent();
   if (name === 'integrations') renderIntegrations();
   if (name === 'settings') renderSettings();
-  document.querySelectorAll('.side-item[data-view]').forEach((i) =>
+  document.querySelectorAll('.side-item[data-view], .top-tab[data-view]').forEach((i) =>
     i.classList.toggle('active', i.dataset.view === name));
   // Chat history is Home-only.
   const chats = document.getElementById('homeChats');
@@ -7948,10 +7948,6 @@ document.addEventListener('click', (e) => {
   const prof = document.getElementById('signOutRow');
   const pop = document.getElementById('profilePop');
   if (pop && pop.classList.contains('open') && prof && !prof.contains(e.target)) pop.classList.remove('open');
-  // Close the floating logo menu on any outside click.
-  const fn = document.getElementById('floatNav');
-  const fm = document.getElementById('floatMenu');
-  if (fm && fm.classList.contains('open') && fn && !fn.contains(e.target)) fm.classList.remove('open');
 });
 
 // Top-right account menu.
@@ -7959,17 +7955,6 @@ function toggleProfileMenu(e) {
   e.stopPropagation();
   const pop = document.getElementById('profilePop');
   if (pop) pop.classList.toggle('open');
-}
-
-// Floating logo menu (Gallery/Products/Avatar/Media Agent — the ex-sidebar views).
-function toggleFloatMenu(e) {
-  e.stopPropagation();
-  const fm = document.getElementById('floatMenu');
-  if (fm) fm.classList.toggle('open');
-}
-function closeFloatMenu() {
-  const fm = document.getElementById('floatMenu');
-  if (fm) fm.classList.remove('open');
 }
 
 // ── Declarative event wiring (CSP-safe) ───────────────────────────────────
@@ -7983,10 +7968,8 @@ const CLICK_ACTIONS = {
     // enters the studio first so the view is actually visible.
     const mkt = document.getElementById('marketing');
     if (mkt && mkt.style.display !== 'none' && window.Auth && Auth.isSignedIn()) enterApp();
-    closeFloatMenu();
     showView(el.dataset.view);
   },
-  'float-menu': (e) => toggleFloatMenu(e),
   'new-chat': () => newChat(),
   'credits': () => openCredits(),
   'credits-topup': () => openCredits(true),

@@ -210,15 +210,12 @@
       </div>
     </div>
 
-    <!-- Floating logo menu (top-right): the views that used to live in the sidebar -->
-    <div class="float-nav" id="floatNav">
-      <button class="float-logo" data-act="float-menu" aria-label="Open menu" aria-haspopup="true"><img class="logo-mark" src="/logo.png" alt="isibi menu" /></button>
-      <div class="float-menu" id="floatMenu" role="menu">
-        <button class="float-item" role="menuitem" data-view="gallery" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></span>Gallery</button>
-        <button class="float-item" role="menuitem" data-view="products" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></span>Products</button>
-        <button class="float-item" role="menuitem" data-view="avatar" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></span>Avatar</button>
-        <button class="float-item" role="menuitem" data-view="mediaAgent" data-act="view"><span class="fi-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg></span>Media Agent</button>
-      </div>
+    <!-- Top nav bar (icon-only): the views that used to live in the sidebar -->
+    <div class="top-nav" id="topNav" role="tablist" aria-label="Sections">
+      <button class="top-tab" role="tab" data-view="gallery" data-act="view" aria-label="Gallery" title="Gallery"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M21 15.5 16 11 5 20"/></svg></button>
+      <button class="top-tab" role="tab" data-view="products" data-act="view" aria-label="Products" title="Products"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><path d="M12 13v8.5"/></svg></button>
+      <button class="top-tab" role="tab" data-view="avatar" data-act="view" aria-label="Avatar" title="Avatar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6.5 8-6.5s8 2.5 8 6.5"/></svg></button>
+      <button class="top-tab" role="tab" data-view="mediaAgent" data-act="view" aria-label="Media Agent" title="Media Agent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7l2.5-3h13L21 7"/><path d="M7 4 5 7M12 4l-2 3M17 4l-2 3"/></svg></button>
     </div>
 
     <main class="main">
