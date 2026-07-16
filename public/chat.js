@@ -677,14 +677,13 @@ function renderAttach(kind) {
   }
   // The first-&-last row shares one counter across its two frame slots.
   if (kind === 'ffirst' || kind === 'flast') {
-    const c = document.getElementById('cntFlf');
-    if (c) { const n = (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0); c.textContent = n ? '· ' + n : ''; }
   }
   // Attaching/removing a clip (video-to-video) or a source image (image edit)
   // flips whether this is an edit, where the effort picker no longer applies —
   // refresh its locked state.
   if (kind === 'clip' || kind === 'image') renderEffortLock();
   if (kind === 'image') renderMaskState(); // the GPT inpainting button follows the image
+  updateApCounts(); // every single-slot change repaints the row headers' n/cap
 }
 
 function clearAttach(ev, kind) {
@@ -705,6 +704,22 @@ function clearAttach(ev, kind) {
 
 // Show only the panel rows the current model actually supports (same rules
 // as the old inline pickers), and clear anything a model can't use.
+// Every attach-row header shows filled/cap ("0/14", "1/2") for the CURRENT
+// model, so the limits are visible before anything is attached.
+function updateApCounts() {
+  const caps = (currentOpts() && currentOpts().caps) || {};
+  const set = (id, n, cap) => { const el = document.getElementById(id); if (el) el.textContent = cap ? n + '/' + cap : ''; };
+  set('cntImage', (attachments.image ? 1 : 0) + extraImages.length, caps.image ? (caps.maxImages || 1) : 0);
+  set('cntAvatar', attachments.avatar ? 1 : 0, caps.avatar ? 1 : 0);
+  set('cntAudio', attachments.audio ? 1 : 0, caps.audio ? 1 : 0);
+  set('cntClip', attachments.clip ? 1 : 0, caps.clip ? 1 : 0);
+  set('cntEnd', attachments.end ? 1 : 0, caps.end ? 1 : 0);
+  set('cntFlf', (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0), caps.flf ? 2 : 0);
+  set('cntRef', refList.length, caps.ref || 0);
+  set('cntEl', elList.length, caps.el || 0);
+  set('cntKf', kfList.length, caps.kf || 0);
+}
+
 function updateAttachVisibility() {
   closeApInfo(); // rows are about to be re-shown/hidden — a tooltip pointing at one mustn't linger
   const caps = (currentOpts() && currentOpts().caps) || {};
@@ -786,6 +801,7 @@ function updateAttachVisibility() {
   else if (extraImages.length > cap - 1) extraImages.length = Math.max(0, cap - 1);
   renderExtraImages();
   renderMaskState(); // the GPT inpainting button depends on model + single image
+  updateApCounts();
 }
 
 // ── Attach panel (left of the thread): accordion rows ──
@@ -1019,6 +1035,7 @@ function renderExtraImages() {
     more.style.display = (cap > 1 && attachments.image && total < cap) ? '' : 'none';
     more.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + total + '/' + cap + '</span>';
   }
+  updateApCounts();
   updateSendPrice(); // extra images can move the Ray tier
   renderMaskState(); // a second image disables inpainting (mask maps to one base)
 }
@@ -1183,8 +1200,7 @@ function renderRefList() {
     add.style.display = refList.length < cap ? '' : 'none';
     add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + refList.length + '/' + cap + '</span>';
   }
-  const cnt = document.getElementById('cntRef');
-  if (cnt) cnt.textContent = refList.length ? '· ' + refList.length : '';
+  updateApCounts();
   renderRefChips();
   updateSendPrice(); // references can move the tier on ref-capable models
 }
@@ -1225,8 +1241,7 @@ function renderElList() {
     add.style.display = elList.length < cap ? '' : 'none';
     add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + elList.length + '/' + cap + '</span>';
   }
-  const cnt = document.getElementById('cntEl');
-  if (cnt) cnt.textContent = elList.length ? '· ' + elList.length : '';
+  updateApCounts();
   renderRefChips();
   updateSendPrice();
 }
@@ -1266,8 +1281,7 @@ function renderKfList() {
     add.style.display = kfList.length < cap ? '' : 'none';
     add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + kfList.length + '/' + cap + '</span>';
   }
-  const cnt = document.getElementById('cntKf');
-  if (cnt) cnt.textContent = kfList.length ? '· ' + kfList.length : '';
+  updateApCounts();
   updateSendPrice(); // keyframes flip Ray onto its i2v tier — reprice
 }
 
