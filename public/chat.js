@@ -8183,6 +8183,128 @@ function paintStorageBar() {
   wireActions(el);
 }
 
+// Small bottom-center toast. Several callers were already guarding
+// `typeof sbToast === 'function'` against a definition that never existed —
+// their messages (storage-full warnings, import errors) silently vanished
+// until this landed (2026-07-16).
+function sbToast(text) {
+  let t = document.getElementById('sbToast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'sbToast';
+    t.className = 'sb-toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.classList.add('show');
+  clearTimeout(sbToast._t);
+  sbToast._t = setTimeout(() => t.classList.remove('show'), 5000);
+}
+
+// ── Import into the gallery: local files → /api/save (base64) → storage.
+// Same rules as every save: it's a subscription perk (free/lapsed = cap 0 →
+// 402 → the storage bar's upgrade CTA), counts against the tier's GB cap, and
+// the worker validates by magic bytes. Sizes stay under the worker's base64
+// ceilings (image ~12M chars, video ~40M, audio ~20M).
+const IMPORT_MAX = { image: 8_500_000, video: 29_000_000, audio: 14_000_000 };
+const IMPORT_BATCH = 12; // files per pick — keeps one bad drop from hammering /api/save
+
+async function importGalleryFiles(input) {
+  const files = [...(input.files || [])];
+  input.value = ''; // picking the same file again must re-fire change
+  if (!files.length) return;
+  const btn = document.getElementById('galleryImport');
+  const label = btn ? btn.textContent : '';
+  const batch = files.slice(0, IMPORT_BATCH);
+  const failed = [];
+  let done = 0;
+  if (btn) btn.disabled = true;
+  for (const f of batch) {
+    if (btn) btn.textContent = 'Importing ' + (done + failed.length + 1) + '/' + batch.length + '…';
+    const kind = /^image\//.test(f.type) ? 'image'
+      : /^video\//.test(f.type) ? 'video'
+      : /^audio\//.test(f.type) ? 'audio' : null;
+    if (!kind) { failed.push(f.name + ' (not an image, video, or audio file)'); continue; }
+    if (f.size > IMPORT_MAX[kind]) { failed.push(f.name + ' (' + kind + 's up to ' + fmtStorageBytes(IMPORT_MAX[kind]) + ')'); continue; }
+    let b64;
+    try {
+      b64 = await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(String(r.result).split(',')[1] || '');
+        r.onerror = () => rej(new Error('read failed'));
+        r.readAsDataURL(f);
+      });
+    } catch { failed.push(f.name + ' (couldn’t read the file)'); continue; }
+    try {
+      const r = await apiFetch('/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, data: b64 }),
+      });
+      if (r && r.ok) { done++; continue; }
+      const j = r ? await r.json().catch(() => null) : null;
+      if (r && r.status === 402) {
+        // Storage gate — no plan, or the cap is hit. The rest of the batch
+        // would fail the same way, so stop; the storage bar explains itself.
+        failed.push(f.name + (j && j.reason === 'free' ? ' (importing needs a plan)' : ' (gallery storage is full)'));
+        break;
+      }
+      failed.push(f.name + (j && j.error ? ' (' + j.error + ')' : ''));
+    } catch { failed.push(f.name + ' (network hiccup — try again)'); }
+  }
+  if (btn) { btn.textContent = label; btn.disabled = false; }
+  if (files.length > IMPORT_BATCH) failed.push((files.length - IMPORT_BATCH) + ' more skipped (up to ' + IMPORT_BATCH + ' per import)');
+  if (done) await refreshGallery();
+  refreshStorageBar(); // repaints the bar either way (a 402 means it's stale)
+  if (failed.length && typeof sbToast === 'function') {
+    sbToast('Couldn’t import: ' + failed.slice(0, 3).join(', ') + (failed.length > 3 ? ' · +' + (failed.length - 3) + ' more' : ''));
+  }
+}
+
+// Import-from-link (the product-page pattern, owner's ask 2026-07-16): paste
+// any URL — a direct image/video/audio file, or a page whose og:image we take
+// — the worker fetches it (SSRF-guarded, /api/import/fetch) and hands back
+// base64, which goes through the exact same /api/save gates as a device pick.
+async function importGalleryUrl() {
+  const inp = document.getElementById('galImportUrl');
+  const go = document.getElementById('galImportGo');
+  const raw = ((inp && inp.value) || '').trim();
+  const m = raw.match(/https?:\/\/\S+/);
+  if (!m) { if (inp) inp.placeholder = 'That needs a full link (https://…)'; return; }
+  if (galStorage && !galStorage.cap) { openCredits(); return; } // storage is a paid perk
+  if (inp) inp.disabled = true;
+  if (go) { go.disabled = true; go.textContent = '…'; }
+  let ok = false;
+  let msg = null;
+  try {
+    const r = await apiFetch('/api/import/fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: m[0] }),
+    });
+    const j = r ? await r.json().catch(() => null) : null;
+    if (r && r.ok && j && j.data) {
+      const s = await apiFetch('/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: j.kind, data: j.data }),
+      });
+      if (s && s.ok) ok = true;
+      else {
+        const sj = s ? await s.json().catch(() => null) : null;
+        msg = s && s.status === 402
+          ? (sj && sj.reason === 'free' ? 'Importing needs a plan.' : 'Your gallery storage is full.')
+          : 'Couldn’t save that file.';
+      }
+    } else msg = (j && j.error) || 'Couldn’t fetch that link.';
+  } catch { msg = 'Network hiccup — try again.'; }
+  if (inp) { inp.disabled = false; if (ok) inp.value = ''; }
+  if (go) { go.disabled = false; go.textContent = '→'; }
+  if (ok) await refreshGallery();
+  refreshStorageBar();
+  if (msg && typeof sbToast === 'function') sbToast(msg);
+}
+
 // Fetch the authoritative storage list, then repaint — called on gallery open
 // so a saved file shows even when its chat is gone (or on a fresh device).
 async function refreshGallery() {
@@ -8406,11 +8528,21 @@ const CLICK_ACTIONS = {
   'send': () => send(true),
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
+  'gal-import': () => {
+    // No storage (free/lapsed/top-up-only) → the pricing sheet, not a doomed
+    // file pick. Unknown status (bar hasn't loaded) falls through to the pick;
+    // the server's own 402 still backstops it.
+    if (galStorage && !galStorage.cap) { openCredits(); return; }
+    const f = document.getElementById('fileGalImport');
+    if (f) f.click();
+  },
+  'gal-import-url': () => importGalleryUrl(),
   'gal-upgrade': () => openCredits(),
   'scroll-down': () => { const box = document.getElementById('messages'); if (box) scrollThreadBottom(box.parentElement, true); },
 };
 const CHANGE_ACTIONS = {
   'attach': (e, el) => onAttach(el.dataset.attach, el),
+  'gal-import-files': (e, el) => importGalleryFiles(el),
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
   'attach-el': (e, el) => onAttachEl(el),
@@ -8423,6 +8555,7 @@ const INPUT_ACTIONS = {
 const KEYDOWN_ACTIONS = {
   'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },
   'credits-topup': (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openCredits(true); } },
+  'gal-import-url': (e) => { if (e.key === 'Enter') { e.preventDefault(); importGalleryUrl(); } },
 };
 function wireActions(root) {
   const scope = root || document;

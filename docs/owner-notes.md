@@ -818,3 +818,26 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   — those are creative presets, not the library), and the `.pr-head`/`.pr-or`/
   `.pr-manual` header CSS (the Avatar page uses that pattern). A new `avUid()`
   replaces the deleted `prUid()` for avatar IDs.
+
+### Gallery import: device files + paste-a-link (2026-07-16)
+- **Owner's ask:** "WE NEED TO ADD LIKE AN IMPORT THING IN GALLERY" + "ADD THE
+  FETCH THING IN GALLERY" ("same thing we had for product" — the URL box).
+- **Built (gallery header, right side):** an ⤒ Import button (device pick,
+  multi-file, ≤12 per batch, image/video/audio with 8.5/29/14 MB caps) and an
+  import-from-link box with the gradient → go button. Both go through the
+  normal `/api/save` gates: no plan → pricing sheet client-side / 402
+  server-side, GB cap enforced, magic-byte validation, free-user watermark
+  path untouched.
+- **Worker:** new `/api/import/fetch` — server-side fetch of the pasted URL
+  (the product scanner's SSRF guard + safeFetch resurrected for it); a direct
+  media link returns base64+kind, an HTML page gets one hop to its og:image /
+  twitter:image / link image_src. `/api/save` gained an audio base64 branch
+  (MP3/WAV/OGG/M4A by magic bytes, ≤20M chars) so audio imports work.
+- **Found while wiring it: `sbToast` never existed.** Three call sites were
+  guarded with `typeof sbToast === 'function'` — the storage-full avatar
+  warning and friends have been silently vanishing. Defined it (bottom-center
+  glass toast, 5s); import errors use it too.
+- Headless-verified: 3-kind batch posts base64 per file, oversized file
+  skipped with a toast, 402 stops the batch after one request, cap-0 click
+  opens pricing instead of the file picker, link flow pipes fetch→save and
+  clears the box, junk input never leaves the page, server errors toast.

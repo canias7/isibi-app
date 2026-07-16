@@ -589,6 +589,108 @@ function extractReplyPrefix(buf) {
   try { return JSON.parse('"' + s + '"'); } catch { return ""; }
 }
 
+// Minimal HTML-entity decoder for scraped <meta> URLs (og:image with &amp;).
+function decodeEntities(s) {
+  return String(s || "")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&apos;|&#0?39;|&#x27;/gi, "'").replace(/&nbsp;/gi, " ")
+    .replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(+n); } catch { return ""; } })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return ""; } });
+}
+
+// ── SSRF guard for user-supplied URLs (the gallery's Import-from-link).
+// Normalizes the host and rejects loopback / link-local / private / metadata
+// targets across the usual encodings (bracketed IPv6, IPv4-mapped,
+// decimal/octal/hex IPv4, trailing dot). Re-checked on every redirect hop by
+// safeFetch. ──
+function ipv4Blocked(o) {
+  const [a, b] = o;
+  if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return true;
+  if (a === 0) return true;                          // 0.0.0.0/8 "this network"
+  if (a === 10) return true;                         // private
+  if (a === 127) return true;                        // loopback
+  if (a === 169 && b === 254) return true;           // link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true;  // private
+  if (a === 192 && b === 168) return true;           // private
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+  return false;
+}
+function parseIPv4(h) {
+  const toInt = (p) =>
+    /^0x[0-9a-f]+$/i.test(p) ? parseInt(p, 16) :
+    /^0[0-7]+$/.test(p) ? parseInt(p, 8) :
+    /^\d+$/.test(p) ? parseInt(p, 10) : NaN;
+  const parts = h.split(".");
+  if (parts.length === 4) {
+    const o = parts.map(toInt);
+    if (o.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return o;
+  }
+  // Single-integer form (decimal / 0x-hex / 0-octal) → 32-bit dotted quad.
+  const n = /^0x[0-9a-f]+$/i.test(h) ? parseInt(h, 16) : /^0[0-7]+$/.test(h) ? parseInt(h, 8) : /^\d+$/.test(h) ? parseInt(h, 10) : NaN;
+  if (Number.isInteger(n) && n >= 0 && n <= 0xffffffff) return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+  return null;
+}
+// Extract the embedded IPv4 from an IPv4-mapped (::ffff:…) or NAT64 (64:ff9b::…)
+// IPv6 host, in dotted OR the hex form new URL() normalizes to (::ffff:7f00:1).
+function embeddedIPv4(h) {
+  const dotted = h.match(/(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/);
+  if (dotted) return parseIPv4(dotted[1]);
+  if (/(^|:)ffff:[0-9a-f]{1,4}(:[0-9a-f]{1,4})?$/i.test(h) || /^64:ff9b:/i.test(h)) {
+    const g = h.split(":").filter((x) => x !== "");
+    const last = g.slice(-2).map((x) => parseInt(x, 16));
+    const w1 = last.length === 2 ? last[0] : 0;
+    const w2 = last.length === 2 ? last[1] : last[0];
+    if (Number.isInteger(w1) && Number.isInteger(w2) && w1 <= 0xffff && w2 <= 0xffff) {
+      return [(w1 >> 8) & 255, w1 & 255, (w2 >> 8) & 255, w2 & 255];
+    }
+  }
+  return null;
+}
+function hostIsBlocked(rawHost) {
+  let h = (rawHost || "").toLowerCase().trim();
+  if (!h) return true;
+  if (h.endsWith(".")) h = h.slice(0, -1);           // trailing-dot FQDN
+  if (h.startsWith("[")) { const e = h.indexOf("]"); h = e > 0 ? h.slice(1, e) : h.slice(1); }
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") ||
+      h.endsWith(".local") || h === "metadata.google.internal") return true;
+  if (h.includes(":")) {                             // IPv6
+    if (h === "::1" || h === "::") return true;       // loopback / unspecified
+    if (/^fe[89ab]/.test(h)) return true;            // link-local fe80::/10
+    if (/^f[cd]/.test(h)) return true;               // unique-local fc00::/7
+    const embedded = embeddedIPv4(h);                // IPv4-mapped / NAT64 (dotted or hex-normalized)
+    if (embedded && ipv4Blocked(embedded)) return true;
+    return false;                                    // other public IPv6
+  }
+  const ip = parseIPv4(h);
+  if (ip) return ipv4Blocked(ip);
+  return false;                                      // regular hostname
+}
+// Fetch that won't be redirected onto a blocked host: follows up to `max` hops
+// manually, re-validating scheme + host on each Location.
+async function safeFetch(startUrl, opts = {}, max = 4) {
+  let current = startUrl;
+  for (let i = 0; i <= max; i++) {
+    let u;
+    try { u = new URL(current); } catch { return null; }
+    if ((u.protocol !== "http:" && u.protocol !== "https:") || hostIsBlocked(u.hostname)) return null;
+    const r = await fetch(u.toString(), { ...opts, redirect: "manual" });
+    if (r.status >= 300 && r.status < 400) {
+      const loc = r.headers.get("location");
+      if (!loc) return r;
+      current = new URL(loc, u).toString();
+      continue;
+    }
+    return r;
+  }
+  return null; // too many redirects
+}
+function b64FromBuffer(ab) {
+  const bytes = new Uint8Array(ab);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 // Reject an obviously-oversized body by Content-Length before parsing it — a
 // generous backstop (attachments are already capped client-side), not a tight
 // limit. Returns a 413 Response, or null to proceed.
@@ -3869,6 +3971,63 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
     }
 
+    // Fetch a user-pasted link server-side (no CORS) for the gallery's
+    // Import-from-link box. A direct image/video/audio URL comes back as
+    // base64 + kind, which the client hands to the normal /api/save path (so
+    // the paid gate, GB cap, magic-byte checks, and watermarking all apply
+    // unchanged). An HTML page gets ONE hop: its og:image / twitter:image /
+    // <link image_src>, then the same rules. SSRF-guarded via safeFetch.
+    if (url.pathname === "/api/import/fetch" && request.method === "POST") {
+      const user = await authUser(request);
+      if (!user) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const target = String((body && body.url) || "").trim();
+      if (!/^https?:\/\//i.test(target)) return Response.json({ error: "invalid url" }, { status: 400 });
+      const UA = { "User-Agent": "Mozilla/5.0 (compatible; isibi/1.0; +https://isibi.ai)", Accept: "*/*" };
+      // Sized to fit under /api/save's base64 ceilings (12M/40M/20M chars).
+      const MAXES = { image: 8_500_000, video: 29_000_000, audio: 14_000_000 };
+      const fetchOnce = async (t) => {
+        try {
+          const r = await safeFetch(t, { headers: UA, signal: AbortSignal.timeout(20000) });
+          return r && r.ok ? r : null;
+        } catch { return null; }
+      };
+      let r = await fetchOnce(target);
+      if (!r) return Response.json({ error: "couldn't reach that link" }, { status: 502 });
+      let ct = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      if (ct === "text/html" || ct === "application/xhtml+xml") {
+        const html = new TextDecoder().decode(await readCapped(r, 2_000_000));
+        const pick =
+          html.match(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]+content=["']([^"']+)["']/i) ||
+          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image(?::secure_url)?["']/i) ||
+          html.match(/<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["']([^"']+)["']/i) ||
+          html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image(?::src)?["']/i) ||
+          html.match(/<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i);
+        let mediaUrl = null;
+        try { mediaUrl = pick ? new URL(decodeEntities(pick[1]), r.url || target).toString() : null; } catch {}
+        if (!mediaUrl) return Response.json({ error: "no image found on that page" }, { status: 422 });
+        r = await fetchOnce(mediaUrl);
+        if (!r) return Response.json({ error: "couldn't fetch the page's image" }, { status: 502 });
+        ct = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+      }
+      let kind = ct.startsWith("image/") ? "image" : ct.startsWith("video/") ? "video" : ct.startsWith("audio/") ? "audio" : null;
+      const cap = MAXES[kind || "image"];
+      const bytes = await readCapped(r, cap + 1);
+      if (bytes.length > cap) return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
+      if (!kind) {
+        // Ambiguous CT (octet-stream etc.) — sniff. /api/save re-validates by
+        // magic bytes anyway, so this only decides which caps/kind to report.
+        const isMp4 = bytes.length > 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+        const isWebm = bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+        kind = sniffImageType(bytes) ? "image" : (isMp4 || isWebm) ? "video" : null;
+      }
+      if (!kind) return Response.json({ error: "that link isn't an image, video, or audio file" }, { status: 422 });
+      return Response.json({ kind, data: b64FromBuffer(bytes) });
+    }
+
     // Copies a finished fal output into Supabase Storage so chats keep a
     // permanent URL (fal links expire). Uploads with the caller's own JWT,
     // so storage RLS applies and no extra server secret is needed.
@@ -3908,6 +4067,25 @@ Return just the line to be voiced — keep it to what should actually come out o
         const isWebm = bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
         if (!isMp4 && !isWebm) return Response.json({ error: "not a video" }, { status: 400 });
         ct = isMp4 ? "video/mp4" : "video/webm";
+      } else if (b64 && body.kind === "audio") {
+        // Imported audio (the gallery's Import button) arrives as base64 —
+        // MP3 / WAV / OGG / M4A only, validated by magic bytes like the video
+        // path. ~20MB base64 (~15MB audio) cap.
+        if (b64.length > 20_000_000) return Response.json({ error: "too large", reason: "toobig" }, { status: 400 });
+        try {
+          const bin = atob(b64);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        } catch {
+          return Response.json({ error: "invalid data" }, { status: 400 });
+        }
+        const isMp3 = bytes.length > 3 && ((bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0));
+        const isWav = bytes.length > 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+          bytes[8] === 0x57 && bytes[9] === 0x41 && bytes[10] === 0x56 && bytes[11] === 0x45;
+        const isOgg = bytes.length > 4 && bytes[0] === 0x4f && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53;
+        const isM4a = bytes.length > 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70;
+        if (!isMp3 && !isWav && !isOgg && !isM4a) return Response.json({ error: "not audio" }, { status: 400 });
+        ct = isMp3 ? "audio/mpeg" : isWav ? "audio/wav" : isOgg ? "audio/ogg" : "audio/mp4";
       } else if (b64) {
         // Client-watermarked image bytes (free accounts burn the mark in
         // before saving). Images only; ~12MB base64 cap.
@@ -4059,8 +4237,5 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
     }
 
-    // Scan a product URL: fetch the page server-side (no CORS) and pull the
-    // product's name + images from OpenGraph / product meta, so the Products
-    // tab can create a product from a store link.
     return env.ASSETS.fetch(request);
 }
