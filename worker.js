@@ -11,15 +11,20 @@ const VIDEO_MODELS = new Set([
   "fal-ai/kling-video/v3/standard/text-to-video",
   "google/gemini-omni-flash",
   "fal-ai/veo3.1",
+  "fal-ai/veo3.1/fast",
   "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
+  "fal-ai/kling-video/o3/standard/text-to-video",
   "fal-ai/bytedance/omnihuman",
+  "fal-ai/bytedance/omnihuman/v1.5",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
 const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0/fast/text-to-video";
 // Audio-driven lip-sync models take no text prompt — they run off attachments.
+// (OmniHuman 1.5 and LipSync's text mode ACCEPT text, but never require it.)
 const PROMPTLESS_VIDEO = new Set([
   "fal-ai/bytedance/omnihuman",
+  "fal-ai/bytedance/omnihuman/v1.5",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
 
@@ -63,6 +68,9 @@ const VIDEO_USD = {
   // only when the director's "silent" flag is set — verified on fal's pricing
   // pages 2026-07-15: Veo halves, Kling v3 pro 0.112 / std 0.084, o3 0.112).
   "fal-ai/veo3.1":                                { s: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 }, aoff: { "720p": 0.20, "1080p": 0.20, "4k": 0.40 }, d: 8 },
+  // Veo 3.1 Fast (fal page 2026-07-16): 720p/1080p $0.15/s audio-on, $0.10/s off;
+  // 4k $0.35/s on, $0.30/s off. Same endpoints/shapes as full Veo, ~2.7× cheaper.
+  "fal-ai/veo3.1/fast":                           { s: { "720p": 0.15, "1080p": 0.15, "4k": 0.35 }, aoff: { "720p": 0.10, "1080p": 0.10, "4k": 0.30 }, d: 8 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
   // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
   // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).
@@ -76,15 +84,25 @@ const VIDEO_USD = {
   // — verified on fal's pricing page + a real $2.52 bill for a 15s edit).
   // o3 t2v/i2v now send generate_audio:true, matching the $0.14/s audio-on rate.
   "fal-ai/kling-video/o3/pro/text-to-video":      { s: { def: 0.14 }, aoff: { def: 0.112 }, v2s: { def: 0.168 }, d: 5 },
+  // o3 Standard (fal pages 2026-07-16): t2v/i2v/ref $0.112/s audio-on, $0.084/s
+  // off; the video-to-video edit bills $0.126/s (same whole-clip basis as pro).
+  "fal-ai/kling-video/o3/standard/text-to-video": { s: { def: 0.112 }, aoff: { def: 0.084 }, v2s: { def: 0.126 }, d: 5 },
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, aoff: { def: 0.112 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, aoff: { def: 0.084 }, d: 5 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
   "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
+  "fal-ai/bytedance/omnihuman/v1.5":              { audioPerSec: 0.16 },  // v1.5 (fal page 2026-07-16): $0.16/s flat, 720p and 1080p same price
   // LipSync bills on the INPUT VIDEO's seconds ($0.014/s, rolled UP to the next
   // 5s increment) — not the audio. Billed from the client-reported clip length,
   // defaulting to the 10s max when unknown (never undercharge).
   "fal-ai/kling-video/lipsync/audio-to-video":    { videoPer5s: 0.014 },
 };
+// Kling LipSync text-mode voices — the curated English subset of the schema's
+// voice_id enum (the rest are Chinese-language voices). Mirrored in the UI.
+const KLS_VOICES = new Set([
+  "reader_en_m-v1", "commercial_lady_en_f-v1", "uk_man2", "uk_boy1",
+  "uk_oldman3", "ai_kaiya", "oversea_male1",
+]);
 // GPT Image 2 $/image by SIZE tier × QUALITY — a small margin over fal's max
 // price for each tier's pixel budget (1K ≤1024²-class, 2K ≤2560×1440, 4K
 // ≤3840×2160). Never undercharges; mirrored on the client.
@@ -1871,22 +1889,41 @@ async function handleRequest(request, env, ctx) {
           if (spd != null) input.speed = spd;
           if (sty != null) input.style = sty;
         }
-      } else if (genKind === "video" && model === "fal-ai/bytedance/omnihuman") {
+      } else if (genKind === "video" && model.startsWith("fal-ai/bytedance/omnihuman")) {
         // Audio-driven talking avatar: a portrait image + a voice clip.
         if (!image || !audio) {
           return Response.json({ error: "OmniHuman needs an image and an audio clip" }, { status: 400 });
         }
-        delete input.prompt;
         input.image_url = image;
         input.audio_url = audio;
+        if (model.endsWith("/v1.5")) {
+          // v1.5 extras: a resolution tier (billed the same — $0.16/s flat) and
+          // an optional prompt guiding motion/emotion (kept when the user typed
+          // one). v1's schema has neither — prompt is dropped there.
+          input.resolution = quality === "720p" ? "720p" : "1080p";
+          if (!prompt) delete input.prompt;
+        } else {
+          delete input.prompt;
+        }
       } else if (genKind === "video" && model === "fal-ai/kling-video/lipsync/audio-to-video") {
-        // Lip-sync an existing clip to a voice track.
-        if (!clip || !audio) {
-          return Response.json({ error: "Kling LipSync needs a video clip and an audio clip" }, { status: 400 });
+        // Lip-sync an existing clip. Two fal endpoints behind one model card:
+        // an attached voice track drives audio-to-video; no audio but typed
+        // words → text-to-video (Kling voices the text itself, same per-5s
+        // input-clip billing on both).
+        if (!clip || (!audio && !prompt)) {
+          return Response.json({ error: "Kling LipSync needs a video clip plus an audio clip — or type the words to speak" }, { status: 400 });
         }
         delete input.prompt;
         input.video_url = clip;
-        input.audio_url = audio;
+        if (audio) {
+          input.audio_url = audio;
+        } else {
+          endpoint = "fal-ai/kling-video/lipsync/text-to-video";
+          input.text = prompt.slice(0, 2000);
+          // Curated English voices (schema enum ids); unknown → the narrator.
+          input.voice_id = KLS_VOICES.has(body.voice) ? body.voice : "reader_en_m-v1";
+          input.voice_language = "en";
+        }
       } else if (genKind === "video") {
         const isSeedance = model.startsWith("bytedance/");
         const isKling = model.includes("kling-video");
@@ -1935,6 +1972,22 @@ async function handleRequest(request, env, ctx) {
         } else if (isVeo && refs.length) {
           endpoint = model + "/reference-to-video";
           input.image_urls = refs.slice(0, 3);
+        } else if (isKlingO3 && refs.length && !clip) {
+          // Kling o3 reference-to-video (pro + standard): ≤4 reference images
+          // bound as native @Image1..@Image4 prompt tags (Seedance-style). A
+          // start and/or end frame can ride along; a clip instead routes to the
+          // edit endpoint below (which takes image_urls itself).
+          endpoint = model.replace("/text-to-video", "/reference-to-video");
+          input.image_urls = refs.slice(0, 4);
+          const rStart = image || first;
+          const rEnd = end || last;
+          if (rStart) input.start_image_url = rStart;
+          if (rEnd) input.end_image_url = rEnd;
+          // For a raw prompt with no tags, cite the references so they're used.
+          const tags = input.image_urls.map((_, i) => "@Image" + (i + 1));
+          if (typeof input.prompt === "string" && !/@Image\d/i.test(input.prompt)) {
+            input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
+          }
         } else if (isGemini && clip) {
           // Gemini Omni Flash conversational edit — the instruction rewrites the
           // attached clip (swap/relight/stabilize/bg). Prompt + video only.
@@ -2014,7 +2067,7 @@ async function handleRequest(request, env, ctx) {
         // start image / first-&-last pair can carry a shot list too. A clip
         // reroutes to o3's edit endpoint, which has no multi_prompt — excluded
         // by the endpoint check. `prompt` and `multi_prompt` are mutually exclusive.
-        if (shots.length >= 2 && (endpoint === model || (isKling && endpoint === i2v))) {
+        if (shots.length >= 2 && (endpoint === model || (isKling && (endpoint === i2v || endpoint.includes("/reference-to-video"))))) {
           useShots = true;
           input.multi_prompt = shots;
           delete input.prompt;
@@ -2044,10 +2097,10 @@ async function handleRequest(request, env, ctx) {
           const imgN = isRefEndpoint && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
           const vidN = isRefEndpoint && Array.isArray(input.video_urls) ? input.video_urls.length : 0;
           const audN = isRefEndpoint && Array.isArray(input.audio_urls) ? input.audio_urls.length : 0;
-          if (isSeedance && (imgN || vidN || audN)) {
-            // Native tag binding: keep only tags that point at an attached
-            // reference OF THAT MODALITY (@Image→images, @Video→videos, @Audio→
-            // audio); drop any dangling tag pointing past what's attached.
+          if ((isSeedance || isKlingO3) && (imgN || vidN || audN)) {
+            // Native tag binding (Seedance @Image/@Video/@Audio; Kling o3 ref
+            // @Image1-4): keep only tags that point at an attached reference OF
+            // THAT MODALITY; drop any dangling tag pointing past what's attached.
             input.prompt = input.prompt
               .replace(/@Image(\d+)/gi, (m, d) => (+d >= 1 && +d <= imgN ? m : ""))
               .replace(/@Video(\d+)/gi, (m, d) => (+d >= 1 && +d <= vidN ? m : ""))
@@ -2219,7 +2272,7 @@ async function handleRequest(request, env, ctx) {
       // bytes can't be shorter than N*8 / (highest plausible bitrate for its
       // format), so a tampered short claim can't underpay a big clip.
       let audioSeconds = 0;
-      if (model === "fal-ai/bytedance/omnihuman" || model === "fal-ai/kling-video/lipsync/audio-to-video") {
+      if (model.startsWith("fal-ai/bytedance/omnihuman") || model === "fal-ai/kling-video/lipsync/audio-to-video") {
         const claimed = Number(body.audioDuration);
         const hasClaim = Number.isFinite(claimed) && claimed > 0;
         const real = audioDurationFromDataUri(audio); // authoritative when parseable
@@ -3263,8 +3316,10 @@ async function handleRequest(request, env, ctx) {
       // multi_prompt), so a clip disables them. When capable, the composer MAY
       // return a `shots` array instead of relying on one continuous prompt.
       const shotsCapable = kind === "video" &&
-        /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(genModel) &&
-        !hasClip && !hasAvatar && !hasAudio && !refCount;
+        /kling-video\/(?:o3\/pro|o3\/standard|v3\/pro|v3\/standard)\/text-to-video$/.test(genModel) &&
+        !hasClip && !hasAvatar && !hasAudio &&
+        // o3's reference endpoint takes multi_prompt too; v3 has no ref mode.
+        (!refCount || /\/o3\//.test(genModel));
       // Director-driven knobs (owner's call: the AI sets these from the user's
       // words, no new UI). sound: families with an audio-track switch
       // (generate_audio / o3-edit keep_audio). negative: only Kling v3 and Veo
@@ -3353,8 +3408,8 @@ async function handleRequest(request, env, ctx) {
       // References work differently per family. Seedance binds each reference by
       // an @-tag written INTO the prompt; Veo uses them holistically for identity.
       const refLine = (refCount && kind === "video")
-        ? (/seedance/.test(genModel)
-          ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. Seedance binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.`
+        ? (/seedance|kling-video\/o3/.test(genModel)
+          ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. This model binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.${/kling/.test(genModel) ? " If you also return a `shots` list, cite the @ImageN tags inside the shot prompts the same way." : ""}`
           : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words. The UI labels them @Image1…@Image${refCount} in order, so if the user's message cites @ImageN, that's the reference they mean — refer to it naturally in the prompt (e.g. "the subject from reference image ${refCount > 1 ? "N" : "1"}"), not by tag.`)
         : "";
       // Seedance video reference (@Video1): a clip whose motion/subject carries

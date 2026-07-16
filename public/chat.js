@@ -11,6 +11,17 @@ const VOICES = ['Rachel', 'Aria', 'Sarah', 'Laura', 'Charlotte', 'Alice', 'Matil
 // caps: which attachments the model actually supports (image = start frame /
 // image-to-video, end = end/tail frame, avatar = reference-to-video).
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+// Kling LipSync text-mode voices — the curated English subset of fal's
+// voice_id enum (the rest are Chinese-language voices). Mirrored in the worker.
+const KLS_VOICES = [
+  { id: 'reader_en_m-v1', label: 'Narrator' },
+  { id: 'commercial_lady_en_f-v1', label: 'Commercial' },
+  { id: 'uk_man2', label: 'UK Man' },
+  { id: 'uk_boy1', label: 'UK Boy' },
+  { id: 'uk_oldman3', label: 'UK Elder' },
+  { id: 'ai_kaiya', label: 'Kaiya' },
+  { id: 'oversea_male1', label: 'Casual Male' },
+];
 const SEEDANCE_OPTS = {
   durations: range(4, 15), defDur: 5,
   ratios: ['16:9', '9:16', '4:3', '3:4', '1:1', '21:9'], defRatio: '16:9',
@@ -52,6 +63,13 @@ const MODEL_OPTS = {
     // existing clip (continue/lengthen it).
     caps: { image: true, end: false, avatar: false, flf: true, ref: 3, clip: true },
   },
+  // Veo 3.1 Fast — the same five endpoints and shapes as full Veo, ~2.7× cheaper.
+  'fal-ai/veo3.1/fast': {
+    durations: [4, 6, 8], defDur: 8,
+    ratios: ['16:9', '9:16'], defRatio: '16:9',
+    resolutions: ['720p', '1080p', '4k'], defRes: '720p',
+    caps: { image: true, end: false, avatar: false, flf: true, ref: 3, clip: true },
+  },
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
   // hdr: native-HDR render (2× price; +EXR sidecar 3×; 720p/1080p, 5s only).
@@ -65,12 +83,18 @@ const MODEL_OPTS = {
     hdr: true, loop: true, v2v: true,
     caps: { image: true, flf: true, kf: 64, clip: true },
   },
+  // o3 (pro + standard): i2v start+end frames · reference-to-video (≤4 image
+  // refs cited as @Image1-4 in the prompt, optionally with start/end frames) ·
+  // clip → video-to-video edit (re-render, keeps source audio).
   'fal-ai/kling-video/o3/pro/text-to-video': {
     durations: range(3, 15), defDur: 5,
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
-    // o3 i2v takes image_url + end_image_url; no reference/elements mode.
-    // clip → video-to-video edit (re-render the clip, keeps source audio).
-    caps: { image: true, flf: true, clip: true },
+    caps: { image: true, flf: true, ref: 4, clip: true },
+  },
+  'fal-ai/kling-video/o3/standard/text-to-video': {
+    durations: range(3, 15), defDur: 5,
+    ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
+    caps: { image: true, flf: true, ref: 4, clip: true },
   },
   // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
   // duration comes from the audio. OmniHuman = portrait + voice; Kling
@@ -80,9 +104,23 @@ const MODEL_OPTS = {
     hint: 'Add a portrait image + an audio clip — I’ll lip-sync them',
     caps: { image: true, end: false, avatar: false, audio: true },
   },
+  // v1.5: same portrait+voice flow, plus a resolution tier (billed the same)
+  // and optional typed text that guides the motion/emotion.
+  'fal-ai/bytedance/omnihuman/v1.5': {
+    noPrompt: true,
+    hint: 'Add a portrait + an audio clip — optional text guides the motion',
+    resolutions: ['720p', '1080p'], defRes: '1080p',
+    caps: { image: true, end: false, avatar: false, audio: true },
+  },
+  // Attach a clip + a voice track → audio-driven lip-sync; attach a clip and
+  // just TYPE the words instead → Kling voices them itself (pick the voice in
+  // Settings). Same per-5s pricing either way.
   'fal-ai/kling-video/lipsync/audio-to-video': {
     noPrompt: true,
-    hint: 'Add a video clip + an audio clip — I’ll lip-sync them',
+    hint: 'Add a video clip + audio — or type the words and pick a voice',
+    voices: KLS_VOICES.map((v) => v.id), defVoice: 'reader_en_m-v1',
+    voiceLabels: Object.fromEntries(KLS_VOICES.map((v) => [v.id, v.label])),
+    voicePreview: false, // ElevenLabs previews don't apply to Kling voice ids
     caps: { image: false, end: false, avatar: false, audio: true, clip: true },
   },
 };
@@ -142,16 +180,19 @@ let mode = 'video';
 const MODEL_LISTS = {
   video: [
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend' },
+    { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio' },
     { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio', group: 'seedance' },
     { id: 'fal-ai/kling-video/o3/pro/text-to-video', label: 'Kling o3 Pro', note: 'newest · edit', group: 'kling' },
+    { id: 'fal-ai/kling-video/o3/standard/text-to-video', label: 'Kling o3 Standard', note: 'cheaper · edit', group: 'kling' },
     { id: 'fal-ai/kling-video/v3/pro/text-to-video', label: 'Kling 3.0 Pro', note: 'audio', group: 'kling' },
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio', group: 'kling' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync', group: 'kling' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
     { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync' },
+    { id: 'fal-ai/bytedance/omnihuman/v1.5', label: 'OmniHuman 1.5', note: 'lip-sync · 1080p' },
   ],
   image: [
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro', note: 'Google · flagship' },
@@ -274,8 +315,10 @@ function readClipMeta(dataUri) {
 const CLIP_LIMITS = {
   // kling-video/o3/pro/video-to-video/edit: mp4/mov, 3-15s, 720-3840px, 24-60fps, ≤200MB
   'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'], fps: [24, 60] },
+  'fal-ai/kling-video/o3/standard/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'], fps: [24, 60] },
   // veo3.1/extend-video: 720p/1080p in 16:9|9:16, input clip up to 8s
   'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
+  'fal-ai/veo3.1/fast': { maxDur: 8, minPx: 720, maxPx: 1920 },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
   // gemini-omni-flash/edit renders (and fal bills) the WHOLE source clip and
@@ -448,6 +491,7 @@ const AUDIO_LIMITS = {
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 60, maxMB: 5, formats: ['mp3', 'mpeg'] },
   // omnihuman: audio must be under 30s
   'fal-ai/bytedance/omnihuman': { maxDur: 30 },
+  'fal-ai/bytedance/omnihuman/v1.5': { maxDur: 30 },
   // seedance reference audio: MP3/WAV, ≤15s combined, ≤15MB per file
   'bytedance/seedance-2.0/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
   'bytedance/seedance-2.0/fast/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
@@ -1916,7 +1960,7 @@ function buildOptMenus() {
   if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
   if (opts.v2v) sections.push(settingSection('Clip edit mode', 'editMode', [{ value: 'auto', label: 'Auto' }, { value: 'adhere', label: 'Adhere' }, { value: 'flex', label: 'Flex' }, { value: 'reimagine', label: 'Reimagine' }]));
   if (opts.nums) sections.push(settingSection('Images', 'num', opts.nums.map((n) => ({ value: n, label: n === 1 ? '1 image' : n + ' images' }))));
-  if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: v })), true));
+  if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: (opts.voiceLabels || {})[v] || v })), opts.voicePreview !== false));
 
   wrap.style.display = sections.length ? '' : 'none';
   panel.innerHTML = sections.join('');
@@ -2016,7 +2060,7 @@ function updateSettingsSummary() {
   if (opts.loop && loopOn) parts.push('Loop');
   if (opts.v2v && editMode !== 'auto' && attachments.clip) parts.push(editMode);
   if (opts.nums && numImages > 1) parts.push('×' + numImages);
-  if (opts.voices) parts.push(voice);
+  if (opts.voices) parts.push((opts.voiceLabels || {})[voice] || voice);
   el.textContent = parts.length ? parts.join(' · ') : 'Settings';
 }
 
@@ -3240,16 +3284,19 @@ function refreshSendEnabled() {
 // is set — mirrors the worker's VIDEO_USD exactly).
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 }, aoff: { '720p': 0.20, '1080p': 0.20, '4k': 0.40 } },
+  'fal-ai/veo3.1/fast':                           { s: { '720p': 0.15, '1080p': 0.15, '4k': 0.35 }, aoff: { '720p': 0.10, '1080p': 0.10, '4k': 0.30 } },
   // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
   'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242 } }, // no 1080p on the fast tier
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.0725, '720p': 0.155 } },
   'fal-ai/kling-video/o3/pro/text-to-video':      { s: { def: 0.14 }, aoff: { def: 0.112 }, v2s: { def: 0.168 } }, // edit endpoint bills 20% over t2v
+  'fal-ai/kling-video/o3/standard/text-to-video': { s: { def: 0.112 }, aoff: { def: 0.084 }, v2s: { def: 0.126 } },
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 }, aoff: { def: 0.112 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 }, aoff: { def: 0.084 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
   'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
+  'fal-ai/bytedance/omnihuman/v1.5':              { audioPerSec: 0.16 },  // $0.16/s flat — 720p and 1080p bill the same
   'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
 };
 // GPT Image 2 $/image by SIZE tier × QUALITY. Each cell is a small margin over
@@ -3838,7 +3885,7 @@ async function generateMedia(text, opts = {}) {
         exr: kind === 'video' && exrOn && currentOpts().hdr ? true : undefined,
         loop: kind === 'video' && loopOn && currentOpts().loop ? true : undefined,
         editMode: kind === 'video' && currentOpts().v2v && attachments.clip && editMode !== 'auto' ? editMode : undefined,
-        voice: kind === 'audio' ? voice : undefined,
+        voice: (kind === 'audio' || (currentOpts() || {}).voices) ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         // effort/director ride along for observability only — generations bill
         // pure fal cost; the orchestrator is metered per-call on /api/direct.
@@ -4257,7 +4304,7 @@ function sanitizeExtras(data) {
 }
 // Kling is the only family with multi_prompt (its t2v AND i2v endpoints take it).
 function modelSupportsShots(m) {
-  return /kling-video\/(?:o3\/pro|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
+  return /kling-video\/(?:o3\/pro|o3\/standard|v3\/pro|v3\/standard)\/text-to-video$/.test(m || model);
 }
 // Where a shot-list actually applies: Kling's t2v (nothing attached) AND its
 // i2v endpoint (start/end/first-&-last frames — fal's schema takes multi_prompt
@@ -4265,7 +4312,9 @@ function modelSupportsShots(m) {
 // multi_prompt, so any clip disables shots.
 function shotsApply(m) {
   if (mode !== 'video' || !modelSupportsShots(m)) return false;
-  return !attachments.clip && !attachments.avatar && !refList.length && !kfList.length;
+  if (attachments.clip || attachments.avatar || kfList.length) return false;
+  // o3's reference endpoint takes multi_prompt too; v3 has no reference mode.
+  return !refList.length || /kling-video\/o3\//.test(m || model);
 }
 // Validate a shots array from the director: 2-5 shots, each {prompt, 2-10s}.
 // Returns a clean array, or null when it isn't a real multi-shot list.

@@ -182,10 +182,38 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
      `sanitizeRayControls()` shared by /api/direct and /api/video.
   - 20-case functional test on the new sanitizers/gates + full 31-case price
     parity bench: all pass.
+- **Round-3c (same day, owner: "pretty sure there are still missing stuff"):
+  the owner was right — a CATALOG probe (not just param-diffing endpoints we
+  already used) found 12 unwired endpoints; all wired:**
+  1. ✅ **Veo 3.1 Fast** — the whole family (t2v/i2v/first-last/reference/
+     extend), ~2.7× cheaper than full Veo ($0.15/s audio-on, $0.10 off;
+     4k $0.35/$0.30). New picker entry; all generic Veo code paths apply.
+  2. ✅ **Kling o3 Standard** — cheaper o3 (t2v/i2v/reference/edit; $0.112/s
+     audio-on, $0.084 off, edit $0.126/s). New picker entry.
+  3. ✅ **Kling o3 reference-to-video (pro + standard)** — ≤4 reference images
+     bound as native **@Image1–4 prompt tags** (Seedance-style), optional
+     start/end frames, shot-lists allowed. o3 models now have caps.ref:4; the
+     director cites tags (and inside shot prompts); same per-second rate as t2v.
+  4. ✅ **OmniHuman v1.5** — $0.16/s, 720p/1080p picker (billed the same),
+     optional typed text guides motion/emotion. New picker entry next to v1.
+  5. ✅ **Kling LipSync text-to-video** — attach a clip and just TYPE the words
+     (no audio upload): Kling voices them itself. Curated 7-voice English picker
+     (Narrator default; the schema's other ~39 voices are Chinese — skipped).
+     Same per-5s input-clip billing as the audio mode.
+  - Parity: 9 new cases + all 31 existing pass. Voice section reuses the audio
+    voices UI (labels + preview suppressed for Kling ids).
+  - **Probed and confirmed NOT to exist** (so nobody re-hunts): Kling v3
+    v2v-edit/elements-endpoint/effects, o3 motion-control, Gemini omni non-flash
+    tiers, Seedance pro/first-last/v2v, Ray ref/extend/modify, OmniHuman multi.
+  - **Found but NOT wired:** `o3/pro/video-to-video/reference` (re-render a clip
+    WITH reference images, $0.168/s output) — its `duration` input is nullable
+    with undocumented output-length semantics; billing it blind risks under-
+    charging. Needs one cheap live job when the fal balance lands. Clip+refs
+    meanwhile still works via the o3 edit endpoint (image_urls).
 - **Still NOT wired (deliberate):**
-  1. **Kling `elements`** (v3 i2v + o3 edit) — @Element character consistency
-     (frontal + 1–3 angle refs each). Parked in the backlog: needs a real UI
-     decision (per-element image sets), not just a knob.
+  1. **Kling `elements`** (v3 i2v + o3 edit/ref) — @Element character
+     consistency (frontal + 1–3 angle refs each). Parked in the backlog: needs
+     a real UI decision (per-element image sets), not just a knob.
   2. **Veo `seed` + `safety_tolerance` (1–6)** — defaults kept: seed has no
      reproducibility story in the chat flow; safety_tolerance is a policy knob.
   - Seedance "auto" duration as a UI pick: skipped on purpose — can't price an
