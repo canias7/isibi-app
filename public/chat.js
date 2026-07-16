@@ -6018,36 +6018,25 @@ function renderAvatar() {
   if (!view) return;
   if (avatarMode === 'create') { renderAvatarCreator(view); return; }
   const avatars = loadAvatars();
-  if (!avatars.length) {
-    // Empty state mirrors the Products page (owner's pick, design 1,
-    // 2026-07-16): headline top-left + subtitle + one action row.
-    view.innerHTML =
-      '<div class="av-page">' +
-        '<div class="pr-head"><h1>Create your avatar</h1>' +
-          '<p>A consistent face for your videos — generate one with AI or import your own portrait.</p></div>' +
-        '<div class="av-start">' +
-          '<button type="button" class="av-start-gen" data-act="generate">✦ Generate with AI</button>' +
-          '<span class="pr-or">or</span>' +
-          '<button type="button" class="pr-manual" data-act="import">⬆ Import a photo</button>' +
-        '</div>' +
-      '</div>';
-  } else {
-    view.innerHTML =
-      '<div class="av-page">' +
-        '<div class="av-top"><h1>Your avatars</h1>' +
-          '<div class="av-top-btns">' +
-            '<button type="button" class="av-mini" data-act="generate">Generate</button>' +
-            '<button type="button" class="av-mini" data-act="import">⬆ Import</button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="av-grid">' + avatars.map((a) =>
-          '<div class="av-card" data-id="' + esc(a.id) + '">' +
-            (a.image ? '<div class="av-thumb"><img class="img-fade" src="' + esc(a.image) + '" alt="" loading="lazy" decoding="async" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
-            '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
-            '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
-          '</div>').join('') + '</div>' +
-      '</div>';
-  }
+  // One layout, mirroring the Products page (owner's pick, design 1,
+  // 2026-07-16): headline top-left + subtitle + one action row, and the
+  // saved avatars in a grid UNDERNEATH — same as products under their bar.
+  view.innerHTML =
+    '<div class="av-page">' +
+      '<div class="pr-head"><h1>Create your avatar</h1>' +
+        '<p>A consistent face for your videos — generate one with AI or import your own portrait.</p></div>' +
+      '<div class="av-start">' +
+        '<button type="button" class="av-start-gen" data-act="generate">✦ Generate with AI</button>' +
+        '<span class="pr-or">or</span>' +
+        '<button type="button" class="pr-manual" data-act="import">⬆ Import a photo</button>' +
+      '</div>' +
+      (avatars.length ? '<div class="av-grid">' + avatars.map((a) =>
+        '<div class="av-card" data-id="' + esc(a.id) + '">' +
+          (a.image ? '<div class="av-thumb"><img class="img-fade" src="' + esc(a.image) + '" alt="" loading="lazy" decoding="async" /></div>' : '<div class="av-thumb av-thumb-ph">🧑</div>') +
+          '<button class="av-del" data-id="' + esc(a.id) + '" aria-label="Remove">✕</button>' +
+          '<div class="av-name">' + esc(a.name || 'Avatar') + '</div>' +
+        '</div>').join('') + '</div>' : '') +
+    '</div>';
   view.querySelectorAll('[data-act="generate"]').forEach((b) => { b.onclick = () => { avatarMode = 'create'; renderAvatar(); }; });
   view.querySelectorAll('[data-act="import"]').forEach((b) => { b.onclick = () => importAvatar(); });
   view.querySelectorAll('.av-del').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); saveAvatars(loadAvatars().filter((a) => a.id !== b.dataset.id)); renderAvatar(); }; });
