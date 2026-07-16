@@ -693,13 +693,16 @@
   backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
 .top-tab {
-  width: 42px; height: 42px; border-radius: 12px; cursor: pointer; padding: 0;
-  display: grid; place-items: center; background: transparent; border: 0; color: var(--muted);
+  height: 40px; border-radius: 11px; cursor: pointer; padding: 0 .85rem;
+  display: inline-flex; align-items: center; gap: .5rem;
+  background: transparent; border: 0; color: var(--muted);
+  font: inherit; font-weight: 600; font-size: .9rem; white-space: nowrap;
   transition: background .12s ease, color .12s ease, transform .12s ease;
 }
-.top-tab svg { width: 21px; height: 21px; }
+.top-tab svg { width: 20px; height: 20px; flex: 0 0 20px; }
+.top-tab .tt-label { line-height: 1; }
 .top-tab:hover { color: var(--text); background: rgba(255, 255, 255, .07); }
-.top-tab:active { transform: scale(.94); }
+.top-tab:active { transform: scale(.97); }
 .top-tab.active { color: #0a0a0b; background: var(--split); box-shadow: 0 3px 12px rgba(255, 121, 198, .3); }
 .pp-head { display: flex; align-items: center; gap: .7rem; padding: .6rem .65rem .75rem; }
 .pp-av {
