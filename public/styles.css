@@ -605,14 +605,17 @@
   transition: border-color .15s ease, background .15s ease, color .15s ease;
 }
 .set-chip:hover { border-color: #4a4a52; }
-.set-chip.active { background: var(--split); color: #0a0a0b; border-color: transparent; font-weight: 600; }
+.set-chip.active {
+  background: rgba(255, 255, 255, .07); color: var(--text);
+  border-color: rgba(237, 234, 243, .55); font-weight: 700;
+}
 .set-voicebtn {
   width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center;
   font-size: .58rem; border: 1px solid var(--line-2); color: var(--muted); line-height: 1;
 }
 .set-voicebtn:hover { color: var(--neon); border-color: var(--neon); }
 .set-voicebtn.playing { color: var(--neon); border-color: var(--neon); }
-.set-chip.active .set-voicebtn { border-color: rgba(0, 0, 0, .35); color: #0a0a0b; }
+.set-chip.active .set-voicebtn { border-color: rgba(237, 234, 243, .35); color: var(--text); }
 /* collapse long lists: show the first 6, reveal the rest on "View all" */
 .set-section.collapsible:not(.expanded) .set-chip:nth-child(n+7) { display: none; }
 .set-viewall {
