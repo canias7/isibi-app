@@ -633,3 +633,24 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - Still open (documented, from the round-3 audit, NOT yet fixed): Stripe
   chargeback handling, the auto-reply prompt-injection surface, `delete_account`
   not clearing `gen_charges`, the jobs-record cap, and the CSP nit.
+
+### Images no longer "render again" on every refresh (2026-07-16)
+- **Owner's report:** every refresh, images anywhere (chat, gallery, avatars)
+  visibly re-render / paint top-down. "Is that normal, or can it just appear
+  there."
+- **Two causes, both fixed:**
+  1. `/api/save` uploaded to Supabase Storage with NO cache-control header →
+     the browser re-downloaded every multi-MB original on every refresh.
+     Filenames are unique (`<ms>-…`) and files immutable, so uploads now send
+     `cache-control: max-age=31536000` — after first view, media comes from
+     the browser cache instantly. **Only NEWLY saved files get this** —
+     already-uploaded objects keep their old metadata (would need a re-copy
+     migration to backfill; not done, old files just stay slower).
+  2. Big JPEGs paint top-down while downloading. All saved-media `<img>`s
+     (chat `buildMedia`, gallery grid, avatar cards + creator result) now use
+     `.img-fade`/`.img-ready`: invisible until fully loaded, then a 0.22s
+     fade-in — images appear whole, never half-painted. Plus
+     `decoding=async` + `loading=lazy`.
+- Headless-verified on all three surfaces (fade class applies, ready fires,
+  no page errors). Product thumbs skipped on purpose — they're inline data
+  URIs (instant already).
