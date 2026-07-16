@@ -752,3 +752,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   models (BiRefNet / rembg, ~cents) that return REAL alpha PNGs — wiring one
   as a "remove background" edit path would make this an honest yes. Needs
   the fal balance + owner's go.
+
+### "Codes not sending" — was Sign UP with an existing account (2026-07-16)
+- Owner hit Sign Up with an already-registered email → GoTrue's
+  anti-enumeration returns 200 + a FAKE user (empty `identities`) and sends
+  NO email → the UI went to "check your email" and nothing ever came.
+- Verified the pipeline is healthy end-to-end while diagnosing: hook fires,
+  send-email function 200s, Go Farther mailer up (401 unauth = alive), and a
+  live /otp test invoked the function fine.
+- **Fix:** `Auth.signUp` now detects the empty-identities response and throws
+  "That account already exists — sign in instead." — shown on the form
+  instead of the dead-end code screen. (Server keeps its anti-enumeration;
+  this is client-side UX only.)
+- NB the send-email hook returns 200 BEFORE the background Go Farther send
+  (5s hook deadline) — a mailer failure is invisible to GoTrue by design;
+  it lands in the edge function's console logs only.

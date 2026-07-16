@@ -61,6 +61,13 @@ const Auth = (() => {
     // Email-confirmation OFF → signup returns a full session.
     // Email-confirmation ON  → returns a user but no token; caller must verify email.
     if (data.access_token) return { session: adopt(data), needsConfirm: false };
+    // GoTrue anti-enumeration: signing up an EXISTING confirmed email returns
+    // 200 with a fake user whose identities are empty — and sends NO email.
+    // Surface it as "account exists" instead of a silent 'check your inbox'.
+    const u = data && (data.user || data);
+    if (u && Array.isArray(u.identities) && u.identities.length === 0) {
+      throw new Error('That account already exists — sign in instead.');
+    }
     return { session: null, needsConfirm: true };
   }
 
