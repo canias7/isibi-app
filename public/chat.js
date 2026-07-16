@@ -4525,6 +4525,98 @@ async function pullMemory() {
   } catch {}
 }
 
+// ── Avatars + products cross-device sync (user_assets row, LWW like memory).
+// Images are compacted before push (≤800px JPEG) so the row stays a payload,
+// not a warehouse; the device that created an asset keeps its full-res copy
+// locally until another device edits the collection. ──
+const ASSETS_ENDPOINT = SUPABASE_URL + '/rest/v1/user_assets';
+const ASSETS_AT_KEY = 'zephyr_assets_at_v1';
+let assetsAt = 0; // when THIS device last changed avatars/products
+try { assetsAt = +localStorage.getItem(ASSETS_AT_KEY) || 0; } catch {}
+let assetsPushTimer = null;
+function touchAssets() {
+  assetsAt = Date.now();
+  try { localStorage.setItem(ASSETS_AT_KEY, String(assetsAt)); } catch {}
+  clearTimeout(assetsPushTimer);
+  assetsPushTimer = setTimeout(pushAssets, 900);
+}
+// Only real image sources survive a sync round-trip into an <img> src.
+const assetSrcOk = (s) => typeof s === 'string' && /^(data:image\/|https?:)/i.test(s) ? s : '';
+async function compactAssetImage(src, edge = 800) {
+  if (!assetSrcOk(src)) return '';
+  if (!src.startsWith('data:')) return src.slice(0, 2000); // already a hosted URL — tiny to sync
+  if (src.length < 220000) return src; // ≈160KB binary — small enough as-is
+  try {
+    const img = new Image();
+    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });
+    const scale = Math.min(1, edge / Math.max(img.width, img.height));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(img.width * scale));
+    cv.height = Math.max(1, Math.round(img.height * scale));
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', 0.82);
+  } catch { return src.length < 700000 ? src : ''; }
+}
+async function pushAssets() {
+  const h = await syncHeaders();
+  const uid = window.Auth && Auth.userId ? Auth.userId() : '';
+  if (!h || !uid) return;
+  try {
+    const avatars = [];
+    for (const a of loadAvatars().slice(0, 60)) {
+      if (!a || !a.id) continue;
+      avatars.push({ id: String(a.id), name: String(a.name || 'Avatar').slice(0, 80), image: await compactAssetImage(a.image) });
+    }
+    const products = [];
+    for (const p of loadProducts().slice(0, 60)) {
+      if (!p || !p.id) continue;
+      products.push({
+        id: String(p.id), name: String(p.name || 'Product').slice(0, 200),
+        desc: String(p.desc || '').slice(0, 300), site: String(p.site || '').slice(0, 120),
+        at: +p.at || 0, image: await compactAssetImage(p.image),
+      });
+    }
+    await fetch(ASSETS_ENDPOINT + '?on_conflict=user_id', {
+      method: 'POST',
+      headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
+      body: JSON.stringify({ user_id: uid, avatars, products, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
+    });
+  } catch {}
+}
+async function pullAssets() {
+  const h = await syncHeaders();
+  if (!h) return;
+  try {
+    const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,products,updated_at&limit=1', { headers: h });
+    if (!res.ok) return;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || !rows.length) return;
+    const r = rows[0];
+    const remoteAt = Date.parse(r.updated_at) || 0;
+    if (remoteAt <= (assetsAt || 0)) return; // this device wrote more recently — LWW
+    if (Array.isArray(r.avatars)) {
+      const av = r.avatars.filter((a) => a && a.id)
+        .map((a) => ({ id: String(a.id), name: String(a.name || 'Avatar').slice(0, 80), image: assetSrcOk(a.image) }))
+        .slice(0, 60);
+      try { localStorage.setItem(AVATARS_KEY, JSON.stringify(av)); } catch {}
+    }
+    if (Array.isArray(r.products)) {
+      const pr = r.products.filter((p) => p && p.id)
+        .map((p) => {
+          const img = assetSrcOk(p.image);
+          return { id: String(p.id), name: String(p.name || 'Product').slice(0, 200), desc: String(p.desc || '').slice(0, 300), site: String(p.site || '').slice(0, 120), at: +p.at || 0, image: img, images: img ? [img] : [] };
+        })
+        .slice(0, 60);
+      try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(pr)); } catch {}
+    }
+    assetsAt = remoteAt;
+    try { localStorage.setItem(ASSETS_AT_KEY, String(remoteAt)); } catch {}
+    // Repaint whichever of the two pages is on screen right now.
+    try { const v = document.getElementById('viewAvatar'); if (v && v.classList.contains('active')) renderAvatar(); } catch {}
+    try { renderProductGrid(); } catch {}
+  } catch {}
+}
+
 function directorContext() {
   return {
     model: model,
@@ -5388,9 +5480,11 @@ function enterApp() {
   // would land in the outgoing account's chat and be discarded by the reset.
   const ranFirstMsg = !!pendingFirstMsg;
   if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
-  // Signed in — pull the account's chats and universal memory, merge both.
+  // Signed in — pull the account's chats, universal memory, and the synced
+  // avatars/products, merge all of them.
   pullChats();
   pullMemory();
+  pullAssets();
   fetchCredits();
   // Pick up any generation that was mid-flight when the tab last closed,
   // and re-copy any media whose gallery save failed.
@@ -5850,7 +5944,7 @@ function renderLanding() {
 const AVATARS_KEY = 'zephyr_avatars_v1';
 function loadAvatars() { try { return JSON.parse(localStorage.getItem(AVATARS_KEY) || '[]'); } catch { return []; } }
 function saveAvatars(list) {
-  try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); return true; }
+  try { localStorage.setItem(AVATARS_KEY, JSON.stringify(list.slice(0, 60))); touchAssets(); return true; }
   catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this avatar may not stick after a reload. Remove a few to free space.'); return false; }
 }
 
@@ -6253,7 +6347,7 @@ async function acGenerate() {
 const PRODUCTS_KEY = 'zephyr_products_v1';
 function loadProducts() { try { return JSON.parse(localStorage.getItem(PRODUCTS_KEY) || '[]'); } catch { return []; } }
 function saveProducts(list) {
-  try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); return true; }
+  try { localStorage.setItem(PRODUCTS_KEY, JSON.stringify(list.slice(0, 60))); touchAssets(); return true; }
   catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this product may not stick after a reload. Remove a few to free space.'); return false; }
 }
 function prUid() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }

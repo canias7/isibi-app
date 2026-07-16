@@ -767,3 +767,18 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - NB the send-email hook returns 200 BEFORE the background Go Farther send
   (5s hook deadline) — a mailer failure is invisible to GoTrue by design;
   it lands in the edge function's console logs only.
+
+### Avatars + products now follow the account (2026-07-16)
+- **Owner's find:** avatars/products showed on the PC but not the laptop —
+  they were localStorage-only ("stored locally for now").
+- **Built:** `user_assets` table (avatars jsonb, products jsonb, updated_at;
+  RLS own-row select/insert/update; FK cascade → account deletion cleans it).
+  Client mirrors the memory sync: saveAvatars/saveProducts → touchAssets →
+  debounced pushAssets upsert; pullAssets at boot with whole-object
+  last-writer-wins. Images compacted to ≤800px JPEG q.82 before push (small
+  ones and hosted URLs pass through untouched; scheme-filtered on pull) — the
+  device that created an asset keeps its full-res copy until another device
+  edits the collection, so worst case the OTHER device generates from an
+  800px product photo.
+- Headless-verified: remote row adopted at boot, local edit pushes with
+  merge-duplicates, an older remote never clobbers newer local.
