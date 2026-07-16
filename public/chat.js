@@ -286,8 +286,10 @@ function onAttach(kind, inputEl) {
       attachments[kind] = uri;
       if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, uri);
       renderAttach(kind);
-      if (kind === 'image') clearImageInputsExcept('image');
-      else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
+      if (kind === 'image') {
+        clearImageInputsExcept('image');
+        renderExtraImages(); // the "+ Add image" tile appears once a main image is in
+      } else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
       updateSendPrice();
     });
     return;
