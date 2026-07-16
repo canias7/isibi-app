@@ -1025,19 +1025,15 @@
 /* ── Avatar page ── */
 .view-avatar.active { flex-direction: column; overflow-y: auto; padding: 2.4rem 2rem 3rem; }
 .av-page { width: 100%; }
-.av-empty { min-height: 66vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; max-width: 640px; }
-.av-hero h1 { font-size: 1.7rem; font-weight: 700; letter-spacing: -.01em; }
-.av-hero p { color: var(--muted); font-size: .95rem; margin-top: .4rem; }
-.av-choices { display: flex; gap: 1.1rem; margin-top: 1.7rem; flex-wrap: wrap; justify-content: center; }
-.av-choice {
-  width: 250px; display: flex; flex-direction: column; align-items: center; gap: .4rem; text-align: center;
-  background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 16px; padding: 1.7rem 1.2rem;
-  cursor: pointer; transition: border-color .12s ease, transform .12s ease;
+/* Empty state = the Products page pattern (owner's pick, design 1): pr-head
+   headline + one action row. */
+.av-start { display: flex; align-items: center; gap: .85rem; margin: 1.6rem 0 1.9rem; flex-wrap: wrap; }
+.av-start-gen {
+  background: var(--split); color: #0a0a0b; border: none; border-radius: 11px;
+  padding: .66rem 1.15rem; font: inherit; font-weight: 700; font-size: .9rem;
+  cursor: pointer; transition: transform .12s ease;
 }
-.av-choice:hover { border-color: rgba(255, 170, 110, .5); transform: translateY(-2px); }
-.av-choice-ico { font-size: 1.7rem; margin-bottom: .2rem; }
-.av-choice-t { font-size: 1rem; font-weight: 600; color: var(--text); }
-.av-choice-s { font-size: .8rem; color: var(--muted); line-height: 1.4; }
+.av-start-gen:hover { transform: translateY(-1px); }
 .av-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .av-top h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; }
 .av-top-btns { display: flex; gap: .6rem; }

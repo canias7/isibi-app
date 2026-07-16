@@ -6019,17 +6019,16 @@ function renderAvatar() {
   if (avatarMode === 'create') { renderAvatarCreator(view); return; }
   const avatars = loadAvatars();
   if (!avatars.length) {
+    // Empty state mirrors the Products page (owner's pick, design 1,
+    // 2026-07-16): headline top-left + subtitle + one action row.
     view.innerHTML =
-      '<div class="av-page av-empty">' +
-        '<div class="av-hero"><h1>Create your avatar</h1>' +
-          '<p>Generate a talking avatar with AI, or import your own portrait.</p></div>' +
-        '<div class="av-choices">' +
-          '<button type="button" class="av-choice" data-act="generate">' +
-            '<span class="av-choice-t">Generate with AI</span>' +
-            '<span class="av-choice-s">Describe a person and isibi creates the avatar.</span></button>' +
-          '<button type="button" class="av-choice" data-act="import"><span class="av-choice-ico">⬆</span>' +
-            '<span class="av-choice-t">Import</span>' +
-            '<span class="av-choice-s">Upload your own portrait photo.</span></button>' +
+      '<div class="av-page">' +
+        '<div class="pr-head"><h1>Create your avatar</h1>' +
+          '<p>A consistent face for your videos — generate one with AI or import your own portrait.</p></div>' +
+        '<div class="av-start">' +
+          '<button type="button" class="av-start-gen" data-act="generate">✦ Generate with AI</button>' +
+          '<span class="pr-or">or</span>' +
+          '<button type="button" class="pr-manual" data-act="import">⬆ Import a photo</button>' +
         '</div>' +
       '</div>';
   } else {
