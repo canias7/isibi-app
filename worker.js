@@ -1741,7 +1741,9 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
       const prompt =
-        typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
+        // 4000 matches the director's output cap — 2000 chopped long composed
+        // prompts mid-word. Per-model caps (Kling 2500 etc.) still apply below.
+        typeof body.prompt === "string" ? body.prompt.trim().slice(0, 4000) : "";
       const allowed =
         genKind === "video" ? VIDEO_MODELS :
         genKind === "audio" ? AUDIO_MODELS : IMAGE_MODELS;
@@ -3263,7 +3265,7 @@ async function handleRequest(request, env, ctx) {
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
       // The previous generation's prompt — lets the ask step spot feedback
       // ("slower", "fix the text") and the revise step edit surgically.
-      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 2000) : "";
+      const prevPrompt = typeof body.prevPrompt === "string" ? body.prevPrompt.trim().slice(0, 4000) : ""; // revise rewrites FROM this — clipping it loses the tail
       if (step === "revise" && !prevPrompt) step = "compose";
       // The Orchestrator is metered through the regular credit ledger at the same
       // $0.008/credit basis as generations. Charge AFTER validation (empty prompt)
@@ -3973,7 +3975,10 @@ Return just the line to be voiced — keep it to what should actually come out o
         });
       }
       return Response.json({
-        prompt: String(parsed.prompt || prompt).slice(0, 2000),
+        // 4000, not 2000: a Max-effort prompt plus research facts overshoots
+        // 2000 and was getting chopped mid-word ("…quietly luxurious, wit").
+        // Downstream per-model caps still apply at generation time.
+        prompt: String(parsed.prompt || prompt).slice(0, 4000),
         brief: parsed.brief ? String(parsed.brief).slice(0, 600) : undefined,
         // Evolved durable taste, same cap/sanitize as the inbound list. Absent
         // when the model returned nothing new — the client keeps what it has.
