@@ -103,10 +103,12 @@
          WITHOUT making a scroll container — so overflow-y stays visible and
          dropdowns/menus that open downward are not clipped. */
       overflow-x: clip;
+      /* Vignette spotlight (owner's pick, 2026-07-16 — replaced the square
+         grid): a soft glow high in the frame falling off into darkened
+         corners. Pure gradients, no asset. */
       background-image:
-        linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
-      background-size: 44px 44px;
+        radial-gradient(115% 85% at 42% 18%, rgba(255,255,255,.05) 0%, rgba(255,255,255,.016) 42%, transparent 70%),
+        radial-gradient(150% 130% at 50% 55%, transparent 58%, rgba(0,0,0,.5) 100%);
     }
 
     /* ── Chat view ───────────────────────────── */
