@@ -4590,7 +4590,12 @@ async function pullAssets() {
     const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,products,updated_at&limit=1', { headers: h });
     if (!res.ok) return;
     const rows = await res.json();
-    if (!Array.isArray(rows) || !rows.length) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      // No server row yet — seed it from this device's existing collections,
+      // so a plain refresh (no edit) is enough to start following the account.
+      if (loadAvatars().length || loadProducts().length) touchAssets();
+      return;
+    }
     const r = rows[0];
     const remoteAt = Date.parse(r.updated_at) || 0;
     if (remoteAt <= (assetsAt || 0)) return; // this device wrote more recently — LWW
