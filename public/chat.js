@@ -6090,7 +6090,11 @@ function buildAvatarPrompt() {
   if (facial.length) b.push('with a ' + join(lc(facial)));
   const eyes = arr('eyes'); if (eyes.length) b.push(join(lc(eyes)) + ' eyes');
   const who = b.length ? 'a ' + b.join(', ') : 'a person';
-  return 'Photorealistic front-facing portrait headshot of ' + who + ', neutral confident expression, soft even studio lighting, plain background, sharp focus on the eyes, head and shoulders, high detail — a clean talking-avatar reference.';
+  // Owner spec (2026-07-16): every avatar renders the SAME way — full body,
+  // standing, on a pure white seamless studio background (photoshoot-cutout
+  // look), wearing a plain all-white outfit. White on white, no extra colors,
+  // so avatars are uniform and drop cleanly into any scene.
+  return 'Photorealistic full-body studio photograph of ' + who + ', standing straight facing the camera, full figure visible head to shoes, on a pure seamless white background (professional e-commerce cutout style), wearing a plain all-white outfit — simple white t-shirt, white pants and white sneakers, no logos, no patterns, no extra colors. Neutral confident expression, soft even studio lighting with gentle natural shadows under the feet, sharp focus, high detail — a clean, uniform avatar reference.';
 }
 
 let acBusy = false;
@@ -6114,7 +6118,7 @@ async function acGenerate() {
   try {
     const res = await apiFetch('/api/image', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: AVATAR_MODEL, prompt, ratio: '3:4', effort: 'off', director: 'off' }),
+      body: JSON.stringify({ model: AVATAR_MODEL, prompt, ratio: '2:3', effort: 'off', director: 'off' }), // taller frame — full body head-to-shoes
     });
     const job = await res.json().catch(() => ({}));
     if (res.status === 402) { fail('Not enough credits — tap your ✦ balance up top to get more.'); return; }
