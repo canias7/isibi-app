@@ -3315,7 +3315,7 @@ function updateSendLock() {
   const busy = activeGens.has(chatStore.active);
   btn.disabled = false;
   btn.title = busy ? 'Stop generating' : 'Send';
-  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG + '<span class="send-price" id="sendPrice"></span>';
+  btn.innerHTML = busy ? STOP_SVG : ARROW_SVG + '<span class="send-spark" id="sendSpark">✦</span><span class="send-price" id="sendPrice"></span>';
   if (!busy) { updateSendPrice(); refreshSendEnabled(); }
 }
 
@@ -3476,7 +3476,13 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
 }
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
-  if (el) el.textContent = estimatePrice();
+  if (el) {
+    // The ✦ stays grey on the button; the count chip carries just the number.
+    const p = estimatePrice() || '';
+    el.textContent = p.replace('✦', '').trim();
+    const sp = document.getElementById('sendSpark');
+    if (sp) sp.style.display = el.textContent ? '' : 'none';
+  }
   refreshSendEnabled(); // model/attachment changes can flip submittability
 }
 

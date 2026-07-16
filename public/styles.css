@@ -266,14 +266,14 @@
     }
     .lp-chip-x:hover { opacity: 1; }
     .send {
-      flex-shrink: 0; background: var(--split); color: #0a0a0b;
-      border: none; border-radius: 50%; width: 48px; height: 48px;
+      flex-shrink: 0; background: rgba(255, 255, 255, .05); color: var(--text);
+      border: 1px solid var(--line-2); border-radius: 50%; width: 48px; height: 48px;
       display: grid; place-items: center; cursor: pointer;
-      box-shadow: 0 6px 28px rgba(168,85,247,.32);
-      transition: transform .12s ease, background .12s ease;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, .35);
+      transition: transform .12s ease, background .12s ease, border-color .12s ease;
     }
     .send svg { display: block; }
-    .send:hover { background: var(--split-dim); transform: translateY(-1px); }
+    .send:hover { background: rgba(255, 255, 255, .09); border-color: rgba(237, 234, 243, .45); transform: translateY(-1px); }
     .send:disabled { opacity: .4; transform: none; cursor: default; box-shadow: none; }
 
     @media (max-width: 900px) {
@@ -606,8 +606,8 @@
 }
 .set-chip:hover { border-color: #4a4a52; }
 .set-chip.active {
-  background: rgba(255, 255, 255, .07); color: var(--text);
-  border-color: rgba(237, 234, 243, .55); font-weight: 700;
+  background: rgba(255, 255, 255, .14); color: #fff;
+  border-color: rgba(237, 234, 243, .85); font-weight: 700;
 }
 .set-voicebtn {
   width: 18px; height: 18px; border-radius: 5px; display: inline-grid; place-items: center;
@@ -1549,14 +1549,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 
 /* Send button: breathing glow at rest, gradient slide + arrow nudge on hover. */
 .send {
-  transition: background-size .4s ease, background-position .4s ease, transform .16s ease, box-shadow .25s ease;
-  animation: send-breathe 3.6s ease-in-out infinite;
+  transition: transform .16s ease, box-shadow .25s ease, background .15s ease, border-color .15s ease;
 }
 .send:hover {
-  animation: none;
-  background-image: var(--split); background-size: 145% 100%; background-position: 100% 50%;
   transform: translateY(-2px);
-  box-shadow: 0 10px 34px rgba(168, 85, 247, .5), 0 4px 18px rgba(255, 214, 10, .25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
 }
 .send svg { transition: transform .18s ease; }
 .send:hover svg { transform: translateY(-2px); }
@@ -2048,13 +2045,18 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .send {
   border-radius: 17px; width: auto; min-width: 126px; height: 62px; padding: 0 20px;
   display: flex; align-items: center; justify-content: center; gap: 9px;
-  box-shadow: 0 6px 24px rgba(255,150,120,.35);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
 }
-.send:hover { box-shadow: 0 8px 30px rgba(255,150,120,.45); }
+.send:hover { box-shadow: 0 8px 30px rgba(0, 0, 0, .45); }
+.send-spark { color: var(--muted); font-weight: 700; font-size: 1.05rem; }
 /* Empty box on a prompt-required model: the button greys out and takes no hover
    lift, so it never looks ready and then silently no-ops. */
 .send:disabled, .send:disabled:hover { opacity: .4; box-shadow: none; transform: none; cursor: default; }
-.send-price { font-weight: 800; font-size: .98rem; letter-spacing: .01em; color: #0a0a0b; white-space: nowrap; }
+.send-price {
+  background: var(--split); color: #0a0a0b; border-radius: 999px;
+  padding: .3rem .66rem; font-weight: 800; font-size: .9rem;
+  letter-spacing: .01em; white-space: nowrap;
+}
 .send-price:empty { display: none; }
 
 /* Mode switch → pill; active tab takes the gradient. */
