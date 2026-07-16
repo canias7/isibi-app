@@ -3252,7 +3252,7 @@ async function handleRequest(request, env, ctx) {
       if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "director not configured" }, { status: 501 });
       }
-      const tl = tooLargeBody(request, 60_000_000); if (tl) return tl; // director carries at most one image
+      const tl = tooLargeBody(request, 60_000_000); if (tl) return tl; // director carries up to 14 downscaled images (~12M chars max, capped below)
       let body;
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
@@ -3442,12 +3442,23 @@ async function handleRequest(request, env, ctx) {
       const rayCtlCapable = kind === "video" && /^luma\//.test(genModel) && hasClip;
       const tuneCapable = kind === "audio" && /elevenlabs/.test(genModel);
       const tuneFull = tuneCapable && !/eleven-v3/.test(genModel); // v3 accepts stability only
-      // The attached image itself (downscaled by the client) so the director
-      // can look at it. ~2.8M chars of base64 ≈ 2MB binary, under API limits.
-      let imageBlock = null;
-      if (kind !== "audio" && typeof body.image === "string" && body.image.length < 2800000) {
-        const m = body.image.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
-        if (m) imageBlock = { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+      // The attached images themselves (downscaled by the client) so the
+      // director can look at them — ALL of them, in panel order, or "edit
+      // image 5" gets planned against image 1. Per-image ~2.8M base64 chars
+      // (≈2MB binary) and ~12M total keep the API request bounded.
+      const imageBlocks = [];
+      if (kind !== "audio") {
+        const list = Array.isArray(body.images) ? body.images.slice(0, 14)
+          : body.image != null ? [body.image] : [];
+        let total = 0;
+        for (const s of list) {
+          if (typeof s !== "string" || s.length > 2800000) continue;
+          const m = s.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
+          if (!m) continue;
+          total += s.length;
+          if (total > 12_000_000) break;
+          imageBlocks.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } });
+        }
       }
       const genDuration = Number.isFinite(+body.duration) ? Math.min(30, Math.max(1, Math.round(+body.duration))) : 0;
       const genRatio = typeof body.ratio === "string" ? body.ratio.slice(0, 10) : "";
@@ -3511,7 +3522,14 @@ async function handleRequest(request, env, ctx) {
       // edit branch below is written for a single source; when >1 is attached,
       // tell the writer to describe each image's role by POSITION.
       const multiImgLine = (kind === "image" && imageCount > 1)
-        ? `\n- ${imageCount} images are attached to combine/edit. Say clearly what to take from EACH, referring to them by position ("the first image", "the second image", …) and how they merge — this model binds images by position, NOT by any @Image tag, so never write @Image1.`
+        ? `\n- ${imageCount} images are attached to combine/edit. Say clearly what to take from EACH, referring to them by position ("the first image", "the second image", …) and how they merge — this model binds images by position, NOT by any @Image tag, so never write @Image1. The attached images are shown to you labeled "Image 1"…"Image ${imageCount}" in that same order — when the user says "image 5" they mean the one labeled Image 5; LOOK at it before describing it, and never assume it's the first one.`
+        : "";
+      // No image model here can output a real transparent (alpha) background —
+      // files come back opaque, and a "transparent background" prompt only
+      // paints a fake grey checkerboard INTO the picture. Steer to the closest
+      // honest thing and make the reply say so.
+      const transparencyLine = kind === "image"
+        ? `\n- TRANSPARENCY LIMIT: no available model can produce a truly transparent (alpha) background — asking for one just paints a fake checkerboard pattern into the image. If the user asks for a transparent/no background, write the prompt for a clean solid pure-white seamless studio background (or another solid color they prefer) instead, and say in the reply that true transparency isn't possible here — they get a clean solid-background cutout.`
         : "";
       // References work differently per family. Seedance binds each reference by
       // an @-tag written INTO the prompt; Veo uses them holistically for identity.
@@ -3561,7 +3579,7 @@ When genuinely unsure, set ready=true.`
 - If they're just greeting you, making small talk, or asking what you can do: set ready=false. Use your reply to warmly invite them to describe what they'd like to create.
 - If they've described something to create: DEFAULT to set ready=true and make every creative call yourself — a clear request should just get made, no back-and-forth.
 - The ONE exception: if a single genuinely important detail is missing or ambiguous AND you can't reasonably assume it — something that would materially change the result (a real product photo vs an illustration; one of two very different moods or settings; a specific brand, person or place you can't guess) — then set ready=false and end your reply with ONE short, specific question, offering a couple of concrete options when that helps them answer in a word. Ask at most one question, only when it truly earns the extra step; never interrogate, and never ask about things you can tastefully decide yourself.
-Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+Tailor everything to what THIS user is trying to make.${hasImage ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${(kind === "image" && imageCount > 1) ? `\nThe user attached ${imageCount} images, shown to you labeled "Image 1"…"Image ${imageCount}" in the same order they see. When they name one by number ("image 5"), LOOK at that exact one before describing or acting on it — never assume they mean the first.` : ""}${kind === "image" ? `\nTRANSPARENCY LIMIT: no model here can output a truly transparent (alpha) background — a "transparent background" request only paints a fake checkerboard into the picture. If they ask for one, say plainly it isn't possible and offer the closest real thing: a clean solid pure-white (or any solid color) seamless background.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
 - both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${memoryLine}
@@ -3627,7 +3645,7 @@ Context: ${ctxLine}`
 Write ONE short, direct instruction — one or two plain sentences (~15-45 words) — that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Do NOT re-describe the whole scene, do NOT write a full generation prompt, do NOT pad for length. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Change the sky behind the building to a dramatic orange sunset; leave everything else untouched." · "Turn the man's jacket red and add subtle rain on the window." · "Restyle the photo into a soft watercolour painting while keeping the composition exactly."${familyHint ? `
-- ${familyHint}` : ""}${multiImgLine}${briefLine}${memoryLine}
+- ${familyHint}` : ""}${multiImgLine}${transparencyLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -3638,7 +3656,7 @@ Craft rules:
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
 ${familyHint ? `
 - ${familyHint}` : ""}
-${effortLine}${briefLine}${factsLine}${memoryLine}
+${effortLine}${transparencyLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
         : `You are the script writer for isibi, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
 - If the user gives words to say, return exactly those words, lightly cleaned and punctuated for natural delivery.
@@ -3668,10 +3686,16 @@ Return just the line to be voiced — keep it to what should actually come out o
       const lastTurn = turns[turns.length - 1];
       if (lastTurn && lastTurn.role === "user") lastTurn.content += "\n" + userMsg;
       else turns.push({ role: "user", content: userMsg });
-      // Put the attached image on the final user turn so the director sees it.
-      if (imageBlock) {
+      // Put the attached images on the final user turn so the director sees
+      // them. With several, each is labeled with its panel position so "the
+      // fifth image" means the same thing to the user, the director and fal.
+      if (imageBlocks.length) {
         const last = turns[turns.length - 1];
-        last.content = [imageBlock, { type: "text", text: last.content }];
+        const parts = [];
+        if (imageBlocks.length === 1) parts.push(imageBlocks[0]);
+        else imageBlocks.forEach((b, i) => parts.push({ type: "text", text: "Image " + (i + 1) + ":" }, b));
+        parts.push({ type: "text", text: last.content });
+        last.content = parts;
       }
 
       // Force a tool call so Sonnet returns validated structured output.

@@ -729,3 +729,26 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   names those stores as forbidden page_urls.
 - Unit-tested: real Shopify page keeps all 4 candidates; a mock Amazon
   captcha page yields ZERO candidates and trips WALL_RE.
+
+### Orchestrator edited image 1 when told "image 5" + fake transparency (2026-07-16)
+- **Owner caught both live.** "EDIT IMAGE 5, TRANSPARENT BACKGROUND" → the
+  plan confidently described IMAGE 1's content ("the woman, white tee, cream
+  jeans"), and the render came back with a fake grey CHECKERBOARD painted
+  into the pixels.
+- **Cause 1 (wrong image):** `directorImage()` sent the director ONLY the
+  main image — with 5 attached it literally couldn't see 2-5, so any "image
+  N" request got planned against image 1 while parroting the user's words.
+  Fix: it now sends ALL attached images in panel order (downscaled by count:
+  1024px ≤2 imgs / 640px ≤6 / 512px above, ≤14, ~12M char server cap), the
+  worker labels each block "Image 1"…"Image N", and ask/compose prompts say
+  to LOOK at the named one, never assume the first. Verified headless: 5
+  color-coded canvases come through in exact order.
+- **Cause 2 (fake transparency):** no model in the lineup can output real
+  alpha (checked NBP + GPT Image 2 fal schemas — no background param;
+  Gemini-family can't do alpha at all). New TRANSPARENCY LIMIT line in the
+  ask + compose/edit prompts: say it's not possible, steer to a clean solid
+  white (or user-picked solid) background instead.
+- **Proper follow-up (not built):** fal hosts dedicated background-removal
+  models (BiRefNet / rembg, ~cents) that return REAL alpha PNGs — wiring one
+  as a "remove background" edit path would make this an honest yes. Needs
+  the fal balance + owner's go.

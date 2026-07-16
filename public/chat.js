@@ -4611,24 +4611,35 @@ function sanitizeShots(arr) {
   return out.length >= 2 ? out : null;
 }
 
-// The director gets to SEE the attached image (downscaled — it only needs to
-// understand the picture, not generate from it).
+// The director gets to SEE the attached images (downscaled — it only needs to
+// understand the pictures, not generate from them). ALL of them, in panel
+// order (1 = main, 2..N = extras): it used to get only image 1, so "edit
+// image 5" was confidently planned against the wrong picture.
 async function directorImage() {
-  // Show the director whatever image is attached: the start image, the first
-  // frame, or the first reference — so it can look before it writes.
-  const src = attachments.image || attachments.ffirst || (mode === 'video' ? refList[0] || elList[0] : null);
-  if (!src || mode === 'audio') return {};
-  try {
-    const img = new Image();
-    await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });
-    const scale = Math.min(1, 1024 / Math.max(img.width, img.height));
-    if (scale === 1 && src.length < 1500000) return { image: src };
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(img.width * scale));
-    canvas.height = Math.max(1, Math.round(img.height * scale));
-    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-    return { image: canvas.toDataURL('image/jpeg', 0.85) };
-  } catch { return {}; }
+  if (mode === 'audio') return {};
+  const srcs = mode === 'image'
+    ? [attachments.image, ...extraImages].filter(Boolean)
+    : [attachments.image || attachments.ffirst || refList[0] || elList[0]].filter(Boolean);
+  if (!srcs.length) return {};
+  // Downscale harder as the count grows — understanding needs far fewer
+  // pixels than generating, and 14 originals would blow the request budget.
+  const edge = srcs.length > 6 ? 512 : srcs.length > 2 ? 640 : 1024;
+  const out = [];
+  for (const src of srcs.slice(0, 14)) {
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = src; });
+      const scale = Math.min(1, edge / Math.max(img.width, img.height));
+      if (scale === 1 && src.length < 900000) { out.push(src); continue; }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      out.push(canvas.toDataURL('image/jpeg', 0.85));
+    } catch {}
+  }
+  if (!out.length) return {};
+  return out.length === 1 ? { image: out[0] } : { images: out };
 }
 
 async function directorAsk(text, history, onDelta) {
