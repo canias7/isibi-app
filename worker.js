@@ -4221,7 +4221,7 @@ Return just the line to be voiced — keep it to what should actually come out o
         catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
         const refund = () => creditBack(env, scanUser.id, AI_SCAN_CR);
 
-        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, image_url (a DIRECT https product-image link — prefer the store's own image CDN, e.g. i5.walmartimages.com or m.media-amazon.com). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
+        const lkSystem = `You are a product-lookup assistant. The user gives a store product URL whose page blocks robots. Use web_search (1-2 focused searches on the product name/ID from the URL slug plus the store name) to identify the EXACT product, then call report_product once with what you found: name (concise product title), desc (1-2 factual sentences), price (number as a string) and currency (ISO code like USD) only if confidently current, and image_urls — up to 3 candidate DIRECT product-image links (plain https URLs ending in an image path, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's product photo). Report only facts you actually found; omit unknown fields. Always finish by calling report_product.`;
         let lkMsgs = [{ role: "user", content: `Store product URL: ${u.toString()}` }];
         let product = null;
         for (let round = 0; round < 4; round++) {
@@ -4237,7 +4237,8 @@ Return just the line to be voiced — keep it to what should actually come out o
                 tools: [
                   { type: "web_search_20250305", name: "web_search", max_uses: 2 },
                   { name: "report_product", description: "Report the identified product.", input_schema: { type: "object", properties: {
-                    name: { type: "string" }, desc: { type: "string" }, price: { type: "string" }, currency: { type: "string" }, image_url: { type: "string" },
+                    name: { type: "string" }, desc: { type: "string" }, price: { type: "string" }, currency: { type: "string" },
+                    image_url: { type: "string" }, image_urls: { type: "array", items: { type: "string" }, description: "up to 3 direct https product-image links, best first" },
                   }, required: ["name"] } },
                 ],
                 messages: lkMsgs,
@@ -4254,16 +4255,23 @@ Return just the line to be voiced — keep it to what should actually come out o
           break;
         }
         if (!product) { await refund(); return Response.json({ error: "couldn't identify that product — nothing charged" }, { status: 422 }); }
-        // Inline the image via the SSRF-guarded fetch (store CDNs are usually open).
+        // Inline the image via the SSRF-guarded fetch. Try every candidate in
+        // order with browser-like headers (some CDNs 403 headerless fetches).
         let aiImage = "";
-        const imgUrl = typeof product.image_url === "string" && /^https:\/\//i.test(product.image_url) ? product.image_url : "";
-        if (imgUrl) {
+        const candidates = [product.image_url].concat(Array.isArray(product.image_urls) ? product.image_urls : [])
+          .filter((s) => typeof s === "string" && /^https:\/\//i.test(s))
+          .filter((s, i, a) => a.indexOf(s) === i)
+          .slice(0, 4);
+        for (const cand of candidates) {
           try {
-            const ir = await safeFetch(imgUrl, { signal: AbortSignal.timeout(8000) });
+            const ir = await safeFetch(cand, {
+              headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" },
+              signal: AbortSignal.timeout(8000),
+            });
             const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
             if (ir && ir.ok && ict.startsWith("image/")) {
               const bytes = await readCapped(ir, 2_000_001);
-              if (bytes.length && bytes.length <= 2_000_000) aiImage = "data:" + ict + ";base64," + b64FromBuffer(bytes);
+              if (bytes.length && bytes.length <= 2_000_000) { aiImage = "data:" + ict + ";base64," + b64FromBuffer(bytes); break; }
             }
           } catch {}
         }
@@ -4306,7 +4314,10 @@ Return just the line to be voiced — keep it to what should actually come out o
       let imageData = "";
       if (info.image) {
         try {
-          const ir = await safeFetch(info.image, { signal: AbortSignal.timeout(8000) });
+          const ir = await safeFetch(info.image, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36", "Accept": "image/avif,image/webp,image/*,*/*;q=0.8" },
+            signal: AbortSignal.timeout(8000),
+          });
           const ict = ((ir && ir.headers.get("content-type")) || "").split(";")[0].toLowerCase();
           if (ir && ir.ok && ict.startsWith("image/")) {
             const bytes = await readCapped(ir, 2_000_001); // one over the cap so an oversized image is rejected, not truncated into a corrupt data URI
