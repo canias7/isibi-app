@@ -971,3 +971,7 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   "Extend clip"; every other family keeps "Video clip" — on Ray / Kling o3 /
   Gemini the same row means EDIT the clip, and on Seedance it's a motion
   reference, so a global rename would have lied there.
+
+### Video-mode "Image" row renamed "Image to video" (2026-07-16)
+- Owner's call, same naming sweep as Edit image / Extend clip. Image mode
+  keeps "Edit image".

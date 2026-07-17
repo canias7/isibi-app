@@ -874,7 +874,7 @@ function updateAttachVisibility() {
   const ti = document.getElementById('titleImage');
   // "Edit image", not "image to image" (owner 2026-07-16) — users think in
   // verbs; the row attaches ONE picture the model then changes.
-  if (ti) ti.textContent = mode === 'image' ? 'Edit image' : 'Image';
+  if (ti) ti.textContent = mode === 'image' ? 'Edit image' : 'Image to video';
   // The clip row means different things per family — say the right verb
   // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Ray / Kling o3
   // / Gemini re-render it (edit); Seedance uses it as a motion reference.
