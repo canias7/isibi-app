@@ -2049,3 +2049,26 @@ zero page errors; Ray globals (`kfList`/`hdrOn`/`editMode`/`rayReframe`) are
 undefined; `#rowKf`/`#fileKf` gone from the DOM; Kling o3 v2v price still
 computes. Screenshot: Veo settings show only Aspect/Resolution/Duration/Sound;
 attach rows are Image-to-video/Extend-clip/Reference — no Keyframes/HDR/Loop.
+
+## 2026-07-17 — Media Agent: "Schedule post" tab (Instagram, FRONTEND ONLY)
+
+New section tab in the Instagram Media Agent workspace, between Posts and DMs.
+Owner asked to build the frontend now, backend later.
+
+- Composer (reuses the .ma-publish publish-composer look): Media (device file →
+  LOCAL preview only, no /api/save upload; or paste a public URL), Type
+  (image/reel), Caption, and a `datetime-local` "When" picker (defaults ~1h out).
+  A "Preview · not published yet" flag makes the not-live status explicit.
+- "Schedule post" validates media + a FUTURE datetime, then appends a record to
+  a per-browser queue in localStorage (`zephyr_ig_scheduled_v1`, capped 100).
+- Queue cards: thumb (downscaled 400px for images, 🎬/🖼 icon otherwise),
+  caption (or italic "No caption"), IMAGE/REEL pill, 📅 date·time, a gradient
+  SCHEDULED status pill, and an × remove.
+- NOTHING publishes — no backend call anywhere in this tab. Wiring the actual
+  scheduled publish (Composio create-post fired at `when`, server-side queue +
+  persistence, media upload to a public URL) is the pending next step.
+
+Code: IG_SECTIONS + renderSection dispatch + renderSchedule/schPickFile/
+schSubmit/schRemove/loadScheduled/saveScheduled in chat.js; `.sch-*` styles in
+styles.css. Verified headless: tab renders, schedules, persists to localStorage,
+counts, and removes with zero page errors (screenshotted composer + queue).
