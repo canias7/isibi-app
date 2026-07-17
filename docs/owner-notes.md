@@ -1598,3 +1598,13 @@ checklist in the chat.
 - Also open from the Veo sweep: whether Fast REFERENCE at 4k bills the 4k
   tier (Std's card says yes for Std; Fast's card is written flat). We
   charge the 4k tier — house-safe; one live 4k Fast ref settles it.
+
+### Veo money audit COMPLETE — owner-verified (2026-07-17)
+- The owner walked every fal cost card across all 13 Veo endpoints
+  (Std/Fast/Lite × t2v, i2v, first-&-last, reference, extend where they
+  exist) against our quotes: every one matches to the credit, including
+  the 8s locks (references, Lite flf), the 7s/720p extend consts, and
+  Lite's resolution-dependent pricing. Also confirmed: fal's docs cite
+  impossible example durations ("5 second video") on enums that don't
+  include 5s — schema remains the only trustworthy source.
+- Open niche question stands: Fast reference at 4k (tier vs flat billing).
