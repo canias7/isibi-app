@@ -2545,6 +2545,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 #rowFlf .attach-btn:not(.has),
 #rowImgref .ap-add,
 #rowClip .attach-btn:not(.has),
+#srVidGroup .attach-btn:not(.has),
 #rowRef .ap-add,
 #rowEl .ap-add,
 #rowKf .ap-add {
