@@ -887,3 +887,21 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   against a range-serving audio server (Playwright's route stub can't serve
   ranges — Chromium clamps seeks to 0 on it; real Supabase storage serves
   ranges fine).
+
+### Gallery scroll lag round 2: real thumbnails (2026-07-16)
+- **Owner:** still "feels slow" scrolling the gallery after content-visibility.
+- **Root cause:** the grid was downloading + decoding multi-MB FULL-RES
+  originals at ~300px card size (one sampled PNG: 1.6MB, 1179×2556).
+- **Fix:** Supabase image transformations are ENABLED on this project
+  (verified live) — grid cards now load
+  `render/image/public/media/…?width=560&height=350&resize=cover&quality=75&format=webp`
+  (same sampled image: 14KB, >100× lighter). Lightbox + downloads still use
+  the original file. Any transform error (oversized file, plan change) falls
+  back per-image to the original URL. The gallery/avatar picker grid uses the
+  same thumbs for display while picking still attaches the original.
+- **Billing note:** Supabase counts UNIQUE origin images transformed (cached
+  variants are free after the first). Pro plan includes 100 origin
+  images/month, then $5 per 1000 — trivial at current volume, keep in mind at
+  scale.
+- Headless-verified: grid uses render URLs, 400 → per-image fallback to the
+  original, videos/data-URIs untouched, lightbox opens the original.

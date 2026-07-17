@@ -1051,7 +1051,10 @@ async function openGalleryPicker(source) {
   if (gridEl) urls.forEach((u) => {
     const img = document.createElement('img');
     img.alt = '';
-    img.src = u;
+    img.loading = 'lazy'; img.decoding = 'async';
+    // Thumbnail for DISPLAY only — the picked value stays the original `u`.
+    thumbFallback(img, u);
+    img.src = galleryThumb(u);
     if (!multi) {
       img.onclick = () => { useGalleryImages([u]); ov.remove(); };
     } else {
@@ -8314,6 +8317,20 @@ async function refreshGallery() {
   renderGallery();
 }
 
+// Grid thumbnails (owner 2026-07-16: "scrolling feels slow"): the grid was
+// decoding multi-MB full-res originals at card size. Supabase's image CDN
+// (render/image — confirmed enabled on this project) serves a 560×350 webp
+// cover crop (~10–70KB, >100× lighter); the lightbox still opens the
+// original. Any transform error falls back to the original file.
+function galleryThumb(url) {
+  const m = /^(https:\/\/[^/]+)\/storage\/v1\/object\/public\/media\/(.+)$/.exec(url || '');
+  if (!m || !/\.(png|jpe?g|webp)$/i.test(m[2])) return url;
+  return m[1] + '/storage/v1/render/image/public/media/' + m[2] + '?width=560&height=350&resize=cover&quality=75&format=webp';
+}
+function thumbFallback(img, url) {
+  img.addEventListener('error', () => { if (img.src !== url) img.src = url; }, { once: true });
+}
+
 function renderGallery() {
   const grid = document.getElementById('galleryGrid');
   if (!grid) return;
@@ -8338,7 +8355,8 @@ function renderGallery() {
       media.loading = 'lazy'; media.decoding = 'async'; media.alt = '';
       media.classList.add('img-fade');
       media.addEventListener('load', () => media.classList.add('img-ready'), { once: true });
-      media.src = it.url;
+      thumbFallback(media, it.url);
+      media.src = galleryThumb(it.url);
       if (media.complete) media.classList.add('img-ready');
       media.onclick = () => openLightbox('image', it.url);
     } else if (it.kind === 'audio') {
