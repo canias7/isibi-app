@@ -3199,6 +3199,9 @@ function buildMedia(kind, url, prompt) {
   } else {
     el = document.createElement('video');
     el.controls = true; el.src = src; el.playsInline = true;
+    // Safari: paint the first frame without waiting for play (see the same
+    // nudge on gallery cards).
+    el.addEventListener('loadedmetadata', () => { try { el.currentTime = 0.001; } catch (e) {} }, { once: true });
   }
   // A media URL can die after the fact: deleted from the gallery on another
   // surface/device (chat sync has no per-message tombstones, so the message can
@@ -8706,6 +8709,10 @@ function renderGallery() {
       media = document.createElement('video');
       media.src = it.url; media.preload = 'metadata'; media.muted = true;
       if (it.poster) media.poster = it.poster;
+      // Safari won't PAINT a metadata-loaded video's first frame until
+      // something forces a decode (our hover-play was doing it — cards sat
+      // blank until the mouse passed by). A hair-width seek forces the frame.
+      media.addEventListener('loadedmetadata', () => { try { if (!media.poster) media.currentTime = 0.001; } catch (e) {} }, { once: true });
       media.onmouseenter = () => { media.play().catch(() => {}); };
       media.onmouseleave = () => { media.pause(); media.currentTime = 0; };
       media.onclick = () => openLightbox('video', it.url);

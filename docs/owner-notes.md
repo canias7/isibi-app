@@ -1194,3 +1194,14 @@ checklist in the chat.
 - Known residual (not user-visible in the UI, only devtools): the network
   tab shows queue.fal.run inside /api/video/poll?url=… params. Hiding that
   needs worker-side request-id mapping — flagged as optional hardening.
+
+### Safari blank video cards fixed (2026-07-17)
+- **Owner:** some gallery items only render when the mouse passes over them.
+  Cause: Safari doesn't PAINT a metadata-loaded video's first frame until a
+  decode is forced — our hover-play was the force, so poster-less video
+  cards sat blank until hover. Images were fine (thumbnails).
+- Fix: on loadedmetadata, seek 1ms in (the standard Safari nudge) — forces
+  the first frame to paint without playing. Applied to gallery cards
+  (poster-less only) and chat-thread players. Note: headless verify clamps
+  the seek to 0 because route stubs can't serve byte ranges — real storage
+  does (proved earlier with the audio-card seek against a range server).
