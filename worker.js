@@ -2744,6 +2744,19 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ received: true });
     }
 
+    // Owner-only live probe of the platform balance the Worker's FAL_KEY sees
+    // (diagnoses guard-vs-dashboard mismatches without guessing). Cache-busted
+    // so it's always a fresh read. Run from the app console:
+    //   await (await apiFetch('/api/fal-balance')).json()
+    if (url.pathname === "/api/fal-balance" && request.method === "GET") {
+      const u = await authUser(request);
+      if (!u) return UNAUTHED();
+      if ((u.email || "").toLowerCase() !== "aniascapital@gmail.com") return Response.json({ error: "not allowed" }, { status: 403 });
+      _falBal = { at: 0, usd: null };
+      const usd = await falBalanceUSD(env);
+      return Response.json({ usd, note: usd === null ? "balance unreadable (endpoint down or key not admin-scoped) — the guard FAILS OPEN on this" : usd < 0.5 ? "below the $0.50 guard threshold — generations are being refused" : "above threshold — guard passes" });
+    }
+
     // Current credit balance (creates the row with the signup grant on first touch).
     if (url.pathname === "/api/credits" && request.method === "GET") {
       if (!(await authUser(request))) return UNAUTHED();
