@@ -1571,3 +1571,10 @@ checklist in the chat.
   multicolor G (logos/google.svg was a white mono glyph), and Seedance got
   the same tier treatment — Standard PREMIUM 4K · Fast CLASSIC 720p ·
   Mini BASIC 720p. Res badges derive from each model's real caps.
+
+### Picker polish round (2026-07-17)
+- Active-variant chips removed from all three grouped rows (Veo/Seedance/
+  Kling) — owner's call; the flyout ✓ carries the selection.
+- LATER (owner: "i will do kling and gemini later"): tier badges for the
+  Kling five and Gemini — waiting on the owner's tier labels; one-line
+  `tier:` field per entry when they come.
