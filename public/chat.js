@@ -4427,7 +4427,10 @@ async function explainFailure(origin, kind, genPrompt, job) {
     if (!res.ok) throw 0;
     const data = await res.json();
     if (!data.reply) throw 0;
-    deliverAgent(origin, data.reply);
+    // Defense in depth: the AI explainer is instructed never to name the
+    // provider, but scrub its output anyway (one slipped through 2026-07-17,
+    // naming fal + linking its billing dashboard).
+    deliverAgent(origin, scrubProvider(data.reply));
     if (data.prompt && chatStore.active === origin) reviewPrompt(data.prompt);
     return true;
   } catch { return false; }

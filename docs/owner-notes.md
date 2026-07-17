@@ -1221,3 +1221,16 @@ checklist in the chat.
   voice-preview fails silent; gallery-delete failure silently restores the
   card; persistent sync breakage has no signal; avatar-gen timeout path
   unverified; attach errors mix alert()/chat/toast styles.)
+
+### AI error-explainer leaked fal (2026-07-17, caught live by the owner)
+- The orchestrator's error step wrote "You've hit your balance limit on Fal
+  — head to fal.ai/dashboard/billing…" straight into a user chat. The
+  provider scrub covered canned messages + quoted errors but not the
+  AI-written explanation.
+- Fixed both ends: the error step's system prompt now forbids naming any
+  backend provider or pointing to external dashboards (balance problems =
+  "generations are briefly paused, check back soon"), AND the client scrubs
+  the explainer's reply through scrubProvider before display.
+- Context of the failure itself: a submit was rejected for balance right
+  after the top-up — if it recurs with balance present, check fal's
+  dashboard for a separate SPENDING-LIMIT setting.
