@@ -1666,3 +1666,12 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   client-side + a 400 guard in the worker.
 - Verified headless: rows hidden/relocated, header 4/12 with mixed refs,
   labels track per-modality, LipSync round-trip clean, no page errors.
+
+### Reference row groups → 3-icon modality toggles (owner refined, 2026-07-17)
+- Owner's follow-up on the combined row: instead of three stacked labeled
+  sections, the row now has a segmented switcher of three icon tabs (image
+  / video / audio, each carrying its n/cap count, active tab in the split
+  gradient) showing ONE modality's slots at a time. Default tab: images.
+  Non-Seedance models keep the plain image group with the tabs hidden.
+- Verified headless: tabs render/switch/count correctly, only-one-group
+  visibility, Veo fallback intact, no page errors.

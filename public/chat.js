@@ -899,10 +899,7 @@ function updateApCounts() {
   // 12-file total; the per-group labels carry the per-modality caps.
   if (vxAllowed() && caps.ref) {
     set('cntRef', srTotal(), 12);
-    const lab = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
-    lab('srImgLab', 'Images ' + refList.length + '/9');
-    lab('srVidLab', 'Videos ' + ((attachments.clip ? 1 : 0) + vxList.length) + '/3');
-    lab('srAudLab', 'Audio ' + ((attachments.audio ? 1 : 0) + axList.length) + '/3');
+    renderSrTabs(); // the modality tabs carry the per-type counts
   } else {
     set('cntRef', refList.length, caps.ref || 0);
   }
@@ -961,9 +958,7 @@ function updateAttachVisibility() {
       vidNodes.forEach((n) => clipBody.appendChild(n));
       audNodes.forEach((n) => audBody.appendChild(n));
     }
-    ['srImgLab', 'srVidLab', 'srAudLab'].forEach((id) => {
-      const el = document.getElementById(id); if (el) el.style.display = combine ? '' : 'none';
-    });
+    renderSrTabs();
   }
   // Switching models re-judges a kept clip against the NEW model's limits
   // (e.g. a 12s clip fine on Kling o3 is over Veo extend's 8s cap) — drop it
@@ -1723,6 +1718,28 @@ function srCapHit() {
   sbToast('References are capped at 12 files total (images + videos + audio).');
   return true;
 }
+// The combined Reference row's modality switcher (owner 2026-07-17: "three
+// logos that switch between image, video and audio") — one group visible at
+// a time on Seedance; every other model shows the plain image group.
+let srTab = 'img';
+function renderSrTabs() {
+  const tabs = document.getElementById('srTabs');
+  if (!tabs) return;
+  const caps = (currentOpts() || {}).caps || {};
+  const combine = vxAllowed() && !!caps.ref;
+  tabs.style.display = combine ? '' : 'none';
+  const groups = { img: 'srImgGroup', vid: 'srVidGroup', aud: 'srAudGroup' };
+  Object.entries(groups).forEach(([tab, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = !combine || tab === srTab ? '' : 'none';
+  });
+  tabs.querySelectorAll('.sr-tab').forEach((b) => b.classList.toggle('on', b.dataset.tab === srTab));
+  const n = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+  n('srTabImgN', refList.length + '/9');
+  n('srTabVidN', ((attachments.clip ? 1 : 0) + vxList.length) + '/3');
+  n('srTabAudN', ((attachments.audio ? 1 : 0) + axList.length) + '/3');
+}
+function pickSrTab(tab) { srTab = tab; renderSrTabs(); }
 function vxDurTotal() { return ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0); }
 function axDurTotal() { return (awDur || 0) + axList.reduce((t, x) => t + (x.dur || 0), 0); }
 function onAttachVx(inputEl) {
@@ -9540,6 +9557,7 @@ const CLICK_ACTIONS = {
     const f = document.getElementById(el.dataset.file); if (f) f.click();
   },
   'slot-pick': (e, el) => slotSrcPick(el.dataset.slot, el.dataset.pick, e),
+  'sr-tab': (e, el) => { e.stopPropagation(); pickSrTab(el.dataset.tab); },
   'dir-menu': (e) => toggleDirMenu(e),
   'orch-toggle': () => toggleOrchestrator(),
   'set-mode': (e, el) => setMode(el.dataset.mode),

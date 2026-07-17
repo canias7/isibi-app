@@ -4568,10 +4568,20 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 #btnImgEnd.has { min-height: 96px; padding: .3rem; }
 #btnImgEnd.has img { max-width: 190px; border-radius: 8px; display: block; }
 
-/* Seedance combined Reference row: small group headers inside the one row. */
-.sr-lab {
-  margin: .55rem 0 .3rem; font-size: .68rem; font-weight: 700;
-  letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8a92);
+/* Seedance combined Reference row: 3-icon modality switcher (image / video /
+   audio) — one group visible at a time; active tab gets the split accent. */
+.sr-tabs { display: flex; gap: .35rem; margin-bottom: .55rem; }
+.sr-tab {
+  flex: 1; display: flex; align-items: center; justify-content: center; gap: .35rem;
+  padding: .42rem 0; border-radius: 9px; cursor: pointer;
+  background: rgba(255, 255, 255, .04); border: 1px solid var(--line-2, rgba(255,255,255,.08));
+  color: var(--muted, #9a97a3);
 }
-.sr-lab:first-child { margin-top: .1rem; }
+.sr-tab svg { width: 15px; height: 15px; }
+.sr-tab b { font-size: .64rem; font-weight: 700; letter-spacing: .02em; }
+.sr-tab.on {
+  color: #fff; border-color: transparent;
+  background: linear-gradient(#17141d, #17141d) padding-box,
+    var(--split, linear-gradient(90deg, #ff79c6, #ffb84d)) border-box;
+}
 #srVidGroup, #srAudGroup { display: flex; flex-direction: column; gap: .35rem; }
