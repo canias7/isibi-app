@@ -1912,3 +1912,30 @@ verified (client fixes headless, worker fixes by logic read):
   delivery claim from a dead tab (different TAB_ID, >40s old) is taken over
   on the next resume tick, and the yield path reschedules instead of
   pausing dead.
+
+### 18 MEDIUM audit findings FIXED (2026-07-17)
+All mediums except the 2 Media-Agent ones (skipped per owner). Ray treated
+as removed (keyframe remnants cleared defensively, not revived):
+- Money: webm clip-edit quote now matches the worker's max-bill for
+  unmeasurable containers; GPT auto-ratio 2K/4K demotion keyed off `!ratio`
+  (the `=== "auto"` guard was dead → ~2× overcharge); import AI-rescue now
+  aborts on use_credits -1 instead of proceeding + minting a false refund.
+- Silent failures now surfaced: retryPendingSaves tells the origin chat when
+  a queued save's temp link finally expires; galleryDelete restores the card
+  + toasts on server failure (no phantom delete); pushAssets requeues on a
+  rejected upsert (avatar sync).
+- State machine: awDecode swap-guard (slow decode can't stamp the old clip);
+  post-send cleanup now clears vxList/axList/kfList/clipMeta (extras no
+  longer ride the next prompt at the wrong tier); async image-attach bails
+  if the user switched chats mid-conform (no cross-chat leak).
+- Worker: /api/save got a content-length backstop (~56MB) before json().
+- Director prompts: multiImgLine moved to the references branch (it was in
+  the edit branch where it can never render); Gemini refs now get the
+  TAGGED guidance (it binds @ImageN natively via <IMAGE_REF_N>).
+- UX: approving a Kling shot-list card after switching to a non-Kling model
+  now warns instead of silently rendering a single clip; import-from-link
+  with a non-URL toasts.
+- Resume: finishDeadJob re-persists a bounded (dtries≤3) delivery retry so
+  "retry each boot" is real; scheduleResume recovers idem-only provisional
+  records in-session and resolves a mid-session tries-cap terminally
+  (deliver or refund+message) instead of stalling.

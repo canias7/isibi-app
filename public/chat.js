@@ -290,8 +290,13 @@ function onAttach(kind, inputEl) {
       return;
     }
   } else {
+    const originChatId = chatStore.active; // conform is async — don't leak into another chat
     readImageConformed(file).then((uri) => {
       if (!uri) { tooBigMsg(); return; }
+      // The user switched chats while this image was being downscaled — writing
+      // it now would stage it into the WRONG chat and ride its next send
+      // (2026-07-17). Drop it silently; they can re-attach in the right chat.
+      if (chatStore.active !== originChatId) return;
       attachments[kind] = uri;
       if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, uri);
       // Merged Image-to-video row (owner 2026-07-17): the End-frame slot picks a
@@ -660,11 +665,17 @@ async function awDecode(dataUrl) {
       for (let j = i * step; j < (i + 1) * step && j < ch.length; j += 40) m = Math.max(m, Math.abs(ch[j]));
       peaks.push(m);
     }
+    // Bail if this clip was swapped out or cleared while it decoded — else a
+    // slow decode of the OLD clip stamps its peaks/duration onto the current
+    // one (wrong waveform, wrong lip-sync price, wrong validation) (2026-07-17,
+    // same guard readClipMeta/measureAttachedImage already have).
+    if (attachments.audio !== dataUrl) { if (actx) { try { actx.close(); } catch {} } return; }
     const top = Math.max(...peaks, 0.01);
     awPeaks = peaks.map((p) => Math.pow(p / top, 0.7));
     awDur = audio.duration;
-  } catch { awPeaks = null; awDur = 0; }
+  } catch { if (attachments.audio === dataUrl) { awPeaks = null; awDur = 0; } }
   finally { if (actx) { try { actx.close(); } catch {} } } // always release the context, even on a decode failure (browsers cap ~6)
+  if (attachments.audio !== dataUrl) return; // swapped/cleared mid-decode — don't touch live state
   awDecoding = false;
   renderAttach('audio');
   updateSendPrice(); // lip-sync models bill by clip length — re-quote now that awDur is known
@@ -4283,11 +4294,18 @@ async function retryPendingSaves() {
     if (!list.length) return;
     const keep = [];
     for (const p of list) {
-      if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) continue; // fal URL long dead
+      // Finding the media stranded on the expired temp link — tell the chat
+      // that holds it, instead of dropping the promised save silently
+      // (2026-07-17). "It'll land there on its own" must not quietly break.
+      if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) {
+        const c = chatStore.chats.find((ch) => (ch.msgs || []).some((m) => m.t === 'media' && m.url === p.url));
+        if (c) deliverAgent(c.id, '⚠️ Couldn’t save one of your earlier ' + (p.kind || 'media') + ' generations to the gallery in time — its temporary link has expired. Re-generate it to keep a permanent copy.');
+        continue;
+      }
       // saveOutput just posts the URL; the server watermarks free-account images.
       const { url: perm, block } = await saveOutput(p.url, p.kind);
       if (perm) replaceMediaUrl(p.url, perm);
-      else if (block) { /* paid gate (free/full) — retrying won't help, drop it */ }
+      else if (block) { /* paid gate (free/full) — already told at gen time; drop it */ }
       else keep.push(p);
     }
     savesWrite(keep);
@@ -4323,10 +4341,18 @@ async function finishDeadJob(j) {
         if (sr.ok) {
           const st = await sr.json().catch(() => ({}));
           if (st.status === 'COMPLETED' && !activeGens.has(j.chatId)) {
-            // fal finished it after all — keep retrying DELIVERY each boot
-            // (tries pinned below the cap) until the file actually lands.
-            resumeOne({ ...j, tries: 3 });
-            return;
+            // fal finished it — retry DELIVERY, but BOUNDED so a permanently
+            // undeliverable render can't loop forever. resumeJobs already
+            // dropped the record from storage, so RE-PERSIST it (with a
+            // delivery-attempt counter) to make "retry each boot" actually
+            // true (2026-07-17: it wasn't — the record was gone). After a few
+            // attempts, fall through to the refund + message below.
+            const dtries = (j.dtries || 0) + 1;
+            if (dtries <= 3) {
+              jobRecord(j.chatId, { ...j, tries: 3, dtries });
+              resumeOne({ ...j, tries: 3, dtries });
+              return;
+            }
           }
         }
       } catch (e) {}
@@ -4391,8 +4417,16 @@ async function recoverJob(j) {
 function scheduleResume(chatId, delayMs) {
   setTimeout(() => {
     if (activeGens.has(chatId)) return; // a manual retry/resume already took over
-    const rec = jobsLoad().find((j) => j.chatId === chatId && (j.tries || 0) < 4);
-    if (rec && rec.statusUrl) resumeOne(rec);
+    const rec = jobsLoad().find((j) => j.chatId === chatId);
+    if (!rec) return;
+    // Exhausted its tries mid-session (the 45s cycle bumped it to the cap) —
+    // resolve it TERMINALLY (deliver-if-fal-finished, else refund + message)
+    // like boot-resume does, instead of stalling silently until a full reload
+    // and letting a new send overwrite the dead record (2026-07-17).
+    if ((rec.tries || 0) >= 4) { jobClear(chatId); finishDeadJob(rec); return; }
+    // A provisional idem-only record (submit reply lost, maybe charged) has no
+    // statusUrl — recover it by idem in-session too, not just at next reload.
+    if (rec.statusUrl || rec.idem) resumeOne(rec);
   }, delayMs || 45000);
 }
 
@@ -4557,7 +4591,12 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   const isLite8 = /veo3\.1\/lite/.test(model) && !!(attachments.ffirst || attachments.flast);
   const isClipEdit = !!attachments.clip && (/kling-video\/o3/.test(model) || /gemini/.test(model));
   const clipEditMax = /gemini/.test(model) ? 30 : 15;
-  const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeta && clipMeta.dur) || clipEditMax));
+  // The worker byte-measures MP4/MOV only; any other container (e.g. a webm
+  // screen recording) it can't measure → it bills the max. Quote the max too
+  // for those so the shown price matches the charge (2026-07-17). Measurable
+  // formats keep the browser-measured length.
+  const clipMeasurable = clipMeta && /mp4|quicktime|mov/i.test(clipMeta.type || '');
+  const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeasurable && clipMeta.dur) || clipEditMax));
   const isRayI2V = model.startsWith('luma/') && startImg && !attachments.clip && !kfList.length;
   // Veo refs win over a clip (the worker routes reference-to-video first).
   const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0)
@@ -4988,7 +5027,9 @@ async function explainFailure(origin, kind, genPrompt, job) {
     // provider, but scrub its output anyway (one slipped through 2026-07-17,
     // naming fal + linking its billing dashboard).
     deliverAgent(origin, scrubProvider(data.reply));
-    if (data.prompt && chatStore.active === origin) reviewPrompt(data.prompt);
+    // The reworded prompt is written BY the model FROM the raw provider error,
+    // so scrub it too before it lands in a review card (2026-07-17).
+    if (data.prompt && chatStore.active === origin) reviewPrompt(scrubProvider(data.prompt));
     return true;
   } catch { return false; }
 }
@@ -5011,9 +5052,11 @@ async function offerReword(origin, kind, genPrompt, errBody) {
     if (!res.ok) return;
     const data = await res.json();
     if (!data.prompt) return;
+    // Scrub — the rework is authored from the raw provider error (2026-07-17).
+    const fixed = scrubProvider(String(data.prompt));
     deliverAgent(origin, '✍️ That wording tripped the content check — here it is reworded to pass, same idea. Approve to try again:');
-    saveToChat(origin, { t: 'review', prompt: String(data.prompt), mode: kind, at: Date.now() });
-    if (chatStore.active === origin) threadAppend(buildReviewCard(String(data.prompt), kind));
+    saveToChat(origin, { t: 'review', prompt: fixed, mode: kind, at: Date.now() });
+    if (chatStore.active === origin) threadAppend(buildReviewCard(fixed, kind));
   } catch {}
 }
 
@@ -5447,12 +5490,22 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         Object.keys(attachments).forEach((k) => {
           if (attachments[k]) { attachments[k] = null; renderAttach(k); }
         });
+        clipMeta = null; // stale metadata must not price/validate the next run
         extraImages.length = 0;
         renderExtraImages();
         refList.length = 0;
         elList.length = 0;
+        // The Seedance reference extras (@Video2-3 / @Audio2-3) and any Ray
+        // keyframe remnants were consumed too — clear them so they don't ride
+        // the NEXT prompt at the wrong price tier (2026-07-17).
+        vxList.length = 0;
+        axList.length = 0;
+        kfList.length = 0;
         renderRefList();
         renderElList();
+        renderVxList();
+        renderAxList();
+        renderKfList();
       }
     } else {
       endGen(origin);
@@ -5592,12 +5645,16 @@ async function pushAssets() {
       if (!a || !a.id) continue;
       avatars.push({ id: String(a.id), name: String(a.name || 'Avatar').slice(0, 80), image: await compactAssetImage(a.image) });
     }
-    await fetch(ASSETS_ENDPOINT + '?on_conflict=user_id', {
+    const up = await fetch(ASSETS_ENDPOINT + '?on_conflict=user_id', {
       method: 'POST',
       headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
       body: JSON.stringify({ user_id: uid, avatars, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
     });
-  } catch {}
+    // A rejected upsert (expired token, RLS, 4xx) must retry — otherwise the
+    // avatar edit silently never syncs cross-device (2026-07-17, mirrors
+    // pushChats' requeue). Re-arm the debounced push.
+    if (!up.ok) { clearTimeout(assetsPushTimer); assetsPushTimer = setTimeout(pushAssets, 8000); }
+  } catch { clearTimeout(assetsPushTimer); assetsPushTimer = setTimeout(pushAssets, 8000); }
 }
 async function pullAssets() {
   const h = await syncHeaders();
@@ -6111,6 +6168,14 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, car
     // card live so the prompt isn't silently swallowed by the busy guard.
     if (activeGens.has(chatStore.active)) {
       label.textContent = "Still finishing the last one — approve again in a moment.";
+      return;
+    }
+    // The card was composed WITH a shot list but the CURRENT model can't run
+    // shots (user switched off Kling after the card was built) — don't silently
+    // collapse it to a single render (2026-07-17). Re-evaluate shotsApply
+    // against the live model, not the card's build-time `shots`.
+    if (sanitizeShots(cardShots) && !shotsApply(model)) {
+      label.textContent = 'This shot list only runs on a Kling model — switch back to Kling to keep the shots, or deny and send again.';
       return;
     }
     clearReviews();
@@ -9308,7 +9373,14 @@ async function importGalleryUrl() {
   const go = document.getElementById('galImportGo');
   const raw = ((inp && inp.value) || '').trim();
   const m = raw.match(/https?:\/\/\S+/);
-  if (!m) { if (inp) inp.placeholder = 'That needs a full link (https://…)'; return; }
+  // A non-URL string used to only change the (invisible-while-typed)
+  // placeholder — a silent no-op. Toast it so the user gets real feedback
+  // (2026-07-17).
+  if (!m) {
+    if (typeof sbToast === 'function') sbToast(raw ? 'That needs a full link starting with https://' : 'Paste a link to import from (https://…)');
+    if (inp) inp.placeholder = 'That needs a full link (https://…)';
+    return;
+  }
   if (galStorage && !galStorage.cap) { openCredits(); return; } // storage is a paid perk
   if (inp) inp.disabled = true;
   if (go) { go.disabled = true; go.textContent = '…'; }
@@ -9500,6 +9572,7 @@ async function galleryDelete(it, el) {
     ? 'Delete this from your gallery? The copy in your chat stays.'
     : 'Delete this from your gallery?')) return;
   el.remove();
+  let ok = false;
   if (referenced) {
     try {
       const r = await apiFetch('/api/media/unlist', {
@@ -9518,13 +9591,21 @@ async function galleryDelete(it, el) {
         // The chat may be open behind the gallery — repaint so it picks up the
         // file's new URL instead of the (now dead) gallery one.
         renderThread();
+        ok = true;
       }
-      // Move failed → do NOT delete the object; the card comes back on the
-      // next gallery load, but a chat message is never left broken.
     } catch {}
   } else {
     const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-    if (m && window.Auth) { try { await Auth.storageDelete(m[1]); } catch {} }
+    if (m && window.Auth) { try { await Auth.storageDelete(m[1]); ok = true; } catch {} }
+    else ok = true; // non-storage URL — nothing to remove server-side, treat as done
+  }
+  // The server op failed — the file is still there. Don't leave a phantom
+  // delete that silently reappears on the next gallery load (2026-07-17): put
+  // the card back and tell the user.
+  if (!ok) {
+    if (typeof sbToast === 'function') sbToast('Couldn’t delete that just now — try again in a moment.');
+    renderGallery(); // re-adds the card from the still-present serverGallery
+    return;
   }
   // Drop it from the authoritative storage list too, so the card doesn't
   // reappear on the next repaint before /api/gallery is re-fetched.

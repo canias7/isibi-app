@@ -2448,9 +2448,11 @@ async function handleRequest(request, env, ctx) {
         num, chars: genKind === "audio" ? prompt.length : 0,
         img4k: imgRes === "4K",
         gptQuality,
-        // At 'auto' ratio there are no explicit dimensions — 2K/4K can't apply,
-        // so they must not bill either (gptSizePx returned null above).
-        gptSize: gptSize && ratio === "auto" ? "1K" : gptSize,
+        // No explicit ratio (auto/missing) → no image_size is sent, so fal
+        // renders the ~1K default; bill 1K, not the 2K/4K tier. `ratio` is
+        // null for auto (normalized above), so the old `=== "auto"` check was
+        // dead and 4K-at-auto overcharged ~2× (2026-07-17).
+        gptSize: gptSize && !ratio ? "1K" : gptSize,
         audioSeconds,
         hdr: wantHdr && !isReframeEp, // reframe has no HDR pipe — never bill one
 
@@ -3658,7 +3660,7 @@ async function handleRequest(request, env, ctx) {
       // References work differently per family. Seedance binds each reference by
       // an @-tag written INTO the prompt; Veo uses them holistically for identity.
       const refLine = (refCount && kind === "video")
-        ? (/seedance|kling-video\/o3/.test(genModel)
+        ? (/seedance|kling-video\/o3|gemini/.test(genModel)
           ? `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} for a reference-to-video generation. This model binds references by tag: cite them in the prompt as ${Array.from({ length: refCount }, (_, i) => "@Image" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag naturally into the sentence where that subject or element should appear (e.g. "the character from @Image1 walks through @Image2"). Reference them by tag rather than re-describing them as if generating from scratch.${/kling/.test(genModel) ? " If you also return a `shots` list, cite the @ImageN tags inside the shot prompts the same way." : ""}`
           : `\nThe user attached ${refCount} reference image${refCount > 1 ? "s" : ""} to hold the subject's identity — write the scene their request describes; the references supply what the subject looks like, so don't over-specify the subject's appearance in words. The UI labels them @Image1…@Image${refCount} in order, so if the user's message cites @ImageN, that's the reference they mean — refer to it naturally in the prompt (e.g. "the subject from reference image ${refCount > 1 ? "N" : "1"}"), not by tag.`)
         : "";
@@ -3783,7 +3785,7 @@ Context: ${ctxLine}`
 Write ONE direct instruction that states ONLY the change to make: name the existing content concretely as "the ..." ("the red car", not "the subject") and say exactly what to change or add. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE (and what must stay untouched), never on re-describing the rest of the picture. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Change the sky behind the building to a dramatic orange sunset; leave everything else untouched." · "Turn the man's jacket red and add subtle rain on the window." · "Restyle the photo into a soft watercolour painting while keeping the composition exactly."${familyHint ? `
-- ${familyHint}` : ""}${effortLine}${multiImgLine}${transparencyLine}${briefLine}${memoryLine}
+- ${familyHint}` : ""}${effortLine}${transparencyLine}${briefLine}${memoryLine}
 Context: ${ctxLine}`
         : kind === "image"
         ? `You are the prompt writer for isibi, an AI image studio. Using the conversation, the request and the user's picks, write ONE image-generation prompt: a single paragraph — no lists, nothing but the prompt.
@@ -3794,7 +3796,7 @@ Craft rules:
 - If words should appear in the image, give them verbatim in quotes and say where they sit.
 ${familyHint ? `
 - ${familyHint}` : ""}
-${effortLine}${transparencyLine}${briefLine}${factsLine}${memoryLine}
+${effortLine}${multiImgLine}${transparencyLine}${briefLine}${factsLine}${memoryLine}
 Context: ${ctxLine}`
         : `You are the script writer for isibi, an AI text-to-speech voice studio. Your output is spoken ALOUD, verbatim, by a voice actor — so return ONLY what should be heard (the words and/or vocal sounds), nothing else: no quotes, no stage notes, no "make an audio of…", and NEVER repeat the user's instruction back to them.
 - If the user gives words to say, return exactly those words, lightly cleaned and punctuated for natural delivery.
@@ -4315,6 +4317,11 @@ Return just the line to be voiced — keep it to what should actually come out o
           let newBalance = null;
           try { newBalance = await useCredits(auth, AI_CR); }
           catch { return Response.json({ error: "credits check failed — try again in a moment" }, { status: 503 }); }
+          // use_credits returns -1 when the ATOMIC deduction fails (a concurrent
+          // spend drained the balance after the pre-check) — nothing was
+          // charged, so bail WITHOUT the refund path, which would otherwise mint
+          // +3 credits the user never paid (2026-07-17).
+          if (!(newBalance >= 0)) return Response.json({ error: "not enough credits", cost: AI_CR }, { status: 402 });
           const refund = () => creditBack(env, user.id, AI_CR);
           const blockedHost = (() => { try { return new URL(target).hostname.toLowerCase(); } catch { return ""; } })();
           const lkSystem = `You are an image-lookup assistant. The user pasted a link whose page blocks robots (or shows no readable image). From the URL slug and site name, use web_search (1-2 focused searches) to identify the EXACT product or subject the page is about, then call report_image once with: name (concise title of what it is), image_urls — up to 3 candidate DIRECT image links (plain https URLs, no HTML pages; prefer the store's own image CDN like i5.walmartimages.com or m.media-amazon.com, then any other listing's photo; only URLs you actually saw in results, never guessed paths) — and page_urls: up to 2 OTHER pages showing this exact product/subject that serve robots (the brand's own website first, then small shops; NEVER the blocked site, and never Amazon/Walmart/Target/BestBuy/Costco — they all block robots too). Report only what you actually found. Always finish by calling report_image.`;
@@ -4430,6 +4437,11 @@ Return just the line to be voiced — keep it to what should actually come out o
     if (url.pathname === "/api/save" && request.method === "POST") {
       const user = await authUser(request);
       if (!user) return UNAUTHED();
+      // Backstop: this route takes the biggest client payloads (~40MB base64
+      // video). Reject on content-length BEFORE request.json() buffers+parses
+      // an arbitrarily large body (2026-07-17). The b64 branch caps at 20M
+      // chars internally; ~56MB covers that plus JSON overhead.
+      const tl = tooLargeBody(request, 56_000_000); if (tl) return tl;
       let body;
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
