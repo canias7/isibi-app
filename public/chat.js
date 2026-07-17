@@ -355,13 +355,13 @@ function readClipMeta(dataUri) {
     clipMeta.dur = v.duration || 0;
     clipMeta.w = v.videoWidth || 0;
     clipMeta.h = v.videoHeight || 0;
-    try { v.src = ''; } catch (e) {}
     // Validate against the current model RIGHT NOW — an out-of-spec clip gets
     // rejected at attach (slot cleared + a message saying what to fix), not
     // discovered at send. The send-time check stays as the backstop for a
     // model switched AFTER attaching.
     const bad = clipIssue();
     if (bad) {
+      try { v.src = ''; } catch (e) {}
       attachments.clip = null;
       clipMeta = null;
       renderAttach('clip');
@@ -369,6 +369,27 @@ function readClipMeta(dataUri) {
       addMsg('agent', '⚠️ ' + bad);
       return;
     }
+    // First-frame thumbnail for the attach slot (owner 2026-07-16: the slot
+    // showed a generic "🎬 clip" chip). Seek a hair in, draw to a canvas,
+    // re-render the slot with the real frame. The <video> src is released
+    // only AFTER the capture (it used to be cleared here, which would have
+    // made seeking impossible).
+    v.onseeked = () => {
+      try {
+        if (clipMeta && attachments.clip === dataUri && v.videoWidth) {
+          const cv = document.createElement('canvas');
+          const scale = Math.min(1, 480 / v.videoWidth);
+          cv.width = Math.max(1, Math.round(v.videoWidth * scale));
+          cv.height = Math.max(1, Math.round(v.videoHeight * scale));
+          cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+          clipMeta.thumb = cv.toDataURL('image/jpeg', 0.72);
+          renderAttach('clip');
+        }
+      } catch (e) {}
+      try { v.src = ''; } catch (e) {}
+    };
+    try { v.currentTime = Math.min(0.1, (v.duration || 1) / 2); }
+    catch (e) { try { v.src = ''; } catch (e2) {} }
     // Passed the basic checks — probe fps and quietly conform it if the model
     // requires a range the clip misses (see normalizeClipFps), and downscale
     // an over-resolution reference clip into the model's pixel band.
@@ -734,7 +755,9 @@ function renderAttach(kind) {
   } else if (attachments[kind]) {
     btn.classList.add('has');
     const preview = kind === 'clip'
-      ? '<span class="audio-chip">🎬 clip</span>'
+      ? (clipMeta && clipMeta.thumb
+        ? '<img src="' + esc(clipMeta.thumb) + '" alt="" /><span class="clip-tag">🎬' + (Number.isFinite(clipMeta.dur) && clipMeta.dur >= 0.5 ? ' ' + Math.round(clipMeta.dur) + 's' : '') + '</span>'
+        : '<span class="audio-chip">🎬 clip</span>')
       : '<img src="' + esc(attachments[kind]) + '" alt="" />';
     // With several images attached, badge the main one as "1/<cap>" so the user
     // sees which image is #1 (the composer refers to images by position) and how

@@ -1012,3 +1012,14 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
      ⚠️ The model couldn't finish — exact error: "…" + the refund note.
 - Verified headless on both paths (validation detail + a FAILED render with
   a codec error), refunds intact.
+
+### Attached clips show a real thumbnail (2026-07-16)
+- **Owner (Veo test #1):** the Extend clip slot showed a generic "🎬 clip"
+  chip. Now readClipMeta captures the clip's first frame (seek → canvas →
+  jpeg) after validation passes and the slot renders it full-width like the
+  image slots, with a small 🎬+duration tag (duration hidden when the file
+  doesn't report one — recorded webms often don't). The <video> src is
+  released only after capture (it used to be cleared before, which would
+  have blocked seeking). Chip stays as the placeholder while capturing.
+- CSS: clip slot joined the 190px thumbnail group; its fixed 96px chip-era
+  height became min-height so the card grows around the frame.
