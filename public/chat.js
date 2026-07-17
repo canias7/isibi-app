@@ -2989,14 +2989,40 @@ function schedulePersistStaged() {
     if (!id) return;
     stashStaged(id);
     const s = stagedByChat[id];
-    stagedDbPut(id, stagedHasContent(s) ? s : null);
+    stagedDbPut(id, stagedHasContent(s) ? { ...s, at: Date.now() } : null);
   }, 400);
+}
+// Stale stashes expire after 7 days: a photo attached weeks ago must never
+// silently ride along on (and re-route) a fresh send, and forgotten 25MB
+// clips shouldn't sit in the browser forever.
+const STAGED_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const stagedFresh = (rec) => !!rec && (!rec.at || Date.now() - rec.at < STAGED_MAX_AGE_MS);
+// Boot GC: drop every persisted stash that expired or whose chat no longer
+// exists (deleted on another device — the local delete path already cleans).
+async function stagedDbSweep() {
+  try {
+    const db = await stagedDbOpen();
+    const alive = new Set((chatStore.chats || []).map((c) => c.id));
+    await new Promise((res, rej) => {
+      const tx = db.transaction('staged', 'readwrite');
+      const cur = tx.objectStore('staged').openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) return;
+        if (!stagedFresh(c.value) || !alive.has(c.key)) c.delete();
+        c.continue();
+      };
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch (e) {}
 }
 // A chat with no in-memory snapshot may have one persisted from before the
 // refresh — pull it and re-apply if the user is still looking at that chat.
 async function hydrateStaged(id) {
   if (!id || stagedByChat[id]) return;
   const rec = await stagedDbGet(id);
+  if (rec && !stagedFresh(rec)) { stagedDbPut(id, null); return; } // expired — never ambush a send
   if (rec && !stagedByChat[id] && chatStore.active === id && stagedHasContent(rec)) {
     stagedByChat[id] = rec;
     restoreStaged(id);
@@ -5765,8 +5791,9 @@ function enterApp() {
   try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
   const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'integrations', 'settings'];
   showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
-  // Staged attachments from before the refresh — re-apply the active chat's.
-  try { hydrateStaged(chatStore.active); } catch (e) {}
+  // Staged attachments from before the refresh — re-apply the active chat's,
+  // and garbage-collect expired/orphaned stashes in the background.
+  try { hydrateStaged(chatStore.active); stagedDbSweep(); } catch (e) {}
 }
 
 // Signed in via the nav buttons (not the chatbox): stay on the landing but flip

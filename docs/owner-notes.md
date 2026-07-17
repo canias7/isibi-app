@@ -1040,3 +1040,11 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   and the audio waveform state.
 - Verified headless: stage → reload → restored (counter intact); clear →
   reload → stays empty.
+
+### Staged stashes expire after 7 days + boot GC (2026-07-16)
+- Follow-up hardening on the refresh persistence (owner's go-ahead): every
+  persisted stash is timestamped; hydrate refuses (and deletes) anything
+  older than 7 days so a weeks-old forgotten photo can never silently ride
+  along on — and re-route — a fresh send. A boot sweep also garbage-collects
+  expired rows and rows whose chat no longer exists, so forgotten 25MB clips
+  don't sit in the browser forever.
