@@ -872,7 +872,9 @@ function updateAttachVisibility() {
   if (rowIR) rowIR.style.display = (mode === 'image' && caps.image && cap > 1) ? '' : 'none';
   // The Image slot reads as the edit base in image mode, the start frame in video.
   const ti = document.getElementById('titleImage');
-  if (ti) ti.textContent = mode === 'image' ? 'Image to image' : 'Image';
+  // "Edit image", not "image to image" (owner 2026-07-16) — users think in
+  // verbs; the row attaches ONE picture the model then changes.
+  if (ti) ti.textContent = mode === 'image' ? 'Edit image' : 'Image';
   renderExtraImages();
   renderMaskState(); // the GPT inpainting button depends on model + single image
   updateApCounts();
@@ -888,14 +890,14 @@ function toggleApRow(kind) {
 // hover the dotted-underlined word (no separate ⓘ button). Keyed to data-info.
 const AP_INFO = {
   imageVideo: 'Image-to-video: your image becomes the first frame, then animates forward from your prompt.',
-  imageEdit: 'Attach an image to edit — describe the change and the model applies it to your picture.',
+  imageEdit: 'Edit image: attach ONE picture, describe the change, and the model applies it — the output follows your picked aspect ratio. Adding references clears this slot (it\'s one input mode or the other).',
   avatar: 'Avatar: attach a face or character the model keeps looking consistent across the video.',
   audio: 'Audio: attach a voice or music track — used as the soundtrack or lip-sync source.',
   clip: 'Video clip: attach a video to extend, restyle, or use as motion reference.',
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
-  imgref: 'Build a NEW image from up to {N} references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the single Image-to-image slot, and vice versa.',
+  imgref: 'Build a NEW image from up to {N} references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the Edit image slot, and vice versa.',
   kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {

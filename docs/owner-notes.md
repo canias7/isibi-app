@@ -959,3 +959,9 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   non-capable models never see the toggle and reset it to On.
 - Verified: Veo Fast 8s 720p ✦150→✦100 and Veo 4k ✦600→✦400 on toggle, wire
   body carries sound:false, Sora shows no section.
+
+### "Image to image" → "Edit image" (2026-07-16)
+- Owner's call: users think in verbs. The single-slot row on GPT + Nano is
+  now titled "Edit image" (video mode keeps plain "Image"); the row tooltip,
+  the reference-row tooltip's either/or line, and the DIRECTOR's routing
+  hint (the reference-images block in the worker) all use the same words.
