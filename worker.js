@@ -16,16 +16,13 @@ const VIDEO_MODELS = new Set([
   "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/kling-video/o3/standard/text-to-video",
-  "fal-ai/bytedance/omnihuman",
-  "fal-ai/bytedance/omnihuman/v1.5",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
 const DEFAULT_VIDEO_MODEL = "bytedance/seedance-2.0/fast/text-to-video";
 // Audio-driven lip-sync models take no text prompt — they run off attachments.
-// (OmniHuman 1.5 and LipSync's text mode ACCEPT text, but never require it.)
+// (LipSync's text mode ACCEPTS text, but never requires it. OmniHuman 1.0/1.5
+// were removed 2026-07-17, owner's call.)
 const PROMPTLESS_VIDEO = new Set([
-  "fal-ai/bytedance/omnihuman",
-  "fal-ai/bytedance/omnihuman/v1.5",
   "fal-ai/kling-video/lipsync/audio-to-video",
 ]);
 
@@ -95,8 +92,6 @@ const VIDEO_USD = {
   "fal-ai/kling-video/v3/pro/text-to-video":      { s: { def: 0.168 }, aoff: { def: 0.112 }, d: 5 },
   "fal-ai/kling-video/v3/standard/text-to-video": { s: { def: 0.126 }, aoff: { def: 0.084 }, d: 5 },
   "google/gemini-omni-flash":                     { s: { def: 0.13 }, d: 8 },
-  "fal-ai/bytedance/omnihuman":                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
-  "fal-ai/bytedance/omnihuman/v1.5":              { audioPerSec: 0.16 },  // v1.5 (fal page 2026-07-16): $0.16/s flat, 720p and 1080p same price
   // LipSync bills on the INPUT VIDEO's seconds ($0.014/s, rolled UP to the next
   // 5s increment) — not the audio. Billed from the client-reported clip length,
   // defaulting to the 10s max when unknown (never undercharge).
@@ -143,7 +138,7 @@ const AUDIO_USD_PER_1K = {
   "fal-ai/elevenlabs/tts/multilingual-v2": 0.10,
 };
 
-// Audio-driven video models (OmniHuman, Kling LipSync) are billed by fal on
+// Audio-driven video models (Kling LipSync) are billed by fal on
 // the driving clip's real length, so we cap and charge by measured seconds.
 const AUDIO_DRIVE_MAX_S = 60;
 
@@ -247,7 +242,7 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
 // Read the TRUE length (seconds) out of an uploaded audio data URI, so the
 // lip-sync charge matches what fal bills — fal bills by the real driving-audio
 // length, and a tampered client could otherwise claim a short duration on a
-// long clip and underpay (omnihuman is $0.14/s → ~$8 per 60s clip). Returns a
+// long clip and underpay. Returns a
 // number when a header can be parsed confidently, else null (caller falls back
 // to the conservative size-derived floor). Covers WAV, MP3 (CBR + Xing/Info
 // VBR) and MP4/M4A — the formats a voice clip actually arrives in.
@@ -1898,22 +1893,6 @@ async function handleRequest(request, env, ctx) {
           if (spd != null) input.speed = spd;
           if (sty != null) input.style = sty;
         }
-      } else if (genKind === "video" && model.startsWith("fal-ai/bytedance/omnihuman")) {
-        // Audio-driven talking avatar: a portrait image + a voice clip.
-        if (!image || !audio) {
-          return Response.json({ error: "OmniHuman needs an image and an audio clip" }, { status: 400 });
-        }
-        input.image_url = image;
-        input.audio_url = audio;
-        if (model.endsWith("/v1.5")) {
-          // v1.5 extras: a resolution tier (billed the same — $0.16/s flat) and
-          // an optional prompt guiding motion/emotion (kept when the user typed
-          // one). v1's schema has neither — prompt is dropped there.
-          input.resolution = quality === "720p" ? "720p" : "1080p";
-          if (!prompt) delete input.prompt;
-        } else {
-          delete input.prompt;
-        }
       } else if (genKind === "video" && model === "fal-ai/kling-video/lipsync/audio-to-video") {
         // Lip-sync an existing clip. Two fal endpoints behind one model card:
         // an attached voice track drives audio-to-video; no audio but typed
@@ -2329,7 +2308,7 @@ async function handleRequest(request, env, ctx) {
       // bytes can't be shorter than N*8 / (highest plausible bitrate for its
       // format), so a tampered short claim can't underpay a big clip.
       let audioSeconds = 0;
-      if (model.startsWith("fal-ai/bytedance/omnihuman") || model === "fal-ai/kling-video/lipsync/audio-to-video") {
+      if (model === "fal-ai/kling-video/lipsync/audio-to-video") {
         const claimed = Number(body.audioDuration);
         const hasClaim = Number.isFinite(claimed) && claimed > 0;
         const real = audioDurationFromDataUri(audio); // authoritative when parseable

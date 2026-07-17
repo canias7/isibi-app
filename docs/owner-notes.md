@@ -1441,3 +1441,27 @@ checklist in the chat.
 - Verified headless end-to-end: native ratio → v2v ✦135; flip to 9:16 →
   reframe ✦45 (3s clip · 720p), duration locked, note shown, body carries
   reframe:true + ratio. Live test pending (needs fal balance).
+
+### OmniHuman removed (2026-07-17, owner's call)
+- Both tiers (1.0 + 1.5) pulled everywhere: model picker + group flyout,
+  MODEL_OPTS, audio caps, both price tables, worker allowlist,
+  PROMPTLESS_VIDEO, and the portrait+voice endpoint branch. Kling LipSync
+  keeps the entire audio-length billing pipeline (byte-measured, ≤30s) —
+  only the omnihuman half of its gate was dropped. The generic audioPerSec
+  price mechanism stays (unused) for the next audio-billed model.
+- A user whose saved composer still points at OmniHuman degrades safely:
+  no rows, no price, and a send answers "that model isn't available — pick
+  another from the menu."
+- Verified headless: 13 video models listed (no OmniHuman anywhere), no
+  page errors, LipSync rows intact (clip + audio).
+
+### Catalog sweeps: Seedance ✓ 9/9 · Gemini has a missing endpoint (2026-07-17)
+- Seedance: all 9 fal endpoints covered (t2v/i2v/reference × Std/Fast/Mini).
+  CAPABILITY gap inside reference: fal takes up to 3 VIDEO refs + 3 AUDIO
+  refs; we wire one @Video1 + one audio. Multi video/audio refs = UI (list
+  slots) + @VideoN/@AudioN tags + billing basis for multiple clips — noted
+  for the owner to green-light, not built.
+- Gemini Omni Flash: t2v/i2v/edit wired; **reference-to-video MISSING**
+  (schema: prompt + image_urls, inline <IMAGE_REF_0> role tags, 16:9|9:16,
+  3-10s; pricing not on the API page — needs the model page check before
+  wiring).

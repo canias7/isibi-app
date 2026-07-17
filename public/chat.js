@@ -105,22 +105,8 @@ const MODEL_OPTS = {
     ratios: ['16:9', '9:16', '1:1'], defRatio: '16:9',
     caps: { image: true, flf: true, ref: 4, el: 4, clip: true },
   },
-  // Lip-sync (audio-driven) models: no prompt, no duration/ratio/quality —
-  // duration comes from the audio. OmniHuman = portrait + voice; Kling
-  // LipSync = a source clip + voice.
-  'fal-ai/bytedance/omnihuman': {
-    noPrompt: true,
-    hint: 'Add a portrait image + an audio clip — I’ll lip-sync them',
-    caps: { image: true, end: false, avatar: false, audio: true },
-  },
-  // v1.5: same portrait+voice flow, plus a resolution tier (billed the same)
-  // and optional typed text that guides the motion/emotion.
-  'fal-ai/bytedance/omnihuman/v1.5': {
-    noPrompt: true,
-    hint: 'Add a portrait + an audio clip — optional text guides the motion',
-    resolutions: ['720p', '1080p'], defRes: '1080p',
-    caps: { image: true, end: false, avatar: false, audio: true },
-  },
+  // Lip-sync (audio-driven): no prompt, no duration/ratio — duration comes
+  // from the audio. (OmniHuman 1.0/1.5 were removed 2026-07-17, owner's call.)
   // Attach a clip + a voice track → audio-driven lip-sync; attach a clip and
   // just TYPE the words instead → Kling voices them itself (pick the voice in
   // Settings). Same per-5s pricing either way.
@@ -212,8 +198,6 @@ const MODEL_LISTS = {
     { id: 'fal-ai/kling-video/v3/standard/text-to-video', label: 'Kling 3.0 Standard', note: 'audio', group: 'kling' },
     { id: 'fal-ai/kling-video/lipsync/audio-to-video', label: 'Kling LipSync', note: 'lip-sync', group: 'kling' },
     { id: 'google/gemini-omni-flash', label: 'Gemini Omni Flash', note: 'audio · edit' },
-    { id: 'fal-ai/bytedance/omnihuman', label: 'OmniHuman', note: 'lip-sync', group: 'omnihuman' },
-    { id: 'fal-ai/bytedance/omnihuman/v1.5', label: 'OmniHuman 1.5', note: 'lip-sync · 1080p', group: 'omnihuman' },
   ],
   image: [
     { id: 'fal-ai/nano-banana-pro', label: 'Nano Banana Pro', note: 'Google · flagship' },
@@ -231,7 +215,6 @@ const GROUP_META = {
   seedance:  { label: 'Seedance 2.0', variant: (l) => l.replace(/^Seedance 2\.0\s*/, '').trim() || 'Standard' },
   kling:     { label: 'Kling',        variant: (l) => l.replace(/^Kling\s*/, '').trim() },
   veo:       { label: 'Veo 3.1',      variant: (l) => l.replace(/^Veo 3\.1\s*/, '').trim() || 'Standard' },
-  omnihuman: { label: 'OmniHuman',    variant: (l) => l.replace(/^OmniHuman\s*/, '').trim() || '1.0' },
 };
 
 const modelMenu = document.getElementById('modelMenu');
@@ -609,9 +592,6 @@ let awSize = 0, awType = ''; // attached audio's bytes + mime, for per-model lim
 const AUDIO_LIMITS = {
   // lipsync/audio-to-video: .mp3 only, 2-60s, ≤5MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 60, maxMB: 5, formats: ['mp3', 'mpeg'] },
-  // omnihuman: audio must be under 30s
-  'fal-ai/bytedance/omnihuman': { maxDur: 30 },
-  'fal-ai/bytedance/omnihuman/v1.5': { maxDur: 30 },
   // seedance reference audio: MP3/WAV, ≤15s combined, ≤15MB per file
   'bytedance/seedance-2.0/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
   'bytedance/seedance-2.0/fast/text-to-video': { maxDur: 15, maxMB: 15, formats: ['mp3', 'mpeg', 'wav'] },
@@ -4124,8 +4104,6 @@ const VIDEO_PRICE = {
   'fal-ai/kling-video/v3/pro/text-to-video':      { s: { def: 0.168 }, aoff: { def: 0.112 } },
   'fal-ai/kling-video/v3/standard/text-to-video': { s: { def: 0.126 }, aoff: { def: 0.084 } },
   'google/gemini-omni-flash':                     { s: { def: 0.13 } },
-  'fal-ai/bytedance/omnihuman':                   { audioPerSec: 0.14 },  // fal bills per second of output (= audio length, ≤30s)
-  'fal-ai/bytedance/omnihuman/v1.5':              { audioPerSec: 0.16 },  // $0.16/s flat — 720p and 1080p bill the same
   'fal-ai/kling-video/lipsync/audio-to-video':    { videoPer5s: 0.014 },  // fal bills the INPUT VIDEO's seconds, rolled up to 5s steps
 };
 // GPT Image 2 $/image by SIZE tier × QUALITY. Each cell is a small margin over
@@ -4182,7 +4160,8 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   }
   const p = VIDEO_PRICE[model];
   if (!p) return '';
-  // OmniHuman bills by the driving audio's length (awDur, seconds, ≤30s).
+  // Audio-length billing (awDur, seconds) — no current model uses it (was
+  // OmniHuman, removed 2026-07-17); kept for the next audio-billed model.
   if (p.audioPerSec != null) {
     const secs = Math.max(1, Math.min(60, Math.round(awDur || 0)));
     return fmtPrice(p.audioPerSec * secs);
@@ -5849,7 +5828,7 @@ function send(fromButton) {
   }
   // Driving audio out of the model's spec (wrong format, too big, too long/short)
   // 422s after charging — bounce it here with the exact fix instead. Covers Kling
-  // LipSync, OmniHuman, and Seedance audio refs (see AUDIO_LIMITS).
+  // LipSync and Seedance audio refs (see AUDIO_LIMITS).
   const badAudio = audioIssue();
   if (badAudio) { addMsg('agent', '⚠️ ' + badAudio); return; }
   input.value = '';
