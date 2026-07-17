@@ -181,9 +181,11 @@ let mode = 'video';
 
 const MODEL_LISTS = {
   video: [
-    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend', group: 'veo' },
-    { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio', group: 'veo' },
-    { id: 'fal-ai/veo3.1/lite', label: 'Veo 3.1 Lite', note: 'Google · cheapest · audio', group: 'veo' },
+    // tier: the PREMIUM/CLASSIC/BASIC pill + gold max-res badge row (owner's
+    // reference design 2026-07-17) — replaces the note-derived tags on these.
+    { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend', group: 'veo', tier: 'premium' },
+    { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio', group: 'veo', tier: 'classic' },
+    { id: 'fal-ai/veo3.1/lite', label: 'Veo 3.1 Lite', note: 'Google · cheapest · audio', group: 'veo', tier: 'basic' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio', group: 'seedance' },
@@ -1967,13 +1969,25 @@ function buildModelRow(m, variant) {
   d.dataset.search = (m.label + ' ' + prov.name + ' ' + (m.note || '')).toLowerCase();
   const notes = (m.note || '').split('·').map((t) => t.trim()).filter(Boolean);
   const hasAudio = notes.includes('audio');
-  const badges = notes
+  const badges = m.tier ? '' : notes
     .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax', 'Luma'].includes(t))
     .map((t) => t === 'newest'
       ? '<span class="m-badge">NEW</span>'
       : '<span class="m-tag' + (/cheap/i.test(t) ? ' cheap' : '') + '">' + t.toUpperCase() + '</span>')
     .join('');
-  const chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
+  // Tiered rows (owner's reference design): a gold max-res badge + a colored
+  // PREMIUM/CLASSIC/BASIC pill instead of the generic chips.
+  let chips;
+  if (m.tier) {
+    const o = MODEL_OPTS[m.id];
+    const top = o && o.resolutions ? o.resolutions[o.resolutions.length - 1] : '';
+    const res = top === '4k' ? '4K' : top;
+    const mon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M9 20.5h6"/></svg>';
+    chips = (res ? '<span class="m-restier">' + mon + res + '</span>' : '')
+      + '<span class="m-tier m-tier-' + m.tier + '">' + m.tier.toUpperCase() + '</span>';
+  } else {
+    chips = modelChips(m.id).map((c) => '<span class="m-chip">' + c + '</span>').join('');
+  }
   d.style.setProperty('--prov', prov.tint || '#8a8a92');
   const icoInner = prov.logo
     ? '<img class="m-logo" src="' + prov.logo + '" alt="" draggable="false">'

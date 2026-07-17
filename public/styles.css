@@ -4541,3 +4541,22 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .vx-extra .slot-vid { font-size: .78rem; color: var(--ink-2, #cfcfd6); white-space: nowrap; }
 .vx-extra .slot-tag { position: static; margin-left: .45rem; }
+
+/* ── Tiered model rows (owner's reference design 2026-07-17): a gold max-res
+   badge + a colored PREMIUM/CLASSIC/BASIC pill under the model name. ── */
+.m-restier {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .18rem .55rem; border-radius: 8px;
+  font-size: .68rem; font-weight: 700; letter-spacing: .02em;
+  color: #ffb84d; border: 1px solid rgba(255, 184, 77, .55);
+  background: rgba(255, 184, 77, .07);
+}
+.m-restier svg { display: block; }
+.m-tier {
+  display: inline-flex; align-items: center;
+  padding: .18rem .7rem; border-radius: 999px;
+  font-size: .68rem; font-weight: 700; letter-spacing: .06em;
+}
+.m-tier-premium { color: #b9a5ff; border: 1px solid rgba(167, 139, 250, .6); background: rgba(124, 91, 255, .12); }
+.m-tier-classic { color: #6db2ff; border: 1px solid rgba(96, 165, 250, .6); background: rgba(59, 130, 246, .10); }
+.m-tier-basic   { color: #3fd9c4; border: 1px solid rgba(45, 212, 191, .55); background: rgba(45, 212, 191, .09); }

@@ -1556,3 +1556,12 @@ checklist in the chat.
   correct) but billing used the PICKED tier: 4k selected + extend charged
   ✦525 for a $2.80 render. Both quote and charge now use the 720p tier on
   extends regardless of the picker.
+
+### Tiered Veo picker rows (owner's reference design, 2026-07-17)
+- Owner sent a reference screenshot: per-variant rows with the provider
+  logo, a gold max-resolution badge (monitor icon + 4K/1080p) and a colored
+  tier pill — PREMIUM (purple) / CLASSIC (blue) / BASIC (teal), check on
+  the active pick. Built as a `tier` field on MODEL_LISTS entries: tiered
+  rows swap their note-tags and generic chips for the badge pair; untiered
+  rows render exactly as before. Applied to the three Veo variants; any
+  family can adopt it by adding tier fields.
