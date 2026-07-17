@@ -1637,3 +1637,17 @@ Veo 3.1 Lite — t2v / i2v (4s · 6s · 8s):
 
 Fractional-looking cells are correct ceilings (✦113 = $0.90, ✦263 =
 $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
+
+### First-&-last merged into the Image-to-video row (owner's design, 2026-07-17)
+- Owner (after seeing fal's Seedance form): ONE "Image to video" row with
+  the start slot + an optional "End frame · optional" slot, replacing the
+  separate First-&-last row — applied across every video model that had
+  both (Veo ×3, Seedance ×3, Kling ×4). Row header counts n/2.
+- Zero rewiring risk by design: the slots are a re-skin over the proven
+  ffirst/flast machinery. Filling the end slot silently converts
+  image→ffirst (+flast); removing the end demotes back to a plain start;
+  clearing the start drops the pair. The worker, Veo's flf endpoints,
+  Lite's 8s lock, pricing and director context all see the exact same
+  states as before (verified headless: body sends first+last, lite8 lock
+  fires, demotion/promotion both ways, counter 2/2).
+- The rowFlf DOM stays (hidden) — no model shows it anymore.

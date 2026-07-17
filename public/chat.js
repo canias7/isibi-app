@@ -330,8 +330,25 @@ function onAttach(kind, inputEl) {
     // Slot #1 landing may reveal the Seedance +extras tile (@Video2-3/@Audio2-3).
     if (kind === 'clip') renderVxList();
     if (kind === 'audio') renderAxList();
+    // Merged Image-to-video row (owner 2026-07-17): ONE row, start slot +
+    // an optional End frame slot, replacing the separate First-&-last row.
+    // Internally the proven ffirst/flast pair machinery is kept: filling the
+    // end slot converts image → ffirst (+ the new flast); the worker, locks
+    // and billing see exactly the same states as before.
+    if (kind === 'image' && mergedFlf() && attachments.flast) {
+      // Start swapped while an end frame is staged — replace the pair's first.
+      attachments.ffirst = attachments.image; attachments.image = null;
+      imgMeta.ffirst = imgMeta.image; delete imgMeta.image;
+      renderAttach('ffirst'); renderAttach('image');
+      clearImageInputsExcept('flf');
+    } else if (kind === 'flast' && mergedFlf() && !attachments.ffirst && attachments.image) {
+      attachments.ffirst = attachments.image; attachments.image = null;
+      imgMeta.ffirst = imgMeta.image; delete imgMeta.image;
+      renderAttach('ffirst'); renderAttach('image');
+      clearImageInputsExcept('flf');
+    }
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
-    if (kind === 'image') clearImageInputsExcept('image');
+    else if (kind === 'image') clearImageInputsExcept('image');
     else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
     // Any attachment can move the price: a clip flips into video-to-video, and a
     // start image / first-last frame flips Ray onto its cheaper i2v tier (and 5s).
@@ -749,9 +766,53 @@ function renderAudioSlot(btn) {
   }
 }
 
+// Merged Image-to-video row: start slot + optional End frame slot in ONE row
+// (owner 2026-07-17) — applies to every video model whose panel had both an
+// image slot and a first-&-last row (Veo ×3, Seedance ×3, Kling ×4).
+function mergedFlf() {
+  const caps = (currentOpts() || {}).caps || {};
+  return mode === 'video' && !!caps.image && !!caps.flf;
+}
+// The optional End-frame slot inside the Image-to-video row: shows once a
+// start is staged; renders the flast thumbnail once filled.
+function renderImgEnd() {
+  const btn = document.getElementById('btnImgEnd');
+  if (!btn) return;
+  const start = attachments.image || attachments.ffirst;
+  const show = mergedFlf() && !!start;
+  btn.style.display = show ? '' : 'none';
+  if (!show) return;
+  if (attachments.flast) {
+    btn.classList.add('has');
+    btn.innerHTML = '<img src="' + esc(attachments.flast) + '" alt="" /><span class="clip-tag">End</span><span class="x">×</span>';
+    const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, 'flast');
+  } else {
+    btn.classList.remove('has');
+    btn.innerHTML = '<span class="plus-big">+</span><span class="slot-lab">End frame · optional</span>';
+  }
+}
 function renderAttach(kind) {
   const btn = attachBtn(kind);
   if (!btn) return;
+  // Merged row: with an end frame staged, the pair's start lives in ffirst —
+  // paint it in the image slot so the row reads as one unit; its × drops the
+  // whole pair (a start-less end frame can't run anywhere).
+  if (kind === 'image' && mergedFlf() && !attachments.image && attachments.ffirst) {
+    btn.classList.add('has');
+    btn.innerHTML = '<img src="' + esc(attachments.ffirst) + '" alt="" /><span class="x">×</span>';
+    const clr = btn.querySelector('.x');
+    if (clr) clr.onclick = (e) => {
+      e.stopPropagation();
+      attachments.ffirst = null; attachments.flast = null;
+      delete imgMeta.ffirst; delete imgMeta.flast;
+      renderAttach('ffirst'); renderAttach('flast'); renderAttach('image');
+      updateSendPrice();
+    };
+    renderImgEnd();
+    updateApCounts();
+    return;
+  }
+  if (kind === 'ffirst' || kind === 'flast' || kind === 'image') renderImgEnd();
   if (kind === 'audio') {
     renderAudioSlot(btn);
   } else if (attachments[kind]) {
@@ -793,6 +854,13 @@ function renderAttach(kind) {
 function clearAttach(ev, kind) {
   ev.stopPropagation();
   attachments[kind] = null;
+  // Merged row: dropping the End frame demotes the pair back to a plain
+  // image-to-video start (ffirst → image), so nothing is lost.
+  if (kind === 'flast' && mergedFlf() && attachments.ffirst) {
+    attachments.image = attachments.ffirst; attachments.ffirst = null;
+    imgMeta.image = imgMeta.ffirst; delete imgMeta.ffirst;
+    renderAttach('ffirst'); renderAttach('image');
+  }
   // Removing the main image promotes the first extra ref so none orphan,
   // and the add-more slot re-renders (it keys off the main image).
   if (kind === 'image') {
@@ -815,7 +883,10 @@ function updateApCounts() {
   const set = (id, n, cap) => { const el = document.getElementById(id); if (el) el.textContent = cap ? n + '/' + cap : ''; };
   // Image mode splits into "Image to image" (the one being edited, 0/1) and
   // "Reference to image" (the rest, 0/13) — one number each, no blending.
-  set('cntImage', attachments.image ? 1 : 0, caps.image ? 1 : 0);
+  // Merged Image-to-video row counts start + optional end frame over /2.
+  set('cntImage',
+    (attachments.image || attachments.ffirst ? 1 : 0) + (mergedFlf() && attachments.flast ? 1 : 0),
+    caps.image ? (mergedFlf() ? 2 : 1) : 0);
   set('cntImgRef', extraImages.length, (mode === 'image' && caps.image && (caps.maxImages || 1) > 1) ? caps.maxImages : 0);
   set('cntAvatar', attachments.avatar ? 1 : 0, caps.avatar ? 1 : 0);
   // Seedance takes up to 3 of each (slot #1 + the @Video2-3/@Audio2-3 extras).
@@ -889,8 +960,11 @@ function updateAttachVisibility() {
     }
   });
   // First-&-last-frame row (two dedicated slots) — Veo's 2-frame input.
+  // The separate First-&-last row retired where the merged Image-to-video
+  // row carries the optional End frame slot instead (owner 2026-07-17).
   const rowFlf = document.getElementById('rowFlf');
-  if (rowFlf) rowFlf.style.display = caps.flf ? '' : 'none';
+  if (rowFlf) rowFlf.style.display = caps.flf && !(caps.image && mode === 'video') ? '' : 'none';
+  renderImgEnd();
   if (!caps.flf) {
     ['ffirst', 'flast'].forEach((k) => { if (attachments[k]) { attachments[k] = null; renderAttach(k); } });
   }
@@ -2651,7 +2725,7 @@ function syncDurLock() {
   note.textContent = lock === 'ref'
     ? 'Reference runs always render 8s — the model fixes the length.'
     : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.'
-    : lock === 'lite8' ? 'First & last frame on Lite always renders 8s — the model fixes the length.'
+    : lock === 'lite8' ? 'An end-frame run on Lite always renders 8s — the model fixes the length.'
     : lock === 'reframe' ? 'Reframing keeps the clip’s own length — billed per clip second.' : '';
   // Veo extend outputs 720p ONLY (fal schema: resolution const) — pin the
   // resolution picker to match, so the summary/price can't disagree with
