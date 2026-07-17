@@ -1774,12 +1774,44 @@ async function handleRequest(request, env, ctx) {
       // Unparseable → 0, and each consumer falls back to its own never-
       // undercharge maximum.
       const clipSecondsReal = clipDataUri ? (videoDurationFromDataUri(clipDataUri) || 0) : 0;
+      // Seedance extra references beyond slot #1 (@Video2-3 / @Audio2-3).
+      // fal caps: 3 videos combined 2-15s & ≤50MB total; 3 audios combined ≤15s.
+      const extraClipUris = model.startsWith("bytedance/") && clipDataUri && Array.isArray(body.extraClips)
+        ? body.extraClips.slice(0, 2).map(dataVideo).filter(Boolean)
+        : [];
+      const extraAudios = model.startsWith("bytedance/") && Array.isArray(body.extraAudios)
+        ? body.extraAudios.slice(0, 2).map(dataAudio).filter(Boolean)
+        : [];
+      if (extraClipUris.length) {
+        const totalBytes = Math.floor((clipDataUri.length + extraClipUris.reduce((t, u) => t + u.length, 0)) * 0.75);
+        if (totalBytes > 52_000_000) {
+          return Response.json({ error: "video references are capped at 50 MB combined" }, { status: 400 });
+        }
+      }
+      // Combined video-ref seconds, byte-measured server-side (billing basis +
+      // fal's 15s combined cap). ANY unmeasurable clip → 0 → the consumer's
+      // never-undercharge 15s maximum.
+      const extraClipSecs = extraClipUris.map((u) => videoDurationFromDataUri(u) || 0);
+      const vrefCombinedSecs = extraClipUris.length
+        ? (clipSecondsReal && extraClipSecs.every((s) => s > 0) ? clipSecondsReal + extraClipSecs.reduce((t, s) => t + s, 0) : 0)
+        : clipSecondsReal;
+      if (vrefCombinedSecs > 15.5) {
+        return Response.json({ error: "video references are capped at 15 seconds combined" }, { status: 400 });
+      }
       let clip = clipDataUri;
       if (clip) {
         clip = await falUpload(clip, env);
         if (!clip) {
           return Response.json({ error: "couldn't stage the video clip — try attaching it again" }, { status: 502 });
         }
+      }
+      const extraClips = [];
+      for (const u of extraClipUris) {
+        const hosted = await falUpload(u, env);
+        if (!hosted) {
+          return Response.json({ error: "couldn't stage a reference clip — try attaching it again" }, { status: 502 });
+        }
+        extraClips.push(hosted);
       }
       // Extra reference images beyond the first (multi-image models).
       const extraImages = Array.isArray(body.images)
@@ -1948,12 +1980,14 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ error: "Add a reference image or video along with the audio." }, { status: 400 });
           }
           if (rImgs.length) input.image_urls = rImgs;
-          if (clip) input.video_urls = [clip]; // ≤3 allowed; we surface one slot
-          if (audio) input.audio_urls = [audio];
-          // Seedance only uses a reference the prompt CITES (@ImageN / @Video1).
+          // Slot #1 + the @Video2-3/@Audio2-3 extras (fal caps both at 3).
+          if (clip) input.video_urls = [clip, ...extraClips].slice(0, 3);
+          if (audio) input.audio_urls = [audio, ...extraAudios].slice(0, 3);
+          // Seedance only uses a reference the prompt CITES (@ImageN/@VideoN).
           // The director writes those tags; for a raw prompt without any, append
           // them so the uploaded references aren't silently ignored.
-          const tags = rImgs.map((_, i) => "@Image" + (i + 1)).concat(clip ? ["@Video1"] : []);
+          const tags = rImgs.map((_, i) => "@Image" + (i + 1))
+            .concat((input.video_urls || []).map((_, i) => "@Video" + (i + 1)));
           if (typeof input.prompt === "string" && tags.length && !/@(?:Image|Video)\d/i.test(input.prompt)) {
             input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
           }
@@ -2410,9 +2444,9 @@ async function handleRequest(request, env, ctx) {
         clipSeconds: clipSecondsReal,
         // Explicit "silent" render → the audio-off rate where fal prices one.
         soundOff,
-        // Seedance reference-to-video with a @Video1 clip bills 0.6× rate over
-        // (input + output) seconds; unmeasurable input assumes the 15s max.
-        vrefSeconds: model.startsWith("bytedance/") && clip ? Math.min(15, Math.ceil(clipSecondsReal || 15)) : 0,
+        // Seedance reference-to-video with @VideoN clips bills 0.6× rate over
+        // (COMBINED input + output) seconds; unmeasurable input assumes the 15s max.
+        vrefSeconds: model.startsWith("bytedance/") && clip ? Math.min(15, Math.ceil(vrefCombinedSecs || 15)) : 0,
       });
 
       // Charge AFTER fal accepts the job, so a rejected or failed submit never
@@ -3544,7 +3578,10 @@ async function handleRequest(request, env, ctx) {
         if (imageCount > 1) ctxBits.push(`${imageCount} reference images attached — ${kind === "image" ? "refer to each by position (the first image, the second image, …)" : "cite each as @Image1…@Image" + imageCount + " and use them all"}`);
         else ctxBits.push(hasImage ? "a start image IS attached" : "no start image attached");
         if (hasEnd) ctxBits.push("an end frame IS attached");
-        if (hasClip) ctxBits.push(clipIsSeedanceRef ? "a video clip IS attached as a @Video1 reference" : veoExtend ? "a source video clip IS attached (extend: +7s continuation)" : isReframeRun ? `a source video clip IS attached and this run REFRAMES it to ${genRatio || "a new aspect ratio"} (the newly revealed canvas gets generatively painted; the footage itself stays)` : "a source video clip IS attached (video-to-video edit)");
+        const vidRefN = clipIsSeedanceRef ? Math.min(3, Math.max(1, Math.round(+body.vidRefCount) || 1)) : 0;
+      const audRefN = clipIsSeedanceRef || (kind === "video" && /seedance/.test(genModel)) ? Math.min(3, Math.max(0, Math.round(+body.audRefCount) || 0)) : 0;
+      if (hasClip) ctxBits.push(clipIsSeedanceRef ? (vidRefN > 1 ? `${vidRefN} video clips ARE attached as references — cite them as @Video1…@Video${vidRefN}` : "a video clip IS attached as a @Video1 reference") : veoExtend ? "a source video clip IS attached (extend: +7s continuation)" : isReframeRun ? `a source video clip IS attached and this run REFRAMES it to ${genRatio || "a new aspect ratio"} (the newly revealed canvas gets generatively painted; the footage itself stays)` : "a source video clip IS attached (video-to-video edit)");
+      if (audRefN > 1) ctxBits.push(`${audRefN} audio references attached — cite them as @Audio1…@Audio${audRefN}`);
         if (hasAvatar) ctxBits.push("an avatar face image IS attached");
         if (hasAudio) ctxBits.push("an audio track IS attached (lip-sync / soundtrack)");
         if (refCount) ctxBits.push(`${refCount} reference image${refCount > 1 ? "s" : ""} attached`);

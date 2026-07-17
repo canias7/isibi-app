@@ -1479,3 +1479,25 @@ checklist in the chat.
   refs, its ref endpoint no clip) — same both-directions clearing as Veo.
 - Verified headless: row 0/6, price, exclusivity both ways, tag badges,
   body carries refs; worker branch mirrors Veo/Kling-o3 routing.
+
+### Seedance multi video/audio references (@Video1-3 / @Audio1-3) (2026-07-17)
+- Owner green-lit closing the capability gap from the catalog sweep. Slot #1
+  stays the normal clip/audio attach (ALL existing validation untouched);
+  Seedance-only "+" tiles add up to 2 more of each, enforcing fal's caps at
+  attach: videos MP4/MOV, each ~480-720p area band, combined 2-15s, ≤50MB
+  total; audios combined ≤15s, ≤15MB per file. Extras aren't auto-downscaled
+  (slot #1 is) — out-of-band ones bounce with the fix instructions.
+- Chips: typing @ offers @Video1..N and (new) @Audio1..N; tags reconcile in
+  the worker as before (dangling ones dropped, raw prompts get all @VideoN
+  cited). Director context announces the counts so composed prompts cite
+  every reference.
+- Billing: the 0.6× (input + output) seconds basis now uses the COMBINED
+  byte-measured input seconds, server-side; ANY unmeasurable clip → the 15s
+  never-undercharge max. Worker validates combined size/duration (400s),
+  stages each extra on fal storage.
+- Persistence: extras ride the per-chat staged snapshots (memory + the
+  refresh-proof IndexedDB mirror) and clear when slot #1 drops or the model
+  switches away from Seedance.
+- Verified headless end-to-end (real files through the real file inputs);
+  the combined-duration bounce branch is code-reviewed but its headless run
+  hit webm metadata flakiness — worth one live poke when convenient.

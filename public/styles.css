@@ -4531,3 +4531,13 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 }
 .gal-add:hover { transform: translateY(-1px); }
 .gal-add:disabled { opacity: .4; cursor: default; transform: none; }
+
+/* Seedance extra reference slots (@Video2-3 / @Audio2-3): text chips instead
+   of thumbnails — a clip/audio slot shows its glyph + rounded duration. */
+.vx-extra { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .4rem; }
+.vx-extra .slot {
+  width: auto; min-width: 86px; height: 44px; padding: 0 1.4rem 0 .55rem;
+  display: flex; align-items: center; background: rgba(255, 255, 255, .04);
+}
+.vx-extra .slot-vid { font-size: .78rem; color: var(--ink-2, #cfcfd6); white-space: nowrap; }
+.vx-extra .slot-tag { position: static; margin-left: .45rem; }

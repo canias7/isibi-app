@@ -231,6 +231,12 @@ const refList = [];
 const elList = [];
 // Ray keyframes (≤64 images pinned along the clip's timeline, evenly spaced).
 const kfList = [];
+// Seedance extra reference clips/audios beyond slot #1 (@Video2-3 / @Audio2-3).
+// fal caps: 3 videos (combined 2-15s, each ~480-720p, ≤50MB total) · 3 audios
+// (combined ≤15s). Slot #1 stays attachments.clip/audio with all its existing
+// validation; these carry {uri, dur, w, h} / {uri, dur, name} per item.
+const vxList = [];
+const axList = [];
 const ATTACH_LABELS = {
   image: '<span class="plus-big">+</span>',
   avatar: '<span class="plus-big">+</span>',
@@ -325,6 +331,9 @@ function onAttach(kind, inputEl) {
     // (Kling: ≥300px, aspect 0.40–2.50) with the exact reason.
     if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, reader.result);
     renderAttach(kind);
+    // Slot #1 landing may reveal the Seedance +extras tile (@Video2-3/@Audio2-3).
+    if (kind === 'clip') renderVxList();
+    if (kind === 'audio') renderAxList();
     // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
     if (kind === 'image') clearImageInputsExcept('image');
     else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
@@ -798,8 +807,8 @@ function clearAttach(ev, kind) {
     if (extraImages.length) attachments.image = extraImages.shift();
     renderExtraImages();
   }
-  if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; }
-  if (kind === 'clip') { clipMeta = null; renderRefChips(); } // dropping the clip exits v2v billing / clears the @Video1 chip
+  if (kind === 'audio') { awDur = 0; awPeaks = null; awSize = 0; awType = ''; axList.length = 0; renderAxList(); renderRefChips(); }
+  if (kind === 'clip') { clipMeta = null; vxList.length = 0; renderVxList(); renderRefChips(); } // dropping slot #1 drops its extras + chips too
   delete imgMeta[kind];
   renderAttach(kind);
   updateSendPrice(); // any removal can move the tier/duration (esp. Ray i2v ↔ t2v)
@@ -817,8 +826,10 @@ function updateApCounts() {
   set('cntImage', attachments.image ? 1 : 0, caps.image ? 1 : 0);
   set('cntImgRef', extraImages.length, (mode === 'image' && caps.image && (caps.maxImages || 1) > 1) ? caps.maxImages : 0);
   set('cntAvatar', attachments.avatar ? 1 : 0, caps.avatar ? 1 : 0);
-  set('cntAudio', attachments.audio ? 1 : 0, caps.audio ? 1 : 0);
-  set('cntClip', attachments.clip ? 1 : 0, caps.clip ? 1 : 0);
+  // Seedance takes up to 3 of each (slot #1 + the @Video2-3/@Audio2-3 extras).
+  const multiRef = vxAllowed();
+  set('cntAudio', (attachments.audio ? 1 : 0) + axList.length, caps.audio ? (multiRef ? 3 : 1) : 0);
+  set('cntClip', (attachments.clip ? 1 : 0) + vxList.length, caps.clip ? (multiRef ? 3 : 1) : 0);
   set('cntEnd', attachments.end ? 1 : 0, caps.end ? 1 : 0);
   set('cntFlf', (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0), caps.flf ? 2 : 0);
   set('cntRef', refList.length, caps.ref || 0);
@@ -849,6 +860,12 @@ function updateAttachVisibility() {
       renderAttach(kind);
     }
   });
+  // The Seedance-only extra reference slots don't survive a switch to any
+  // other family (their @Video2-3/@Audio2-3 tags mean nothing elsewhere).
+  if (!vxAllowed() && (vxList.length || axList.length)) {
+    vxList.length = 0; axList.length = 0;
+  }
+  renderVxList(); renderAxList();
   // Switching models re-judges a kept clip against the NEW model's limits
   // (e.g. a 12s clip fine on Kling o3 is over Veo extend's 8s cap) — drop it
   // with the reason rather than let it ride to a doomed, charged submit.
@@ -1054,6 +1071,9 @@ const SRC_SLOTS = {
   fileKf: { kind: 'image', room: () => Math.max(1, kfCap() - kfList.length) },
   fileClip: { kind: 'video' },
   fileAudio: { kind: 'audio' },
+  // Seedance extra reference slots (@Video2-3 / @Audio2-3).
+  fileVx: { kind: 'video', room: () => Math.max(1, 2 - vxList.length) },
+  fileAx: { kind: 'audio', room: () => Math.max(1, 2 - axList.length) },
 };
 function openSrcMenu(fileId, ev, btn) {
   ev.stopPropagation();
@@ -1583,6 +1603,121 @@ function onAttachKf(inputEl) {
   });
 }
 function removeKf(i) { kfList.splice(i, 1); renderKfList(); }
+
+// ── Seedance multi-reference extras (@Video2-3 / @Audio2-3) ──
+// Slot #1 is the normal clip/audio attach (all existing validation applies);
+// these add up to 2 more of each, Seedance-only, with the COMBINED caps fal
+// enforces (videos 2-15s total & ≤50MB; audios ≤15s total).
+function vxAllowed() { return mode === 'video' && /seedance/.test(model); }
+function vxDurTotal() { return ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0); }
+function axDurTotal() { return (awDur || 0) + axList.reduce((t, x) => t + (x.dur || 0), 0); }
+function onAttachVx(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  if (!vxAllowed() || !attachments.clip) return;
+  files.forEach((file) => {
+    if (vxList.length >= 2) return;
+    // Same format rule as slot #1 (CLIP_LIMITS seedance): fal takes MP4/MOV.
+    if (!/^video\/(mp4|quicktime)/.test(file.type || '')) { sbToast('Reference clips must be MP4 or MOV.'); return; }
+    const bytesNow = Math.floor(((attachments.clip || '').length + vxList.reduce((t, x) => t + x.uri.length, 0)) * 0.75);
+    if (bytesNow + (file.size || 0) > 50_000_000) { sbToast('Video references are capped at 50 MB combined — this one would go over.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const uri = reader.result;
+      const v = document.createElement('video');
+      v.preload = 'metadata'; v.muted = true;
+      v.onloadedmetadata = () => {
+        const dur = v.duration || 0, w = v.videoWidth || 0, h = v.videoHeight || 0;
+        try { v.src = ''; } catch (e) {}
+        if (vxList.length >= 2 || !attachments.clip) return; // state moved on
+        // fal's per-clip pixel band (~480p-720p AREA) — extras aren't
+        // auto-downscaled (slot #1 is); bounce with the reason instead.
+        const area = w * h;
+        if (w && (area < 409600 || area > 927408)) {
+          sbToast('Reference clips need to sit between ~480p and ~720p — re-export this one near 720p (e.g. 1280×720) and add it again.');
+          return;
+        }
+        if (vxDurTotal() + dur > 15.2) {
+          sbToast('Video references are capped at 15 seconds COMBINED — this one would make it ' + Math.ceil(vxDurTotal() + dur) + 's.');
+          return;
+        }
+        vxList.push({ uri, dur, w, h });
+        renderVxList(); renderRefChips(); updateSendPrice();
+      };
+      v.onerror = () => { sbToast('Couldn’t read that video — try a different file.'); };
+      v.src = uri;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function removeVx(i) { vxList.splice(i, 1); renderVxList(); renderRefChips(); updateSendPrice(); }
+function renderVxList() {
+  const host = document.getElementById('vxSlots');
+  const add = document.getElementById('btnVx');
+  if (!host || !add) return;
+  host.innerHTML = '';
+  vxList.forEach((x, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<span class="slot-vid">🎬 ' + (x.dur >= 0.5 ? Math.round(x.dur) + 's' : 'clip') + '</span>' +
+      '<span class="slot-tag">@Video' + (i + 2) + '</span><span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeVx(i);
+    host.appendChild(d);
+  });
+  const show = vxAllowed() && !!attachments.clip && vxList.length < 2;
+  add.style.display = show ? '' : 'none';
+  if (show) add.querySelector('.slot-count').textContent = (1 + vxList.length) + '/3';
+  updateApCounts();
+}
+function onAttachAx(inputEl) {
+  const files = Array.from(inputEl.files || []);
+  inputEl.value = '';
+  if (!vxAllowed() || !attachments.audio) return;
+  files.forEach((file) => {
+    if (axList.length >= 2) return;
+    if (!/^audio\//.test(file.type || '')) { sbToast('That file isn’t an audio clip.'); return; }
+    if ((file.size || 0) > 15_000_000) { sbToast('Audio references are capped at 15 MB per file.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const uri = reader.result;
+      const a = document.createElement('audio');
+      a.preload = 'metadata';
+      a.onloadedmetadata = () => {
+        const dur = a.duration || 0;
+        try { a.src = ''; } catch (e) {}
+        if (axList.length >= 2 || !attachments.audio) return;
+        if (axDurTotal() + dur > 15.2) {
+          sbToast('Audio references are capped at 15 seconds COMBINED — this one would make it ' + Math.ceil(axDurTotal() + dur) + 's.');
+          return;
+        }
+        axList.push({ uri, dur, name: (file.name || 'audio').replace(/[<>&"]/g, '') });
+        renderAxList(); renderRefChips(); updateSendPrice();
+      };
+      a.onerror = () => { sbToast('Couldn’t read that audio — try a different file.'); };
+      a.src = uri;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function removeAx(i) { axList.splice(i, 1); renderAxList(); renderRefChips(); updateSendPrice(); }
+function renderAxList() {
+  const host = document.getElementById('axSlots');
+  const add = document.getElementById('btnAx');
+  if (!host || !add) return;
+  host.innerHTML = '';
+  axList.forEach((x, i) => {
+    const d = document.createElement('div');
+    d.className = 'slot';
+    d.innerHTML = '<span class="slot-vid">♪ ' + (x.dur >= 0.5 ? Math.round(x.dur) + 's' : 'audio') + '</span>' +
+      '<span class="slot-tag">@Audio' + (i + 2) + '</span><span class="x">×</span>';
+    d.querySelector('.x').onclick = () => removeAx(i);
+    host.appendChild(d);
+  });
+  const show = vxAllowed() && !!attachments.audio && axList.length < 2;
+  add.style.display = show ? '' : 'none';
+  if (show) add.querySelector('.slot-count').textContent = (1 + axList.length) + '/3';
+  updateApCounts();
+}
 function renderKfList() {
   const host = document.getElementById('kfImages');
   if (!host) return;
@@ -1628,7 +1763,9 @@ function renderRefChips() {
   if (!composer) return;
   let bar = document.getElementById('refChips');
   const vidRef = clipIsVideoRef();
-  const want = ((refTagBinding() && refList.length) || elList.length || vidRef) && refChipsWanted();
+  // Seedance audio references get @AudioN tags the prompt can cite too.
+  const audRef = vxAllowed() && !!attachments.audio;
+  const want = ((refTagBinding() && refList.length) || elList.length || vidRef || audRef) && refChipsWanted();
   if (!want) { if (bar) bar.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -1656,13 +1793,28 @@ function renderRefChips() {
     bar.appendChild(chip);
   });
   if (vidRef) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'ref-chip ref-chip-vid';
-    chip.title = 'Insert @Video1 into your message';
-    chip.innerHTML = '<span class="ref-chip-glyph">🎬</span>@Video1';
-    chip.onclick = () => completeTag('@Video1');
-    bar.appendChild(chip);
+    const vids = 1 + vxList.length; // slot #1 + the Seedance extras
+    for (let i = 1; i <= vids; i++) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'ref-chip ref-chip-vid';
+      chip.title = 'Insert @Video' + i + ' into your message';
+      chip.innerHTML = '<span class="ref-chip-glyph">🎬</span>@Video' + i;
+      chip.onclick = () => completeTag('@Video' + i);
+      bar.appendChild(chip);
+    }
+  }
+  if (audRef) {
+    const auds = 1 + axList.length;
+    for (let i = 1; i <= auds; i++) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'ref-chip ref-chip-vid';
+      chip.title = 'Insert @Audio' + i + ' into your message';
+      chip.innerHTML = '<span class="ref-chip-glyph">♪</span>@Audio' + i;
+      chip.onclick = () => completeTag('@Audio' + i);
+      bar.appendChild(chip);
+    }
   }
 }
 // Caret moves (arrows, clicks, focus) also decide whether an @token is being
@@ -3156,7 +3308,8 @@ function stashStaged(id) {
   if (!id) return;
   stagedByChat[id] = {
     att: { ...attachments }, extras: extraImages.slice(), refs: refList.slice(),
-    els: elList.slice(), kfs: kfList.slice(), mask: maskData, clipMeta,
+    els: elList.slice(), kfs: kfList.slice(), vxs: vxList.slice(), axs: axList.slice(),
+    mask: maskData, clipMeta,
     awDur, awPeaks, awName, awSize, awType, imgMeta: { ...imgMeta },
   };
 }
@@ -3165,8 +3318,8 @@ function restoreStaged(id) {
   try {
     const s = stagedByChat[id];
     Object.keys(attachments).forEach((k) => { attachments[k] = s ? s.att[k] || null : null; });
-    extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0;
-    if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); }
+    extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0; vxList.length = 0; axList.length = 0;
+    if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); vxList.push(...(s.vxs || [])); axList.push(...(s.axs || [])); }
     maskData = s ? s.mask : null;
     clipMeta = s ? s.clipMeta : null;
     awDur = s ? s.awDur : 0; awPeaks = s ? s.awPeaks : null;
@@ -3174,7 +3327,7 @@ function restoreStaged(id) {
     Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
     if (s && s.imgMeta) Object.assign(imgMeta, s.imgMeta);
     Object.keys(attachments).forEach((k) => renderAttach(k));
-    renderExtraImages(); renderRefList(); renderElList(); renderKfList();
+    renderExtraImages(); renderRefList(); renderElList(); renderKfList(); renderVxList(); renderAxList();
     updateAttachVisibility();
     updateSendPrice();
   } finally { restoringStaged = false; }
@@ -3231,7 +3384,8 @@ async function stagedDbClear() {
 }
 const stagedHasContent = (s) => !!s && (Object.values(s.att || {}).some(Boolean)
   || (s.extras || []).length > 0 || (s.refs || []).length > 0
-  || (s.els || []).length > 0 || (s.kfs || []).length > 0 || !!s.mask);
+  || (s.els || []).length > 0 || (s.kfs || []).length > 0
+  || (s.vxs || []).length > 0 || (s.axs || []).length > 0 || !!s.mask);
 var restoringStaged = false; // var: read by renderers that run before this line executes
 let _stagedPersistT = 0;
 function schedulePersistStaged() {
@@ -3285,7 +3439,7 @@ async function hydrateStaged(id) {
 // so any change (attach, clear, exclusivity eviction, thumbnail landing)
 // persists without touching each call site.
 (() => {
-  ['renderAttach', 'renderExtraImages', 'renderRefList', 'renderElList', 'renderKfList', 'renderMaskState'].forEach((name) => {
+  ['renderAttach', 'renderExtraImages', 'renderRefList', 'renderElList', 'renderKfList', 'renderVxList', 'renderAxList', 'renderMaskState'].forEach((name) => {
     const orig = window[name];
     if (typeof orig !== 'function') return;
     window[name] = function () { const r = orig.apply(this, arguments); schedulePersistStaged(); return r; };
@@ -4216,10 +4370,11 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
     : isClipEdit ? clipEditSecs
     : isRayI2V ? 5
     : (duration || 5);
-  // Seedance reference-to-video with a @Video1 clip: 0.6× rate over the
-  // clip's input seconds + the output duration (same basis as the worker).
+  // Seedance reference-to-video with @VideoN clips: 0.6× rate over the
+  // COMBINED input seconds + the output duration (same basis as the worker).
   if (/seedance/.test(model) && attachments.clip) {
-    const inSecs = Math.min(15, Math.ceil((clipMeta && clipMeta.dur) || 15));
+    const combined = ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0);
+    const inSecs = Math.min(15, Math.ceil(combined || 15));
     return fmtPrice(0.6 * rate * (inSecs + billDur));
   }
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
@@ -4751,6 +4906,9 @@ async function generateMedia(text, opts = {}) {
         elements: elList.length ? elList.slice() : undefined, // Kling @ElementN characters
         keyframes: kfList.length ? kfList.slice() : undefined, // Ray timeline keyframes
         reframe: rayReframe() || undefined, // Ray: outpaint the clip to the picked ratio
+        // Seedance extra references beyond slot #1 (@Video2-3 / @Audio2-3).
+        extraClips: vxAllowed() && vxList.length ? vxList.map((x) => x.uri) : undefined,
+        extraAudios: vxAllowed() && axList.length ? axList.map((x) => x.uri) : undefined,
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
@@ -5286,6 +5444,9 @@ function directorContext() {
     hasClip: mode === 'video' && !!attachments.clip,
     // Ray reframe run: the prompt describes what fills the NEW canvas, not an edit.
     reframe: (mode === 'video' && rayReframe()) || undefined,
+    // Seedance multi-reference counts so the director cites @Video1..N/@Audio1..N.
+    vidRefCount: mode === 'video' && vxAllowed() && attachments.clip && vxList.length ? 1 + vxList.length : undefined,
+    audRefCount: mode === 'video' && vxAllowed() && attachments.audio && axList.length ? 1 + axList.length : undefined,
     hasAvatar: mode === 'video' && !!attachments.avatar,
     hasAudio: mode === 'video' && !!attachments.audio,
     refCount: (mode === 'video' && refList.length) ? refList.length : undefined,
@@ -9255,6 +9416,8 @@ const CHANGE_ACTIONS = {
   'attach-ref': (e, el) => onAttachRef(el),
   'attach-el': (e, el) => onAttachEl(el),
   'attach-kf': (e, el) => onAttachKf(el),
+  'attach-vx': (e, el) => onAttachVx(el),
+  'attach-ax': (e, el) => onAttachAx(el),
 };
 const INPUT_ACTIONS = {
   'search': () => renderChatList(),
