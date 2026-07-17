@@ -5539,6 +5539,10 @@ function showMarketing() {
   if (gate) gate.style.display = 'none';
   const shell = document.querySelector('.shell');
   if (shell) shell.inert = true;
+  // Coming BACK to the landing (the wordmark): the browser paused the
+  // autoplay loops while the page was hidden and won't resume them on its
+  // own — only a fresh load autoplays. Re-kick every cell that isn't playing.
+  if (mkt) mkt.querySelectorAll('video').forEach((v) => { if (v.paused) v.play().catch(() => {}); });
 }
 function hideMarketing() {
   const mkt = document.getElementById('marketing');

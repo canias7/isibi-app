@@ -1056,3 +1056,10 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   studio, and the app keeps all its state behind the inert shell (verified:
   staged refs survive the round-trip). Previously the logo just went to the
   Builder view.
+
+### Landing loops resume on wordmark return (2026-07-16)
+- Owner: "the moving frames are not moving" when returning via the logo — the
+  browser pauses the landing's autoplay video loops while it's hidden and
+  never resumes them (only a fresh load autoplays). showMarketing now
+  re-kicks any paused video in the landing on every show. Same page as
+  always — it just looked like a new static one because of the frozen loops.
