@@ -2846,6 +2846,24 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   border-radius: 7px; backdrop-filter: blur(4px); pointer-events: none;
 }
 
+/* Kind-aware library picker tiles: video + audio entries in the gal-grid. */
+.gal-grid video {
+  width: 100%; aspect-ratio: 16/10; object-fit: cover; display: block;
+  border-radius: 14px; border: 1px solid rgba(255, 255, 255, .14); cursor: pointer;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .35);
+  transition: border-color .15s ease, transform .18s ease, box-shadow .18s ease;
+}
+.gal-grid video:hover { border-color: var(--neon); transform: translateY(-2px); }
+.gal-grid video.sel, .gal-grid .gal-audio-tile.sel { border-color: #ff79c6; box-shadow: 0 0 0 2px rgba(255, 121, 198, .55); }
+.gal-audio-tile {
+  display: flex; align-items: center; justify-content: center; text-align: center;
+  aspect-ratio: 16/10; padding: .8rem; border-radius: 14px; cursor: pointer;
+  background: var(--panel-2); border: 1px solid rgba(255, 255, 255, .14);
+  color: var(--muted); font-size: .8rem; word-break: break-all;
+  transition: border-color .15s ease, transform .18s ease;
+}
+.gal-audio-tile:hover { border-color: var(--neon); transform: translateY(-2px); color: var(--text); }
+
 /* Bottom-center toast (sbToast) — import errors, storage warnings. */
 .sb-toast {
   position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px);

@@ -1207,7 +1207,8 @@ checklist in the chat.
   does (proved earlier with the audio-card seek against a range server).
 
 ## 📋 AUDIT LIST (owner-flagged, DO LATER — not yet built)
-- **Attach pickers must ALL offer both sources (2026-07-17):** in video mode
+- ~~Attach pickers must ALL offer both sources~~ — ✅ BUILT 2026-07-17 (see
+  entry below). Original note: in video mode
   the pickers (Reference to video, Extend clip, First & last frame, image
   slot, characters/keyframes…) go STRAIGHT to the device file dialog — no
   "isibi gallery / Your device" source menu like image mode's Edit-image/
@@ -1251,3 +1252,21 @@ checklist in the chat.
     Seedance/Kling o3 and translate to "reference image N" for Veo.
 - Verified headless: compose wire carries images[3] + imageCount 3, kind
   video. Owner should re-run the 3-ref test live after deploy.
+
+### Universal source chooser on every attach slot (2026-07-17)
+- **Owner (hit it live during Veo testing):** video-mode pickers went
+  straight to the device dialog. Now EVERY media slot (image-to-video,
+  end frame, first/last, references, characters, keyframes, extend clip,
+  audio — every model) opens the source menu: isibi gallery + Your device,
+  with Avatar added on image slots when avatars exist.
+- Kind-aware library: the clip slot lists gallery VIDEOS (video tiles with
+  the first-frame nudge), audio slots list gallery AUDIO (♪ tiles), image
+  slots the image thumbnails. Multi-slots (refs/characters/keyframes) get
+  the multi-select Add bar capped at the remaining room.
+- A gallery pick is fetched into a File and pushed through the SAME hidden-
+  input change path as a device pick — so every existing validation (size
+  caps, magic bytes, Veo exclusivity, clip thumbnail + fps conform, billing
+  measurement) applies identically. Gallery-header ⤒ Import stays a direct
+  dialog on purpose.
+- Verified headless: ref slot multi-picks 2 gallery images through the full
+  conform pipeline; clip slot lists video tiles; menus per slot correct.

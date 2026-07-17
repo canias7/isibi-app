@@ -1034,6 +1034,145 @@ function imgSrcPick(src, ev) {
   }
 }
 
+// ── Universal source chooser for EVERY attach slot (owner 2026-07-17: "for
+// every picker it asks for both") — video-mode slots used to jump straight
+// to the device dialog. Each slot now offers isibi gallery + Your device
+// (image slots also offer saved Avatars), kind-aware: the clip slot lists
+// gallery VIDEOS, the audio slot gallery AUDIO. A gallery pick is fetched
+// into a File and fed through the SAME hidden-input change path as a device
+// pick, so every validation (size caps, magic bytes, exclusivity, clip
+// thumbnail, fps conform) applies identically. ──
+const SRC_SLOTS = {
+  fileImage: { kind: 'image', avatar: true },
+  fileAvatar: { kind: 'image', avatar: true },
+  fileEnd: { kind: 'image' },
+  fileFfirst: { kind: 'image' },
+  fileFlast: { kind: 'image' },
+  fileRef: { kind: 'image', avatar: true, room: () => Math.max(1, refCap() - refList.length) },
+  fileEl: { kind: 'image', avatar: true, room: () => Math.max(1, elCap() - elList.length) },
+  fileKf: { kind: 'image', room: () => Math.max(1, kfCap() - kfList.length) },
+  fileClip: { kind: 'video' },
+  fileAudio: { kind: 'audio' },
+};
+function openSrcMenu(fileId, ev, btn) {
+  ev.stopPropagation();
+  const cfg = SRC_SLOTS[fileId];
+  const menu = document.getElementById('imgSrcMenu');
+  if (!menu || !cfg) { const f = document.getElementById(fileId); if (f) f.click(); return; }
+  if (btn && btn.offsetParent) {
+    if (menu.parentElement !== btn.offsetParent) btn.offsetParent.appendChild(menu);
+    menu.style.top = (btn.offsetTop + 10) + 'px';
+  }
+  const sources = [];
+  if (cfg.avatar && loadAvatars().length) sources.push(['slot-avatar', 'Avatar']);
+  sources.push(['slot-gallery', 'isibi gallery'], ['slot-device', 'Your device']);
+  menu.innerHTML = sources.map(([pick, label]) =>
+    '<div class="model-item" data-act="slot-pick" data-pick="' + pick + '" data-slot="' + fileId + '"><span>' + label + '</span><span class="check">›</span></div>').join('');
+  wireActions(menu);
+  document.querySelectorAll('.model-menu.open').forEach((m) => { if (m !== menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+function slotSrcPick(fileId, pick, ev) {
+  ev.stopPropagation();
+  const menu = document.getElementById('imgSrcMenu');
+  if (menu) menu.classList.remove('open');
+  if (pick === 'slot-device') { const f = document.getElementById(fileId); if (f) f.click(); return; }
+  pickMediaFromLibrary(fileId, pick === 'slot-avatar');
+}
+// Fetch picked gallery/avatar items into Files and hand them to the slot's
+// hidden input — the change event runs the exact device-pick pipeline.
+async function feedInput(fileId, urls) {
+  const input = document.getElementById(fileId);
+  if (!input || !urls.length) return;
+  const dt = new DataTransfer();
+  let failed = 0;
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      const blob = await r.blob();
+      const ext = (u.startsWith('data:') ? (blob.type.split('/')[1] || 'png') : (u.split('?')[0].split('.').pop() || 'bin')).slice(0, 5);
+      dt.items.add(new File([blob], 'gallery-' + (dt.items.length + 1) + '.' + ext, { type: blob.type || '' }));
+    } catch { failed++; }
+  }
+  if (dt.files.length) {
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+  if (failed && typeof sbToast === 'function') sbToast('Couldn’t load ' + failed + (failed === 1 ? ' item' : ' items') + ' from your gallery — try again.');
+}
+async function pickMediaFromLibrary(fileId, fromAvatars) {
+  const cfg = SRC_SLOTS[fileId] || { kind: 'image' };
+  let urls;
+  if (fromAvatars) {
+    urls = loadAvatars().map((a) => a.image).filter(Boolean);
+  } else {
+    if (!Array.isArray(serverGallery)) await loadServerGallery();
+    urls = (Array.isArray(serverGallery) ? serverGallery : [])
+      .filter((o) => (o.kind || 'image') === cfg.kind && isSavedMedia(o.url))
+      .map((o) => o.url);
+  }
+  const old = document.querySelector('.gal-overlay');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.className = 'gal-overlay';
+  ov.onclick = (e) => { if (e.target === ov) ov.remove(); };
+  const remaining = cfg.room ? cfg.room() : 1;
+  const multi = remaining > 1 && urls.length > 1;
+  const title = fromAvatars ? 'Pick an avatar'
+    : cfg.kind === 'video' ? 'Pick a video from your gallery'
+    : cfg.kind === 'audio' ? 'Pick audio from your gallery'
+    : 'Pick from your gallery';
+  const empty = fromAvatars ? 'No avatars yet — create or import one in the Avatar tab.'
+    : cfg.kind === 'video' ? 'No videos in your gallery yet — generate or import one first.'
+    : cfg.kind === 'audio' ? 'No audio in your gallery yet — generate or import some first.'
+    : 'Nothing in your gallery yet — images you generate will show up here.';
+  ov.innerHTML = '<div class="gal-box"><div class="gal-head"><span class="gal-title">' + esc(title) + '</span>'
+    + '<span class="gal-sub">' + (urls.length ? urls.length + (urls.length === 1 ? ' item' : ' items') : '') + '</span>'
+    + '<button class="gal-close">×</button></div>'
+    + (urls.length ? '<div class="gal-grid"></div>' : '<div class="gal-empty">' + esc(empty) + '</div>')
+    + (multi ? '<div class="gal-foot"><span class="gal-count">Tap to select · up to ' + remaining + '</span><button class="gal-add" disabled>Add</button></div>' : '')
+    + '</div>';
+  const closeBtn = ov.querySelector('.gal-close');
+  if (closeBtn) closeBtn.onclick = () => ov.remove();
+  const gridEl = ov.querySelector('.gal-grid');
+  const picked = [];
+  const countEl = ov.querySelector('.gal-count');
+  const addBtn = ov.querySelector('.gal-add');
+  const paintBar = () => {
+    if (!addBtn) return;
+    addBtn.disabled = !picked.length;
+    addBtn.textContent = picked.length ? 'Add ' + picked.length : 'Add';
+    countEl.textContent = picked.length ? picked.length + ' / ' + remaining + ' selected' : 'Tap to select · up to ' + remaining;
+  };
+  if (gridEl) urls.forEach((u) => {
+    let tile;
+    if (!fromAvatars && cfg.kind === 'video') {
+      tile = document.createElement('video');
+      tile.muted = true; tile.preload = 'metadata'; tile.src = u;
+      tile.addEventListener('loadedmetadata', () => { try { tile.currentTime = 0.001; } catch (e) {} }, { once: true });
+    } else if (!fromAvatars && cfg.kind === 'audio') {
+      tile = document.createElement('div');
+      tile.className = 'gal-audio-tile';
+      tile.textContent = '♪ ' + decodeURIComponent((u.split('/').pop() || 'audio').split('?')[0]).slice(-28);
+    } else {
+      tile = document.createElement('img');
+      tile.alt = ''; tile.loading = 'lazy'; tile.decoding = 'async';
+      if (fromAvatars) tile.src = u;
+      else { thumbFallback(tile, u); tile.src = galleryThumb(u); }
+    }
+    tile.onclick = () => {
+      if (!multi) { ov.remove(); feedInput(fileId, [u]); return; }
+      const i = picked.indexOf(u);
+      if (i >= 0) { picked.splice(i, 1); tile.classList.remove('sel'); }
+      else if (picked.length < remaining) { picked.push(u); tile.classList.add('sel'); }
+      paintBar();
+    };
+    gridEl.appendChild(tile);
+  });
+  if (addBtn) addBtn.onclick = () => { if (picked.length) { ov.remove(); feedInput(fileId, picked.slice()); } };
+  document.body.appendChild(ov);
+}
+
 // Where each image source pulls from, and how its picker reads. Avatars and
 // products are saved locally with an `image` field (data URI or URL).
 const IMG_SOURCES = {
@@ -8952,7 +9091,13 @@ const CLICK_ACTIONS = {
   'img-pick': (e, el) => imgSrcPick(el.dataset.pick, e),
   'mask-edit': () => openMaskEditor(),
   'mask-clear': (e) => { e.stopPropagation(); clearMask(); },
-  'file': (e, el) => { const f = document.getElementById(el.dataset.file); if (f) f.click(); },
+  'file': (e, el) => {
+    // Media slots open the source chooser (gallery + device); anything else
+    // (e.g. the gallery-header Import) stays a direct file dialog.
+    if (SRC_SLOTS[el.dataset.file]) { openSrcMenu(el.dataset.file, e, el); return; }
+    const f = document.getElementById(el.dataset.file); if (f) f.click();
+  },
+  'slot-pick': (e, el) => slotSrcPick(el.dataset.slot, el.dataset.pick, e),
   'dir-menu': (e) => toggleDirMenu(e),
   'orch-toggle': () => toggleOrchestrator(),
   'set-mode': (e, el) => setMode(el.dataset.mode),
