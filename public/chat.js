@@ -7933,6 +7933,8 @@ function renderSchedule(body) {
 // ── The scheduled-posts calendar (right column) ──
 function schDayKey(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
 function schTime(iso) { const t = Date.parse(iso); if (!Number.isFinite(t)) return ''; try { return new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } }
+// Compact time for the tight calendar chips: "9am", "6:30pm", "12pm".
+function schTimeShort(iso) { const t = Date.parse(iso); if (!Number.isFinite(t)) return ''; const d = new Date(t); let h = d.getHours(); const m = d.getMinutes(); const ap = h < 12 ? 'am' : 'pm'; h = h % 12 || 12; return h + (m ? ':' + String(m).padStart(2, '0') : '') + ap; }
 function schDayLabel(key) { const t = Date.parse(key + 'T00:00'); if (!Number.isFinite(t)) return key; try { return new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); } catch { return key; } }
 // Group the local queue by local day → { 'YYYY-MM-DD': [post, …] }.
 function schPostsByDay() {
@@ -7957,8 +7959,12 @@ function paintSchCal() {
   for (let day = 1; day <= daysInMonth; day++) {
     const key = schDayKey(new Date(y, m, day));
     const posts = byDay[key] || [];
-    const chips = posts.slice(0, 2).map((p) =>
-      '<span class="scal-chip">' + (p.kind === 'video' ? '🎬 ' : '') + esc(schTime(p.when)) + '</span>').join('');
+    const chips = posts.slice(0, 2).map((p) => {
+      const th = p.thumb
+        ? '<span class="scal-chip-th" style="background-image:url(' + esc(p.thumb) + ')"></span>'
+        : '<span class="scal-chip-th scal-chip-th-none">' + (p.kind === 'video' ? '🎬' : '🖼') + '</span>';
+      return '<span class="scal-chip">' + th + '<span class="scal-chip-t">' + esc(schTimeShort(p.when)) + '</span></span>';
+    }).join('');
     const more = posts.length > 2 ? '<span class="scal-more">+' + (posts.length - 2) + '</span>' : '';
     cells += '<button type="button" class="scal-cell' + (key === todayKey ? ' today' : '') + (key === schSelDay ? ' sel' : '') + (posts.length ? ' has' : '') + '" data-day="' + key + '">' +
       '<span class="scal-n">' + day + '</span>' +

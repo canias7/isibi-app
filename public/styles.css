@@ -1269,9 +1269,12 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .scal-cell.sel { border-color: transparent; box-shadow: 0 0 0 2px #ff79c6; background: rgba(255, 120, 198, .12); }
 .scal-n { font-size: .78rem; font-weight: 600; color: var(--muted); }
 .scal-cell.today .scal-n, .scal-cell.has .scal-n { color: var(--text); }
-.scal-chips { display: flex; flex-direction: column; gap: .18rem; width: 100%; }
-.scal-chip { font-size: .62rem; font-weight: 600; color: #0a090e; background: linear-gradient(90deg, #ff79c6, #ffb84d); border-radius: 5px; padding: .08rem .3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scal-more { font-size: .6rem; color: var(--muted); }
+.scal-chips { display: flex; flex-direction: column; gap: .2rem; width: 100%; }
+.scal-chip { display: flex; align-items: center; gap: .25rem; font-size: .62rem; font-weight: 600; color: var(--text); background: rgba(255, 255, 255, .06); border: 1px solid var(--line-2); border-radius: 6px; padding: .12rem .2rem; overflow: hidden; }
+.scal-chip-th { flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; background: rgba(255, 255, 255, .08) center/cover no-repeat; display: grid; place-items: center; font-size: .62rem; }
+.scal-chip-th-none { color: var(--muted); }
+.scal-chip-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scal-more { font-size: .6rem; color: var(--muted); padding-left: .1rem; }
 .scal-day { margin-top: 1rem; border-top: 1px solid var(--line-2); padding-top: .9rem; display: flex; flex-direction: column; gap: .6rem; }
 .scal-day-h { font-size: .78rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .scal-item { display: flex; align-items: center; gap: .7rem; }

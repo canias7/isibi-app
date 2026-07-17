@@ -2096,3 +2096,9 @@ below the grid (thumb/icon · caption · time·type · remove ×). Scheduling ju
 the calendar to the new post's month + selects its day so it shows immediately.
 Still frontend-only. New code: paintSchCal/schDayPanel/schPostsByDay/schRemovePost
 + helpers in chat.js; .sch-wrap/.sch-left/.sch-right/.scal-* in styles.css.
+
+Follow-up (same day): calendar day cells now show the POST THUMBNAIL — each chip
+is [thumb][compact time] (e.g. red image + "9am"); a video with no poster falls
+back to a 🎬/🖼 icon. Added schTimeShort() for the tight chips (day-panel keeps
+the full "9:00 AM"). Verified headless: real thumb data-URLs render as chip
+backgrounds, icon fallback for no-thumb.
