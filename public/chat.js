@@ -5017,8 +5017,10 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
 // or the call fails, we fall back to these local placeholders so the flow
 // still works.
 // The last few chat turns, so the director remembers the conversation.
-function directorHistory() {
-  const chat = activeChat();
+function directorHistory(chatId) {
+  // Default: the open chat. A background director flow passes its ORIGIN chat
+  // id so a mid-flight chat switch can't feed it another thread's history.
+  const chat = chatId ? chatStore.chats.find((c) => c.id === chatId) : activeChat();
   return (chat ? chat.msgs : [])
     .filter((m) => m.t === 'user' || m.t === 'agent' || m.t === 'media')
     .slice(-8)
@@ -5305,17 +5307,17 @@ async function directorImage() {
   return out.length === 1 ? { image: out[0] } : { images: out };
 }
 
-async function directorAsk(text, history, onDelta) {
+async function directorAsk(text, history, onDelta, snap) {
   // Voice mode goes through the director too — it decides whether this is
   // chat ("hey", "how are you") or words to speak. Composing stays literal.
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        step: 'ask', kind: mode, prompt: text, history: history || [], stream: true,
+        step: 'ask', kind: snap ? snap.kind : mode, prompt: text, history: history || [], stream: true,
         qmode: directorMode, // tells the worker which prompt-help mode is active
-        prevPrompt: (activeChat() || {}).lastPrompt || undefined,
-        ...directorContext(), ...(await directorImage()),
+        prevPrompt: snap ? snap.prev : (activeChat() || {}).lastPrompt || undefined,
+        ...(snap ? snap.ctx : directorContext()), ...(snap ? snap.img : await directorImage()),
       }),
     });
     // 402 = out of credits for the director → fall back to raw prompting (the
@@ -5389,7 +5391,7 @@ async function directorRevise(feedback) {
   } catch { return prev ? prev + ' ' + feedback : feedback; }
 }
 
-async function directorCompose(text, answers, webFacts) {
+async function directorCompose(text, answers, webFacts, origin, snap) {
   // Audio used to skip the writer entirely (speak the raw message verbatim),
   // which meant "make an audio of a woman screaming" got read out loud. With
   // the orchestrator on, the writer now interprets the request into the actual
@@ -5400,9 +5402,9 @@ async function directorCompose(text, answers, webFacts) {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        step: 'compose', kind: mode, prompt: text, answers: answers.filter(Boolean),
+        step: 'compose', kind: snap ? snap.kind : mode, prompt: text, answers: answers.filter(Boolean),
         webFacts: webFacts || undefined,
-        history: directorHistory(), ...directorContext(), ...(await directorImage()),
+        history: directorHistory(origin), ...(snap ? snap.ctx : directorContext()), ...(snap ? snap.img : await directorImage()),
       }),
     });
     if (!res.ok) throw 0;
@@ -5413,7 +5415,7 @@ async function directorCompose(text, answers, webFacts) {
     pendingExtras = sanitizeExtras(data);
     if (data.prompt) return data.prompt;
     throw 0;
-  } catch { return mode === 'audio' ? text : localCompose(text, answers); }
+  } catch { return (snap ? snap.kind : mode) === 'audio' ? text : localCompose(text, answers); }
 }
 
 function localAsk(text) {
@@ -5451,16 +5453,31 @@ async function startDirector(text) {
   clearQDock(); // a fresh message supersedes any question still waiting
   addMsg('user', text);
   await pushRefStrip();
+  // Snapshot everything the pipeline needs from THIS chat's composer state
+  // before the first await — if the user switches chats mid-think, the flow
+  // keeps going on this snapshot instead of reading the other chat's globals.
+  // (directorAsk awaited directorImage() itself before; same cost, done once.)
+  const snap = {
+    kind: mode,
+    prev: (activeChat() || {}).lastPrompt || undefined,
+    ctx: directorContext(),
+    img: await directorImage(),
+  };
   const thinking = addMsg('agent typing', 'isibi.ai is thinking');
   // isibi.ai's reply is delivered through the normal path when the call ends,
   // which types it out word-by-word (like every other agent message).
   let res;
-  try { res = await directorAsk(text, history); } finally { thinking.remove(); }
+  try { res = await directorAsk(text, history, null, snap); } finally { thinking.remove(); }
   // isibi.ai's conversational reply (greetings, small talk, or a lead-in).
   if (res.reply) deliverAgent(origin, res.reply);
-  // If the user moved to another chat while isibi.ai was thinking, stop here —
-  // don't pop question cards into the wrong thread.
-  if (chatStore.active !== origin) return;
+  // The user moved to another chat while isibi.ai was thinking: a creative
+  // request still gets composed in the background (the finished card lands in
+  // this chat, waiting for approval). Rerun/revise anchor on the live chat's
+  // last prompt, so those stop here rather than act on the wrong thread.
+  if (chatStore.active !== origin) {
+    if (res.ready) composeAndReview(text, [], res.needsWeb, origin, snap);
+    return;
+  }
   // The director read the message as "run that again": the last prompt was
   // already approved once — straight back into generation, no re-interview.
   if (res.rerun && (activeChat() || {}).lastPrompt) {
@@ -5470,7 +5487,7 @@ async function startDirector(text) {
     // into a fresh SHORT edit instruction instead of dredging the old one up.
     if (isEditMode()) {
       if (!res.reply) deliverAgent(origin, '🔁 Giving it another go.');
-      composeAndReview(activeChat().lastPrompt, [], false);
+      composeAndReview(activeChat().lastPrompt, [], false, origin, snap);
       return;
     }
     // Plan mode still gets the approval card (settings may have changed since
@@ -5490,48 +5507,57 @@ async function startDirector(text) {
   }
   // A creative request — compose the prompt for review. If the director
   // flagged it as needing current real-world facts, research the web first.
-  if (res.ready) composeAndReview(text, [], res.needsWeb);
+  if (res.ready) composeAndReview(text, [], res.needsWeb, origin, snap);
   // Otherwise (greeting / small talk): the reply alone is the whole turn.
 }
 
-async function composeAndReview(text, answers, needsWeb) {
-  const origin = chatStore.active;
+async function composeAndReview(text, answers, needsWeb, origin, snap) {
+  origin = origin || chatStore.active;
+  // A typing indicator belongs only in the origin thread — when the user has
+  // already moved to another chat, the work carries on invisibly instead.
+  const typingIf = (label) => (chatStore.active === origin ? addMsg('agent typing', label) : null);
   // Web-search first when the request depends on current real-world facts
   // (latest products, real specs) — the director's needsWeb judgment alone
   // decides; there's no user toggle. Failures degrade to no facts.
   let webFacts = '';
   if (needsWeb) {
-    const looking = addMsg('agent typing', 'Looking it up on the web');
+    const looking = typingIf('Looking it up on the web');
     let research = { facts: '', sources: [] };
-    try { research = await directorResearch(text); } finally { looking.remove(); }
-    if (chatStore.active !== origin) return;
+    try { research = await directorResearch(text, origin, snap); } finally { if (looking) looking.remove(); }
     webFacts = research.facts || '';
     if (research.sources && research.sources.length) {
       const names = [...new Set(research.sources
         .map((s) => { try { return new URL(s.url).hostname.replace(/^www\./, ''); } catch { return s.title || 'source'; } }))]
         .slice(0, 3);
       deliverAgent(origin, '🔎 Checked the web — ' + names.join(', '));
-      if (chatStore.active !== origin) return;
     }
   }
-  const thinking = addMsg('agent typing', 'Writing the prompt');
+  const thinking = typingIf('Writing the prompt');
   let prompt;
-  try { prompt = await directorCompose(text, answers, webFacts); } finally { thinking.remove(); }
-  // The user moved to another chat while the prompt was being written —
-  // don't pop the review card into the wrong thread.
-  if (chatStore.active !== origin) return;
-  deliverPrompt(prompt);
+  try { prompt = await directorCompose(text, answers, webFacts, origin, snap); } finally { if (thinking) thinking.remove(); }
+  if (chatStore.active === origin) { deliverPrompt(prompt); return; }
+  // The user switched chats while the prompt was being written. Don't throw
+  // the work away — persist an approval card into the ORIGIN chat (both
+  // modes: Auto must not fire a billed generation against another chat's
+  // composer state), so switching back shows it ready to run.
+  const cardBrief = pendingBrief, cardMemory = pendingMemory, cardShots = pendingShots, cardExtras = pendingExtras;
+  pendingBrief = null; pendingMemory = null; pendingShots = null; pendingExtras = null;
+  saveToChat(origin, {
+    t: 'review', prompt: String(prompt), mode: snap ? snap.kind : mode, at: Date.now(),
+    brief: cardBrief || undefined, memory: cardMemory || undefined,
+    shots: cardShots || undefined, extras: cardExtras || undefined,
+  });
 }
 
 // Live web search: gathers current real-world facts for the prompt writer.
 // Returns { facts, sources }; on any failure returns empties so compose runs.
-async function directorResearch(text) {
+async function directorResearch(text, origin, snap) {
   try {
     const res = await apiFetch('/api/direct', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        step: 'research', kind: mode, prompt: text,
-        history: directorHistory(), ...directorContext(),
+        step: 'research', kind: snap ? snap.kind : mode, prompt: text,
+        history: directorHistory(origin), ...(snap ? snap.ctx : directorContext()),
       }),
     });
     if (!res.ok) throw 0;

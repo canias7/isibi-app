@@ -1296,3 +1296,23 @@ checklist in the chat.
 - Verified headless: platform-flavored job errors never call /api/direct
   (explainer skipped), the delivered chat message is the canned
   servers-down text with no provider name.
+
+### Director flow survives chat switches (2026-07-17)
+- **Owner hit it live:** attached a clip for extend, orchestrator started
+  "writing the prompt", they switched chats — and the flow died silently.
+  Every stage of the director pipeline had a "user left, stop here" guard
+  that THREW AWAY the finished work.
+- **Fix:** the pipeline snapshots the origin chat's composer state (kind,
+  attachments, context, last prompt) before its first AI call and keeps
+  going in the background on that snapshot. If the user is still away when
+  the prompt is finished, it's persisted into the ORIGIN chat as an
+  approval card — switching back shows it priced and ready to run. This
+  applies in BOTH Plan and Auto mode: Auto deliberately does NOT fire a
+  billed generation while another chat's composer state is live on screen;
+  the card is the safe landing.
+- Typing indicators only ever show in the origin thread; nothing pops into
+  the chat the user switched to. Rerun/revise follow-ups still require
+  staying on the chat (they anchor to its live last-prompt).
+- Verified headless both ways: switch-away mid-compose → review card
+  persisted + renders on return, no generation fired, other chat clean;
+  stay-put in Auto → generates immediately as before.
