@@ -4373,7 +4373,10 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   }
   // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
   const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
-  return fmtPrice(rate * billDur * hdrX);
+  // Veo extend outputs 720p only (fal schema const) — quote that tier even
+  // if the picker sits on 4k, matching what the worker bills.
+  const effRate = isVeoExtend && tbl['720p'] != null ? tbl['720p'] : rate;
+  return fmtPrice(effRate * billDur * hdrX);
 }
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');

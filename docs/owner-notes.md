@@ -1540,3 +1540,19 @@ checklist in the chat.
     match the machine schema.
 - Verified headless: Lite t2v/i2v free at 4s (✦25), flf locked (✦50, note,
   snap), Gemini cap 10.
+
+### Full machine-schema audit: all 33 endpoints, one billing fix (2026-07-17)
+- Following the Lite flf lesson, every wired endpoint (Veo Std/Fast/Lite ×
+  their sub-endpoints, Seedance ×6, Kling ×12, Gemini ×3, LipSync ×2) was
+  pulled from fal's OpenAPI and compared field-by-field against our
+  pickers, forces and billing.
+- CLEAN: everything except one finding. Notably Std/Fast first-&-last are
+  genuinely 4s/6s/8s-free (only Lite's is const 8s); Seedance's 4s minimum
+  matches our picker; Kling o3's audio-off default, missing i2v aspect, and
+  3-15s enums all match; both reference endpoints are const 8s (already
+  forced); LipSync's required fields match.
+- FIXED — extend overbilling at 4k: Veo extend-video (Std + Fast) has
+  resolution CONST 720p (output is always 720p; we never sent resolution —
+  correct) but billing used the PICKED tier: 4k selected + extend charged
+  ✦525 for a $2.80 render. Both quote and charge now use the 720p tier on
+  extends regardless of the picker.

@@ -2429,7 +2429,11 @@ async function handleRequest(request, env, ctx) {
         : duration;
       if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
-        duration: billDuration, quality, num, chars: genKind === "audio" ? prompt.length : 0,
+        duration: billDuration,
+        // Veo extend outputs 720p ONLY (fal OpenAPI: resolution const) — bill
+        // that tier regardless of the picker, never a 4k rate for a 720p render.
+        quality: endpoint.includes("/extend-video") ? "720p" : quality,
+        num, chars: genKind === "audio" ? prompt.length : 0,
         img4k: imgRes === "4K",
         gptQuality,
         // At 'auto' ratio there are no explicit dimensions — 2K/4K can't apply,
