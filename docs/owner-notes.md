@@ -905,3 +905,20 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   scale.
 - Headless-verified: grid uses render URLs, 400 → per-image fallback to the
   original, videos/data-URIs untouched, lightbox opens the original.
+
+### GPT resolution row locks on auto ratio (2026-07-16)
+- **Owner's find:** "when I switch resolutions the price doesn't change, only
+  quality" — all their test shots were on `auto` ratio, where the resolution
+  picker did NOTHING (no size is sent to OpenAI at auto since a pixel size
+  implies a shape; billing is the 1K tier by design, owner's earlier call).
+- **Fix:** the RESOLUTION row now dims + blocks clicks while ratio is `auto`,
+  with a note ("On auto ratio the model picks the size — billed as 1K.
+  Choose a ratio to set resolution"); it unlocks live when a concrete ratio
+  is picked. The settings chip also stops showing a size at auto (was
+  "auto · high · 4K" — misleading).
+- Verified: lock/unlock toggles with ratio picks, price flips ✦29 (auto,
+  1K tier) ↔ ✦52 (16:9 · high · 4K), summary chip drops the size at auto.
+- Price audit the same session: ALL 264 GPT+Nano combos (ratio × quality ×
+  size × 1-4 images) swept through estimatePrice() — every one matches the
+  fal sheet; totals are ceil'd once (not per image), same as the worker
+  charges.

@@ -2156,6 +2156,7 @@ function buildOptMenus() {
   panel.querySelectorAll('.set-chip').forEach((chip) => {
     chip.onclick = (e) => { e.stopPropagation(); pickSetting(chip); };
   });
+  syncSizeLock(panel);
   panel.querySelectorAll('.set-voicebtn').forEach((btn) => {
     btn.onclick = (e) => { e.stopPropagation(); previewVoice(btn.dataset.voice, btn); };
   });
@@ -2190,11 +2191,22 @@ function settingSection(label, kind, items, isVoice) {
     }
     return '<button type="button" class="set-chip' + active + '" data-kind="' + kind + '" data-value="' + esc(it.value) + '">' + esc(it.label) + '</button>';
   }).join('');
-  return '<div class="set-section' + (collapsible ? ' collapsible' : '') + '">' +
+  return '<div class="set-section sec-' + kind + (collapsible ? ' collapsible' : '') + '">' +
     '<div class="set-label">' + label + '</div>' +
     '<div class="set-chips">' + chips + '</div>' +
+    // GPT resolution needs a concrete shape — at auto ratio no size is sent
+    // (the model picks) and billing is the 1K tier, so the row locks with a
+    // note instead of looking like a live control that changes nothing.
+    (kind === 'gptSize' ? '<div class="set-note">On <b>auto</b> ratio the model picks the size — billed as 1K. Choose a ratio to set resolution.</div>' : '') +
     (collapsible ? '<button type="button" class="set-viewall">View all</button>' : '') +
     '</div>';
+}
+
+// Lock/unlock the GPT resolution row to match the current ratio (see the
+// note in settingSection). Called on panel build and every ratio pick.
+function syncSizeLock(panel) {
+  const sec = (panel || document).querySelector('.set-section.sec-gptSize');
+  if (sec) sec.classList.toggle('size-locked', ratio === 'auto');
 }
 
 function pickSetting(chip) {
@@ -2227,6 +2239,7 @@ function pickSetting(chip) {
   const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
+  if (kind === 'ratio') syncSizeLock(panel);
   updateSettingsSummary();
   updateSendPrice();
   stampComposer();
@@ -2240,7 +2253,7 @@ function updateSettingsSummary() {
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
-  if (opts.sizes && gptSize !== '1K') parts.push(gptSize);
+  if (opts.sizes && gptSize !== '1K' && ratio !== 'auto') parts.push(gptSize); // at auto no size is sent — don't imply one
   if (opts.durations) parts.push(duration + 's');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');
