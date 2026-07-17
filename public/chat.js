@@ -7356,6 +7356,8 @@ let arChannel = 'dm';      // active auto-reply sub-tab: 'dm' | 'comment'
 const SCHED_KEY = 'zephyr_ig_scheduled_v1';
 let igScheduled = null;    // lazy-loaded array of scheduled-post records
 let schMedia = null;       // media staged in the open composer { url, thumb, kind, name }
+let schCalMonth = null;    // { y, m } month the calendar is showing
+let schSelDay = null;      // 'YYYY-MM-DD' day selected in the calendar (or null)
 const IG_SECTIONS = [
   { key: 'analytics', label: 'Analytics' },
   { key: 'posts', label: 'Posts' },
@@ -7877,8 +7879,9 @@ function schDefaultWhen() {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 function renderSchedule(body) {
-  // Compose card only — reuses the publish-composer look. (No queue list below,
-  // owner's call 2026-07-17.)
+  // Two columns: the composer on the left, a month calendar of the scheduled
+  // posts on the right. (Still frontend-only — the calendar reads the local
+  // queue; nothing publishes.)
   const compose =
     '<div class="ma-publish" id="schCompose">' +
       '<div class="ma-pub-head">' +
@@ -7908,7 +7911,11 @@ function renderSchedule(body) {
         '</div>' +
       '</div>' +
     '</div>';
-  body.innerHTML = compose;
+  body.innerHTML =
+    '<div class="sch-wrap">' +
+      '<div class="sch-left">' + compose + '</div>' +
+      '<div class="sch-right"><div class="scal" id="schCal"></div></div>' +
+    '</div>';
   schMedia = null;
 
   const fileBtn = document.getElementById('schFileBtn');
@@ -7921,6 +7928,86 @@ function renderSchedule(body) {
   if (galBtn) galBtn.onclick = () => openPubGalleryPicker(false, schSelectGalleryMedia);
   const sub = document.getElementById('schSubmit');
   if (sub) sub.onclick = () => schSubmit(body);
+  paintSchCal();
+}
+// ── The scheduled-posts calendar (right column) ──
+function schDayKey(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+function schTime(iso) { const t = Date.parse(iso); if (!Number.isFinite(t)) return ''; try { return new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); } catch { return ''; } }
+function schDayLabel(key) { const t = Date.parse(key + 'T00:00'); if (!Number.isFinite(t)) return key; try { return new Date(t).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }); } catch { return key; } }
+// Group the local queue by local day → { 'YYYY-MM-DD': [post, …] }.
+function schPostsByDay() {
+  const map = {};
+  loadScheduled().forEach((it) => { const t = Date.parse(it.when); if (!Number.isFinite(t)) return; const k = schDayKey(new Date(t)); (map[k] = map[k] || []).push(it); });
+  return map;
+}
+function paintSchCal() {
+  const host = document.getElementById('schCal');
+  if (!host) return;
+  if (!schCalMonth) { const n = new Date(); schCalMonth = { y: n.getFullYear(), m: n.getMonth() }; }
+  const { y, m } = schCalMonth;
+  const first = new Date(y, m, 1);
+  const startDow = first.getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const todayKey = schDayKey(new Date());
+  const byDay = schPostsByDay();
+  const title = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => '<span class="scal-dow">' + d + '</span>').join('');
+  let cells = '';
+  for (let i = 0; i < startDow; i++) cells += '<span class="scal-cell scal-empty"></span>';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = schDayKey(new Date(y, m, day));
+    const posts = byDay[key] || [];
+    const chips = posts.slice(0, 2).map((p) =>
+      '<span class="scal-chip">' + (p.kind === 'video' ? '🎬 ' : '') + esc(schTime(p.when)) + '</span>').join('');
+    const more = posts.length > 2 ? '<span class="scal-more">+' + (posts.length - 2) + '</span>' : '';
+    cells += '<button type="button" class="scal-cell' + (key === todayKey ? ' today' : '') + (key === schSelDay ? ' sel' : '') + (posts.length ? ' has' : '') + '" data-day="' + key + '">' +
+      '<span class="scal-n">' + day + '</span>' +
+      (posts.length ? '<span class="scal-chips">' + chips + more + '</span>' : '') +
+      '</button>';
+  }
+  host.innerHTML =
+    '<div class="scal-head">' +
+      '<button type="button" class="scal-nav" data-nav="-1" aria-label="Previous month">‹</button>' +
+      '<span class="scal-title">' + esc(title) + '</span>' +
+      '<button type="button" class="scal-nav" data-nav="1" aria-label="Next month">›</button>' +
+    '</div>' +
+    '<div class="scal-dows">' + dows + '</div>' +
+    '<div class="scal-grid">' + cells + '</div>' +
+    schDayPanel();
+  host.querySelectorAll('[data-nav]').forEach((b) => b.onclick = () => {
+    let mm = schCalMonth.m + Number(b.dataset.nav), yy = schCalMonth.y;
+    if (mm < 0) { mm = 11; yy--; } if (mm > 11) { mm = 0; yy++; }
+    schCalMonth = { y: yy, m: mm };
+    paintSchCal();
+  });
+  host.querySelectorAll('[data-day]').forEach((b) => b.onclick = () => {
+    schSelDay = schSelDay === b.dataset.day ? null : b.dataset.day;
+    paintSchCal();
+  });
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = () => schRemovePost(b.dataset.rm));
+}
+// The selected day's posts, listed under the grid with a remove ×.
+function schDayPanel() {
+  if (!schSelDay) return '';
+  const posts = (schPostsByDay()[schSelDay] || []).slice().sort((a, b) => Date.parse(a.when) - Date.parse(b.when));
+  if (!posts.length) return '';
+  const items = posts.map((p) => {
+    const thumb = p.thumb
+      ? '<span class="scal-thumb" style="background-image:url(' + esc(p.thumb) + ')"></span>'
+      : '<span class="scal-thumb scal-thumb-none">' + (p.kind === 'video' ? '🎬' : '🖼') + '</span>';
+    const cap = p.caption ? esc(p.caption) : '<span class="sch-nocap">No caption</span>';
+    return '<div class="scal-item">' + thumb +
+        '<div class="scal-item-meta"><div class="scal-item-cap">' + cap + '</div>' +
+          '<div class="scal-item-sub">' + esc(schTime(p.when)) + ' · ' + (p.kind === 'video' ? 'Reel' : 'Image') + '</div></div>' +
+        '<button type="button" class="sch-del" data-rm="' + esc(p.id) + '" title="Remove" aria-label="Remove scheduled post">×</button>' +
+      '</div>';
+  }).join('');
+  return '<div class="scal-day"><div class="scal-day-h">' + esc(schDayLabel(schSelDay)) + '</div>' + items + '</div>';
+}
+function schRemovePost(id) {
+  igScheduled = loadScheduled().filter((it) => it.id !== id);
+  saveScheduled();
+  paintSchCal();
 }
 // Stage a device-chosen file LOCALLY (no upload) — image → a small thumb for
 // the preview + queue; video → an icon (thumbs would bloat localStorage).
@@ -7976,8 +8063,13 @@ function schSubmit(body) {
     createdAt: Date.now(),
   });
   saveScheduled();
-  // No visible queue — confirm inline and reset the composer for the next post.
+  // Confirm inline, reset the composer, and surface the new post on the calendar
+  // (jump to its month + select its day so it's visible right away).
   show('Scheduled for ' + schWhen(new Date(when).toISOString()) + '.', 'ma-pub-res-ok');
+  const wd = new Date(when);
+  schCalMonth = { y: wd.getFullYear(), m: wd.getMonth() };
+  schSelDay = schDayKey(wd);
+  paintSchCal();
   schMedia = null;
   const cap = document.getElementById('schCaption'); if (cap) cap.value = '';
   const prev = document.getElementById('schPreview'); if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }

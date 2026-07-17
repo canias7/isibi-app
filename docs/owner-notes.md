@@ -2086,3 +2086,13 @@ queue list + "N scheduled" count + "Queue" header were removed (owner: "under
 schedule post dont put anything"). Scheduling still persists to localStorage
 and now confirms inline ("Scheduled for <date>.") then resets the composer for
 the next post. Removed schRemove + the unused .sch-* queue CSS.
+
+Follow-up (same day): the Schedule post tab is now TWO COLUMNS — composer on the
+left, a month calendar on the right (owner: "on the right side put now a
+calendar there with the posts there that are scheduled"). The calendar reads the
+local queue, marks days that have posts (pink tint + up to 2 time chips + "+N"),
+rings today, has prev/next month nav, and a click on a day opens that day's list
+below the grid (thumb/icon · caption · time·type · remove ×). Scheduling jumps
+the calendar to the new post's month + selects its day so it shows immediately.
+Still frontend-only. New code: paintSchCal/schDayPanel/schPostsByDay/schRemovePost
++ helpers in chat.js; .sch-wrap/.sch-left/.sch-right/.scal-* in styles.css.
