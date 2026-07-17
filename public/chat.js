@@ -201,6 +201,7 @@ const MODEL_LISTS = {
   video: [
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend', group: 'veo' },
     { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio', group: 'veo' },
+    { id: 'fal-ai/veo3.1/lite', label: 'Veo 3.1 Lite', note: 'Google · cheapest · audio', group: 'veo' },
     { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
@@ -4053,6 +4054,8 @@ function refreshSendEnabled() {
 const VIDEO_PRICE = {
   'fal-ai/veo3.1':                                { s: { '720p': 0.40, '1080p': 0.40, '4k': 0.60 }, aoff: { '720p': 0.20, '1080p': 0.20, '4k': 0.40 } },
   'fal-ai/veo3.1/fast':                           { s: { '720p': 0.15, '1080p': 0.15, '4k': 0.35 }, aoff: { '720p': 0.10, '1080p': 0.10, '4k': 0.30 } },
+  // Lite: t2v + i2v only, no 4k; 1080p costs more than 720p (unlike Std/Fast).
+  'fal-ai/veo3.1/lite':                           { s: { '720p': 0.05, '1080p': 0.08 }, aoff: { '720p': 0.03, '1080p': 0.05 } },
   // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
   'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },

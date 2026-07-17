@@ -12,6 +12,7 @@ const VIDEO_MODELS = new Set([
   "google/gemini-omni-flash",
   "fal-ai/veo3.1",
   "fal-ai/veo3.1/fast",
+  "fal-ai/veo3.1/lite",
   "luma/agent/ray/v3.2/text-to-video",
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/kling-video/o3/standard/text-to-video",
@@ -71,6 +72,9 @@ const VIDEO_USD = {
   // Veo 3.1 Fast (fal page 2026-07-16): 720p/1080p $0.15/s audio-on, $0.10/s off;
   // 4k $0.35/s on, $0.30/s off. Same endpoints/shapes as full Veo, ~2.7× cheaper.
   "fal-ai/veo3.1/fast":                           { s: { "720p": 0.15, "1080p": 0.15, "4k": 0.35 }, aoff: { "720p": 0.10, "1080p": 0.10, "4k": 0.30 }, d: 8 },
+  // Lite (t2v + i2v only, no 4k) — verified on fal's page 2026-07-17: unlike
+  // Standard/Fast, 1080p genuinely costs more than 720p here.
+  "fal-ai/veo3.1/lite":                           { s: { "720p": 0.05, "1080p": 0.08 }, aoff: { "720p": 0.03, "1080p": 0.05 }, d: 8 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
   // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
   // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).

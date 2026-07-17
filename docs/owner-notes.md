@@ -1383,3 +1383,30 @@ checklist in the chat.
     extend (+7s), not an edit; revise's overstuffed-fix says "7s extension".
 - Kling o3 / Ray clip edits keep the edit writer; Seedance @Video1 keeps
   the reference writer — this only splits Veo extends out.
+
+### Veo 3.1 Lite added (2026-07-17)
+- Owner spotted fal's new budget tier and asked for it. Third Veo variant in
+  the group flyout: "Veo 3.1 Lite · Google · cheapest · audio".
+- Schema-verified: ONLY t2v + i2v endpoints (no extend / first-&-last /
+  reference rows), 4/6/8s, 720p/1080p (no 4k), 16:9|9:16, generate_audio.
+- Pricing (verified verbatim on fal's page): 720p $0.05/s sound · $0.03
+  silent; 1080p $0.08/s · $0.05 silent. UNLIKE Standard/Fast, 1080p costs
+  more than 720p — the resolution picker moves the price on this tier.
+  Credits at 8s: ✦50 (720p) / ✦30 silent / ✦80 (1080p) / ✦50 silent.
+- Verified headless: in the Veo flyout, all four price points, res list has
+  no 4k, only the Image-to-video attach row renders. Untested live (pennies
+  when the owner wants: one ✦50 t2v).
+
+### fal-balance probe + admin key (2026-07-17, the "plenty of money" mystery)
+- The 4:48 AM refusal investigation, concluded: the worker's FAL_KEY was
+  API-scoped and could NOT read billing (probe returned null) — so the
+  low-balance guard had never fired (fails open on null by design), and the
+  502s were fal REJECTING submits at the door with money visible ($4.95) —
+  fal's lock-flap bug (fal-ai/fal#922), same as yesterday.
+- Owner created an ADMIN-scoped key and updated the FAL_KEY GitHub secret;
+  after redeploy the probe reads the live balance (usd 4.95, guard armed).
+- New owner-only endpoint GET /api/fal-balance (allowlisted to the owner's
+  two emails), cache-busted, returns {usd, note}. Console one-liner:
+  await (await apiFetch('/api/fal-balance')).json()
+- If the lock-flap recurs with balance present: fal support ticket, or a
+  small $1-5 top-up often re-triggers the unlock.
