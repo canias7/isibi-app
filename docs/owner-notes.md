@@ -2001,3 +2001,17 @@ in fact real leaks of the render service's name/host; fixed both:
 
 Verified headless: page loads clean, scrub kills "fal" in a sample host+token
 string, provider host blocked from window.open, supabase/isibi hosts pass.
+
+Latent (NOT fixed — unreachable): chat.js:5455 delivers `out.exr_file.url`
+(a raw render-service URL) in chat. Only fires for `luma/` models, which
+were all removed with Ray 3.2 — no luma entry remains in the picker, so the
+branch is dead. Left untouched (editing dead code buys nothing). If a
+luma/HDR model is ever re-added, route the EXR through trySave (own-host
+permanent URL) instead of printing the raw link.
+
+Defense-in-depth (NOT fixed — near-zero probability, not an error path):
+the ask-step streamed deltas (chat.js onDelta) and the Media Agent reply
+render Claude's conversational output unscrubbed. The final ask reply IS
+scrubbed (chat.js:5046). These are model prose, not upstream error text,
+so provider leakage is near-impossible; Media Agent is out of scope per
+owner. Noted for completeness.
