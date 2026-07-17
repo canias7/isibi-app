@@ -135,14 +135,15 @@ const IMAGE_RATIOS = {
   // edit endpoint, keeps the SOURCE image's shape — so it's the safe default for
   // edits (a concrete ratio reframes/outpaints instead).
   'fal-ai/nano-banana-pro': ['auto', '1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3', '4:5', '5:4', '21:9'],
-  // 'auto' keeps the SOURCE shape on edits (GPT's own default) and lets the
-  // model pick on text-to-image — same safe default as Nano. NB: 2K/4K need
-  // explicit dimensions, so at 'auto' the run quotes and bills 1K.
-  'openai/gpt-image-2': ['auto', '1:1', '16:9', '9:16', '4:3', '3:4'],
+  // No 'auto' (owner's call 2026-07-16 — it locked the resolution row and read
+  // as confusing): every GPT run sends explicit dimensions for the picked
+  // ratio, so EDITS REFRAME the source to that ratio. The worker still accepts
+  // 'auto' from stale clients (no size sent, billed base rate).
+  'openai/gpt-image-2': ['1:1', '16:9', '9:16', '4:3', '3:4'],
 };
 // Per-model default aspect. Nano defaults to 'auto' (model picks / keeps source);
 // everything else keeps the square default.
-const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto', 'openai/gpt-image-2': 'auto' };
+const IMAGE_DEF_RATIO = { 'fal-ai/nano-banana-pro': 'auto', 'openai/gpt-image-2': '1:1' };
 // Per-model image quality/resolution switcher (reuses the video resolution
 // section). Nano Banana Pro → Resolution 2K/4K (2K free default, 4K 2×). GPT
 // Image 2 → Quality low/medium/high (high default) — quality swings fal's price
@@ -2156,7 +2157,6 @@ function buildOptMenus() {
   panel.querySelectorAll('.set-chip').forEach((chip) => {
     chip.onclick = (e) => { e.stopPropagation(); pickSetting(chip); };
   });
-  syncSizeLock(panel);
   panel.querySelectorAll('.set-voicebtn').forEach((btn) => {
     btn.onclick = (e) => { e.stopPropagation(); previewVoice(btn.dataset.voice, btn); };
   });
@@ -2194,19 +2194,8 @@ function settingSection(label, kind, items, isVoice) {
   return '<div class="set-section sec-' + kind + (collapsible ? ' collapsible' : '') + '">' +
     '<div class="set-label">' + label + '</div>' +
     '<div class="set-chips">' + chips + '</div>' +
-    // GPT resolution needs a concrete shape — at auto ratio no size is sent
-    // (the model picks) and billing is the 1K tier, so the row locks with a
-    // note instead of looking like a live control that changes nothing.
-    (kind === 'gptSize' ? '<div class="set-note">On <b>auto</b> ratio the model picks the size — billed at the base rate. Choose a ratio to set resolution.</div>' : '') +
     (collapsible ? '<button type="button" class="set-viewall">View all</button>' : '') +
     '</div>';
-}
-
-// Lock/unlock the GPT resolution row to match the current ratio (see the
-// note in settingSection). Called on panel build and every ratio pick.
-function syncSizeLock(panel) {
-  const sec = (panel || document).querySelector('.set-section.sec-gptSize');
-  if (sec) sec.classList.toggle('size-locked', ratio === 'auto');
 }
 
 function pickSetting(chip) {
@@ -2239,7 +2228,6 @@ function pickSetting(chip) {
   const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
-  if (kind === 'ratio') syncSizeLock(panel);
   updateSettingsSummary();
   updateSendPrice();
   stampComposer();
@@ -2253,7 +2241,7 @@ function updateSettingsSummary() {
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
-  if (opts.sizes && gptSize !== '2K' && ratio !== 'auto') parts.push(gptSize); // 2K is the default; at auto no size is sent — don't imply one
+  if (opts.sizes && gptSize !== '2K') parts.push(gptSize); // 2K is the default
   if (opts.durations) parts.push(duration + 's');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');

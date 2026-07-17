@@ -931,3 +931,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 - Client-only change; the worker still accepts '1K' from stale cached
   clients (same price), and a stale saved per-model gptSize of '1K' falls
   back to 2K on model pick. The settings chip hides the 2K default.
+
+### GPT 'auto' ratio removed (2026-07-16, owner's call)
+- "DELETE THE AUTO THING" — asked with the tradeoff spelled out (auto kept a
+  source photo's shape on edits; without it a concrete ratio reframes), owner
+  chose full removal. GPT's ratio picker is now 1:1 / 16:9 / 9:16 / 4:3 / 3:4,
+  default 1:1; every run sends explicit dimensions and bills the real tier.
+  **Edits now reframe the source to the picked ratio** — if a user complains
+  about portrait photos coming back square, this is why; the fix is picking
+  9:16 before editing (or revisiting an edits-keep-shape behavior).
+- The auto-only machinery went with it: the resolution-row lock + note
+  (lived one deploy, abe4979), and the summary-chip auto guard. A stale saved
+  ratio of 'auto' falls back to 1:1; the worker still accepts 'auto' from
+  stale clients. Nano keeps its 'auto' (different semantics, no billing
+  quirk).
