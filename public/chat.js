@@ -294,14 +294,28 @@ function onAttach(kind, inputEl) {
       if (!uri) { tooBigMsg(); return; }
       attachments[kind] = uri;
       if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, uri);
-      renderAttach(kind);
-      if (kind === 'image') {
-        clearImageInputsExcept('image');
-        // Image mode is EITHER one edit base OR references, never both —
-        // attaching the base clears the reference row.
-        if (mode === 'image' && extraImages.length) { extraImages.length = 0; }
-        renderExtraImages();
-      } else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
+      // Merged Image-to-video row (owner 2026-07-17): the End-frame slot picks a
+      // `flast`; pair it with the staged start by promoting image→ffirst (and
+      // the mirror case if the end frame was added first). This is the ONLY
+      // place it can run — image kinds resolve here, never in reader.onload.
+      const pairing = mergedFlf() &&
+        ((kind === 'flast' && !attachments.ffirst && attachments.image) ||
+         (kind === 'image' && attachments.flast && !attachments.ffirst));
+      if (pairing) {
+        attachments.ffirst = attachments.image; attachments.image = null;
+        imgMeta.ffirst = imgMeta.image; delete imgMeta.image;
+        renderAttach('ffirst'); renderAttach('image'); renderAttach('flast');
+        clearImageInputsExcept('flf');
+      } else {
+        renderAttach(kind);
+        if (kind === 'image') {
+          clearImageInputsExcept('image');
+          // Image mode is EITHER one edit base OR references, never both —
+          // attaching the base clears the reference row.
+          if (mode === 'image' && extraImages.length) { extraImages.length = 0; }
+          renderExtraImages();
+        } else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
+      }
       updateSendPrice();
     });
     return;
@@ -330,28 +344,9 @@ function onAttach(kind, inputEl) {
     // Slot #1 landing may reveal the Seedance +extras tile (@Video2-3/@Audio2-3).
     if (kind === 'clip') renderVxList();
     if (kind === 'audio') renderAxList();
-    // Merged Image-to-video row (owner 2026-07-17): ONE row, start slot +
-    // an optional End frame slot, replacing the separate First-&-last row.
-    // Internally the proven ffirst/flast pair machinery is kept: filling the
-    // end slot converts image → ffirst (+ the new flast); the worker, locks
-    // and billing see exactly the same states as before.
-    if (kind === 'image' && mergedFlf() && attachments.flast) {
-      // Start swapped while an end frame is staged — replace the pair's first.
-      attachments.ffirst = attachments.image; attachments.image = null;
-      imgMeta.ffirst = imgMeta.image; delete imgMeta.image;
-      renderAttach('ffirst'); renderAttach('image');
-      clearImageInputsExcept('flf');
-    } else if (kind === 'flast' && mergedFlf() && !attachments.ffirst && attachments.image) {
-      attachments.ffirst = attachments.image; attachments.image = null;
-      imgMeta.ffirst = imgMeta.image; delete imgMeta.image;
-      renderAttach('ffirst'); renderAttach('image');
-      clearImageInputsExcept('flf');
-    }
-    // Keep the image-input modes mutually exclusive (see clearImageInputsExcept).
-    else if (kind === 'image') clearImageInputsExcept('image');
-    else if (kind === 'ffirst' || kind === 'flast') clearImageInputsExcept('flf');
-    // Any attachment can move the price: a clip flips into video-to-video, and a
-    // start image / first-last frame flips Ray onto its cheaper i2v tier (and 5s).
+    // (Only clip/audio reach here — image kinds, incl. the merged-flf pairing,
+    // resolve in the readImageConformed branch above.)
+    // Any attachment can move the price: a clip flips into video-to-video.
     updateSendPrice();
   };
   reader.readAsDataURL(file);
@@ -4062,7 +4057,22 @@ async function claimDelivery(key) {
   try {
     const now = Date.now();
     let map = JSON.parse(localStorage.getItem(DELIVERED_KEY) || '{}');
-    if (map[key] && now - claimAt(map[key]) < 3600e3) return false; // already claimed recently
+    const existing = map[key];
+    if (existing && now - claimAt(existing) < 3600e3) {
+      // A recent claim from ANOTHER live tab means it's delivering now — yield.
+      // But a claim from a different tab that's older than the deliver window
+      // (a save finishes in seconds; 3 min is generous even for a big video)
+      // means the claiming tab DIED mid-deliver — e.g. a page refresh during
+      // save. Take it over so the paid render isn't stranded until the 1h
+      // expiry with no message (bug 2026-07-17). A refresh mints a new TAB_ID,
+      // so `by !== TAB_ID` reliably flags the dead prior tab.
+      const mine = typeof existing === 'object' && existing.by === TAB_ID;
+      // 40s < the 45s scheduleResume cycle: a live tab saves+delivers in seconds
+      // and clears the shared job record, so a claim still un-cleared past 40s
+      // belongs to a dead tab — the next resume tick takes it over.
+      const stale = now - claimAt(existing) > 40e3;
+      if (!mine && !stale) return false;
+    }
     map[key] = { at: now, by: TAB_ID };
     // Keep the map small — drop entries older than a day (both shapes).
     for (const k of Object.keys(map)) if (now - claimAt(map[k]) > 86400e3) delete map[k];
@@ -4581,6 +4591,9 @@ function updateSendPrice() {
     if (sp) sp.style.display = el.textContent ? '' : 'none';
   }
   refreshSendEnabled(); // model/attachment changes can flip submittability
+  // Live-re-quote any visible Plan review card so its "Generate ✦N" always
+  // equals what approval will actually charge at the current settings.
+  document.querySelectorAll('.review-allow').forEach((b) => { try { if (b._reprice) b._reprice(); } catch (e) {} });
   // Every price-moving change also decides whether the duration picker is
   // live (Veo refs/extend fix the length) — keep the lock in sync here since
   // this runs on every attach/setting/model change.
@@ -5368,7 +5381,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
     // a failed result-fetch burned the claim and the paid render was dropped on
     // boot-resume. Another tab that already delivered this job wins the claim;
     // we stop without clearing so the winner's record management stands.
-    if (!(await claimDelivery(statusUrl))) { jobBumpTries(origin); pauseGen(origin, false); return; } // another tab delivered this — don't re-poll
+    if (!(await claimDelivery(statusUrl))) {
+      // Another tab holds a FRESH claim — it's delivering now. Keep the record
+      // and RESCHEDULE (autoResume) rather than pausing dead: if that tab was
+      // actually a dying one (mid-deliver refresh), its claim goes stale within
+      // 40s and the next resume tick takes it over instead of stranding the
+      // charged render for an hour with no message (bug 2026-07-17).
+      jobBumpTries(origin); pauseGen(origin, true); return;
+    }
     // HDR + EXR runs return a pro sidecar file alongside the video — hand the
     // link over in chat (it's a pro-pipeline file; fal links expire in days).
     if (out.exr_file && out.exr_file.url) {
@@ -6078,8 +6098,13 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, car
   const deny = document.createElement('button'); deny.className = 'review-deny'; deny.textContent = '✕ Deny';
   const allow = document.createElement('button'); allow.className = 'review-allow';
   // Price the card on the actual prompt/script/shot-list (and the silent flag,
-  // which discounts Veo/Kling), not the (now-cleared) input.
-  allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots, extras && extras.sound) || '✦');
+  // which discounts Veo/Kling), not the (now-cleared) input. The price is LIVE:
+  // approval runs with whatever settings are active at click time, so re-quote
+  // on every settings change (updateSendPrice calls _reprice) — otherwise the
+  // shown ✦N could differ from what's charged (bug 2026-07-17). A user mode
+  // switch drops the card entirely, so this only ever re-prices in mode `m`.
+  allow._reprice = () => { allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots, extras && extras.sound) || '✦'); };
+  allow._reprice();
   deny.onclick = () => { clearReviews(); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     // One generation per chat — if the previous run is still going, keep the
@@ -7313,20 +7338,51 @@ async function acGenerate() {
     let state = '';
     while (Date.now() < deadline) {
       const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.status_url));
-      if (sr.ok) { const st = await sr.json().catch(() => ({})); state = st.status || ''; if (state === 'COMPLETED') break; }
+      if (sr.ok) {
+        const st = await sr.json().catch(() => ({}));
+        state = st.status || '';
+        if (state === 'COMPLETED') break;
+        // Terminal failure — stop, surface the reason, refund (avatars have no
+        // resume machinery, so an un-refunded credit is gone) (bug 2026-07-17).
+        if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED' || state === 'CANCELLED') {
+          let why = '';
+          try {
+            const fr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
+            const fb = await fr.json().catch(() => ({}));
+            why = typeof falErrorDetail === 'function' ? scrubProvider(falErrorDetail(fb) || '') : '';
+          } catch (e) {}
+          const refunded = await requestRefund(job.status_url);
+          fail('That avatar couldn’t be generated' + (why ? ' — ' + why : '') + '.'
+            + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '')
+            + ' Please try again.');
+          return;
+        }
+      }
       await new Promise((r) => setTimeout(r, 3500));
     }
-    if (state !== 'COMPLETED') { fail('Timed out — please try again.'); return; }
+    if (state !== 'COMPLETED') {
+      const refunded = await requestRefund(job.status_url); // never received — credit back
+      fail('Timed out — please try again.' + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : ''));
+      return;
+    }
     const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(job.response_url));
     const out = await rr.json().catch(() => ({}));
     const imgs = ((out.images || (out.data && out.data.images) || []).map((im) => im && im.url).filter(Boolean));
     let url = imgs[0] || (out.image && out.image.url) || '';
     if (!url) { fail('No image came back — please try again.'); return; }
     // Copy to permanent storage (fal URLs expire); fall back to the temp link.
-    let finalUrl = url;
-    try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; } catch (e) {}
+    let finalUrl = url, saveBlock = null;
+    try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; else if (saved) saveBlock = saved.block; } catch (e) {}
     if (avatarMode !== 'create') return; // user navigated away mid-render
     acShowResult(stage, finalUrl);
+    // Couldn't store a permanent copy (free/lapsed/full, or a save error) — the
+    // avatar sits on a temporary link that expires within days. Tell the user
+    // (it used to rot silently, on this device AND the synced copies) (2026-07-17).
+    if (saveBlock && typeof sbToast === 'function') {
+      sbToast(saveBlock === 'free' || saveBlock === 'full'
+        ? 'Heads up — keeping avatars permanently needs a paid plan with gallery space. This one is on a temporary link that expires soon; regenerate after upgrading to keep it.'
+        : 'Heads up — couldn’t save a permanent copy just now, so this avatar is on a temporary link that may expire. Try regenerating in a moment.');
+    }
     // Persist it so it shows in the avatar grid.
     const list = loadAvatars();
     list.unshift({ id: avUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
@@ -9581,7 +9637,17 @@ const CLICK_ACTIONS = {
   'sr-tab': (e, el) => { e.stopPropagation(); pickSrTab(el.dataset.tab); },
   'dir-menu': (e) => toggleDirMenu(e),
   'orch-toggle': () => toggleOrchestrator(),
-  'set-mode': (e, el) => setMode(el.dataset.mode),
+  'set-mode': (e, el) => {
+    const changing = el.dataset.mode !== mode;
+    setMode(el.dataset.mode);
+    // A pending Plan card was composed for the OLD kind of generation — a mode
+    // switch invalidates it (re-pricing it in the new mode would be wrong), so
+    // drop it from the thread and storage (bug 2026-07-17).
+    if (changing) {
+      clearReviews();
+      document.querySelectorAll('#messages .review-card').forEach((n) => n.remove());
+    }
+  },
   'model-menu': (e) => toggleModelMenu(e),
   'opt-settings': (e) => toggleOpt(e, 'settings'),
   'send': () => send(true),

@@ -1881,3 +1881,34 @@ Breakdown: 9 high · 19 medium · 33 low. Full evidence per finding below.
 - public/chat.js:2508 <dom-consistency> [low] — The entire preset-chip subsystem (PRESET_CATS data, renderPresetsInto, usePreset, renderLpChip, applyPresetRig, ~200 lines) anchors to #lpInput/#lpChipHost/#lpHint, which are created only inside dead 
 - public/chat.js:8973 <dom-consistency> [low] — initLeadHero references #leadPh and #leadWord, which exist in no HTML file; the function is itself uncalled (replaced by initCrtStage), so it is dead code whose type() closure would throw on the missi
 - worker.js:4596 <worker-routes> [low] — Wrong-method requests to every /api/* route fall through to the static asset handler and return a 404 (asset not found) instead of 405 — e.g. GET /api/save or POST /api/credits gets an HTML-ish 404, a
+
+### 9 HIGH audit findings FIXED (2026-07-17)
+All nine high-severity findings from the deep multi-agent audit, fixed +
+verified (client fixes headless, worker fixes by logic read):
+- H1 (worker) Veo/Fast extend + Sound OFF now sends generate_audio:false on
+  the extend endpoint (it accepts it despite bareEdit) — the render is
+  silent, matching the audio-off charge. No more ~50% undercharge.
+- H2 (client) Merged End-frame pairing was DEAD (lived in the clip/audio
+  onload; image files return earlier). Moved into the readImageConformed
+  branch — the ONLY place image kinds resolve. Verified: real file-input
+  pairing image→ffirst+flast, counter 2/2, demote on end-remove.
+- H3 (worker) Stripe invoice.paid now returns 500 if set_plan fails
+  (add_credits is idempotent on ref, so Stripe's retry is safe) — paid
+  memberships can't silently miss their storage tier.
+- H4 (client) Avatar poll now handles FAILED/ERROR/CANCELED with the exact
+  error + requestRefund, and refunds on timeout too (no resume machinery).
+- H5 (client) Avatar save-block (free/full/error) now toasts that it's a
+  temporary link instead of silently persisting/syncing a rotting fal URL.
+- H6 (worker) Ask step no longer gets the raw fal model id — a friendly
+  label map ("Kling o3 Pro" etc.) feeds the director, plus an explicit
+  provider-nondisclosure rule in the ask prompt.
+- H7 (worker) Kling o3 clip-edit @ImageN tags preserved — the reconciler
+  now counts refs from the payload arrays (image_urls/video_urls/audio_urls)
+  instead of the endpoint name, so o3 edits keep their style-ref tags.
+- H8 (client) Plan review card price re-quotes live on every settings
+  change (matches what approval charges), and a user mode switch drops the
+  now-irrelevant card from thread + store. Verified headless.
+- H9 (client) Refresh-during-save no longer strands a charged render: a
+  delivery claim from a dead tab (different TAB_ID, >40s old) is taken over
+  on the next resume tick, and the yield path reschedules instead of
+  pausing dead.

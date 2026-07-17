@@ -2156,10 +2156,14 @@ async function handleRequest(request, env, ctx) {
         // cleared), or a plan-mode prompt whose reference set shrank, tags would
         // be dangling noise pointing at images that aren't there — drop those.
         if (typeof input.prompt === "string" && /@(?:Image|Video|Audio)\d/i.test(input.prompt)) {
-          const isRefEndpoint = endpoint.includes("/reference-to-video");
-          const imgN = isRefEndpoint && Array.isArray(input.image_urls) ? input.image_urls.length : 0;
-          const vidN = isRefEndpoint && Array.isArray(input.video_urls) ? input.video_urls.length : 0;
-          const audN = isRefEndpoint && Array.isArray(input.audio_urls) ? input.audio_urls.length : 0;
+          // Count the refs from the ACTUAL payload arrays, not the endpoint name:
+          // image_urls/video_urls/audio_urls are set on the reference endpoints
+          // AND on Kling o3's /video-to-video/edit (which takes style image_urls +
+          // elements). Keying off the endpoint name stripped @ImageN tags on o3
+          // edits even though the images were sent (bug 2026-07-17).
+          const imgN = Array.isArray(input.image_urls) ? input.image_urls.length : 0;
+          const vidN = Array.isArray(input.video_urls) ? input.video_urls.length : 0;
+          const audN = Array.isArray(input.audio_urls) ? input.audio_urls.length : 0;
           if ((isSeedance || isKlingO3) && (imgN || vidN || audN)) {
             // Native tag binding (Seedance @Image/@Video/@Audio; Kling o3 ref
             // @Image1-4): keep only tags that point at an attached reference OF
@@ -2242,6 +2246,10 @@ async function handleRequest(request, env, ctx) {
         // request flips it (and, where fal prices audio-off cheaper — Veo, Kling
         // v3 — billing follows via the aoff tier below).
         else if (soundOff && !bareEdit && (isSeedance || isKlingV3 || isVeo)) input.generate_audio = false;
+        // Veo extend is a bareEdit but its endpoint DOES take generate_audio
+        // (fal OpenAPI) — send silent so the render matches the audio-off charge
+        // (bug 2026-07-17: we billed aoff but rendered with audio at full price).
+        if (soundOff && isVeo && endpoint.includes("/extend-video")) input.generate_audio = false;
         // o3 edit keeps the source clip's audio by default; "silent" strips it.
         if (soundOff && isKlingO3 && endpoint.includes("/video-to-video/edit")) input.keep_audio = false;
 
@@ -2800,8 +2808,14 @@ async function handleRequest(request, env, ctx) {
           // Record the storage tier (from the plan's credit size) on a rolling
           // 32-day window — a cancellation lapses to free once no invoice renews.
           const tier = credits >= 8000 ? "max" : credits >= 4000 ? "pro" : "plus";
+          // set_plan MUST succeed — otherwise the paid customer's storage tier
+          // never activates and every save 402s "free" (bug 2026-07-17: this was
+          // swallowed and the webhook returned 200, so Stripe never retried).
+          // add_credits is idempotent on purchase_ref, so a full-webhook retry
+          // re-runs it safely; return 500 on any set_plan failure to trigger it.
+          let planOk = false;
           try {
-            await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_plan`, {
+            const pr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/set_plan`, {
               method: "POST",
               headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
               body: JSON.stringify({
@@ -2811,7 +2825,9 @@ async function handleRequest(request, env, ctx) {
               }),
               signal: AbortSignal.timeout(10000),
             });
-          } catch {} // credits already granted; a plan-set hiccup shouldn't fail the webhook
+            planOk = pr.ok;
+          } catch {}
+          if (!planOk) return Response.json({ error: "plan activation failed" }, { status: 500 });
         }
       }
       return Response.json({ received: true });
@@ -3465,6 +3481,29 @@ async function handleRequest(request, env, ctx) {
       // Generation context so the director writes for the actual target:
       // which model, whether a start image / end frame is attached, clip length.
       const genModel = typeof body.model === "string" ? body.model.slice(0, 120) : "";
+      // A user-safe display name for the target model — NEVER the raw provider
+      // id (fal-ai/…): the ask step is shown to the user, so leaking the path
+      // would name the provider (bug 2026-07-17). Maps to the same labels the UI
+      // shows; unknown ids fall back to a generic phrase, never the raw string.
+      const friendlyModelName = (id) => {
+        if (/veo3\.1\/lite/.test(id)) return "Veo 3.1 Lite";
+        if (/veo3\.1\/fast/.test(id)) return "Veo 3.1 Fast";
+        if (/veo3\.1/.test(id)) return "Veo 3.1";
+        if (/seedance-2\.0\/fast/.test(id)) return "Seedance 2.0 Fast";
+        if (/seedance-2\.0\/mini/.test(id)) return "Seedance 2.0 Mini";
+        if (/seedance/.test(id)) return "Seedance 2.0";
+        if (/kling-video\/o3\/pro/.test(id)) return "Kling o3 Pro";
+        if (/kling-video\/o3\/standard/.test(id)) return "Kling o3 Standard";
+        if (/kling-video\/v3\/pro/.test(id)) return "Kling 3.0 Pro";
+        if (/kling-video\/v3\/standard/.test(id)) return "Kling 3.0 Standard";
+        if (/kling-video\/lipsync/.test(id)) return "Kling LipSync";
+        if (/gemini/.test(id)) return "Gemini";
+        if (/nano-banana/.test(id)) return "Nano Banana Pro";
+        if (/gpt-image/.test(id)) return "GPT Image 2";
+        if (/elevenlabs/.test(id)) return "the voice model";
+        return "the selected model";
+      };
+      const genModelLabel = friendlyModelName(genModel);
       const hasImage = !!body.hasImage;
       const hasEnd = !!body.hasEnd;
       // How many images are attached for an image edit/combine (Nano/GPT take
@@ -3584,7 +3623,7 @@ async function handleRequest(request, env, ctx) {
         : "";
 
       const ctxBits = [];
-      if (genModel) ctxBits.push(`target model: ${genModel}`);
+      if (genModel) ctxBits.push(`target model: ${genModelLabel}`);
       if (kind === "video" && genDuration && !veoExtend) ctxBits.push(`clip length: ${genDuration}s`);
       if (veoExtend) ctxBits.push("this run EXTENDS the attached clip by a fixed 7 seconds (any other duration setting does not apply)");
       if (genRatio) ctxBits.push(`aspect ratio: ${genRatio}`);
@@ -3666,7 +3705,8 @@ When genuinely unsure, set ready=true.`
 - The ONE exception: if a single genuinely important detail is missing or ambiguous AND you can't reasonably assume it — something that would materially change the result (a real product photo vs an illustration; one of two very different moods or settings; a specific brand, person or place you can't guess) — then set ready=false and end your reply with ONE short, specific question, offering a couple of concrete options when that helps them answer in a word. Ask at most one question, only when it truly earns the extra step; never interrogate, and never ask about things you can tastefully decide yourself.
 - NEVER ask twice in a row. If your previous turn asked a question and the user answers with ANYTHING — including "just make it", "you choose", or simply restating the request — that IS your answer: set ready=true and make every remaining call yourself.
 - A stack of varied attached references with an open brief ("make one using these") is NOT missing information — it's creative freedom. Pick the strongest coherent concept from them (using a compatible subset is fine), say what you're going for in one line, and go.
-Tailor everything to what THIS user is trying to make.${hasImage && imageCount <= 1 ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${imageCount > 1 ? `\nThe user attached ${imageCount} ${kind === "video" ? "REFERENCE images whose subjects carry into the generated video" : "images"}, shown to you labeled "Image 1"…"Image ${imageCount}" in the same order they see. When they name one by number ("image 5"), LOOK at that exact one before describing or acting on it — never assume they mean the first.${kind === "video" ? " A generation from these should feature ALL of them unless the user says otherwise." : ""}` : ""}${kind === "image" ? `\nTRANSPARENCY LIMIT: no model here can output a truly transparent (alpha) background — a "transparent background" request only paints a fake checkerboard into the picture. If they ask for one, say plainly it isn't possible and offer the closest real thing: a clean solid pure-white (or any solid color) seamless background.` : ""}${kind === "video" && soundCapable ? `\nSOUND: whether the video gets an audio track is controlled ONLY by the user's Sound toggle in the composer settings — you cannot change it and must never claim you did. If they ask for a silent / no-audio video (or ask to add sound), tell them in your reply to flip the Sound switch in the settings next to the model picker (silent renders can also cost fewer credits), and still proceed with ready=true when the creative request itself is clear.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : veoExtend ? "a source VIDEO CLIP the model will EXTEND — it generates the next 7 seconds continuing from the clip's final frame" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
+Tailor everything to what THIS user is trying to make.
+NEVER reveal, name, or hint at the underlying model, provider, vendor, or any technical id (e.g. "fal", "fal-ai/…", raw model paths) — the user only knows isibi. If asked which model or service is used, say you use isibi's own studio engine and move on.${hasImage && imageCount <= 1 ? `\nThe user attached ${kind === "video" ? "a start image the video will animate (it's in the conversation — look at it). Reference what you actually see in your reply" : "a source image to edit (it's in the conversation — look at it). Reference what you actually see in your reply"}.` : ""}${imageCount > 1 ? `\nThe user attached ${imageCount} ${kind === "video" ? "REFERENCE images whose subjects carry into the generated video" : "images"}, shown to you labeled "Image 1"…"Image ${imageCount}" in the same order they see. When they name one by number ("image 5"), LOOK at that exact one before describing or acting on it — never assume they mean the first.${kind === "video" ? " A generation from these should feature ALL of them unless the user says otherwise." : ""}` : ""}${kind === "image" ? `\nTRANSPARENCY LIMIT: no model here can output a truly transparent (alpha) background — a "transparent background" request only paints a fake checkerboard into the picture. If they ask for one, say plainly it isn't possible and offer the closest real thing: a clean solid pure-white (or any solid color) seamless background.` : ""}${kind === "video" && soundCapable ? `\nSOUND: whether the video gets an audio track is controlled ONLY by the user's Sound toggle in the composer settings — you cannot change it and must never claim you did. If they ask for a silent / no-audio video (or ask to add sound), tell them in your reply to flip the Sound switch in the settings next to the model picker (silent renders can also cost fewer credits), and still proceed with ready=true when the creative request itself is clear.` : ""}${(hasClip || hasAvatar || hasAudio) ? `\nThe user has attached ${[hasClip ? (clipIsSeedanceRef ? "a VIDEO CLIP as a @Video1 reference (its motion/subject carries into a new generated scene)" : veoExtend ? "a source VIDEO CLIP the model will EXTEND — it generates the next 7 seconds continuing from the clip's final frame" : "a source VIDEO CLIP (for a video-to-video edit)") : "", hasAvatar ? "an AVATAR face image (a character to keep consistent)" : "", hasAudio ? "an AUDIO track (voice/music for lip-sync or soundtrack)" : ""].filter(Boolean).join(", ")}. ${hasClip || hasAudio ? "You can't play clips or audio yourself, but they ARE attached and the model will receive them" : "It IS attached and the model will receive it"} — so NEVER say you can't see/hear it or ask them to paste a link for something already attached. If what they want is unclear, ask what to DO with it (${clipIsSeedanceRef ? "what scene to build around the reference" : "restyle, swap a subject, relight, extend, lip-sync"}), not for the file itself.` : ""}${prevPrompt ? `\nThe user's PREVIOUS generation ran with this prompt: "${prevPrompt.slice(0, 600)}". Read their message against it and pick ONE signal:
 - rerun=true if they want that same generation run again UNCHANGED, however they phrase it ("try again", "run it back", "didn't come out, go again", "one more", "do that again") — use your reply to say you're running it again.
 - revise=true if they want it CHANGED — feedback or a tweak on the result ("slower", "fix the text", "make it brighter", "again but at night") — use your reply to acknowledge the fix.
 - both false if it's a brand-new idea or just chat.` : ""}${brief ? `\nThis chat's running creative brief: "${brief}" — use it to make replies specific to this project.` : ""}${memoryLine}
