@@ -1234,3 +1234,20 @@ checklist in the chat.
 - Context of the failure itself: a submit was rejected for balance right
   after the top-up — if it recurs with balance present, check fal's
   dashboard for a separate SPENDING-LIMIT setting.
+
+### Video references: director now sees (and uses) ALL of them (2026-07-17)
+- **Owner's E11 test:** 3 refs attached on Veo Fast, open prompt → the
+  composed prompt described ONLY the truck. Cause: in video mode
+  directorImage() sent just refList[0] (the "start image" slot logic), so
+  the director literally couldn't see refs 2-3; all 3 still went to fal but
+  a prompt that never cites a ref gives it ~no influence.
+- **Fix (mirrors the image-mode default-to-all rule):**
+  - Client: reference runs send EVERY ref (≤9, downscaled) + imageCount.
+  - Worker: imageCount accepted for video; new video multiImgLine — labels
+    Image 1..N, LOOK at each, write ONE scene citing @Image1…@ImageN, USE
+    EVERY reference unless the user's own words exclude one; ask-step +
+    context lines updated (no more "a start image" claim on ref runs).
+  - Existing plumbing handles the rest: @ImageN tags bind natively on
+    Seedance/Kling o3 and translate to "reference image N" for Veo.
+- Verified headless: compose wire carries images[3] + imageCount 3, kind
+  video. Owner should re-run the 3-ref test live after deploy.

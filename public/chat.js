@@ -5035,7 +5035,13 @@ function directorContext() {
     // How many images are attached for an image edit/combine — so the composer
     // can describe EACH one's role ("the product from the first image on the
     // second image's background"). Nano references by position, not @tags.
-    imageCount: mode === 'image' ? ((attachments.image ? 1 : 0) + extraImages.length) : undefined,
+    imageCount: mode === 'image'
+      ? ((attachments.image ? 1 : 0) + extraImages.length)
+      // Video reference runs: the director must know it's looking at N refs,
+      // not "a start image" (it used to compose around refList[0] only).
+      : mode === 'video' && !attachments.image && !attachments.ffirst && refList.length > 1
+        ? refList.length
+        : undefined,
     // Every attachment the director can't render as an image (video clip,
     // avatar face, audio track) still gets flagged so the orchestrator KNOWS
     // it's there — never denies seeing it, and writes for the actual inputs.
@@ -5123,7 +5129,14 @@ async function directorImage() {
   if (mode === 'audio') return {};
   const srcs = mode === 'image'
     ? [attachments.image, ...extraImages].filter(Boolean)
-    : [attachments.image || attachments.ffirst || refList[0] || elList[0]].filter(Boolean);
+    // Video: a start/first frame is a single image; a REFERENCE run sends
+    // every ref so the director can see (and cite) each one — it used to see
+    // only refList[0] and compose around that single subject.
+    : (attachments.image || attachments.ffirst)
+      ? [attachments.image || attachments.ffirst]
+      : refList.length
+        ? refList.slice(0, 9)
+        : [elList[0]].filter(Boolean);
   if (!srcs.length) return {};
   // Downscale harder as the count grows — understanding needs far fewer
   // pixels than generating, and 14 originals would blow the request budget.
