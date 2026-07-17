@@ -44,7 +44,7 @@ All auth emails (sign-in codes, confirmations, resets) go through Go Farther via
 
 ## Open (not yet scheduled)
 
-- fal balance top-up → then run the live model sweep (one cheap job per family across the **12 video (Veo ×3 incl. Lite · Seedance ×3 · Kling ×5 · Gemini) + 2 image (Nano Banana Pro, GPT Image 2)** models; **Ray 3.2 and OmniHuman were removed 2026-07-17**, dormant code kept)
+- fal balance top-up → then run the live model sweep (one cheap job per family across the **12 video (Veo ×3 incl. Lite · Seedance ×3 · Kling ×5 · Gemini) + 2 image (Nano Banana Pro, GPT Image 2)** models; **Ray 3.2 and OmniHuman were removed 2026-07-17**; **Ray's dormant code was fully excised 2026-07-17** — all `luma/`/`isRay` routing, HDR/EXR, seamless loop, timeline keyframes, reframe/outpaint, v2v per-signal controls, the clip edit-strength dial, and the Luma badge are gone from chat.js + worker.js + index.html + styles.css)
 - User should change their password via the sidebar "Change password" button (the temp one appeared in a chat log)
 - ~~Mobile layout~~ — owner's call 2026-07-16: NOT making the app mobile-friendly for now; desktop-first. Don't build or suggest mobile work uninvited.
 

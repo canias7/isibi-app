@@ -2540,15 +2540,14 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
    dashed drop-zones so the three inputs read as one system. (NB: leave the
    body's display to the .ap-row.open toggle — forcing display here would pin
    the row permanently open.) */
-#rowFlf .ap-body, #rowRef .ap-body, #rowKf .ap-body, #rowEl .ap-body, #rowClip .ap-body, #srVidGroup .ap-body { padding-left: .6rem; }
+#rowFlf .ap-body, #rowRef .ap-body, #rowEl .ap-body, #rowClip .ap-body, #srVidGroup .ap-body { padding-left: .6rem; }
 #rowImgref .ap-body { padding-left: .6rem; position: relative; }
 #rowFlf .attach-btn:not(.has),
 #rowImgref .ap-add,
 #rowClip .attach-btn:not(.has),
 #srVidGroup .attach-btn:not(.has),
 #rowRef .ap-add,
-#rowEl .ap-add,
-#rowKf .ap-add {
+#rowEl .ap-add {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: .25rem; width: 100%; height: 190px; padding: 0; border-radius: 10px;
 }
@@ -2559,13 +2558,9 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
   position: absolute; top: 10px; right: 14px; font-size: 1.15rem;
   color: #fff; text-shadow: 0 0 6px #000;
 }
-#rowFlf .plus-big, #rowRef .plus-big, #rowKf .plus-big, #rowEl .plus-big, #rowClip .plus-big, #rowImgref .plus-big, #srVidGroup .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
-#rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count, #rowKf .slot-count, #rowEl .slot-count, #rowClip .slot-lab, #rowImgref .slot-count, #srVidGroup .slot-lab { font-size: .75rem; color: var(--muted); }
+#rowFlf .plus-big, #rowRef .plus-big, #rowEl .plus-big, #rowClip .plus-big, #rowImgref .plus-big, #srVidGroup .plus-big { font-size: 2.1rem; font-weight: 300; line-height: 1; }
+#rowFlf .slot-lab, #rowFlf .slot-count, #rowRef .slot-count, #rowEl .slot-count, #rowClip .slot-lab, #rowImgref .slot-count, #srVidGroup .slot-lab { font-size: .75rem; color: var(--muted); }
 #rowRef .ap-extra, #rowEl .ap-extra, #rowImgref .ap-extra { gap: .55rem; margin-bottom: .55rem; }
-/* Keyframes: up to 64 tiles — a 2-up grid of small ordered thumbs, not the
-   full-width reference cards (which would scroll forever at this count). */
-#rowKf .ap-extra { display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; margin-bottom: .55rem; }
-#rowKf .ap-extra .slot { width: 100%; height: 74px; border-radius: 9px; }
 /* Attached clip: first-frame thumbnail card (same shape as the flf slots).
    While the thumb is still being captured the 🎬 chip centers in the box. */
 #rowClip .attach-btn.has, #srVidGroup .attach-btn.has {

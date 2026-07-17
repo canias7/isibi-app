@@ -2015,3 +2015,37 @@ render Claude's conversational output unscrubbed. The final ask reply IS
 scrubbed (chat.js:5046). These are model prose, not upstream error text,
 so provider leakage is near-impossible; Media Agent is out of scope per
 owner. Noted for completeness.
+
+## 2026-07-17 — Ray 3.2: full dormant-code removal ("make sure everything from ray3.2 is gone")
+
+Ray was delisted 2026-07-17 (no `luma/` model in either allowlist), but a large
+dormant subsystem stayed behind gated on `model.startsWith('luma/')` — which no
+model satisfies. Confirmed each piece was Ray-EXCLUSIVE (no live model declares
+`hdr`/`loop`/`keyframes`/`controls`/`v2v` caps; Kling o3 + Gemini clip-edits use
+their own branches) before excising it all:
+
+- **chat.js:** removed `kfList` + the whole keyframes subsystem (kfCap/onAttachKf/
+  removeKf/renderKfList), `hdrOn`/`exrOn`/`loopOn`/`editMode` globals + their
+  Settings sections/pickSetting handlers/constraint-web/summary, `rayReframe`/
+  `snapRayRatio`/`RATIO_NUMS`, the reframe duration-lock + ratio notes in
+  veoDurLock/syncDurLock, the Luma badge (`/^luma\//`) + 'Luma' family filter,
+  the HDR/reframe/keyframes/isRayI2V price branches, and the keyframes/reframe/
+  controls/hdr/exr/loop/editMode fields from the /api/video payload,
+  composerState, staging, and directorContext.
+- **worker.js:** removed `sanitizeRayControls`/RayEditControls, the `isRay` decl +
+  all three isRay routing branches (reframe / v2v / keyframes), `wantHdr`/
+  `wantExr`/`wantLoop`, the `kfs` keyframes intake, `isRayV2V`, the HDR/EXR/loop
+  input fields, the Ray i2s/r2s billing (isRayImgEndpoint/isRayStart5s/isReframeEp/
+  reframeSecs), the luma prompt-cap, and the director's isReframeRun/rayCtlCapable
+  (reframe prompt block, ctxBit, controls schema + parse). `creditCost` lost its
+  `hdr/exr/i2v/reframe` params (no model has i2s/r2s tiers). NB: the MP4-box-parser
+  `hdr` local and the Nano/Studio `reframe` (aspect re-crop) are unrelated — kept.
+- **index.html:** removed `#rowKf` + `#fileKf`. **styles.css:** removed `#rowKf`
+  selectors. **CLAUDE.md:** updated the removal note.
+
+Verified headless: every remaining model (3 Veo · 3 Seedance · 3 Kling text +
+LipSync · Gemini · 2 image · audio) builds its menu/opts/attach-panel/price with
+zero page errors; Ray globals (`kfList`/`hdrOn`/`editMode`/`rayReframe`) are
+undefined; `#rowKf`/`#fileKf` gone from the DOM; Kling o3 v2v price still
+computes. Screenshot: Veo settings show only Aspect/Resolution/Duration/Sound;
+attach rows are Image-to-video/Extend-clip/Reference — no Keyframes/HDR/Loop.

@@ -82,12 +82,6 @@ const MODEL_OPTS = {
     resolutions: ['720p', '1080p'], defRes: '720p',
     caps: { image: true, end: false, avatar: false, flf: true },
   },
-  // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
-  // so both the single-image and first-&-last rows apply; no reference mode.
-  // hdr: native-HDR render (2× price; +EXR sidecar 3×; 720p/1080p, 5s only).
-  // (Ray 3.2 was removed 2026-07-17, owner's call: "overrated". Its Ray-only
-  // machinery — keyframes row, HDR/loop pickers, edit-strength dial, reframe
-  // helpers — stays in the code but is dormant: no model carries those caps.)
   // o3 (pro + standard): i2v start+end frames · reference-to-video (≤4 image
   // refs cited as @Image1-4 in the prompt, optionally with start/end frames) ·
   // clip → video-to-video edit (re-render, keeps source audio).
@@ -225,8 +219,6 @@ const extraImages = [];
 const refList = [];
 // Kling character elements (@Element1-4): one frontal image per character.
 const elList = [];
-// Ray keyframes (≤64 images pinned along the clip's timeline, evenly spaced).
-const kfList = [];
 // Seedance extra reference clips/audios beyond slot #1 (@Video2-3 / @Audio2-3).
 // fal caps: 3 videos (combined 2-15s, each ~480-720p, ≤50MB total) · 3 audios
 // (combined ≤15s). Slot #1 stays attachments.clip/audio with all its existing
@@ -413,16 +405,12 @@ function readClipMeta(dataUri) {
     // an over-resolution reference clip into the model's pixel band.
     normalizeClipFps();
     normalizeClipArea();
-    // Ray: snap the ratio picker to the clip's native aspect so the default
-    // run is a plain v2v edit — picking a DIFFERENT ratio is what routes to
-    // the reframe (outpaint) endpoint.
-    snapRayRatio();
   };
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
 }
 // Per-model clip requirements for video-to-video edits, verified against each
-// endpoint's fal OpenAPI schema (2026-07). Models absent here (Ray, Gemini)
+// endpoint's fal OpenAPI schema (2026-07). Models absent here (Gemini)
 // document no hard clip limits — anything they still reject is caught by the
 // terminal-4xx auto-refund path.
 const CLIP_LIMITS = {
@@ -914,14 +902,13 @@ function updateApCounts() {
     set('cntRef', refList.length, caps.ref || 0);
   }
   set('cntEl', elList.length, caps.el || 0);
-  set('cntKf', kfList.length, caps.kf || 0);
 }
 
 function updateAttachVisibility() {
   closeApInfo(); // rows are about to be re-shown/hidden — a tooltip pointing at one mustn't linger
   const caps = (currentOpts() && currentOpts().caps) || {};
   // No slots for this model → hide the whole panel, don't leave an empty box.
-  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref || caps.kf);
+  const anySlot = !!(caps.image || caps.avatar || caps.audio || caps.clip || caps.end || caps.flf || caps.ref);
   const panel = document.getElementById('attachPanel');
   if (panel) panel.style.display = anySlot ? '' : 'none';
   [['image', caps.image], ['avatar', caps.avatar], ['audio', caps.audio], ['clip', caps.clip], ['end', caps.end]].forEach(([kind, ok]) => {
@@ -1019,12 +1006,6 @@ function updateAttachVisibility() {
   if (!caps.el) elList.length = 0;
   else if (elList.length > caps.el) elList.length = caps.el;
   renderRefList();
-  // Keyframes row (Ray: ≤64 timeline-pinned images).
-  const rowKf = document.getElementById('rowKf');
-  if (rowKf) rowKf.style.display = caps.kf ? '' : 'none';
-  if (!caps.kf) kfList.length = 0;
-  else if (kfList.length > caps.kf) kfList.length = caps.kf;
-  renderKfList();
   // Reference images follow the model's cap; they stand alone (either ONE
   // edit base or references, never both — normalize any stale mixed state
   // in favor of the edit base).
@@ -1041,7 +1022,7 @@ function updateAttachVisibility() {
   // verbs; the row attaches ONE picture the model then changes.
   if (ti) ti.textContent = mode === 'image' ? 'Edit image' : 'Image to video';
   // The clip row means different things per family — say the right verb
-  // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Ray / Kling o3
+  // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Kling o3
   // / Gemini re-render it (edit); Seedance uses it as a motion reference.
   const tc = document.getElementById('titleClip');
   if (tc) tc.textContent = /veo/.test(model) ? 'Extend clip' : 'Video clip';
@@ -1068,7 +1049,6 @@ const AP_INFO = {
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
   imgref: 'Build a NEW image from up to {N} references — a product to place, a style to copy, a face to keep. Cite them by number ("use the style of image 2"). It\'s one input mode or the other: adding references clears the Edit image slot, and vice versa.',
-  kf: 'Keyframes: pin up to 64 images along the clip’s timeline — the video animates through them in order, spaced evenly across the duration. Your prompt sets the style and motion between them.',
 };
 function showApInfo(kind, ev, el) {
   const pop = document.getElementById('apInfoPop');
@@ -1175,7 +1155,6 @@ const SRC_SLOTS = {
   fileFlast: { kind: 'image' },
   fileRef: { kind: 'image', avatar: true, room: () => Math.max(1, refCap() - refList.length) },
   fileEl: { kind: 'image', avatar: true, room: () => Math.max(1, elCap() - elList.length) },
-  fileKf: { kind: 'image', room: () => Math.max(1, kfCap() - kfList.length) },
   fileClip: { kind: 'video' },
   fileAudio: { kind: 'audio' },
   // Seedance extra reference slots (@Video2-3 / @Audio2-3).
@@ -1594,15 +1573,13 @@ function clearImageInputsExcept(keep) {
     if (attachments.flast) { attachments.flast = null; renderAttach('flast'); }
   }
   if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
-  if (keep !== 'kf' && kfList.length) { kfList.length = 0; renderKfList(); }
   if (keep !== 'el' && elList.length) { elList.length = 0; renderElList(); }
   // On Veo the clip is exclusive too (owner 2026-07-16): its four rows are
   // four separate fal endpoints, none accepting the others' inputs — so an
   // image/flf/ref attach drops a staged Extend clip. Gemini is the same
   // (its edit endpoint takes no refs; its ref endpoint takes no clip).
-  // Other families keep their legit combos (Ray v2v + start
-  // image/keyframes, Kling o3 edit + refs/elements, Seedance
-  // clip-as-reference).
+  // Other families keep their legit combos (Kling o3 edit + refs/elements,
+  // Seedance clip-as-reference).
   if (keep !== 'clip' && attachments.clip && mode === 'video' && /veo|gemini/.test(model)) {
     attachments.clip = null; clipMeta = null; renderAttach('clip'); renderRefChips();
   }
@@ -1700,23 +1677,6 @@ function renderElList() {
   renderRefChips();
   updateSendPrice();
 }
-
-// ── Keyframes (Ray): ≤64 images pinned along the clip's timeline ──
-// Order = playback order; the worker spaces them evenly across the duration.
-function kfCap() { return ((currentOpts() || {}).caps || {}).kf || 0; }
-function onAttachKf(inputEl) {
-  const files = Array.from(inputEl.files || []);
-  inputEl.value = '';
-  const cap = kfCap();
-  files.forEach((file) => {
-    if (kfList.length >= cap) return;
-    readImageConformed(file).then((uri) => {
-      if (!uri) { tooBigMsg(); return; }
-      if (kfList.length < cap) { kfList.push(uri); clearImageInputsExcept('kf'); renderKfList(); }
-    });
-  });
-}
-function removeKf(i) { kfList.splice(i, 1); renderKfList(); }
 
 // ── Seedance multi-reference extras (@Video2-3 / @Audio2-3) ──
 // Slot #1 is the normal clip/audio attach (all existing validation applies);
@@ -1876,29 +1836,6 @@ function renderAxList() {
   if (show) add.querySelector('.slot-count').textContent = (1 + axList.length) + '/3';
   updateApCounts();
 }
-function renderKfList() {
-  const host = document.getElementById('kfImages');
-  if (!host) return;
-  host.innerHTML = '';
-  kfList.forEach((src, i) => {
-    const d = document.createElement('div');
-    d.className = 'slot';
-    d.innerHTML = '<img src="' + esc(src) + '" alt="" />' +
-      '<span class="slot-tag">' + (i + 1) + '</span>' +
-      '<span class="x">×</span>';
-    d.querySelector('.x').onclick = () => removeKf(i);
-    host.appendChild(d);
-  });
-  const add = document.getElementById('btnKf');
-  const cap = kfCap();
-  if (add) {
-    add.style.display = kfList.length < cap ? '' : 'none';
-    add.innerHTML = '<span class="plus-big">+</span><span class="slot-count">' + kfList.length + '/' + cap + '</span>';
-  }
-  updateApCounts();
-  updateSendPrice(); // keyframes flip Ray onto its i2v tier — reprice
-}
-
 // ── Reference chips in the composer ──
 // While references are attached (tag-binding context), the chatbox shows one
 // clickable @ImageN chip per image — tap to drop that tag at the cursor, so
@@ -2070,7 +2007,6 @@ function providerOf(id) {
   if (/flux/.test(id)) return { logo: '/logos/flux.svg', name: 'Black Forest Labs', tint: '#f0585d' };
   if (/recraft/.test(id)) return { logo: '/logos/recraft.svg', name: 'Recraft', tint: '#7b6bff' };
   if (/krea/.test(id)) return { logo: '/logos/krea.svg', name: 'Krea', tint: '#ff5c8a' };
-  if (/^luma\/|\/ray\//.test(id)) return { mono: 'L', name: 'Luma', tint: '#3fe0d0' };
   return { mono: '·', name: '', tint: '#8a8a92' };
 }
 
@@ -2138,7 +2074,7 @@ function buildModelRow(m, variant) {
   const notes = (m.note || '').split('·').map((t) => t.trim()).filter(Boolean);
   const hasAudio = notes.includes('audio');
   const badges = m.tier ? '' : notes
-    .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax', 'Luma'].includes(t))
+    .filter((t) => !['audio', 'Google', 'OpenAI', 'ByteDance', 'MiniMax'].includes(t))
     .map((t) => t === 'newest'
       ? '<span class="m-badge">NEW</span>'
       : '<span class="m-tag' + (/cheap/i.test(t) ? ' cheap' : '') + '">' + t.toUpperCase() + '</span>')
@@ -2672,17 +2608,6 @@ function playPreview(url, btn) {
   previewAudio.play().catch(() => { btn.classList.remove('playing'); btn.textContent = '▶'; });
 }
 
-// HDR render toggle (models with opts.hdr — Ray 3.2). 2× price; 720p/1080p 5s only.
-let hdrOn = false;
-// EXR sidecar export (requires HDR; 3× price total).
-let exrOn = false;
-// Seamless-loop render (free; 5s, non-HDR, no end frame).
-let loopOn = false;
-// Video-to-video edit mode when a clip is attached: 'auto' lets the model
-// derive conditioning from the source; adhere/flex/reimagine dial how far the
-// re-render may stray from it.
-let editMode = 'auto';
-
 // One "Settings" panel groups every option (aspect ratio / resolution /
 // duration / images / voice) into sections, filtered to what the current model
 // supports. Values reset to this model's defaults on each rebuild.
@@ -2701,7 +2626,7 @@ function buildOptMenus() {
     if (opts.ratios) ratio = opts.defRatio;
     if (opts.nums) numImages = 1;
     if (opts.voices) voice = opts.defVoice;
-    hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto'; soundOn = true;
+    soundOn = true;
   }
 
   const sections = [];
@@ -2710,9 +2635,6 @@ function buildOptMenus() {
   if (opts.sizes) sections.push(settingSection('Resolution', 'gptSize', opts.sizes.map((s) => ({ value: s, label: s }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
   if (opts.sound) sections.push(settingSection('Sound', 'sound', [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]));
-  if (opts.hdr) sections.push(settingSection('HDR', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On · 2×' }, { value: 'exr', label: 'On + EXR · 3×' }]));
-  if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
-  if (opts.v2v) sections.push(settingSection('Clip edit mode', 'editMode', [{ value: 'auto', label: 'Auto' }, { value: 'adhere', label: 'Adhere' }, { value: 'flex', label: 'Flex' }, { value: 'reimagine', label: 'Reimagine' }]));
   if (opts.nums) sections.push(settingSection('Images', 'num', opts.nums.map((n) => ({ value: n, label: n === 1 ? '1 image' : n + ' images' }))));
   if (opts.voices) sections.push(settingSection('Voice', 'voice', opts.voices.map((v) => ({ value: v, label: (opts.voiceLabels || {})[v] || v })), opts.voicePreview !== false));
 
@@ -2748,7 +2670,7 @@ function buildOptMenus() {
 // A settings section: a label + selectable chips. Long lists (>6) collapse
 // behind a "View all" toggle.
 function settingSection(label, kind, items, isVoice) {
-  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode, sound: soundOn ? 'on' : 'off' }[kind];
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, sound: soundOn ? 'on' : 'off' }[kind];
   const collapsible = items.length > 6;
   const chips = items.map((it) => {
     const active = String(it.value) === String(cur) ? ' active' : '';
@@ -2770,38 +2692,6 @@ function settingSection(label, kind, items, isVoice) {
 // always render 8s, extends always add 7s. The duration section locks while
 // one is staged (owner 2026-07-16: the picker let you choose seconds that
 // changed nothing — the price rightly stayed on the fixed length).
-// ── Ray Reframe (luma .../reframe): outpaint the attached clip to a NEW
-// aspect ratio. The trigger is the chatbox itself (owner rule: settings are
-// user-driven): clip attached + a ratio picked that differs from the clip's
-// native aspect. Same ratio → plain v2v edit, exactly as before.
-const RATIO_NUMS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '21:9': 21 / 9 };
-function rayReframe() {
-  if (mode !== 'video' || !model.startsWith('luma/') || !attachments.clip) return false;
-  if (!clipMeta || !clipMeta.w || !clipMeta.h) return false; // dims unknown — stay v2v
-  const want = RATIO_NUMS[ratio];
-  if (!want) return false;
-  const native = clipMeta.w / clipMeta.h;
-  return Math.abs(want - native) / native > 0.05;
-}
-// On Ray clip attach, point the ratio picker at the clip's own aspect so the
-// default state is "no reframe" and any change is an explicit user choice.
-function snapRayRatio() {
-  if (mode !== 'video' || !model.startsWith('luma/') || !attachments.clip) return;
-  if (!clipMeta || !clipMeta.w || !clipMeta.h) return;
-  const native = clipMeta.w / clipMeta.h;
-  let best = null, bestDiff = Infinity;
-  Object.entries(RATIO_NUMS).forEach(([k, v]) => {
-    const d = Math.abs(v - native);
-    if (d < bestDiff) { bestDiff = d; best = k; }
-  });
-  if (best && ratio !== best) {
-    ratio = best;
-    const menu = document.getElementById('settingsMenu');
-    if (menu) menu.querySelectorAll('.set-chip[data-kind="ratio"]').forEach((c) => c.classList.toggle('active', c.dataset.value === best));
-    updateSettingsSummary();
-  }
-  updateSendPrice();
-}
 function veoDurLock() {
   if (mode !== 'video') return '';
   if (/veo/.test(model)) {
@@ -2812,8 +2702,6 @@ function veoDurLock() {
     if (/\/lite/.test(model) && (attachments.ffirst || attachments.flast)) return 'lite8';
     return '';
   }
-  // Reframe keeps the source clip's own length — no duration input exists.
-  if (rayReframe()) return 'reframe';
   return '';
 }
 function syncDurLock() {
@@ -2827,8 +2715,7 @@ function syncDurLock() {
   note.textContent = lock === 'ref'
     ? 'Reference runs always render 8s — the model fixes the length.'
     : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.'
-    : lock === 'lite8' ? 'An end-frame run on Lite always renders 8s — the model fixes the length.'
-    : lock === 'reframe' ? 'Reframing keeps the clip’s own length — billed per clip second.' : '';
+    : lock === 'lite8' ? 'An end-frame run on Lite always renders 8s — the model fixes the length.' : '';
   // Veo extend outputs 720p ONLY (fal schema: resolution const) — pin the
   // resolution picker to match, so the summary/price can't disagree with
   // what fal renders and bills.
@@ -2844,18 +2731,6 @@ function syncDurLock() {
       menu.querySelectorAll('.set-chip[data-kind="quality"]').forEach((c) => c.classList.toggle('active', c.dataset.value === '720p'));
       updateSettingsSummary();
     }
-  }
-  // Ray + clip: the ratio picker doubles as the reframe switch — say so.
-  const rsec = menu.querySelector('.set-section.sec-ratio');
-  if (rsec) {
-    let rnote = rsec.querySelector('.set-note');
-    const wantNote = mode === 'video' && model.startsWith('luma/') && attachments.clip && clipMeta && clipMeta.w
-      ? (rayReframe()
-        ? 'Reframing the clip to ' + ratio + ' — the sides get generatively painted in.'
-        : 'Matches the clip — pick a different ratio to reframe (outpaint) it.')
-      : '';
-    if (!rnote && wantNote) { rnote = document.createElement('div'); rnote.className = 'set-note'; rsec.appendChild(rnote); }
-    if (rnote) rnote.textContent = wantNote;
   }
   // Snap the picker to the truth so the chips + summary can't disagree with
   // what fal renders and bills.
@@ -2876,27 +2751,8 @@ function pickSetting(chip) {
   else if (kind === 'duration') duration = Number(val);
   else if (kind === 'num') numImages = Number(val);
   else if (kind === 'voice') voice = val;
-  else if (kind === 'hdr') { hdrOn = val !== 'off'; exrOn = val === 'exr'; }
-  else if (kind === 'loop') loopOn = val === 'on';
   else if (kind === 'sound') soundOn = val === 'on';
-  else if (kind === 'editMode') editMode = val;
-  // Constraint web (fal): HDR runs 720p/1080p at 5s only; EXR requires HDR;
-  // loop is 5s standard-dynamic-range only (so HDR and loop are exclusive).
-  // Turning something on corrects the conflicting picks; picking a conflicting
-  // value turns it off. Chips re-sync globally so corrections repaint everywhere.
-  if (kind === 'hdr' && hdrOn) {
-    if (quality === '540p') quality = '720p';
-    if (duration === 10) duration = 5;
-    loopOn = false;
-  } else if (kind === 'loop' && loopOn) {
-    if (duration === 10) duration = 5;
-    hdrOn = false; exrOn = false;
-  } else if (hdrOn && (quality === '540p' || duration === 10)) {
-    hdrOn = false; exrOn = false;
-  } else if (loopOn && duration === 10) {
-    loopOn = false;
-  }
-  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode, sound: soundOn ? 'on' : 'off' };
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, sound: soundOn ? 'on' : 'off' };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
@@ -2915,9 +2771,6 @@ function updateSettingsSummary() {
   if (opts.sizes && gptSize !== '2K') parts.push(gptSize); // 2K is the default
   if (opts.durations) parts.push(veoDurLock() === 'extend' ? '+7s' : duration + 's');
   if (opts.sound && !soundOn) parts.push('Silent');
-  if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
-  if (opts.loop && loopOn) parts.push('Loop');
-  if (opts.v2v && editMode !== 'auto' && attachments.clip) parts.push(editMode);
   if (opts.nums && numImages > 1) parts.push('×' + numImages);
   if (opts.voices) parts.push((opts.voiceLabels || {})[voice] || voice);
   el.textContent = parts.length ? parts.join(' · ') : 'Settings';
@@ -3452,7 +3305,7 @@ function composerState() {
     mode, effort, dir: directorMode,
     models: { ...selectedModels },
     ratio, quality, gptSize, duration, num: numImages, voice,
-    hdr: hdrOn, exr: exrOn, loop: loopOn, editMode, sound: soundOn,
+    sound: soundOn,
   };
 }
 function stampComposer() {
@@ -3494,9 +3347,7 @@ function applyComposerState(cs) {
     ratio = (o.ratios || []).includes(cs.ratio) ? cs.ratio : (o.defRatio || ratio);
     numImages = o.nums && (o.nums || []).includes(cs.num) ? cs.num : 1;
     voice = (o.voices || []).includes(cs.voice) ? cs.voice : (o.defVoice || voice);
-    hdrOn = !!(o.hdr && cs.hdr); exrOn = !!(o.hdr && cs.exr); loopOn = !!(o.loop && cs.loop);
     soundOn = o.sound ? cs.sound !== false : true;
-    editMode = ['auto', 'adhere', 'flex', 'reimagine'].includes(cs.editMode) ? cs.editMode : 'auto';
     setMode(mode); // paints mode buttons + menus; buildOptMenus keeps our values (restoringComp)
   } finally {
     restoringComp = false;
@@ -3509,7 +3360,7 @@ function stashStaged(id) {
   if (!id) return;
   stagedByChat[id] = {
     att: { ...attachments }, extras: extraImages.slice(), refs: refList.slice(),
-    els: elList.slice(), kfs: kfList.slice(), vxs: vxList.slice(), axs: axList.slice(),
+    els: elList.slice(), vxs: vxList.slice(), axs: axList.slice(),
     mask: maskData, clipMeta,
     awDur, awPeaks, awName, awSize, awType, imgMeta: { ...imgMeta },
   };
@@ -3519,8 +3370,8 @@ function restoreStaged(id) {
   try {
     const s = stagedByChat[id];
     Object.keys(attachments).forEach((k) => { attachments[k] = s ? s.att[k] || null : null; });
-    extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0; vxList.length = 0; axList.length = 0;
-    if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); vxList.push(...(s.vxs || [])); axList.push(...(s.axs || [])); }
+    extraImages.length = 0; refList.length = 0; elList.length = 0; vxList.length = 0; axList.length = 0;
+    if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); vxList.push(...(s.vxs || [])); axList.push(...(s.axs || [])); }
     maskData = s ? s.mask : null;
     clipMeta = s ? s.clipMeta : null;
     // Tear down the previous chat's audio player — else the play button on the
@@ -3533,7 +3384,7 @@ function restoreStaged(id) {
     Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
     if (s && s.imgMeta) Object.assign(imgMeta, s.imgMeta);
     Object.keys(attachments).forEach((k) => renderAttach(k));
-    renderExtraImages(); renderRefList(); renderElList(); renderKfList(); renderVxList(); renderAxList();
+    renderExtraImages(); renderRefList(); renderElList(); renderVxList(); renderAxList();
     updateAttachVisibility();
     updateSendPrice();
   } finally { restoringStaged = false; }
@@ -3645,7 +3496,7 @@ async function hydrateStaged(id) {
 // so any change (attach, clear, exclusivity eviction, thumbnail landing)
 // persists without touching each call site.
 (() => {
-  ['renderAttach', 'renderExtraImages', 'renderRefList', 'renderElList', 'renderKfList', 'renderVxList', 'renderAxList', 'renderMaskState'].forEach((name) => {
+  ['renderAttach', 'renderExtraImages', 'renderRefList', 'renderElList', 'renderVxList', 'renderAxList', 'renderMaskState'].forEach((name) => {
     const orig = window[name];
     if (typeof orig !== 'function') return;
     window[name] = function () { const r = orig.apply(this, arguments); schedulePersistStaged(); return r; };
@@ -4584,20 +4435,14 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
     return fmtPrice(p.videoPer5s * Math.ceil(vs / 5) * 5);
   }
   if (p.flat != null) return fmtPrice(p.flat);
-  // Rate table: clip attached → v2s (re-render premium: Ray, Kling o3 +20%);
-  // start image on a model that prices i2v separately (Ray) → i2s; else t2v —
+  // Rate table: clip attached → v2s (re-render premium: Kling o3 +20%);
+  // start image on a model that prices i2v separately → i2s; else t2v —
   // discounted to aoff when the render is explicitly silent (Veo, Kling).
-  const startImg = !!(attachments.image || attachments.ffirst || attachments.flast || kfList.length);
+  const startImg = !!(attachments.image || attachments.ffirst || attachments.flast);
   // Silent when the director inferred it from the user's words (override) OR
   // the manual Sound toggle is off — both hit fal's audio-off rate where one
   // exists (Veo, Seedance, Kling v3).
   const soundOff = soundOverride === false || (!soundOn && !!(currentOpts() || {}).sound);
-  // Ray Reframe: billed per started SOURCE second at its own rate tier — the
-  // duration picker doesn't apply (output keeps the clip's length).
-  if (rayReframe() && p.r2s) {
-    const rr = p.r2s[quality] != null ? p.r2s[quality] : p.r2s['1080p'];
-    return fmtPrice(rr * Math.min(30, Math.ceil((clipMeta && clipMeta.dur) || 30)));
-  }
   const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
@@ -4605,7 +4450,6 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   //  · Veo extend always outputs 7s; Veo reference-to-video always renders 8s.
   //  · The o3/Gemini clip edits render the WHOLE source clip (no duration
   //    input), so the bill follows the clip's length, not the picker.
-  //  · Ray from a start image (no keyframes) only renders 5s.
   //  · A Kling multi-shot bills the SUM of its shot durations.
   const shots = (shotsOverride && shotsApply(model)) ? sanitizeShots(shotsOverride) : null;
   const isVeoExtend = /veo/.test(model) && !!attachments.clip;
@@ -4620,14 +4464,12 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   // formats keep the browser-measured length.
   const clipMeasurable = clipMeta && /mp4|quicktime|mov/i.test(clipMeta.type || '');
   const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeasurable && clipMeta.dur) || clipEditMax));
-  const isRayI2V = model.startsWith('luma/') && startImg && !attachments.clip && !kfList.length;
   // Veo refs win over a clip (the worker routes reference-to-video first).
   const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0)
     : isVeoRef ? 8
     : isVeoExtend ? 7
     : isLite8 ? 8
     : isClipEdit ? clipEditSecs
-    : isRayI2V ? 5
     : (duration || 5);
   // Seedance reference-to-video with @VideoN clips: 0.6× rate over the
   // COMBINED input seconds + the output duration (same basis as the worker).
@@ -4636,12 +4478,10 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
     const inSecs = Math.min(15, Math.ceil(combined || 15));
     return fmtPrice(0.6 * rate * (inSecs + billDur));
   }
-  // HDR render (Ray) doubles fal's price; the EXR sidecar triples it.
-  const hdrX = hdrOn && (currentOpts() || {}).hdr ? (exrOn ? 3 : 2) : 1;
   // Veo extend outputs 720p only (fal schema const) — quote that tier even
   // if the picker sits on 4k, matching what the worker bills.
   const effRate = isVeoExtend && tbl['720p'] != null ? tbl['720p'] : rate;
-  return fmtPrice(effRate * billDur * hdrX);
+  return fmtPrice(effRate * billDur);
 }
 function updateSendPrice() {
   const el = document.getElementById('sendPrice');
@@ -5167,8 +5007,6 @@ async function generateMedia(text, opts = {}) {
         last: attachments.flast || undefined,
         refs: refList.length ? refList.slice() : undefined, // Veo reference-to-video
         elements: elList.length ? elList.slice() : undefined, // Kling @ElementN characters
-        keyframes: kfList.length ? kfList.slice() : undefined, // Ray timeline keyframes
-        reframe: rayReframe() || undefined, // Ray: outpaint the clip to the picked ratio
         // Seedance extra references beyond slot #1 (@Video2-3 / @Audio2-3).
         extraClips: vxAllowed() && vxList.length ? vxList.map((x) => x.uri) : undefined,
         extraAudios: vxAllowed() && axList.length ? axList.map((x) => x.uri) : undefined,
@@ -5187,7 +5025,6 @@ async function generateMedia(text, opts = {}) {
         cfg: kind === 'video' ? genExtras.cfg : undefined, // Kling v3 prompt-adherence 0-1
         bitrate: kind === 'video' ? genExtras.bitrate : undefined, // Seedance 'high' encode (free)
         shotType: kind === 'video' ? genExtras.shotType : undefined, // Kling 'intelligent' auto-cuts
-        controls: kind === 'video' ? genExtras.controls : undefined, // Ray v2v per-signal conditioning
         stability: kind === 'audio' ? genExtras.stability : undefined, // voice delivery tuning
         speed: kind === 'audio' ? genExtras.speed : undefined,
         style: kind === 'audio' ? genExtras.style : undefined,
@@ -5195,10 +5032,6 @@ async function generateMedia(text, opts = {}) {
         duration: kind === 'video' && currentOpts().durations ? duration : undefined,
         ratio: currentOpts().ratios ? ratio : undefined,
         quality: currentOpts().resolutions ? quality : undefined, // video resolution OR image tier (Nano 2K/4K)
-        hdr: kind === 'video' && hdrOn && currentOpts().hdr ? true : undefined,
-        exr: kind === 'video' && exrOn && currentOpts().hdr ? true : undefined,
-        loop: kind === 'video' && loopOn && currentOpts().loop ? true : undefined,
-        editMode: kind === 'video' && currentOpts().v2v && attachments.clip && editMode !== 'auto' ? editMode : undefined,
         voice: (kind === 'audio' || (currentOpts() || {}).voices) ? voice : undefined,
         num: kind === 'image' && currentOpts().nums && numImages > 1 ? numImages : undefined,
         // effort/director ride along for observability only — generations bill
@@ -5512,17 +5345,15 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         renderExtraImages();
         refList.length = 0;
         elList.length = 0;
-        // The Seedance reference extras (@Video2-3 / @Audio2-3) and any Ray
-        // keyframe remnants were consumed too — clear them so they don't ride
-        // the NEXT prompt at the wrong price tier (2026-07-17).
+        // The Seedance reference extras (@Video2-3 / @Audio2-3) were consumed
+        // too — clear them so they don't ride the NEXT prompt at the wrong
+        // price tier (2026-07-17).
         vxList.length = 0;
         axList.length = 0;
-        kfList.length = 0;
         renderRefList();
         renderElList();
         renderVxList();
         renderAxList();
-        renderKfList();
       }
     } else {
       endGen(origin);
@@ -5726,8 +5557,6 @@ function directorContext() {
     // avatar face, audio track) still gets flagged so the orchestrator KNOWS
     // it's there — never denies seeing it, and writes for the actual inputs.
     hasClip: mode === 'video' && !!attachments.clip,
-    // Ray reframe run: the prompt describes what fills the NEW canvas, not an edit.
-    reframe: (mode === 'video' && rayReframe()) || undefined,
     // Seedance multi-reference counts so the director cites @Video1..N/@Audio1..N.
     vidRefCount: mode === 'video' && vxAllowed() && attachments.clip && vxList.length ? 1 + vxList.length : undefined,
     audRefCount: mode === 'video' && vxAllowed() && attachments.audio && axList.length ? 1 + axList.length : undefined,
@@ -5778,11 +5607,10 @@ function sanitizeExtras(data) {
   }
   // Video knobs (all price-neutral; the worker re-validates every one):
   // cfg → Kling v3 prompt adherence · bitrate → Seedance high-bitrate encode ·
-  // shotType → Kling auto-directed cuts · controls → Ray v2v per-signal dials.
+  // shotType → Kling auto-directed cuts.
   if (typeof data.cfg === 'number' && Number.isFinite(data.cfg)) out.cfg = Math.min(1, Math.max(0, data.cfg));
   if (data.bitrate === 'high') out.bitrate = 'high';
   if (data.shotType === 'intelligent') out.shotType = 'intelligent';
-  if (data.controls && typeof data.controls === 'object' && !Array.isArray(data.controls)) out.controls = data.controls;
   return Object.keys(out).length ? out : null;
 }
 // Kling is the only family with multi_prompt (its t2v AND i2v endpoints take it).
@@ -5795,7 +5623,7 @@ function modelSupportsShots(m) {
 // multi_prompt, so any clip disables shots.
 function shotsApply(m) {
   if (mode !== 'video' || !modelSupportsShots(m)) return false;
-  if (attachments.clip || attachments.avatar || kfList.length) return false;
+  if (attachments.clip || attachments.avatar) return false;
   // o3's reference endpoint takes multi_prompt too; v3 has no reference mode.
   return !refList.length || /kling-video\/o3\//.test(m || model);
 }
@@ -9781,7 +9609,6 @@ const CHANGE_ACTIONS = {
   'attach-extra': (e, el) => onAttachExtra(el),
   'attach-ref': (e, el) => onAttachRef(el),
   'attach-el': (e, el) => onAttachEl(el),
-  'attach-kf': (e, el) => onAttachKf(el),
   'attach-vx': (e, el) => onAttachVx(el),
   'attach-ax': (e, el) => onAttachAx(el),
 };

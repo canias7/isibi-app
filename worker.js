@@ -13,9 +13,6 @@ const VIDEO_MODELS = new Set([
   "fal-ai/veo3.1",
   "fal-ai/veo3.1/fast",
   "fal-ai/veo3.1/lite",
-  // (Ray 3.2 removed 2026-07-17, owner's call. Its isRay routing/billing
-  // paths below are dormant behind this allowlist — a Ray submit now gets
-  // the unknown-model rejection before any of them can run.)
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/kling-video/o3/standard/text-to-video",
   "fal-ai/kling-video/lipsync/audio-to-video",
@@ -75,8 +72,6 @@ const VIDEO_USD = {
   // Standard/Fast, 1080p genuinely costs more than 720p here.
   "fal-ai/veo3.1/lite":                           { s: { "720p": 0.05, "1080p": 0.08 }, aoff: { "720p": 0.03, "1080p": 0.05 }, d: 8 },
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
-  // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
-  // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).
   // Seedance has no published audio-off discount — silent renders bill the same.
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.304, "1080p": 0.682, "4k": 1.59 }, d: 5 },
   // (fast tier has no 1080p on fal — resolution enum is 480p/720p only)
@@ -142,29 +137,6 @@ const AUDIO_USD_PER_1K = {
 // the driving clip's real length, so we cap and charge by measured seconds.
 const AUDIO_DRIVE_MAX_S = 60;
 
-// Ray 3.2 video-to-video per-signal conditioning (schema: RayEditControls).
-// Validates a director-written controls object down to exactly the shape fal
-// accepts — unknown keys dropped, numbers clamped 0-1. Returns null when
-// nothing valid remains (caller falls back to auto_controls / edit_strength).
-function sanitizeRayControls(v) {
-  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-  const num01 = (x) => (Number.isFinite(+x) ? Math.min(1, Math.max(0, +x)) : null);
-  const out = {};
-  const sig = (name, extra) => {
-    const s = v[name];
-    if (!s || typeof s !== "object" || Array.isArray(s)) return;
-    const o = { enabled: s.enabled !== false };
-    if (extra) extra(s, o);
-    out[name] = o;
-  };
-  sig("pose", (s, o) => { if (s.strength === "precise" || s.strength === "coarse") o.strength = s.strength; });
-  sig("depth", (s, o) => { const n = num01(s.blur); if (n != null) o.blur = n; });
-  sig("normals", (s, o) => { const n = num01(s.augmentation); if (n != null) o.augmentation = n; });
-  sig("trajectory", (s, o) => { const n = num01(s.sparsity); if (n != null) o.sparsity = n; });
-  sig("face", () => {});
-  return Object.keys(out).length ? out : null;
-}
-
 // Live fal platform balance (GET api.fal.ai/v1/account/billing — official
 // Platform API). Cached 60s per isolate; null = unknown (endpoint down, or
 // FAL_KEY isn't admin-scoped) and callers MUST fail open on null so a
@@ -193,7 +165,7 @@ async function falBalanceUSD(env) {
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
 // again on the generation would double-bill.
-function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, hdr, exr, v2v, i2v, reframe, clipSeconds, soundOff, vrefSeconds, img4k, gptQuality, gptSize }) {
+function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, v2v, clipSeconds, soundOff, vrefSeconds, img4k, gptQuality, gptSize }) {
   let usd;
   // GPT Image 2 is priced by quality tier; Nano Banana Pro 4K bills double the
   // base rate (1K/2K bill base); everything else is a flat per-image rate.
@@ -221,10 +193,9 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
     else {
       // Unknown quality never undercharges: fall back to def, else the highest
       // listed tier (not 720p, which could be cheaper than what fal renders).
-      // Rate table: clip attached → v2s (re-render premium); start image on a
-      // model where fal prices i2v separately → i2s; else the t2v rates —
+      // Rate table: clip attached → v2s (re-render premium); else the t2v rates —
       // discounted to aoff when the render is explicitly silent (Veo, Kling).
-      const tbl = reframe && p.r2s ? p.r2s : v2v && p.v2s ? p.v2s : i2v && p.i2s ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
+      const tbl = v2v && p.v2s ? p.v2s : (soundOff && p.aoff ? p.aoff : p.s);
       const tiers = Object.values(tbl).filter((n) => typeof n === "number");
       const maxTier = tiers.length ? Math.max(...tiers) : 0.4;
       const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : maxTier;
@@ -234,7 +205,6 @@ function creditCost(kind, model, { duration, quality, num, chars, audioSeconds, 
       if (vrefSeconds) usd = 0.6 * (rate != null ? rate : maxTier) * (vrefSeconds + (duration || p.d || 5));
       else usd = (rate != null ? rate : maxTier) * (duration || p.d || 5);
     }
-    if (hdr) usd *= exr ? 3 : 2; // Ray HDR render bills 2×; the EXR sidecar 3×
   }
   return Math.max(1, Math.ceil(usd / CREDIT_USD));
 }
@@ -1842,10 +1812,6 @@ async function handleRequest(request, env, ctx) {
       const elements = Array.isArray(body.elements)
         ? body.elements.slice(0, 4).map(dataImage).filter(Boolean)
         : [];
-      // Ray timeline keyframes (≤64, Luma only) — order is playback order.
-      const kfs = model.startsWith("luma/") && Array.isArray(body.keyframes)
-        ? body.keyframes.slice(0, 64).map(dataImage).filter(Boolean)
-        : [];
       // Kling multi-shot (shot-list): an ordered list of {prompt, duration}
       // shots rendered as one cut sequence. fal's `multi_prompt` lives on
       // Kling's text-to-video AND image-to-video endpoints (verified per schema
@@ -1877,12 +1843,10 @@ async function handleRequest(request, env, ctx) {
       // cfg → Kling v3 cfg_scale (prompt adherence, 0-1); bitrate "high" →
       // Seedance bitrate_mode (full/fast only — fal's pricing page has no bitrate
       // dimension, so it's a free bigger-file encode); shotType "intelligent" →
-      // Kling auto-directs the cut structure; controls → Ray v2v per-signal
-      // conditioning (pose/depth/normals/trajectory/face).
+      // Kling auto-directs the cut structure.
       const cfg = typeof body.cfg === "number" && Number.isFinite(body.cfg) ? Math.min(1, Math.max(0, body.cfg)) : null;
       const bitrateHigh = body.bitrate === "high";
       const intelligentShots = body.shotType === "intelligent";
-      const rayControls = sanitizeRayControls(body.controls);
 
       const ratio =
         typeof body.ratio === "string" && /^\d{1,2}:\d{1,2}$/.test(body.ratio)
@@ -1899,16 +1863,6 @@ async function handleRequest(request, env, ctx) {
         typeof body.quality === "string" && /^(\d{3,4}p|4k)$/.test(body.quality)
           ? body.quality
           : null;
-
-      // Ray (Luma) HDR render: 2× fal price (EXR sidecar on top: 3×). Only valid
-      // at 720p/1080p and 5s — anything else is ignored (never sent, never charged).
-      const wantHdr = body.hdr === true && model.startsWith("luma/") &&
-        (quality === "720p" || quality === "1080p") && (duration == null || duration === 5);
-      const wantExr = wantHdr && body.exr === true;
-      // Ray seamless loop: free; 5s standard-dynamic-range only (no HDR), and
-      // fal rejects it alongside an end frame — checked again at input build.
-      const wantLoop = body.loop === true && model.startsWith("luma/") && !wantHdr &&
-        (duration == null || duration === 5);
 
       // Image mode: how many variations to generate (per-image billing, so
       // only forwarded when explicitly above 1; the UI defaults to 1).
@@ -1964,7 +1918,6 @@ async function handleRequest(request, env, ctx) {
         const isGrok = model.includes("grok-imagine");
         const isVeo = model.includes("veo");
         const isSora = model.includes("sora");
-        const isRay = model.startsWith("luma/");
         const isGemini = model.includes("gemini-omni");
         // A clip attached to an editing model routes to that model's edit
         // endpoint. `bareEdit` marks endpoints that take only prompt+video (no
@@ -2064,50 +2017,6 @@ async function handleRequest(request, env, ctx) {
           endpoint = model + "/extend-video";
           input.video_url = clip;
           bareEdit = true;
-        } else if (isRay && clip && body.reframe === true) {
-          // Ray Reframe: generatively outpaint the source clip to a NEW aspect
-          // ratio. Schema: prompt + video_url + REQUIRED aspect_ratio +
-          // resolution; no duration input (output keeps the source length);
-          // sources capped at 30s. Billed per started SOURCE second (fal's
-          // page: 540p $0.06 · 720p $0.12 · 1080p $0.36) — see r2s below.
-          endpoint = model.replace("/text-to-video", "/reframe");
-          input.video_url = clip;
-          input.aspect_ratio = ["3:4", "4:3", "1:1", "9:16", "16:9", "21:9"].includes(ratio) ? ratio : "16:9";
-          if (["540p", "720p", "1080p"].includes(quality)) input.resolution = quality;
-          bareEdit = true; // no duration/loop/edit dials — the source rules
-        } else if (isRay && clip) {
-          // Video-to-video: re-render the attached clip. auto_controls lets the
-          // model derive conditioning from the source unless the user picked an
-          // edit-strength dial (adhere/flex/reimagine — sent at mid intensity).
-          // Keyframes may ride along (mutually exclusive with start_image_url).
-          endpoint = model.replace("/text-to-video", "/video-to-video");
-          input.video_url = clip;
-          const em = typeof body.editMode === "string" ? body.editMode : "";
-          // Precedence: director-written per-signal controls > the edit-strength
-          // dial > auto_controls. fal rejects controls alongside auto_controls,
-          // so exactly one of the three is ever sent.
-          if (rayControls) input.controls = rayControls;
-          else if (/^(adhere|flex|reimagine)$/.test(em)) input.edit_strength = em + "_2";
-          else input.auto_controls = true;
-          if (kfs.length) {
-            input.keyframes = kfs;
-            const maxIdx = duration === 10 ? 240 : 120;
-            input.keyframe_indexes = kfs.length === 1
-              ? [0]
-              : kfs.map((_, i) => Math.round((i * maxIdx) / (kfs.length - 1)));
-          } else if (image) {
-            input.start_image_url = image;
-          }
-        } else if (isRay && kfs.length) {
-          // Timeline keyframes ride the i2v endpoint. Indexes are 24fps frame
-          // positions (0–120 for 5s, 0–240 for 10s); with no timeline UI yet,
-          // pins are spaced evenly across the clip in attach order.
-          endpoint = i2v;
-          input.keyframes = kfs;
-          const maxIdx = duration === 10 ? 240 : 120;
-          input.keyframe_indexes = kfs.length === 1
-            ? [0]
-            : kfs.map((_, i) => Math.round((i * maxIdx) / (kfs.length - 1)));
         } else if (first && last) {
           // First & last frame. Veo has a dedicated endpoint; every other family
           // pins the two frames as start+end on their image-to-video endpoint.
@@ -2128,7 +2037,7 @@ async function handleRequest(request, env, ctx) {
           endpoint = i2v;
           input[startField] = image;
           // A standalone end frame only applies to families whose i2v accepts one.
-          if (end && (isSeedance || isKlingV3 || isKlingO3 || isRay)) input.end_image_url = end;
+          if (end && (isSeedance || isKlingV3 || isKlingO3)) input.end_image_url = end;
         }
 
         // Kling v3 character elements ride ONLY its image-to-video endpoint
@@ -2216,12 +2125,12 @@ async function handleRequest(request, env, ctx) {
         }
 
         if (duration && !bareEdit && !useShots) {
-          // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
+          // Veo wants "8s"; Seedance/Kling want a string enum; the rest an integer.
           if (isVeo && endpoint.includes("/reference-to-video")) input.duration = "8s"; // fal locks Veo ref to 8s only
           // Lite first-&-last only accepts "8s" (fal OpenAPI: duration const
           // "8s"; live 422 2026-07-17); t2v/i2v keep the real 4s/6s/8s enum.
           else if (model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame")) input.duration = "8s";
-          else if (isVeo || isRay) input.duration = duration + "s";
+          else if (isVeo) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
         } else if (isSeedance && !bareEdit && !useShots) {
@@ -2232,20 +2141,13 @@ async function handleRequest(request, env, ctx) {
           input.duration = "5";
         }
 
-        // Kling image-to-video has no aspect_ratio; Ray video-to-video (and the
-        // bare edit endpoints) inherit the source clip's framing, so no ratio.
+        // Kling image-to-video has no aspect_ratio; the bare edit endpoints
+        // inherit the source clip's framing, so no ratio.
         const isKlingI2V = isKling && endpoint.includes("/image-to-video");
-        const isRayV2V = isRay && endpoint.includes("/video-to-video");
-        if (ratio && !isKlingI2V && !isRayV2V && !bareEdit) input.aspect_ratio = ratio;
+        if (ratio && !isKlingI2V && !bareEdit) input.aspect_ratio = ratio;
 
         // Video endpoints that accept a resolution (edit endpoints take the source's).
-        if (quality && !bareEdit && (isSeedance || isGrok || isVeo || isSora || isRay)) input.resolution = quality;
-        // HDR/EXR/loop never apply to the bare edit endpoints (reframe, Veo
-        // extend) — the source clip rules those runs.
-        if (wantHdr && !bareEdit) input.hdr = true;
-        if (wantExr && !bareEdit) input.exr_export = true;
-        // Loop: t2v/i2v only, and never alongside an end frame (fal rejects it).
-        if (wantLoop && !isRayV2V && !bareEdit && !input.end_image_url && !input.keyframes) input.loop = true;
+        if (quality && !bareEdit && (isSeedance || isGrok || isVeo || isSora)) input.resolution = quality;
 
         // ── Audio track control (director-driven, no UI knob) ──
         // Kling o3's generate_audio defaults FALSE (every other family defaults
@@ -2417,12 +2319,6 @@ async function handleRequest(request, env, ctx) {
       // Veo extend always outputs a 7s clip (schema const) regardless of the
       // duration picker; Veo reference-to-video always renders 8s (schema const
       // — the input build forces "8s", so billing must too); Ray's image-to-video
-      // endpoint bills its cheaper i2s tier for EVERYTHING it renders (start
-      // image OR keyframes). Only a single start image is 5s-locked — keyframes
-      // can be 10s — so the rate tier follows the endpoint while the 5s force
-      // excludes keyframes.
-      const isRayImgEndpoint = model.startsWith("luma/") && endpoint.includes("image-to-video");
-      const isRayStart5s = isRayImgEndpoint && !input.keyframes;
       const isVeoRef = model.includes("veo") && endpoint.includes("/reference-to-video");
       // Lite first-&-last renders (and bills) 8s regardless of the picker.
       const isLiteFixed8 = model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame");
@@ -2436,22 +2332,15 @@ async function handleRequest(request, env, ctx) {
       // Only the server-side byte measurement is trusted; unparseable bills the
       // max (a client-claimed duration could undercharge a long clip).
       const clipBillSecs = isClipEdit ? Math.min(clipEditMax, Math.ceil(clipSecondsReal || clipEditMax)) : 0;
-      // Ray Reframe bills per started SOURCE second (30s schema cap); the
-      // output keeps the clip's length, so the duration picker never applies.
-      const isReframeEp = endpoint.endsWith("/reframe");
-      const reframeSecs = isReframeEp ? Math.min(30, Math.ceil(clipSecondsReal || 30)) : 0;
       // Multi-shot bills on the SUM of the shot durations (one continuous render
       // of that total length) at the model's per-second rate.
       const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
       const billDuration = endpoint.includes("/extend-video") ? 7
         : isVeoRef ? 8
         : isLiteFixed8 ? 8
-        : isReframeEp ? reframeSecs
         : isClipEdit ? clipBillSecs
-        : isRayStart5s ? 5
         : useShots ? shotSecs
         : duration;
-      if (isRayStart5s) input.duration = "5s"; // fal rejects 10s from a single start image — force the only valid value
       const genCost = creditCost(genKind, model, {
         duration: billDuration,
         // Veo extend outputs 720p ONLY (fal OpenAPI: resolution const) — bill
@@ -2470,15 +2359,9 @@ async function handleRequest(request, env, ctx) {
         // dead and 4K-at-auto overcharged ~2× (2026-07-17).
         gptSize: gptSize && !ratio ? "1K" : gptSize,
         audioSeconds,
-        hdr: wantHdr && !isReframeEp, // reframe has no HDR pipe — never bill one
-
-        exr: wantExr,
         // Any clip attached = a v2v re-render; creditCost only applies the
-        // premium where the model lists v2s rates (Ray, Kling o3). Reframe
-        // outranks it — its own r2s tier bills per source second.
+        // premium where the model lists v2s rates (Kling o3).
         v2v: !!clip,
-        reframe: isReframeEp,
-        i2v: isRayImgEndpoint,
         // LipSync bills on the clip's length, measured server-side from the
         // bytes (never the client's claim). Unparseable → 0 → the 10s max.
         clipSeconds: clipSecondsReal,
@@ -2503,12 +2386,11 @@ async function handleRequest(request, env, ctx) {
       }
 
       // Endpoints hard-cap the prompt and 422 anything longer (verified against
-      // each schema: Kling 2500 · Ray v2v 6000 · Veo/Gemini 20000). Prompts are
-      // short by design now, but clamp as a safety net so an over-long prompt
-      // can never bounce a whole (charged) render.
+      // each schema: Kling 2500 · Veo/Gemini 20000). Prompts are short by design
+      // now, but clamp as a safety net so an over-long prompt can never bounce a
+      // whole (charged) render.
       if (typeof input.prompt === "string") {
         const promptCap = endpoint.includes("kling-video") ? 2500  // Kling (all tiers/endpoints)
-          : endpoint.startsWith("luma/") ? 6000                    // Ray t2v/i2v/v2v all cap at 6000
           : 20000;                                                 // Veo/Gemini 20000; Seedance uncapped
         if (input.prompt.length > promptCap) input.prompt = input.prompt.slice(0, promptCap);
       }
@@ -3542,9 +3424,6 @@ async function handleRequest(request, env, ctx) {
       // neither an edit nor a reference, so it gets its own continuation
       // writer: describe ONLY the new 7 seconds, never re-narrate the clip.
       const veoExtend = hasClip && !clipIsSeedanceRef && /veo/.test(genModel);
-      // On Ray, clip + a changed ratio = REFRAME (outpaint to the new canvas):
-      // the prompt describes what fills the newly revealed space, not an edit.
-      const isReframeRun = hasClip && !!body.reframe && /^luma\//.test(genModel);
       const refCount = Math.min(9, Math.max(0, Math.round(+body.refCount) || 0));
       const elCount = Math.min(4, Math.max(0, Math.round(+body.elCount) || 0));
       // Kling multi-shot (shot-list) rides the text-to-video AND image-to-video
@@ -3567,8 +3446,6 @@ async function handleRequest(request, env, ctx) {
       const cfgCapable = kind === "video" && /kling-video\/v3/.test(genModel);
       // bitrate_mode exists on Seedance full + fast (not mini). Price-free.
       const bitrateCapable = kind === "video" && /^bytedance\/seedance/.test(genModel) && !/\/mini\//.test(genModel);
-      // Ray v2v per-signal conditioning — only when a clip is attached (v2v).
-      const rayCtlCapable = kind === "video" && /^luma\//.test(genModel) && hasClip;
       const tuneCapable = kind === "audio" && /elevenlabs/.test(genModel);
       const tuneFull = tuneCapable && !/eleven-v3/.test(genModel); // v3 accepts stability only
       // The attached images themselves (downscaled by the client) so the
@@ -3651,7 +3528,7 @@ async function handleRequest(request, env, ctx) {
         if (hasEnd) ctxBits.push("an end frame IS attached");
         const vidRefN = clipIsSeedanceRef ? Math.min(3, Math.max(1, Math.round(+body.vidRefCount) || 1)) : 0;
       const audRefN = clipIsSeedanceRef || (kind === "video" && /seedance/.test(genModel)) ? Math.min(3, Math.max(0, Math.round(+body.audRefCount) || 0)) : 0;
-      if (hasClip) ctxBits.push(clipIsSeedanceRef ? (vidRefN > 1 ? `${vidRefN} video clips ARE attached as references — cite them as @Video1…@Video${vidRefN}` : "a video clip IS attached as a @Video1 reference") : veoExtend ? "a source video clip IS attached (extend: +7s continuation)" : isReframeRun ? `a source video clip IS attached and this run REFRAMES it to ${genRatio || "a new aspect ratio"} (the newly revealed canvas gets generatively painted; the footage itself stays)` : "a source video clip IS attached (video-to-video edit)");
+      if (hasClip) ctxBits.push(clipIsSeedanceRef ? (vidRefN > 1 ? `${vidRefN} video clips ARE attached as references — cite them as @Video1…@Video${vidRefN}` : "a video clip IS attached as a @Video1 reference") : veoExtend ? "a source video clip IS attached (extend: +7s continuation)" : "a source video clip IS attached (video-to-video edit)");
       if (audRefN > 1) ctxBits.push(`${audRefN} audio references attached — cite them as @Audio1…@Audio${audRefN}`);
         if (hasAvatar) ctxBits.push("an avatar face image IS attached");
         if (hasAudio) ctxBits.push("an audio track IS attached (lip-sync / soundtrack)");
@@ -3770,9 +3647,7 @@ Context: ${ctxLine}`
         : kind === "video" && hasClip && !clipIsSeedanceRef
         ? `You are the edit writer for isibi, an AI video-to-video studio. A source VIDEO CLIP is already attached and the model will re-render THAT footage — this is an EDIT, not a new generation. The model can already see the clip, so never re-describe what's in it.
 
-Write ONE direct instruction that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. Name what to KEEP from the original vs. what to CHANGE. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE, never on narrating the source footage. Return nothing but the instruction.${isReframeRun ? `
-
-THIS RUN IS A REFRAME: the clip is being outpainted to a new aspect ratio — the original footage stays untouched in the middle, and the model paints the NEWLY REVEALED canvas around it. Describe ONLY what should fill that new space (a natural continuation of the scene's setting, matching its lighting, style and motion) — never instruct changes to the footage itself.` : ""}
+Write ONE direct instruction that states ONLY the change to apply: the new look, style, lighting, colour grade, or an element to swap. Name what to KEEP from the original vs. what to CHANGE. Its LENGTH follows the Effort line below — but at every effort the words go on the CHANGE, never on narrating the source footage. Return nothing but the instruction.
 
 Examples of the register (never copy their content): "Restyle the footage into a polished, photoreal cinematic AI look — cleaner textures, warmer light — while keeping the exact framing, motion and timing." · "Keep everything as-is but relight the scene for golden-hour warmth." · "Swap the car for a red vintage convertible; leave the road, motion and background unchanged."${familyHint ? `
 - ${familyHint}` : ""}${effortLine}${briefLine}${memoryLine}${refLine}
@@ -3972,19 +3847,6 @@ Return just the line to be voiced — keep it to what should actually come out o
                 ...(bitrateCapable ? {
                   bitrate: { type: "string", enum: ["high"], description: "ONLY when the user asks for maximum quality / a crisp master / high bitrate: 'high' (same price, larger file). Omit otherwise." },
                 } : {}),
-                ...(rayCtlCapable ? {
-                  controls: {
-                    type: "object",
-                    description: "ONLY for this clip re-render, when the user says which aspects of the SOURCE clip to keep or free (body pose, face identity, scene geometry, camera/motion path, surface detail): per-signal conditioning. Include ONLY the signals the user mentioned; omit the whole object otherwise (auto mode already balances them).",
-                    properties: {
-                      pose: { type: "object", description: "body-pose conditioning", properties: { enabled: { type: "boolean" }, strength: { type: "string", enum: ["precise", "coarse"], description: "precise = follow the source pose tightly" } } },
-                      face: { type: "object", description: "face-identity conditioning (keep the same face)", properties: { enabled: { type: "boolean" } } },
-                      depth: { type: "object", description: "scene-geometry conditioning", properties: { enabled: { type: "boolean" }, blur: { type: "number", description: "0-1, higher = more geometric freedom" } } },
-                      normals: { type: "object", description: "surface-detail conditioning", properties: { enabled: { type: "boolean" }, augmentation: { type: "number", description: "0-1, higher = more surface reinterpretation" } } },
-                      trajectory: { type: "object", description: "camera/motion-path conditioning", properties: { enabled: { type: "boolean" }, sparsity: { type: "number", description: "0-1, higher = fewer motion anchors" } } },
-                    },
-                  },
-                } : {}),
                 ...(negCapable ? {
                   negative: { type: "string", description: "ONLY when the user names concrete things to EXCLUDE from the video ('no people', 'avoid on-screen text', 'no rain'): a short comma-separated list of those things. Omit entirely otherwise — do not invent exclusions." },
                 } : {}),
@@ -4162,7 +4024,6 @@ Return just the line to be voiced — keep it to what should actually come out o
           : undefined,
         cfg: cfgCapable && typeof parsed.cfg === "number" && Number.isFinite(parsed.cfg) ? Math.min(1, Math.max(0, parsed.cfg)) : undefined,
         bitrate: bitrateCapable && parsed.bitrate === "high" ? "high" : undefined,
-        controls: rayCtlCapable ? sanitizeRayControls(parsed.controls) || undefined : undefined,
         stability: tuneCapable && Number.isFinite(+parsed.stability) ? Math.min(1, Math.max(0, +parsed.stability)) : undefined,
         speed: tuneFull && Number.isFinite(+parsed.speed) ? Math.min(1.2, Math.max(0.7, +parsed.speed)) : undefined,
         style: tuneFull && Number.isFinite(+parsed.style) ? Math.min(1, Math.max(0, +parsed.style)) : undefined,
