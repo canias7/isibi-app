@@ -4567,3 +4567,11 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 #btnImgEnd .slot-lab { font-size: .8rem; opacity: .8; }
 #btnImgEnd.has { min-height: 96px; padding: .3rem; }
 #btnImgEnd.has img { max-width: 190px; border-radius: 8px; display: block; }
+
+/* Seedance combined Reference row: small group headers inside the one row. */
+.sr-lab {
+  margin: .55rem 0 .3rem; font-size: .68rem; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8a92);
+}
+.sr-lab:first-child { margin-top: .1rem; }
+#srVidGroup, #srAudGroup { display: flex; flex-direction: column; gap: .35rem; }

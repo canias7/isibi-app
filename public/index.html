@@ -323,8 +323,13 @@
         <div class="ap-row" id="rowRef" style="display:none">
           <button class="ap-head" data-act="ap-row" data-row="ref"><span class="ap-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 8.5l6-3.5v14l-6-3.5"/><rect x="2" y="6" width="13" height="12" rx="2"/></svg></span><span class="ap-label"><span class="ap-title" data-info="ref">Reference to video</span><b class="ap-count" id="cntRef"></b></span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
           <div class="ap-body">
+            <div class="sr-lab" id="srImgLab" style="display:none">Images</div>
             <div class="ap-extra" id="refImages"></div>
             <button class="attach-btn ap-add" id="btnRef" data-act="file" data-file="fileRef" aria-label="Add reference image"><span class="plus-big">+</span><span class="slot-count">0/3</span></button>
+            <div class="sr-lab" id="srVidLab" style="display:none">Videos</div>
+            <div id="srVidGroup"></div>
+            <div class="sr-lab" id="srAudLab" style="display:none">Audio</div>
+            <div id="srAudGroup"></div>
           </div>
         </div>
         <div class="ap-row" id="rowEl" style="display:none">

@@ -1983,6 +1983,10 @@ async function handleRequest(request, env, ctx) {
           // Slot #1 + the @Video2-3/@Audio2-3 extras (fal caps both at 3).
           if (clip) input.video_urls = [clip, ...extraClips].slice(0, 3);
           if (audio) input.audio_urls = [audio, ...extraAudios].slice(0, 3);
+          // fal's cross-modal cap: ≤12 files total (the client enforces it too).
+          if (rImgs.length + (input.video_urls || []).length + (input.audio_urls || []).length > 12) {
+            return Response.json({ error: "references are capped at 12 files total" }, { status: 400 });
+          }
           // Seedance only uses a reference the prompt CITES (@ImageN/@VideoN).
           // The director writes those tags; for a raw prompt without any, append
           // them so the uploaded references aren't silently ignored.

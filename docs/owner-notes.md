@@ -1651,3 +1651,18 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   states as before (verified headless: body sends first+last, lite8 lock
   fires, demotion/promotion both ways, counter 2/2).
 - The rowFlf DOM stays (hidden) — no model shows it anymore.
+
+### Seedance: one combined "Reference to video n/12" row (owner's design, 2026-07-17)
+- Owner: instead of three separate rows (Audio 0/3 · Video clip 0/3 ·
+  Reference 0/9), Seedance now shows ONE "Reference to video" row counting
+  n/12 (fal's cross-modal total), with three labeled groups inside —
+  IMAGES n/9, VIDEOS n/3, AUDIO n/3.
+- Zero-rewire implementation: the existing controls (clip slot, @Video2-3
+  tiles, audio slot, @Audio2-3 tiles) are RELOCATED into the groups when a
+  Seedance model is selected, and moved back for every other model — same
+  ids, handlers, validators; LipSync's rows verified intact round-trip.
+- NEW enforcement fal always had but our split rows never checked: ≤12
+  files TOTAL across modalities (9+3+3=15 possible) — attach-time toast
+  client-side + a 400 guard in the worker.
+- Verified headless: rows hidden/relocated, header 4/12 with mixed refs,
+  labels track per-modality, LipSync round-trip clean, no page errors.

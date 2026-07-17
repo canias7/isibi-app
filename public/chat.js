@@ -895,7 +895,17 @@ function updateApCounts() {
   set('cntClip', (attachments.clip ? 1 : 0) + vxList.length, caps.clip ? (multiRef ? 3 : 1) : 0);
   set('cntEnd', attachments.end ? 1 : 0, caps.end ? 1 : 0);
   set('cntFlf', (attachments.ffirst ? 1 : 0) + (attachments.flast ? 1 : 0), caps.flf ? 2 : 0);
-  set('cntRef', refList.length, caps.ref || 0);
+  // Seedance's combined Reference row counts every modality over fal's
+  // 12-file total; the per-group labels carry the per-modality caps.
+  if (vxAllowed() && caps.ref) {
+    set('cntRef', srTotal(), 12);
+    const lab = (id, t) => { const el = document.getElementById(id); if (el) el.textContent = t; };
+    lab('srImgLab', 'Images ' + refList.length + '/9');
+    lab('srVidLab', 'Videos ' + ((attachments.clip ? 1 : 0) + vxList.length) + '/3');
+    lab('srAudLab', 'Audio ' + ((attachments.audio ? 1 : 0) + axList.length) + '/3');
+  } else {
+    set('cntRef', refList.length, caps.ref || 0);
+  }
   set('cntEl', elList.length, caps.el || 0);
   set('cntKf', kfList.length, caps.kf || 0);
 }
@@ -929,6 +939,32 @@ function updateAttachVisibility() {
     vxList.length = 0; axList.length = 0;
   }
   renderVxList(); renderAxList();
+  // ── Seedance combined Reference row (owner 2026-07-17): ONE "Reference to
+  // video n/12" row with three groups inside — Images 0/9 · Videos 0/3 ·
+  // Audio 0/3 — replacing the separate Audio/Video clip rows. The existing
+  // controls are RELOCATED (same ids, handlers, validators), and moved back
+  // whenever any other model is selected.
+  const combine = vxAllowed() && !!caps.ref;
+  const vidGrp = document.getElementById('srVidGroup');
+  const audGrp = document.getElementById('srAudGroup');
+  const clipBody = document.querySelector('#rowClip .ap-body');
+  const audBody = document.querySelector('#rowAudio .ap-body');
+  if (vidGrp && audGrp && clipBody && audBody) {
+    const vidNodes = [attachBtn('clip'), document.getElementById('vxSlots'), document.getElementById('btnVx')].filter(Boolean);
+    const audNodes = [attachBtn('audio'), document.getElementById('axSlots'), document.getElementById('btnAx')].filter(Boolean);
+    if (combine) {
+      vidNodes.forEach((n) => vidGrp.appendChild(n));
+      audNodes.forEach((n) => audGrp.appendChild(n));
+      const rc = document.getElementById('rowClip'); if (rc) rc.style.display = 'none';
+      const ra = document.getElementById('rowAudio'); if (ra) ra.style.display = 'none';
+    } else {
+      vidNodes.forEach((n) => clipBody.appendChild(n));
+      audNodes.forEach((n) => audBody.appendChild(n));
+    }
+    ['srImgLab', 'srVidLab', 'srAudLab'].forEach((id) => {
+      const el = document.getElementById(id); if (el) el.style.display = combine ? '' : 'none';
+    });
+  }
   // Switching models re-judges a kept clip against the NEW model's limits
   // (e.g. a 12s clip fine on Kling o3 is over Veo extend's 8s cap) — drop it
   // with the reason rather than let it ride to a doomed, charged submit.
@@ -1574,10 +1610,10 @@ function onAttachRef(inputEl) {
   inputEl.value = '';
   const cap = refCap();
   files.forEach((file) => {
-    if (refList.length >= cap) return;
+    if (refList.length >= cap || srCapHit()) return;
     readImageConformed(file).then((uri) => {
       if (!uri) { tooBigMsg(); return; }
-      if (refList.length < cap) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
+      if (refList.length < cap && !(vxAllowed() && srTotal() >= 12)) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
     });
   });
 }
@@ -1675,6 +1711,18 @@ function removeKf(i) { kfList.splice(i, 1); renderKfList(); }
 // these add up to 2 more of each, Seedance-only, with the COMBINED caps fal
 // enforces (videos 2-15s total & ≤50MB; audios ≤15s total).
 function vxAllowed() { return mode === 'video' && /seedance/.test(model); }
+// fal's cross-modal cap on the Seedance reference endpoint: ≤12 files TOTAL
+// across images + videos + audios (9/3/3 per-modality maxima sum to 15).
+function srTotal() {
+  return refList.length
+    + (attachments.clip ? 1 : 0) + vxList.length
+    + (attachments.audio ? 1 : 0) + axList.length;
+}
+function srCapHit() {
+  if (!vxAllowed() || srTotal() < 12) return false;
+  sbToast('References are capped at 12 files total (images + videos + audio).');
+  return true;
+}
 function vxDurTotal() { return ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0); }
 function axDurTotal() { return (awDur || 0) + axList.reduce((t, x) => t + (x.dur || 0), 0); }
 function onAttachVx(inputEl) {
@@ -1682,7 +1730,7 @@ function onAttachVx(inputEl) {
   inputEl.value = '';
   if (!vxAllowed() || !attachments.clip) return;
   files.forEach((file) => {
-    if (vxList.length >= 2) return;
+    if (vxList.length >= 2 || srCapHit()) return;
     // Same format rule as slot #1 (CLIP_LIMITS seedance): fal takes MP4/MOV.
     if (!/^video\/(mp4|quicktime)/.test(file.type || '')) { sbToast('Reference clips must be MP4 or MOV.'); return; }
     const bytesNow = Math.floor(((attachments.clip || '').length + vxList.reduce((t, x) => t + x.uri.length, 0)) * 0.75);
@@ -1740,7 +1788,7 @@ function onAttachAx(inputEl) {
   inputEl.value = '';
   if (!vxAllowed() || !attachments.audio) return;
   files.forEach((file) => {
-    if (axList.length >= 2) return;
+    if (axList.length >= 2 || srCapHit()) return;
     if (!/^audio\//.test(file.type || '')) { sbToast('That file isn’t an audio clip.'); return; }
     if ((file.size || 0) > 15_000_000) { sbToast('Audio references are capped at 15 MB per file.'); return; }
     const reader = new FileReader();
