@@ -998,3 +998,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
      9:16 clip; a square clip used to die at fal after the wait+refund, now
      it's bounced at attach with the reason (5% tolerance for encoder
      rounding like 1920×1088).
+
+### Exact errors surfaced to users (2026-07-16)
+- **Owner:** "make sure you show users the exact error." Two paths were
+  swallowing detail (the 422-rejection path already quoted fal verbatim):
+  1. Submit-time failures (friendlyFail) bucketed everything into canned
+     lines with the raw error console-only → now the friendly line carries
+     fal's exact detail appended: … (exact error: "duration: must be one of
+     4s, 6s, 8s"). Quota/balance/unknown-model lines stay clean (no useful
+     upstream detail there).
+  2. Mid-render FAILED/ERROR showed a generic "couldn't finish" → the client
+     now fetches the failed job's response payload and quotes fal's reason:
+     ⚠️ The model couldn't finish — exact error: "…" + the refund note.
+- Verified headless on both paths (validation detail + a FAILED render with
+  a codec error), refunds intact.

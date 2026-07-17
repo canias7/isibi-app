@@ -4182,16 +4182,20 @@ async function explainFailure(origin, kind, genPrompt, job) {
   } catch { return false; }
 }
 
-// Turn fal/worker failures into human messages; the raw detail goes to the console.
+// Turn fal/worker failures into human messages, ALWAYS carrying the exact
+// upstream error (owner 2026-07-16: "show users the exact error") — the
+// friendly line says what to do, the quote says precisely what happened.
 function friendlyFail(job) {
   console.error('generation failed:', job);
   const raw = JSON.stringify(job || {});
+  const exact = falErrorDetail(job);
+  const withExact = (msg) => exact ? msg + ' (exact error: “' + exact + '”)' : msg;
   if (/daily limit/i.test(raw)) return "⚠️ You've hit today's generation limit — it resets within 24 hours.";
   if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
-  if (/content|safety|nsfw|moderation/i.test(raw)) return '⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.';
-  if (/validation|invalid|must be|unprocessable/i.test(raw)) return '⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.';
+  if (/content|safety|nsfw|moderation/i.test(raw)) return withExact('⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.');
+  if (/validation|invalid|must be|unprocessable/i.test(raw)) return withExact('⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.');
   if (job && job.error === 'unknown model') return '⚠️ That model isn’t available right now — pick another from the menu.';
-  return '⚠️ Couldn’t start the generation — give it another try in a moment.';
+  return withExact('⚠️ Couldn’t start the generation — give it another try in a moment.');
 }
 
 async function generateMedia(text, opts = {}) {
@@ -4419,8 +4423,20 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // isn't re-polled at boot.
       if (state === 'FAILED' || state === 'ERROR' || state === 'CANCELED' || state === 'CANCELLED') {
         endGen(origin);
+        // A failed job's response endpoint carries fal's reason ({detail}) —
+        // fetch it so the user sees the EXACT error, not a generic shrug
+        // (owner 2026-07-16).
+        let why = '';
+        try {
+          const fr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
+          const fb = await fr.json().catch(() => ({}));
+          console.error('fal render failed:', state, fb);
+          why = falErrorDetail(fb);
+        } catch {}
         const refunded = await requestRefund(statusUrl); // fal didn't bill us — credit it back
-        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation — please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.'
+        deliverAgent(origin, '⚠️ The model couldn\'t finish this generation'
+          + (why ? ' — exact error: “' + why + '”' : '')
+          + '. Please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.'
           + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : ''));
         return;
       }
