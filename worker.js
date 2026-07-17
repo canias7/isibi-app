@@ -165,6 +165,30 @@ function sanitizeRayControls(v) {
   return Object.keys(out).length ? out : null;
 }
 
+// Live fal platform balance (GET api.fal.ai/v1/account/billing — official
+// Platform API). Cached 60s per isolate; null = unknown (endpoint down, or
+// FAL_KEY isn't admin-scoped) and callers MUST fail open on null so a
+// monitoring hiccup can never block paying users.
+let _falBal = { at: 0, usd: null };
+async function falBalanceUSD(env) {
+  if (!env.FAL_KEY) return null;
+  if (Date.now() - _falBal.at < 60_000) return _falBal.usd;
+  let usd = null;
+  try {
+    const r = await fetch("https://api.fal.ai/v1/account/billing?expand=credits", {
+      headers: { Authorization: `Key ${env.FAL_KEY}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    if (r.ok) {
+      const j = await r.json().catch(() => null);
+      const v = j && j.credits && j.credits.current_balance;
+      if (Number.isFinite(+v)) usd = +v;
+    }
+  } catch (e) {}
+  _falBal = { at: Date.now(), usd };
+  return usd;
+}
+
 // Generation credits are now PURE fal cost — the director's Claude bill is no
 // longer folded in here. AI usage is a separate paid product (the AI
 // Orchestrator add-on), metered against its own $19.99 budget, so charging it
@@ -1659,6 +1683,15 @@ async function handleRequest(request, env, ctx) {
       if (!genUser) return UNAUTHED();
       if (!env.FAL_KEY) {
         return Response.json({ error: "generation not configured" }, { status: 500 });
+      }
+      // Platform-balance pre-flight (owner 2026-07-17, found live): with the
+      // fal account out of money, fal still ACCEPTS jobs and leaves them
+      // queued forever — the user would be charged for a render that never
+      // runs. Refuse BEFORE any charge. Fails open on null (endpoint down /
+      // non-admin key) so monitoring can never block a paying user.
+      const falUsd = await falBalanceUSD(env);
+      if (falUsd !== null && falUsd < 0.5) {
+        return Response.json({ error: "generations are briefly paused — try again in a little while (you were not charged)" }, { status: 503 });
       }
       const tl = tooLargeBody(request, 100_000_000); if (tl) return tl; // ~100MB backstop
       let body;

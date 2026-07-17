@@ -1139,3 +1139,24 @@ checklist in the chat.
   with the full tag plus a trailing space (which also closes the picker);
   typing @ again reopens it. The @ImageN badges on the attach-panel
   thumbnails stay — they're how you know which number is which.
+
+### fal balance pre-flight + honest queue status (2026-07-17)
+- **Found live by the owner:** fal balance went NEGATIVE mid-testing; fal
+  still ACCEPTED the image-to-video job and left it queued forever — the
+  user gets charged isibi credits for a render that never runs.
+- **Worker:** new falBalanceUSD() (official Platform API: GET
+  api.fal.ai/v1/account/billing, cached 60s/isolate). Every generation
+  submit now pre-flights it: balance < $0.50 → 503 "generations are briefly
+  paused… (you were not charged)" BEFORE any charge. Fails open on unknown
+  (endpoint down or FAL_KEY not admin-scoped) so monitoring can never block
+  paying users. NOTE: if FAL_KEY lacks billing scope the gate silently does
+  nothing — verify while the balance is negative: a submit should bounce
+  instantly with the paused message; if it queues instead, mint an
+  admin-scoped key.
+- **Client:** friendlyFail maps the 503 to a clean no-charge message, and a
+  job stuck IN_QUEUE >2.5min swaps the eternal "#0…" for an honest "Still
+  queued on fal — unusually backed up… you'll see the exact error and get
+  your credits back."
+- The stuck job from the discovery: it stays resumable (boot-resume record);
+  once fal is topped up it should finish and deliver, or fail with the
+  exact error + refund.

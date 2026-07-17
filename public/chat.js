@@ -4399,6 +4399,7 @@ function friendlyFail(job) {
   const exact = falErrorDetail(job);
   const withExact = (msg) => exact ? msg + ' (exact error: “' + exact + '”)' : msg;
   if (/daily limit/i.test(raw)) return "⚠️ You've hit today's generation limit — it resets within 24 hours.";
+  if (/briefly paused/i.test(raw)) return '⚠️ Generations are briefly paused — try again in a little while. You were not charged.';
   if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
   if (/content|safety|nsfw|moderation/i.test(raw)) return withExact('⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.');
   if (/validation|invalid|must be|unprocessable/i.test(raw)) return withExact('⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.');
@@ -4581,6 +4582,7 @@ async function generateMedia(text, opts = {}) {
 async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label, deadline, maxWaitMin, myGen, clearInputs) {
   const alive = () => activeGens.get(origin) === myGen;
   let softErrors = 0; // consecutive transient poll failures
+  const pollStart = Date.now(); // long IN_QUEUE stretches get an honest status line
   try {
     let state = '';
     while (Date.now() < deadline) {
@@ -4652,7 +4654,12 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       setGenText(origin,
         state === 'IN_PROGRESS'
           ? theaterLine(myGen, kind)
-          : 'In the render queue' + (st.queue_position != null ? ' — #' + st.queue_position : '') + '…');
+          // A queue that hasn't moved in minutes usually means fal itself is
+          // stalled (backed up, or the platform account is out of balance) —
+          // say so honestly instead of an eternal "#0…" (owner 2026-07-17).
+          : Date.now() - pollStart > 150_000
+            ? 'Still queued on fal — it\'s unusually backed up right now. This keeps trying; if the render can\'t run you\'ll see the exact error and get your credits back.'
+            : 'In the render queue' + (st.queue_position != null ? ' — #' + st.queue_position : '') + '…');
       await new Promise((r) => setTimeout(r, 4000));
       if (!alive()) return;
     }
