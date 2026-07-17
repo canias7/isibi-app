@@ -2262,8 +2262,39 @@ function settingSection(label, kind, items, isVoice) {
     '</div>';
 }
 
+// Veo runs whose length fal FIXES regardless of the picker: references
+// always render 8s, extends always add 7s. The duration section locks while
+// one is staged (owner 2026-07-16: the picker let you choose seconds that
+// changed nothing — the price rightly stayed on the fixed length).
+function veoDurLock() {
+  if (mode !== 'video' || !/veo/.test(model)) return '';
+  if (refList.length) return 'ref';
+  if (attachments.clip) return 'extend';
+  return '';
+}
+function syncDurLock() {
+  const menu = document.getElementById('settingsMenu');
+  const sec = menu && menu.querySelector('.set-section.sec-duration');
+  if (!sec) return;
+  const lock = veoDurLock();
+  sec.classList.toggle('dur-locked', !!lock);
+  let note = sec.querySelector('.set-note');
+  if (!note) { note = document.createElement('div'); note.className = 'set-note'; sec.appendChild(note); }
+  note.textContent = lock === 'ref'
+    ? 'Reference runs always render 8s — the model fixes the length.'
+    : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.' : '';
+  // Snap the picker to the truth so the chips + summary can't disagree with
+  // what fal renders and bills.
+  if (lock === 'ref' && duration !== 8) {
+    duration = 8;
+    menu.querySelectorAll('.set-chip[data-kind="duration"]').forEach((c) => c.classList.toggle('active', c.dataset.value === '8'));
+    updateSettingsSummary();
+  }
+}
+
 function pickSetting(chip) {
   const kind = chip.dataset.kind, val = chip.dataset.value;
+  if (kind === 'duration' && veoDurLock()) return; // fixed-length run — picker inert
   if (kind === 'ratio') ratio = val;
   else if (kind === 'quality') quality = val;
   else if (kind === 'gptSize') gptSize = val;
@@ -2307,7 +2338,7 @@ function updateSettingsSummary() {
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
   if (opts.sizes && gptSize !== '2K') parts.push(gptSize); // 2K is the default
-  if (opts.durations) parts.push(duration + 's');
+  if (opts.durations) parts.push(veoDurLock() === 'extend' ? '+7s' : duration + 's');
   if (opts.sound && !soundOn) parts.push('Silent');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');
@@ -3944,6 +3975,10 @@ function updateSendPrice() {
     if (sp) sp.style.display = el.textContent ? '' : 'none';
   }
   refreshSendEnabled(); // model/attachment changes can flip submittability
+  // Every price-moving change also decides whether the duration picker is
+  // live (Veo refs/extend fix the length) — keep the lock in sync here since
+  // this runs on every attach/setting/model change.
+  try { syncDurLock(); } catch (e) {}
 }
 
 // ── Credit balance (server-owned; the chip is display only) ───────────────

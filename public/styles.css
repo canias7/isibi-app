@@ -603,6 +603,11 @@
 .set-section { padding: .55rem .45rem; }
 .set-section + .set-section { border-top: 1px solid var(--line); }
 .set-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .55rem; }
+/* A section whose value the model fixes (Veo refs → 8s, extend → +7s): chips
+   dim + go inert, the note under them says why. */
+.set-note { display: none; font-size: .74rem; color: var(--muted); margin-top: .45rem; max-width: 320px; line-height: 1.35; }
+.set-section.dur-locked .set-note { display: block; }
+.set-section.dur-locked .set-chips { opacity: .35; pointer-events: none; }
 .set-chips { display: flex; flex-wrap: wrap; gap: .4rem; }
 .set-chip {
   display: inline-flex; align-items: center; gap: .45rem;

@@ -1116,3 +1116,16 @@ hashes for archaeology.
 **Live Veo tests:** A1 exclusivity ✓ · A2 square-clip aspect bounce ✓ ·
 next: A3 free price-flips, then B4 (first paid run, ✦50) onward per the
 checklist in the chat.
+
+### Veo duration picker locks on fixed-length runs (2026-07-17)
+- **Owner (test A3):** with a reference attached the duration snapped to 8s
+  but the picker still let you choose other seconds while the price
+  (rightly) never moved — billing was already fixed at 8s on both sides,
+  the picker was just lying. Same latent issue on extend (+7s fixed).
+- **Fix:** with refs or an extend clip staged on Veo the Duration chips dim
+  + go inert with a note ("Reference runs always render 8s…" / "Extending
+  always adds 7s…"); refs snap the value to 8s, extend's summary chip reads
+  "+7s"; clicks are ignored while locked (pickSetting guard). Unlocks the
+  moment the attachment clears; synced from updateSendPrice so every
+  attach/model change re-evaluates. Seedance refs stay unlocked (no fixed
+  length there).
