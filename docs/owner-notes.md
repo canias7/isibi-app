@@ -1501,3 +1501,19 @@ checklist in the chat.
 - Verified headless end-to-end (real files through the real file inputs);
   the combined-duration bounce branch is code-reviewed but its headless run
   hit webm metadata flakiness — worth one live poke when convenient.
+
+### Ray 3.2 removed (2026-07-17, owner's call: "overrated")
+- Pulled from the picker, MODEL_OPTS, CLIP_LIMITS, both price tables, and
+  the worker allowlist. The "Floating product" landing example re-stamped
+  onto Seedance 2.0. A stale saved Ray selection degrades to the
+  unknown-model message like OmniHuman's did.
+- What went with it (noted before removal, owner confirmed anyway): the
+  Reframe outpaint built this morning, the cheapest i2v tier in the app,
+  keyframes (≤64), HDR/EXR, per-signal edit controls.
+- Ray-only machinery (keyframes row + lists, HDR/loop pickers, edit dial,
+  reframe helpers, worker isRay routing/billing) left DORMANT in code —
+  unreachable behind the allowlist / caps, flagged with comments — so a
+  future Ray/Luma return is a re-wire, not a rebuild. The kf/vx staged-
+  snapshot fields stay tolerated in restoreStaged.
+- Verified headless: 12 video models, no Ray anywhere user-facing, stale
+  selection safe, LipSync rows intact, no page errors.

@@ -85,16 +85,9 @@ const MODEL_OPTS = {
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
   // hdr: native-HDR render (2× price; +EXR sidecar 3×; 720p/1080p, 5s only).
-  // loop: seamless-loop render (free; 5s, non-HDR, no end frame).
-  // v2v: attach a video clip to re-render it (video-to-video, edit-mode dial).
-  // kf: up to 64 keyframe images pinned along the timeline (evenly spaced).
-  'luma/agent/ray/v3.2/text-to-video': {
-    durations: [5, 10], defDur: 5,
-    ratios: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], defRatio: '16:9',
-    resolutions: ['540p', '720p', '1080p'], defRes: '720p',
-    hdr: true, loop: true, v2v: true,
-    caps: { image: true, flf: true, kf: 64, clip: true },
-  },
+  // (Ray 3.2 was removed 2026-07-17, owner's call: "overrated". Its Ray-only
+  // machinery — keyframes row, HDR/loop pickers, edit-strength dial, reframe
+  // helpers — stays in the code but is dormant: no model carries those caps.)
   // o3 (pro + standard): i2v start+end frames · reference-to-video (≤4 image
   // refs cited as @Image1-4 in the prompt, optionally with start/end frames) ·
   // clip → video-to-video edit (re-render, keeps source audio).
@@ -191,7 +184,6 @@ const MODEL_LISTS = {
     { id: 'fal-ai/veo3.1', label: 'Veo 3.1', note: 'Google · audio · extend', group: 'veo' },
     { id: 'fal-ai/veo3.1/fast', label: 'Veo 3.1 Fast', note: 'Google · cheaper · audio', group: 'veo' },
     { id: 'fal-ai/veo3.1/lite', label: 'Veo 3.1 Lite', note: 'Google · cheapest · audio', group: 'veo' },
-    { id: 'luma/agent/ray/v3.2/text-to-video', label: 'Ray 3.2', note: 'Luma · HDR · edit' },
     { id: 'bytedance/seedance-2.0/text-to-video', label: 'Seedance 2.0', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/fast/text-to-video', label: 'Seedance 2.0 Fast', note: 'audio', group: 'seedance' },
     { id: 'bytedance/seedance-2.0/mini/text-to-video', label: 'Seedance 2.0 Mini', note: 'cheapest · audio', group: 'seedance' },
@@ -427,10 +419,6 @@ const CLIP_LIMITS = {
   // its schema documents no cap — 30s is OUR cap so an edit can't silently
   // bill minutes of footage; billing assumes the same 30s max.
   'google/gemini-omni-flash': { maxDur: 30 },
-  // Ray v2v documents no hard clip limits, but Reframe caps sources at 30s
-  // (schema: "must be 30 seconds or less") and bills per source second — one
-  // shared 30s attach cap keeps both Ray clip paths sane.
-  'luma/agent/ray/v3.2/text-to-video': { maxDur: 30 },
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
@@ -2223,7 +2211,7 @@ const PRESET_CATS = [
       model: 'fal-ai/nano-banana-pro', ratio: '1:1',
       prompt: 'Clean studio product photograph of [your product] on pure white seamless: soft even wraparound lighting with a gentle top key, crisp natural reflection beneath the product, every edge sharp and true to form, label perfectly legible and undistorted. Centered composition with balanced negative space, true-to-life color, e-commerce catalog standard — no props, no text, no watermarks, no shadows harsher than a soft contact shadow.' },
     { label: 'Floating product', kind: 'video', desc: 'Product rotating in a dark void.',
-      model: 'luma/agent/ray/v3.2/text-to-video', ratio: '1:1', dur: 5, res: '720p',
+      model: 'bytedance/seedance-2.0/text-to-video', ratio: '1:1', dur: 5, res: '720p',
       prompt: '[Your product] floating weightlessly in a dark premium studio void, slowly rotating in place: dramatic rim lighting traces its silhouette, soft specular reflections glide across the surface as it turns, faint particles drift in the depth behind it. The rotation is smooth and continuous, the camera locked, the mood expensive and calm. The label passes through full legibility mid-turn. Deep blacks, controlled highlights, no text or watermarks; the product stays rigid and undeformed.' },
     { label: 'Macro detail', kind: 'image', desc: 'Extreme close-up of texture.',
       model: 'fal-ai/nano-banana-pro', ratio: '1:1',
@@ -4254,7 +4242,6 @@ const VIDEO_PRICE = {
   // Lite: t2v + i2v only, no 4k; 1080p costs more than 720p (unlike Std/Fast).
   'fal-ai/veo3.1/lite':                           { s: { '720p': 0.05, '1080p': 0.08 }, aoff: { '720p': 0.03, '1080p': 0.05 } },
   // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
-  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 }, r2s: { '540p': 0.06, '720p': 0.12, '1080p': 0.36 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242 } }, // no 1080p on the fast tier
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.0725, '720p': 0.155 } },

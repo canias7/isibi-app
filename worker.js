@@ -13,7 +13,9 @@ const VIDEO_MODELS = new Set([
   "fal-ai/veo3.1",
   "fal-ai/veo3.1/fast",
   "fal-ai/veo3.1/lite",
-  "luma/agent/ray/v3.2/text-to-video",
+  // (Ray 3.2 removed 2026-07-17, owner's call. Its isRay routing/billing
+  // paths below are dormant behind this allowlist — a Ray submit now gets
+  // the unknown-model rejection before any of them can run.)
   "fal-ai/kling-video/o3/pro/text-to-video",
   "fal-ai/kling-video/o3/standard/text-to-video",
   "fal-ai/kling-video/lipsync/audio-to-video",
@@ -75,8 +77,6 @@ const VIDEO_USD = {
   // v2s = video-to-video rates (clip re-render bills higher than t2v/i2v).
   // i2s = image-to-video rates where fal prices i2v BELOW t2v (Ray: 5s 720p is
   // $0.30 vs t2v's $1.00 — verified on the model page 2026-07-15).
-  // r2s = Reframe (outpaint to a new ratio), billed per started SOURCE second.
-  "luma/agent/ray/v3.2/text-to-video":            { s: { "540p": 0.10, "720p": 0.20, "1080p": 0.40 }, i2s: { "540p": 0.03, "720p": 0.06, "1080p": 0.24 }, v2s: { "540p": 0.144, "720p": 0.216, "1080p": 0.432 }, r2s: { "540p": 0.06, "720p": 0.12, "1080p": 0.36 }, d: 5 },
   // Seedance has no published audio-off discount — silent renders bill the same.
   "bytedance/seedance-2.0/text-to-video":         { s: { "480p": 0.14, "720p": 0.304, "1080p": 0.682, "4k": 1.59 }, d: 5 },
   // (fast tier has no 1080p on fal — resolution enum is 480p/720p only)
