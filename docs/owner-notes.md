@@ -1205,3 +1205,19 @@ checklist in the chat.
   (poster-less only) and chat-thread players. Note: headless verify clamps
   the seek to 0 because route stubs can't serve byte ranges — real storage
   does (proved earlier with the audio-card seek against a range server).
+
+## 📋 AUDIT LIST (owner-flagged, DO LATER — not yet built)
+- **Attach pickers must ALL offer both sources (2026-07-17):** in video mode
+  the pickers (Reference to video, Extend clip, First & last frame, image
+  slot, characters/keyframes…) go STRAIGHT to the device file dialog — no
+  "isibi gallery / Your device" source menu like image mode's Edit-image/
+  Reference rows have (openImgSrc). Owner: "make sure for every picker it
+  asks for both — check every single model." Sweep EVERY attach slot on
+  EVERY model (13 video + 2 image + audio): each should open the source
+  chooser (gallery + device; avatar where it makes sense; kind-filtered —
+  video slots list gallery VIDEOS, audio slots gallery audio). Videos in
+  the gallery picker will need video thumbnails in the grid.
+- (Also queued from the error-message audit: refund-failure unmentioned;
+  voice-preview fails silent; gallery-delete failure silently restores the
+  card; persistent sync breakage has no signal; avatar-gen timeout path
+  unverified; attach errors mix alert()/chat/toast styles.)
