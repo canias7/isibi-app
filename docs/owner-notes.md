@@ -1465,3 +1465,17 @@ checklist in the chat.
   (schema: prompt + image_urls, inline <IMAGE_REF_0> role tags, 16:9|9:16,
   3-10s; pricing not on the API page — needs the model page check before
   wiring).
+
+### Gemini Omni Flash reference-to-video wired (2026-07-17)
+- The missing 4th Gemini endpoint (owner's catalog sweep). References row
+  (≤6 — fal documents no cap; ours) with @ImageN badges; the worker
+  translates our 1-based @ImageN into Gemini's NATIVE 0-based <IMAGE_REF_N>
+  tags (dangling/off-modality tags dropped), and untagged raw prompts get
+  every ref cited automatically. Despite the catalog copy, the schema takes
+  image refs ONLY (no video/audio params — verified 2026-07-17).
+- Pricing: same ~$0.13/s def rate as Gemini t2v (verified on the model
+  page) — the existing price entry covers it, ✦130 at 8s.
+- Clip ↔ refs are mutually exclusive on Gemini (its edit endpoint takes no
+  refs, its ref endpoint no clip) — same both-directions clearing as Veo.
+- Verified headless: row 0/6, price, exclusivity both ways, tag badges,
+  body carries refs; worker branch mirrors Veo/Kling-o3 routing.

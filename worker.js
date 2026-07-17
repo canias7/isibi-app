@@ -1979,6 +1979,19 @@ async function handleRequest(request, env, ctx) {
           if (typeof input.prompt === "string" && !/@(?:Image|Element)\d/i.test(input.prompt)) {
             input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
           }
+        } else if (isGemini && refs.length && !clip) {
+          // Gemini Omni Flash reference-to-video (schema verified 2026-07-17):
+          // prompt + image_urls ONLY — no video/audio refs despite the catalog
+          // copy, no resolution param, no documented image cap (ours is 6 to
+          // match the client row). Bills the same ~$0.13/s def rate as t2v.
+          endpoint = model + "/reference-to-video";
+          input.image_urls = refs.slice(0, 6);
+          // A raw prompt with no tags cites every ref (as @ImageN — the tag
+          // reconciler below translates them into Gemini's native 0-based
+          // <IMAGE_REF_N> form) so uploads are never silently ignored.
+          if (typeof input.prompt === "string" && !/@Image\d|<IMAGE_REF_/i.test(input.prompt)) {
+            input.prompt = (input.prompt.trim() + ` Feature ${input.image_urls.map((_, i) => "@Image" + (i + 1)).join(", ")}.`).trim();
+          }
         } else if (isGemini && clip) {
           // Gemini Omni Flash conversational edit — the instruction rewrites the
           // attached clip (swap/relight/stabilize/bg). Prompt + video only.
@@ -2117,6 +2130,13 @@ async function handleRequest(request, env, ctx) {
               .replace(/@Image(\d+)/gi, (m, d) => (+d >= 1 && +d <= imgN ? m : ""))
               .replace(/@Video(\d+)/gi, (m, d) => (+d >= 1 && +d <= vidN ? m : ""))
               .replace(/@Audio(\d+)/gi, (m, d) => (+d >= 1 && +d <= audN ? m : ""));
+          } else if (isGemini && imgN) {
+            // Gemini binds refs natively as 0-BASED <IMAGE_REF_N> tags:
+            // translate the user-facing 1-based @ImageN; drop dangling tags
+            // and off-modality @Video/@Audio ones.
+            input.prompt = input.prompt
+              .replace(/@Image(\d+)/gi, (m, d) => (+d >= 1 && +d <= imgN ? "<IMAGE_REF_" + (+d - 1) + ">" : ""))
+              .replace(/\s*@(?:Video|Audio)\d+/gi, "");
           } else if (imgN) {
             // Tagless family (Veo): translate cited image tags into natural wording.
             input.prompt = input.prompt.replace(/@Image(\d+)/gi, (m, d) => (+d <= imgN ? "reference image " + d : ""));

@@ -52,7 +52,10 @@ const MODEL_OPTS = {
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     // image: start frame → image-to-video (its own fal endpoint, no end frame).
     // clip: attach a video → conversational edit (swap/relight/stabilize/bg).
-    caps: { image: true, end: false, avatar: false, clip: true },
+    // ref: reference-to-video (schema 2026-07-17: image refs only, bound as
+    // native <IMAGE_REF_N> tags — the worker translates our @ImageN; no
+    // documented cap, 6 is ours). Same $0.13/s rate as t2v.
+    caps: { image: true, end: false, avatar: false, clip: true, ref: 6 },
   },
   'fal-ai/veo3.1': {
     durations: [4, 6, 8], defDur: 8,
@@ -314,9 +317,9 @@ function onAttach(kind, inputEl) {
     if (kind === 'clip') {
       clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' };
       readClipMeta(reader.result); renderRefChips();
-      // Veo: attaching an Extend clip clears the other three rows (see
+      // Veo + Gemini: attaching a clip clears the other rows (see
       // clearImageInputsExcept — the reverse direction lives there).
-      if (mode === 'video' && /veo/.test(model)) clearImageInputsExcept('clip');
+      if (mode === 'video' && /veo|gemini/.test(model)) clearImageInputsExcept('clip');
     }
     // Image slots: measure dimensions and bounce anything the model hard-caps
     // (Kling: ≥300px, aspect 0.40–2.50) with the exact reason.
@@ -1468,10 +1471,12 @@ function clearImageInputsExcept(keep) {
   if (keep !== 'el' && elList.length) { elList.length = 0; renderElList(); }
   // On Veo the clip is exclusive too (owner 2026-07-16): its four rows are
   // four separate fal endpoints, none accepting the others' inputs — so an
-  // image/flf/ref attach drops a staged Extend clip. Other families keep
-  // their legit combos (Ray v2v + start image/keyframes, Kling o3 edit +
-  // refs/elements, Seedance clip-as-reference).
-  if (keep !== 'clip' && attachments.clip && mode === 'video' && /veo/.test(model)) {
+  // image/flf/ref attach drops a staged Extend clip. Gemini is the same
+  // (its edit endpoint takes no refs; its ref endpoint takes no clip).
+  // Other families keep their legit combos (Ray v2v + start
+  // image/keyframes, Kling o3 edit + refs/elements, Seedance
+  // clip-as-reference).
+  if (keep !== 'clip' && attachments.clip && mode === 'video' && /veo|gemini/.test(model)) {
     attachments.clip = null; clipMeta = null; renderAttach('clip'); renderRefChips();
   }
 }
