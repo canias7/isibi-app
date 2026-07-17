@@ -1410,3 +1410,11 @@ checklist in the chat.
   await (await apiFetch('/api/fal-balance')).json()
 - If the lock-flap recurs with balance present: fal support ticket, or a
   small $1-5 top-up often re-triggers the unlock.
+
+### Veo Lite: first-&-last row added (2026-07-17)
+- Owner swept fal's Veo catalog (13 endpoints) against ours right after the
+  Lite launch and caught the one gap: veo3.1/lite/first-last-frame-to-video
+  exists (fal's docs search had hidden it). caps.flf flipped on — rows,
+  exclusivity and the worker's generic endpoint build all apply unchanged.
+  Lite still genuinely lacks extend + reference. Verified headless: Lite
+  shows exactly Image-to-video + First & last frame rows.

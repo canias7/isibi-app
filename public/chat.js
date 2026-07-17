@@ -70,14 +70,14 @@ const MODEL_OPTS = {
     resolutions: ['720p', '1080p', '4k'], defRes: '720p',
     caps: { image: true, end: false, avatar: false, flf: true, ref: 3, clip: true },
   },
-  // Veo 3.1 Lite — the budget tier (schema-verified 2026-07-17): ONLY t2v and
-  // i2v endpoints exist (no extend / first-&-last / reference), no 4k, and
+  // Veo 3.1 Lite — the budget tier (schema-verified 2026-07-17): t2v, i2v and
+  // first-&-last-frame endpoints exist (no extend / reference), no 4k, and
   // unlike Standard/Fast the 1080p tier genuinely costs more than 720p.
   'fal-ai/veo3.1/lite': {
     durations: [4, 6, 8], defDur: 8,
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     resolutions: ['720p', '1080p'], defRes: '720p',
-    caps: { image: true, end: false, avatar: false },
+    caps: { image: true, end: false, avatar: false, flf: true },
   },
   // Luma Ray 3.2 — i2v takes image_url + end_image_url (start/end frames),
   // so both the single-image and first-&-last rows apply; no reference mode.
