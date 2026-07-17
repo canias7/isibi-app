@@ -405,6 +405,10 @@ function readClipMeta(dataUri) {
     // an over-resolution reference clip into the model's pixel band.
     normalizeClipFps();
     normalizeClipArea();
+    // Ray: snap the ratio picker to the clip's native aspect so the default
+    // run is a plain v2v edit — picking a DIFFERENT ratio is what routes to
+    // the reframe (outpaint) endpoint.
+    snapRayRatio();
   };
   v.onerror = () => {}; // leave zeros — validation treats unknown as "can't verify", not a hard block
   v.src = dataUri;
@@ -428,6 +432,10 @@ const CLIP_LIMITS = {
   // its schema documents no cap — 30s is OUR cap so an edit can't silently
   // bill minutes of footage; billing assumes the same 30s max.
   'google/gemini-omni-flash': { maxDur: 30 },
+  // Ray v2v documents no hard clip limits, but Reframe caps sources at 30s
+  // (schema: "must be 30 seconds or less") and bills per source second — one
+  // shared 30s attach cap keeps both Ray clip paths sane.
+  'luma/agent/ray/v3.2/text-to-video': { maxDur: 30 },
   // Seedance @Video1 reference: mp4/mov, 2-15s, <50MB total, and a pixel-AREA
   // band of ~480p-720p (schema: "between ~480p (640x640) and ~720p (834x1112)"
   // — an area constraint: 0.41-0.93MP; 1280×720 fits, 1080p doesn't). Clips
@@ -2445,10 +2453,47 @@ function settingSection(label, kind, items, isVoice) {
 // always render 8s, extends always add 7s. The duration section locks while
 // one is staged (owner 2026-07-16: the picker let you choose seconds that
 // changed nothing — the price rightly stayed on the fixed length).
+// ── Ray Reframe (luma .../reframe): outpaint the attached clip to a NEW
+// aspect ratio. The trigger is the chatbox itself (owner rule: settings are
+// user-driven): clip attached + a ratio picked that differs from the clip's
+// native aspect. Same ratio → plain v2v edit, exactly as before.
+const RATIO_NUMS = { '16:9': 16 / 9, '9:16': 9 / 16, '1:1': 1, '4:3': 4 / 3, '3:4': 3 / 4, '21:9': 21 / 9 };
+function rayReframe() {
+  if (mode !== 'video' || !model.startsWith('luma/') || !attachments.clip) return false;
+  if (!clipMeta || !clipMeta.w || !clipMeta.h) return false; // dims unknown — stay v2v
+  const want = RATIO_NUMS[ratio];
+  if (!want) return false;
+  const native = clipMeta.w / clipMeta.h;
+  return Math.abs(want - native) / native > 0.05;
+}
+// On Ray clip attach, point the ratio picker at the clip's own aspect so the
+// default state is "no reframe" and any change is an explicit user choice.
+function snapRayRatio() {
+  if (mode !== 'video' || !model.startsWith('luma/') || !attachments.clip) return;
+  if (!clipMeta || !clipMeta.w || !clipMeta.h) return;
+  const native = clipMeta.w / clipMeta.h;
+  let best = null, bestDiff = Infinity;
+  Object.entries(RATIO_NUMS).forEach(([k, v]) => {
+    const d = Math.abs(v - native);
+    if (d < bestDiff) { bestDiff = d; best = k; }
+  });
+  if (best && ratio !== best) {
+    ratio = best;
+    const menu = document.getElementById('settingsMenu');
+    if (menu) menu.querySelectorAll('.set-chip[data-kind="ratio"]').forEach((c) => c.classList.toggle('active', c.dataset.value === best));
+    updateSettingsSummary();
+  }
+  updateSendPrice();
+}
 function veoDurLock() {
-  if (mode !== 'video' || !/veo/.test(model)) return '';
-  if (refList.length) return 'ref';
-  if (attachments.clip) return 'extend';
+  if (mode !== 'video') return '';
+  if (/veo/.test(model)) {
+    if (refList.length) return 'ref';
+    if (attachments.clip) return 'extend';
+    return '';
+  }
+  // Reframe keeps the source clip's own length — no duration input exists.
+  if (rayReframe()) return 'reframe';
   return '';
 }
 function syncDurLock() {
@@ -2461,7 +2506,20 @@ function syncDurLock() {
   if (!note) { note = document.createElement('div'); note.className = 'set-note'; sec.appendChild(note); }
   note.textContent = lock === 'ref'
     ? 'Reference runs always render 8s — the model fixes the length.'
-    : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.' : '';
+    : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.'
+    : lock === 'reframe' ? 'Reframing keeps the clip’s own length — billed per clip second.' : '';
+  // Ray + clip: the ratio picker doubles as the reframe switch — say so.
+  const rsec = menu.querySelector('.set-section.sec-ratio');
+  if (rsec) {
+    let rnote = rsec.querySelector('.set-note');
+    const wantNote = mode === 'video' && model.startsWith('luma/') && attachments.clip && clipMeta && clipMeta.w
+      ? (rayReframe()
+        ? 'Reframing the clip to ' + ratio + ' — the sides get generatively painted in.'
+        : 'Matches the clip — pick a different ratio to reframe (outpaint) it.')
+      : '';
+    if (!rnote && wantNote) { rnote = document.createElement('div'); rnote.className = 'set-note'; rsec.appendChild(rnote); }
+    if (rnote) rnote.textContent = wantNote;
+  }
   // Snap the picker to the truth so the chips + summary can't disagree with
   // what fal renders and bills.
   if (lock === 'ref' && duration !== 8) {
@@ -4057,7 +4115,7 @@ const VIDEO_PRICE = {
   // Lite: t2v + i2v only, no 4k; 1080p costs more than 720p (unlike Std/Fast).
   'fal-ai/veo3.1/lite':                           { s: { '720p': 0.05, '1080p': 0.08 }, aoff: { '720p': 0.03, '1080p': 0.05 } },
   // Ray prices i2v BELOW t2v (i2s tier) and only renders 5s from a start image.
-  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 } },
+  'luma/agent/ray/v3.2/text-to-video':            { s: { '540p': 0.10, '720p': 0.20, '1080p': 0.40 }, i2s: { '540p': 0.03, '720p': 0.06, '1080p': 0.24 }, v2s: { '540p': 0.144, '720p': 0.216, '1080p': 0.432 }, r2s: { '540p': 0.06, '720p': 0.12, '1080p': 0.36 } },
   'bytedance/seedance-2.0/text-to-video':         { s: { '480p': 0.14, '720p': 0.304, '1080p': 0.682, '4k': 1.59 } },
   'bytedance/seedance-2.0/fast/text-to-video':    { s: { '480p': 0.135, '720p': 0.242 } }, // no 1080p on the fast tier
   'bytedance/seedance-2.0/mini/text-to-video':    { s: { '480p': 0.0725, '720p': 0.155 } },
@@ -4145,6 +4203,12 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   // the manual Sound toggle is off — both hit fal's audio-off rate where one
   // exists (Veo, Seedance, Kling v3).
   const soundOff = soundOverride === false || (!soundOn && !!(currentOpts() || {}).sound);
+  // Ray Reframe: billed per started SOURCE second at its own rate tier — the
+  // duration picker doesn't apply (output keeps the clip's length).
+  if (rayReframe() && p.r2s) {
+    const rr = p.r2s[quality] != null ? p.r2s[quality] : p.r2s['1080p'];
+    return fmtPrice(rr * Math.min(30, Math.ceil((clipMeta && clipMeta.dur) || 30)));
+  }
   const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
@@ -4702,6 +4766,7 @@ async function generateMedia(text, opts = {}) {
         refs: refList.length ? refList.slice() : undefined, // Veo reference-to-video
         elements: elList.length ? elList.slice() : undefined, // Kling @ElementN characters
         keyframes: kfList.length ? kfList.slice() : undefined, // Ray timeline keyframes
+        reframe: rayReframe() || undefined, // Ray: outpaint the clip to the picked ratio
         audio: attachments.audio || undefined,
         audioDuration: attachments.audio && awDur ? awDur : undefined, // lip-sync models bill by clip length
         clip: attachments.clip || undefined,
@@ -5235,6 +5300,8 @@ function directorContext() {
     // avatar face, audio track) still gets flagged so the orchestrator KNOWS
     // it's there — never denies seeing it, and writes for the actual inputs.
     hasClip: mode === 'video' && !!attachments.clip,
+    // Ray reframe run: the prompt describes what fills the NEW canvas, not an edit.
+    reframe: (mode === 'video' && rayReframe()) || undefined,
     hasAvatar: mode === 'video' && !!attachments.avatar,
     hasAudio: mode === 'video' && !!attachments.audio,
     refCount: (mode === 'video' && refList.length) ? refList.length : undefined,

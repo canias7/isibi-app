@@ -1418,3 +1418,26 @@ checklist in the chat.
   exclusivity and the worker's generic endpoint build all apply unchanged.
   Lite still genuinely lacks extend + reference. Verified headless: Lite
   shows exactly Image-to-video + First & last frame rows.
+
+### Ray 3.2 catalog sweep: Reframe wired + keyframes cleared + 30s clip cap (2026-07-17)
+- Owner swept fal's Ray catalog (4 endpoints). t2v/i2v/v2v were wired;
+  **Reframe** (generative outpaint to a NEW aspect ratio) was missing — now
+  built with zero new UI: attach a clip on Ray, pick a DIFFERENT ratio in
+  settings → the run routes to .../reframe; keep the clip's own ratio →
+  plain v2v edit as before. On clip attach the ratio picker SNAPS to the
+  clip's native aspect, so reframe is always an explicit user choice
+  (chatbox-is-boss rule); a ratio-section note explains the switch, and
+  the duration picker locks (reframe keeps the source length).
+- Pricing (verified on fal's page; billed per started SOURCE second, 30s
+  schema cap): 540p $0.06/s · 720p $0.12/s · 1080p $0.36/s → r2s tier in
+  both price tables; worker bills from its own byte-measured clip length
+  (tamper-proof), no HDR billing on reframe. Ray clips now cap at 30s on
+  attach (reframe's schema limit; v2v documents none).
+- Director: reframe runs get a dedicated rule — describe ONLY what fills
+  the newly revealed canvas, never edits to the footage.
+- The owner's "keyframes not wired" report checked out fine headless: the
+  + opens the gallery/device chooser on-screen and keyframes ride the body
+  → worker → fal i2v with spaced indexes (stale tab suspected).
+- Verified headless end-to-end: native ratio → v2v ✦135; flip to 9:16 →
+  reframe ✦45 (3s clip · 720p), duration locked, note shown, body carries
+  reframe:true + ratio. Live test pending (needs fal balance).
