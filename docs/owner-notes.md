@@ -1182,3 +1182,15 @@ checklist in the chat.
   silently restore the card; sync failures have no persistent-breakage
   signal; avatar-gen timeout path unverified; attach errors mix alert()/
   chat/toast styles.
+
+### fal never appears in user-facing text (2026-07-17, owner's rule)
+- Standing rule going forward: users must never learn we run on fal.
+- Rewrote the six messages that named it (render no longer available /
+  keeps going "on our servers" / still queued / timed out / "The model
+  rejected this render" / balance-exhausted now reads as the servers-down
+  notice), and every quoted exact-error is scrubbed first: provider URLs
+  removed, standalone fal tokens → "the render service" (word-boundary
+  safe — false/falcon survive).
+- Known residual (not user-visible in the UI, only devtools): the network
+  tab shows queue.fal.run inside /api/video/poll?url=… params. Hiding that
+  needs worker-side request-id mapping — flagged as optional hardening.

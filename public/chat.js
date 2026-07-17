@@ -4140,19 +4140,30 @@ async function fetchCredits(attempt) {
 // Turn fal's error payload into one readable line. Validation errors arrive as
 // {detail:[{loc:['body','video_url'],msg:'...'}]} (FastAPI-style) — name the
 // field and the reason so a rejected input is diagnosable straight from chat.
+// Upstream detail text can name the provider or its hosts — users must never
+// see "fal" anywhere (owner 2026-07-17), so every quoted error is scrubbed:
+// provider URLs vanish, standalone provider tokens become neutral wording.
+// \bfal\b never matches inside words (false, falcon), so prose survives.
+function scrubProvider(s) {
+  return String(s || '')
+    .replace(/https?:\/\/[^\s"']*fal[^\s"']*/gi, '')
+    .replace(/\bfal\.(?:ai|run|media)\b/gi, 'the render service')
+    .replace(/\bfal\b/gi, 'the render service')
+    .replace(/\s{2,}/g, ' ').trim();
+}
 function falErrorDetail(body) {
   try {
     const d = body && (body.detail ?? body.error ?? body.message);
     if (!d) return '';
-    if (typeof d === 'string') return d.slice(0, 300);
+    if (typeof d === 'string') return scrubProvider(d).slice(0, 300);
     if (Array.isArray(d)) {
-      return d.slice(0, 3).map((e) => {
+      return scrubProvider(d.slice(0, 3).map((e) => {
         if (typeof e === 'string') return e;
         const field = Array.isArray(e.loc) ? e.loc.filter((p) => p !== 'body').join('.') : '';
         return (field ? field + ': ' : '') + (e.msg || e.message || JSON.stringify(e));
-      }).join(' · ').slice(0, 400);
+      }).join(' · ')).slice(0, 400);
     }
-    return JSON.stringify(d).slice(0, 300);
+    return scrubProvider(JSON.stringify(d)).slice(0, 300);
   } catch { return ''; }
 }
 
@@ -4429,7 +4440,7 @@ function friendlyFail(job) {
   const withExact = (msg) => exact ? msg + ' (exact error: “' + exact + '”)' : msg;
   if (/daily limit/i.test(raw)) return "⚠️ You've hit today's generation limit — it resets within 24 hours.";
   if (/briefly paused|servers are temporarily down/i.test(raw)) return '⚠️ Our generation servers are temporarily down — we\'re working on it. Check back soon; you were not charged.';
-  if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
+  if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Our generation servers are temporarily down — we\'re working on it. Check back soon; you were not charged.';
   if (/content|safety|nsfw|moderation/i.test(raw)) return withExact('⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.');
   if (/validation|invalid|must be|unprocessable/i.test(raw)) return withExact('⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.');
   if (job && job.error === 'unknown model') return '⚠️ That model isn’t available right now — pick another from the menu.';
@@ -4627,14 +4638,14 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         if (!sr.ok) {
           // 404/410 = fal no longer has this job (expired/cancelled) → terminal.
           if (sr.status === 404 || sr.status === 410) {
-            if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ This render is no longer available on fal — please try again.'); }
+            if (alive()) { endGen(origin); deliverAgent(origin, '⚠️ This render is no longer available — please try again.'); }
             return;
           }
           // Any other non-OK (proxy 502, upstream 5xx) is a transient tick, like
           // a network drop — count it so a JSON error body can't spin the loader
           // to the deadline.
           if (!alive()) return;
-          if (++softErrors >= 15) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on fal, and the app will pick it back up automatically.'); return; }
+          if (++softErrors >= 15) { jobBumpTries(origin); pauseGen(origin); deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on our servers, and the app will pick it back up automatically.'); return; }
           await new Promise((r) => setTimeout(r, 4000));
           continue;
         }
@@ -4648,7 +4659,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         if (++softErrors >= 15) {
           jobBumpTries(origin);
           pauseGen(origin);
-          deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on fal, and the app will pick it back up automatically.');
+          deliverAgent(origin, '⚠️ Lost the connection while this was rendering — it keeps going on our servers, and the app will pick it back up automatically.');
           return;
         }
         await new Promise((r) => setTimeout(r, 4000));
@@ -4687,7 +4698,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
           // stalled (backed up, or the platform account is out of balance) —
           // say so honestly instead of an eternal "#0…" (owner 2026-07-17).
           : Date.now() - pollStart > 150_000
-            ? 'Still queued on fal — it\'s unusually backed up right now. This keeps trying; if the render can\'t run you\'ll see the exact error and get your credits back.'
+            ? 'Still queued — our render servers are unusually backed up right now. This keeps trying; if the render can\'t run you\'ll see the exact error and get your credits back.'
             : 'In the render queue' + (st.queue_position != null ? ' — #' + st.queue_position : '') + '…');
       await new Promise((r) => setTimeout(r, 4000));
       if (!alive()) return;
@@ -4699,7 +4710,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // boot-resume gets it, rather than clearing a paid render here.
       jobBumpTries(origin);
       pauseGen(origin);
-      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on fal.ai; the app will pick it back up automatically.');
+      deliverAgent(origin, '⚠️ Timed out after ' + maxWaitMin + ' minutes — the job may still finish on our servers; the app will pick it back up automatically.');
       return;
     }
 
@@ -4734,7 +4745,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
           deliverAgent(origin, '⚠️ The model refused this set of images rather than a specific mistake on your end. That usually means one of the attached pictures tripped its content check (photos of real people are the most common cause), or the batch was too heavy. Try again with only the image(s) this edit actually needs — and leave out photos of recognizable people. Nothing was produced.' + refundNote);
           return;
         }
-        deliverAgent(origin, '⚠️ fal rejected this render (' + rr.status + ')'
+        deliverAgent(origin, '⚠️ The model rejected this render (' + rr.status + ')'
           + (why ? ' — ' + why : ' — the clip or prompt didn’t pass its input checks') + '. Nothing was produced'
           + (refunded > 0 ? '; your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
         return;
