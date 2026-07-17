@@ -2653,6 +2653,22 @@ function syncDurLock() {
     : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.'
     : lock === 'lite8' ? 'First & last frame on Lite always renders 8s — the model fixes the length.'
     : lock === 'reframe' ? 'Reframing keeps the clip’s own length — billed per clip second.' : '';
+  // Veo extend outputs 720p ONLY (fal schema: resolution const) — pin the
+  // resolution picker to match, so the summary/price can't disagree with
+  // what fal renders and bills.
+  const qsec = menu.querySelector('.set-section.sec-quality');
+  if (qsec) {
+    const resLock = lock === 'extend';
+    qsec.classList.toggle('dur-locked', resLock);
+    let qnote = qsec.querySelector('.set-note');
+    if (!qnote && resLock) { qnote = document.createElement('div'); qnote.className = 'set-note'; qsec.appendChild(qnote); }
+    if (qnote) qnote.textContent = resLock ? 'Extending always outputs 720p — the model fixes the resolution.' : '';
+    if (resLock && quality !== '720p') {
+      quality = '720p';
+      menu.querySelectorAll('.set-chip[data-kind="quality"]').forEach((c) => c.classList.toggle('active', c.dataset.value === '720p'));
+      updateSettingsSummary();
+    }
+  }
   // Ray + clip: the ratio picker doubles as the reframe switch — say so.
   const rsec = menu.querySelector('.set-section.sec-ratio');
   if (rsec) {
@@ -2677,6 +2693,7 @@ function syncDurLock() {
 function pickSetting(chip) {
   const kind = chip.dataset.kind, val = chip.dataset.value;
   if (kind === 'duration' && veoDurLock()) return; // fixed-length run — picker inert
+  if (kind === 'quality' && veoDurLock() === 'extend') return; // extend outputs 720p only
   if (kind === 'ratio') ratio = val;
   else if (kind === 'quality') quality = val;
   else if (kind === 'gptSize') gptSize = val;

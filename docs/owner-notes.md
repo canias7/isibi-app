@@ -1578,3 +1578,10 @@ checklist in the chat.
 - LATER (owner: "i will do kling and gemini later"): tier badges for the
   Kling five and Gemini — waiting on the owner's tier labels; one-line
   `tier:` field per entry when they come.
+
+### Extend locks the resolution picker to 720p (2026-07-17)
+- Owner caught the UI half of the extend-resolution finding: billing was
+  fixed to the 720p tier this morning but the picker still offered
+  1080p/4k on extend runs. With a clip attached on Veo the resolution
+  section now locks to 720p (snap + note, same mechanism as the duration
+  lock), and unlocks when the clip is removed.
