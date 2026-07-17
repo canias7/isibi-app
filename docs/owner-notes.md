@@ -1700,3 +1700,39 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   images (Veo "capped at 3", Seedance "capped at 9"), 4th video ref, 4th
   audio ref. The existing loud checks (combined duration/size/format/
   12-total/pixel band/clip validation) were already compliant.
+
+### OVERNIGHT PLATFORM AUDIT (2026-07-17, owner asleep — findings only, nothing fixed)
+Scope: full frontend click-through headless (Media Agent skipped, no
+generations), attach/settings/price sweep across all 17 models, staged-
+persistence reload test, and a scripted diff of every wired endpoint
+against fal's machine schemas.
+
+FINDINGS (to fix when owner says so):
+1. Landing filmstrip 404 spam — /mkt/f1…f14.jpg don't exist, so every
+   landing view fires ~14 failed requests (console noise, wasted
+   round-trips). Known backlog item ("user adds the files") but worth
+   either dropping placeholder files or gating the strip until they exist.
+2. CLAUDE.md drift — it still describes the floating logo menu
+   (#floatNav/#floatMenu, toggleFloatMenu); the app actually uses the
+   Gallery/Avatar/Media Agent TOP BAR now. Doc-only fix.
+3. (Standing, already noted) Seedance Fast/Mini + reference price cards
+   unverified; Fast-reference-at-4k tier question; 0.6× video-ref billing
+   basis pending one live check.
+
+PASSED CLEAN (notable):
+- Zero page errors anywhere; zero broken handlers; no generation attempts
+  leaked from the audit itself.
+- Every duration×resolution×sound price combo on all 12 video models
+  quotes non-empty; image + audio pricing fine.
+- Machine-schema diff across all wired endpoints: every picker value
+  inside fal's enums, no unsurfaced fal capability. (After today's fixes.)
+- Chats new/switch/delete/search, sidebar, orchestrator toggle, effort
+  menu, mention chips show/hide, credits overlay (tiers + storage caps +
+  close), gallery grid/audio card/import box/storage bar, lightbox
+  open/close, landing round-trip via logo, profile controls present.
+- Merged Image-to-video pair, reference extras (@Video2-3/@Audio2-3), and
+  refs all survive a REAL page reload via the staged IndexedDB mirror.
+- Stale model ids (removed OmniHuman/Ray) degrade without errors.
+- fal admin-key note: the key lives in Worker secrets (not readable from
+  the dev box) — deep checks ran against fal's public machine-schema API;
+  the owner-only /api/fal-balance probe remains the live-balance window.
