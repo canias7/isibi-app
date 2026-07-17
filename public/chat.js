@@ -3849,7 +3849,15 @@ async function downloadMedia(url, kind) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(obj), 5000);
   } catch {
-    window.open(url, '_blank', 'noopener'); // cross-origin fallback
+    // Cross-origin fetch failed. Opening the raw URL would put the render
+    // service's host in the address bar — users must never see the provider
+    // (owner 2026-07-17). Only fall back to window.open for our own hosts
+    // (Supabase storage, isibi.ai); otherwise fail with a toast.
+    if (/^(blob:|data:)/i.test(url) || /(^|\.)(isibi\.ai|supabase\.co)(\/|$)/i.test((url.match(/^https?:\/\/([^/]+)/i) || [, ''])[1])) {
+      window.open(url, '_blank', 'noopener');
+    } else if (typeof sbToast === 'function') {
+      sbToast("Couldn't download that just now — try again in a moment.");
+    }
   }
 }
 
@@ -4762,6 +4770,7 @@ function scrubProvider(s) {
   return String(s || '')
     .replace(/https?:\/\/[^\s"']*fal[^\s"']*/gi, '')
     .replace(/\bfal\.(?:ai|run|media)\b/gi, 'the render service')
+    .replace(/\bfal-ai\b/gi, 'the render service')
     .replace(/\bfal\b/gi, 'the render service')
     .replace(/\s{2,}/g, ' ').trim();
 }

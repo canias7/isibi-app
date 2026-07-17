@@ -1978,3 +1978,26 @@ app for ~zero runtime benefit):
   better done deliberately, not autonomously overnight.
 SKIPPED per owner: the 2 Media-Agent findings (orphaned #maThread chat,
 /api/social/comment/reply quota).
+
+## 2026-07-17 — Provider-leak scrub (the two real "plausible" findings)
+
+Standing owner rule (absolute): the user must NEVER see "fal" anywhere — not
+in any error, anywhere. Two audit findings that survived as "plausible" were
+in fact real leaks of the render service's name/host; fixed both:
+
+- worker.js `briefErr()` returned upstream error text verbatim to the client
+  (`{error:"submit failed", detail: briefErr(data)}`). Added a worker-side
+  `scrubProvider()` (mirrors the frontend one — strips provider URLs, maps
+  standalone `fal`/`fal-ai`/`fal.{ai,run,media}` tokens → "the render
+  service"; `\bfal\b` never matches inside false/falcon) and routed every
+  `briefErr` return through it.
+- chat.js `downloadMedia()` catch-fallback did `window.open(rawUrl)` on a
+  cross-origin fetch failure — for a temp-delivered (save-blocked) render
+  that raw URL is the provider host, so the address bar would show it.
+  Now only window.open our OWN hosts (blob:/data:/isibi.ai/supabase.co);
+  any other host fails with an sbToast instead of exposing the URL.
+- Also aligned the frontend `scrubProvider` with the worker's by adding the
+  `fal-ai` whole-token rule (was leaving a "-ai" residue).
+
+Verified headless: page loads clean, scrub kills "fal" in a sample host+token
+string, provider host blocked from window.open, supabase/isibi hosts pass.

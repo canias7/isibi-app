@@ -566,14 +566,26 @@ const CSP = [
 // Reduce an upstream (fal/Anthropic) error payload to a short, plain string
 // so the client gets something useful to explain the failure without exposing
 // the provider's raw error object/structure.
+// Strip the provider from any string bound for the client (standing owner
+// rule: the user must NEVER see "fal"). Mirrors the frontend scrubProvider —
+// word-boundary safe so "false"/"falcon" survive (2026-07-17).
+function scrubProvider(s) {
+  if (typeof s !== "string") return s;
+  return s
+    .replace(/https?:\/\/[^\s"']*\bfal\.(?:ai|run|media)[^\s"']*/gi, "the render service")
+    .replace(/\bfal\.(?:ai|run|media)\b/gi, "the render service")
+    .replace(/\bfal-ai\b/gi, "the render service")
+    .replace(/\bfal\b/gi, "the render service");
+}
 function briefErr(d) {
-  if (typeof d === "string") return d.slice(0, 200);
+  const scrub = (s) => (typeof s === "string" ? scrubProvider(s.slice(0, 200)) : s);
+  if (typeof d === "string") return scrub(d);
   if (!d || typeof d !== "object") return undefined;
   const m = d.detail ?? d.error ?? d.message;
-  if (typeof m === "string") return m.slice(0, 200);
+  if (typeof m === "string") return scrub(m);
   if (Array.isArray(m)) {
     const s = m.map((x) => x && (x.msg || x.message)).filter(Boolean).join("; ");
-    return s ? s.slice(0, 200) : undefined;
+    return s ? scrub(s) : undefined;
   }
   return undefined;
 }
