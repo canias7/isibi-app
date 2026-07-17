@@ -1337,3 +1337,27 @@ checklist in the chat.
   delivery — none of those have chatbox controls and all are price-neutral.
 - Verified headless: compose returning sound:false → price quote unchanged
   and job body carries no sound flag (toggle on) / sound:false (toggle off).
+
+### Content-filter rejections: auto-reword offer + filter-aware composer (2026-07-17)
+- **Owner's 4 AM tentacle saga:** Veo 422'd the "guy with tentacles falls"
+  extend three times, even after the composer softened the wording. Two
+  real gaps + one hard lesson:
+  - Gap 1: the auto-reword (error step's fixedPrompt) only ran on SUBMIT
+    failures — a rejection on the poll/result path (where content-filter
+    422s actually land) showed the canned message and stopped. Now those
+    paths call offerReword(): after the deterministic message (exact error
+    + refund, unchanged), the director quietly rewords the prompt and an
+    approval card lands in the origin chat — "approve to try again".
+    Applied on both the FAILED-status and 4xx-result paths, video+image,
+    only when the error is content-filter-flavored.
+  - Gap 2: the COMPOSER was writing filter-bait ("grotesque… wet, slimy…
+    grafted"). The video prompt-writer now has a craft rule: strict content
+    checkers reject whole renders on trigger words — phrase visceral/impact
+    ideas neutrally or comedically.
+  - The lesson: on an EXTEND, the checker also scans the SOURCE CLIP's
+    frames. The tentacle-man clip itself is what kept tripping it — no
+    wording passes. That's a provider-side hard block, not an app bug;
+    the refunds fired correctly every time (3 × ✦132 back).
+- Verified headless: 422-with-checker-detail on the result path → exact-
+  error message + refund note, then the reword lead-in + approval card
+  (persisted + rendered), error step called once.

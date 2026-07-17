@@ -4575,6 +4575,30 @@ async function explainFailure(origin, kind, genPrompt, job) {
   } catch { return false; }
 }
 
+// A content-filter rejection after the job was accepted (the poll paths)
+// still deserves the auto-reword: ask the error step for a fixedPrompt and
+// pop it as an approval card in the ORIGIN chat. Quiet on purpose — the
+// deterministic message (exact error + refund) has already been delivered,
+// so data.reply is ignored; only the reworded prompt is offered.
+async function offerReword(origin, kind, genPrompt, errBody) {
+  try {
+    const res = await apiFetch('/api/direct', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'error', kind, prompt: genPrompt,
+        error: JSON.stringify(errBody || {}).slice(0, 700),
+        ...directorContext(),
+      }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.prompt) return;
+    deliverAgent(origin, '✍️ That wording tripped the content check — here it is reworded to pass, same idea. Approve to try again:');
+    saveToChat(origin, { t: 'review', prompt: String(data.prompt), mode: kind, at: Date.now() });
+    if (chatStore.active === origin) threadAppend(buildReviewCard(String(data.prompt), kind));
+  } catch {}
+}
+
 // Turn fal/worker failures into human messages, ALWAYS carrying the exact
 // upstream error (owner 2026-07-16: "show users the exact error") — the
 // friendly line says what to do, the quote says precisely what happened.
@@ -4829,10 +4853,10 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         // A failed job's response endpoint carries fal's reason ({detail}) —
         // fetch it so the user sees the EXACT error, not a generic shrug
         // (owner 2026-07-16).
-        let why = '';
+        let why = '', fb = {};
         try {
           const fr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(responseUrl));
-          const fb = await fr.json().catch(() => ({}));
+          fb = await fr.json().catch(() => ({}));
           console.error('fal render failed:', state, fb);
           why = falErrorDetail(fb);
         } catch {}
@@ -4841,6 +4865,8 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
           + (why ? ' — exact error: “' + why + '”' : '')
           + '. Please try again' + (kind === 'video' ? ', or tweak the prompt' : '') + '.'
           + (refunded > 0 ? ' Your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : ''));
+        // A content-filter kill can usually be reworded around — offer that.
+        if (text && kind !== 'audio' && /content|safety|nsfw|moderation|flagged|checker/i.test(JSON.stringify(fb))) offerReword(origin, kind, text, fb);
         return;
       }
       myGen.model = label;
@@ -4901,6 +4927,8 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         deliverAgent(origin, '⚠️ The model rejected this render (' + rr.status + ')'
           + (why ? ' — ' + why : ' — the clip or prompt didn’t pass its input checks') + '. Nothing was produced'
           + (refunded > 0 ? '; your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.' : '.'));
+        // A content-filter rejection can usually be reworded around — offer that.
+        if (text && kind !== 'audio' && /content|safety|nsfw|moderation|flagged|checker/i.test(JSON.stringify(errBody))) offerReword(origin, kind, text, errBody);
         return;
       }
       if (attempt === 0) setGenText(origin, 'Finishing up…');
