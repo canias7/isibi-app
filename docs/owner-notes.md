@@ -1683,3 +1683,11 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   has a #srAudGroup/#srVidGroup twin, so both slots keep their exact old
   styling wherever they live. The clip tile also reads "+ Video" inside
   the Reference row (it's a reference there, not the old Video-clip row).
+
+### Reference caps now visible up front (owner asked, 2026-07-17)
+- The fal limits used to surface only as bounce toasts on violation; each
+  reference tab now shows its caps line permanently: images "up to 9 ·
+  @Image1… · 12 files max total", videos "up to 3 · MP4/MOV · 2-15s
+  combined · near 480-720p", audio "up to 3 · MP3/WAV · 15s combined ·
+  needs an image or video ref too". Mini's schema verbatim-confirmed
+  identical to Std/Fast (incl. the 12-file total).

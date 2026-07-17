@@ -1742,6 +1742,17 @@ function renderSrTabs() {
   n('srTabImgN', refList.length + '/9');
   n('srTabVidN', ((attachments.clip ? 1 : 0) + vxList.length) + '/3');
   n('srTabAudN', ((attachments.audio ? 1 : 0) + axList.length) + '/3');
+  // The caps, visible up front (fal's schema limits) — not just as bounce
+  // toasts when something exceeds them.
+  const hint = document.getElementById('srHint');
+  if (hint) {
+    hint.style.display = combine ? '' : 'none';
+    hint.textContent = srTab === 'img'
+      ? 'Up to 9 images · cite them as @Image1… · 12 files max across all types'
+      : srTab === 'vid'
+      ? 'Up to 3 videos · MP4/MOV · 2–15s combined · near 480–720p · cite as @Video1…'
+      : 'Up to 3 audio clips · MP3/WAV · 15s combined · needs an image or video ref too';
+  }
 }
 function pickSrTab(tab) { srTab = tab; renderSrTabs(); }
 function vxDurTotal() { return ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0); }

@@ -4586,3 +4586,6 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
     var(--split, linear-gradient(90deg, #ff79c6, #ffb84d)) border-box;
 }
 #srVidGroup, #srAudGroup { display: flex; flex-direction: column; gap: .35rem; }
+
+/* Caps hint under the active reference-tab group. */
+.sr-hint { margin-top: .5rem; font-size: .68rem; line-height: 1.5; color: var(--muted, #8a8a92); }
