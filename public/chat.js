@@ -3761,11 +3761,40 @@ function scheduleSaveRetries() {
 // Boot: pick up any generation that was in flight when the tab last died.
 function resumeJobs() {
   const jobs = jobsLoad().filter((j) => j.chatId && ((j.statusUrl && j.responseUrl) || j.idem));
-  // Give up on a record that has been paused (network-dead) several boots
-  // running — its fal URL is almost certainly gone, so stop re-polling forever.
   const live = jobs.filter((j) => (j.tries || 0) < 4);
+  const dead = jobs.filter((j) => (j.tries || 0) >= 4);
   jobsWrite(live);
   live.forEach((j) => { if (!activeGens.has(j.chatId)) resumeOne(j); });
+  // A record that failed several boots running used to be dropped SILENTLY —
+  // a paid render vanishing with no explanation (owner 2026-07-17: every
+  // render must end visibly). Resolve it terminally instead: if fal actually
+  // finished it, give delivery one more shot; otherwise refund + say so.
+  dead.forEach((j) => { finishDeadJob(j); });
+}
+async function finishDeadJob(j) {
+  try {
+    if (j.statusUrl) {
+      try {
+        const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(j.statusUrl));
+        if (sr.ok) {
+          const st = await sr.json().catch(() => ({}));
+          if (st.status === 'COMPLETED' && !activeGens.has(j.chatId)) {
+            // fal finished it after all — keep retrying DELIVERY each boot
+            // (tries pinned below the cap) until the file actually lands.
+            resumeOne({ ...j, tries: 3 });
+            return;
+          }
+        }
+      } catch (e) {}
+    }
+    // Not recoverable: refund (server re-verifies with fal — only jobs that
+    // never ran get credited back) and tell the chat instead of going quiet.
+    const refunded = j.statusUrl ? await requestRefund(j.statusUrl) : 0;
+    deliverAgent(j.chatId, '⚠️ A render from earlier couldn\'t be recovered'
+      + (refunded > 0
+        ? ' — your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.'
+        : '. Sorry about that — if credits were taken for it, use the same prompt to run it again.'));
+  } catch (e) {}
 }
 
 // Pick a single on-record job back up into its origin chat's poll loop. Shared

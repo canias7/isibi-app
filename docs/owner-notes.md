@@ -1166,3 +1166,19 @@ checklist in the chat.
   servers are temporarily down — we're working on it. Check back soon; you
   were not charged." (server + client matched; old "briefly paused" text
   still recognized by the client for cache-skew).
+
+### Error-message audit + no more silent render loss (2026-07-17)
+- Full sweep of every user-facing failure message (catalog in the chat log).
+  One red finding fixed immediately, per the owner's "renders can't get
+  paused": boot-resume used to DROP a job record after 4 failed re-attach
+  attempts — a paid render vanishing silently. finishDeadJob now resolves
+  terminally: fal says COMPLETED → delivery retried each boot until it
+  lands; otherwise → requestRefund (server re-verifies with fal) + a chat
+  message with the refund amount, or an apology when fal actually ran it.
+- Clarified: fal never pauses renders — "paused" was only ever our tab's
+  polling; this closes the one path where re-attaching gave up.
+- Remaining smaller gaps (queued): refund-failure goes unmentioned in the
+  failure message; voice-preview errors are silent; gallery-delete failures
+  silently restore the card; sync failures have no persistent-breakage
+  signal; avatar-gen timeout path unverified; attach errors mix alert()/
+  chat/toast styles.
