@@ -2445,7 +2445,11 @@ async function handleRequest(request, env, ctx) {
         // Veo extend outputs 720p ONLY (fal OpenAPI: resolution const) — bill
         // that tier regardless of the picker, never a 4k rate for a 720p render.
         quality: endpoint.includes("/extend-video") ? "720p" : quality,
-        num, chars: genKind === "audio" ? prompt.length : 0,
+        // Voice bills on chars ACTUALLY spoken — fal's input.text is sliced to
+        // 2000, and the client quote caps at 2000 too, so cap billing to match
+        // (the prompt itself can be up to 4000; a 2-4k plan-mode script used to
+        // bill above the 2000-char quote) (2026-07-17).
+        num, chars: genKind === "audio" ? Math.min(2000, prompt.length) : 0,
         img4k: imgRes === "4K",
         gptQuality,
         // No explicit ratio (auto/missing) → no image_size is sent, so fal
@@ -4254,6 +4258,10 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
       const target = String((body && body.url) || "").trim();
       if (!/^https?:\/\//i.test(target)) return Response.json({ error: "invalid url" }, { status: 400 });
+      // Rate-limit the FREE server-side fetch proxy too (not just the paid AI
+      // rescue) — it was unmetered, giving any authed user an unlimited
+      // ~29MB-per-call fetch relay (2026-07-17). Generous daily cap; fail-open.
+      if (!(await useQuota(request, "import", 120))) return QUOTA_EXCEEDED();
       // A real browser UA — stores and CDNs 403 (or wall) obviously-bot agents.
       const PAGE_HDRS = {
         "User-Agent": CHROME_UA,

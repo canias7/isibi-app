@@ -2602,6 +2602,7 @@ async function previewVoice(name, btn) {
   if (voicePreviewCache[key]) { playPreview(voicePreviewCache[key], btn); return; }
   if (previewing) return; // a live TTS preview is already generating — don't spend a second credit
   previewing = true;
+  let previewStatusUrl = null;
 
   btn.disabled = true;
   btn.textContent = '…';
@@ -2626,6 +2627,7 @@ async function previewVoice(name, btn) {
     });
     const job = await res.json();
     if (!res.ok || !job.status_url) throw new Error('start');
+    previewStatusUrl = job.status_url; // charged now — refund if the render fails
 
     const started = Date.now();
     let out = null;
@@ -2647,6 +2649,14 @@ async function previewVoice(name, btn) {
   } catch {
     btn.textContent = '⚠';
     setTimeout(() => { btn.textContent = '▶'; }, 1600);
+    // The preview render failed AFTER being charged — refund the TTS credit and
+    // say why, instead of a silent bare glyph (2026-07-17).
+    if (previewStatusUrl) {
+      try {
+        const rf = await requestRefund(previewStatusUrl);
+        if (typeof sbToast === 'function') sbToast("Couldn't generate that voice preview" + (rf > 0 ? ' — the credit was refunded.' : '. Try again in a moment.'));
+      } catch {}
+    } else if (typeof sbToast === 'function') sbToast("Couldn't play that voice preview — try again in a moment.");
   } finally {
     btn.disabled = false;
     previewing = false;
@@ -3513,6 +3523,11 @@ function restoreStaged(id) {
     if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); vxList.push(...(s.vxs || [])); axList.push(...(s.axs || [])); }
     maskData = s ? s.mask : null;
     clipMeta = s ? s.clipMeta : null;
+    // Tear down the previous chat's audio player — else the play button on the
+    // new chat's clip plays the OLD chat's audio (awPlayer was left bound)
+    // (2026-07-17). It re-creates from the new attachments.audio on next play.
+    if (awPlayer) { try { awPlayer.pause(); } catch (e) {} awPlayer = null; }
+    try { cancelAnimationFrame(awRaf); } catch (e) {}
     awDur = s ? s.awDur : 0; awPeaks = s ? s.awPeaks : null;
     awName = s ? s.awName : ''; awSize = s ? s.awSize : 0; awType = s ? s.awType : '';
     Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
@@ -4822,15 +4837,6 @@ function maybeShowWelcome(balance) {
 // Feature matrix is a capacity ladder (all models on every tier; higher tiers
 // buy room for more output). Strike prices are the launch-offer framing —
 // the charged price is always `usd`.
-// Output equivalences are DERIVED from the live price tables so they can never
-// drift from what a generation actually costs: a Nano Banana 2 image and a
-// 5-second Kling 3.0 Standard video, at pure fal cost (no director surcharge —
-// AI is the separate Orchestrator add-on now).
-const IMG_CR = Math.max(1, Math.ceil(0.08 / CREDIT_USD));          // Nano Banana 2
-const VID_CR = Math.max(1, Math.ceil((0.126 * 5) / CREDIT_USD));   // Kling 3.0 Std 5s
-const roundTo = (n, step) => Math.round(n / step) * step;
-const estImages = (cr) => roundTo(cr / IMG_CR, 10).toLocaleString();
-const estVideos = (cr) => roundTo(cr / VID_CR, 5);
 const MEMBERSHIPS = [
   { plan: '25', usd: 24.99, credits: 2000, name: 'Plus', klass: 't-plus', off: '10% OFF', strike: 28,
     desc: 'For getting started with AI creation', storage: '10 GB',
@@ -4861,8 +4867,10 @@ const TOPUPS = [
   { topup: '100', usd: 100, credits: 7140 },
 ];
 
-// Focused upsell for the AI Orchestrator add-on ($19.99/mo, at cost). Opened
-// from the locked Orchestrator switch and the pricing page's add-on band.
+// The pricing page: three membership tiers (Plus/Pro/Max) + top-ups. Opened
+// from the ✦ balance pill, storage/upgrade CTAs, and gallery gate. (The
+// $19.99 Orchestrator add-on this once described was removed 2026-07-14.)
+// `topupsOnly` opens the credit top-up view instead of the plan cards.
 function openCredits(topupsOnly) {
   if (document.querySelector('.credits-overlay')) return;
   document.getElementById('profilePop')?.classList.remove('open'); // don't leave the menu open behind the overlay
@@ -6162,7 +6170,7 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, car
   // switch drops the card entirely, so this only ever re-prices in mode `m`.
   allow._reprice = () => { allow.textContent = 'Generate ' + (estimatePrice(m === 'audio' ? prompt : undefined, shots, extras && extras.sound) || '✦'); };
   allow._reprice();
-  deny.onclick = () => { clearReviews(); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
+  deny.onclick = () => { clearReviews(prompt); actions.remove(); label.textContent = 'Denied — tweak it and send again.'; document.getElementById('input').focus(); };
   allow.onclick = () => {
     // One generation per chat — if the previous run is still going, keep the
     // card live so the prompt isn't silently swallowed by the busy guard.
@@ -6178,7 +6186,7 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, car
       label.textContent = 'This shot list only runs on a Kling model — switch back to Kling to keep the shots, or deny and send again.';
       return;
     }
-    clearReviews();
+    clearReviews(prompt); // just THIS card — a second pending card stays
     actions.remove(); label.textContent = 'Approved ✦';
     // Generate with the KIND this card was composed for, not whatever mode the
     // composer happens to be in now (mode resets to 'video' on reload) — else an
@@ -6196,12 +6204,15 @@ function buildReviewCard(prompt, cardMode, cardBrief, cardMemory, cardShots, car
   box.appendChild(label); box.appendChild(body); if (shotList) box.appendChild(shotList); box.appendChild(actions);
   return box;
 }
-// Drop any pending review card from the active chat once approved/denied so a
-// later re-render doesn't resurrect it.
-function clearReviews() {
+// Drop pending review card(s) from the active chat so a later re-render doesn't
+// resurrect them. With `onlyPrompt`, remove ONLY the matching card — approving
+// or denying one card must not wipe a second pending card (e.g. the auto-reword
+// offer after a content-filter failure) (2026-07-17). No arg → clear all (used
+// on a mode switch, which invalidates every card).
+function clearReviews(onlyPrompt) {
   const c = activeChat(); if (!c) return;
   const before = c.msgs.length;
-  c.msgs = c.msgs.filter((mm) => mm.t !== 'review');
+  c.msgs = c.msgs.filter((mm) => mm.t !== 'review' || (onlyPrompt != null && mm.prompt !== onlyPrompt));
   if (c.msgs.length !== before) { persistStore(); touchSync(c.id); }
 }
 function reviewPrompt(prompt) {
@@ -6675,6 +6686,14 @@ async function doSignOut(everywhere) {
   // Flush any unsynced edits first, then wipe this browser's local copy so
   // the next account on this machine never sees — or re-uploads — these chats.
   try { await pushChats(); } catch {}
+  // Sign-out used to discard in-flight/paused render records with no refund.
+  // Best-effort credit-back for any un-delivered charged job BEFORE the wipe
+  // (auth is still valid; the server only credits jobs that didn't run)
+  // (2026-07-17). Bounded so sign-out stays snappy.
+  try {
+    const pending = jobsLoad().filter((j) => j.statusUrl).slice(0, 8);
+    await Promise.all(pending.map((j) => requestRefund(j.statusUrl).catch(() => {})));
+  } catch {}
   try {
     [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));

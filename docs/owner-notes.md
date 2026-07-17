@@ -1939,3 +1939,42 @@ as removed (keyframe remnants cleared defensively, not revived):
   "retry each boot" is real; scheduleResume recovers idem-only provisional
   records in-session and resolves a mid-session tries-cap terminally
   (deliver or refund+message) instead of stalling.
+
+### LOW audit findings — behavioral fixes + doc drift (2026-07-17)
+FIXED (behavioral):
+- Audio bills on chars ACTUALLY spoken (min(2000, len)) — a 2-4k plan-mode
+  script no longer bills above the 2000-char quote.
+- Voice-preview failure now refunds the TTS credit + toasts a reason
+  (was a bare "⚠" glyph, credit silently kept).
+- Denying/approving one review card clears ONLY that card — a second
+  pending card (e.g. the content-filter reword offer) survives.
+- awPlayer torn down on chat switch — the play button no longer plays the
+  previous chat's audio.
+- Sign-out now best-effort refunds any in-flight/paused charged render
+  before wiping the local recovery records.
+- /api/import/fetch free path is now rate-limited (useQuota "import" 120/day)
+  — was an unmetered ~29MB server-side fetch relay.
+- GPT auto-ratio overcharge (same dead guard as the medium) — fixed.
+- Dead-code island removed: IMG_CR/VID_CR/roundTo/estImages/estVideos.
+- openCredits header comment corrected (no longer the removed $19.99 add-on).
+- CLAUDE.md drift corrected: nav (top tabs + profile menu, not floating
+  logo), model routing (ask/error on Haiku; studio dead), model counts
+  (12 video + 2 image; Ray/OmniHuman removed), trySave `block` field.
+
+DEFERRED (deliberate — inert or near-unexploitable; sweeping risks the live
+app for ~zero runtime benefit):
+- Dead JS functions enterCrt/hideCrt/crtNoSignal + renderPublish (Media
+  Agent) — never called; live only if some path invokes them (it doesn't).
+  Left in place; they cost nothing at runtime and sit in the delicate
+  landing/Media-Agent code.
+- Dead CSS blocks (old sidebar nav, orchestrator upsell, CRT knobs, stale
+  .mkt-*) and the triple .sb-toast (cascade already resolves to the correct
+  z-index-400 block; toast is now load-bearing, so not touching it).
+- worker `studio` director step — inert (no client sends step:'studio');
+  removing risks the big director prompt ternary for no behavior change.
+- /api/cancel + /api/video/poll ownership: the fal request IDs are random
+  unguessable UUIDs only ever returned to the submitting client, so this is
+  near-unexploitable; a proper per-user job→user map is an invasive change
+  better done deliberately, not autonomously overnight.
+SKIPPED per owner: the 2 Media-Agent findings (orphaned #maThread chat,
+/api/social/comment/reply quota).
