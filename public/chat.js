@@ -4675,7 +4675,8 @@ async function generateMedia(text, opts = {}) {
         size: (kind === 'image' && currentOpts().sizes) ? gptSize : undefined, // GPT resolution tier (1K/2K/4K)
         // false = silent render (cheaper on Veo/Seedance/Kling v3). The manual
         // Sound toggle wins; otherwise the director's inference rides along.
-        sound: !soundOn && (currentOpts() || {}).sound ? false : genExtras.sound,
+        sound: !soundOn && (currentOpts() || {}).sound ? false : undefined, // chatbox toggle only — never the director
+
         negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
         cfg: kind === 'video' ? genExtras.cfg : undefined, // Kling v3 prompt-adherence 0-1
         bitrate: kind === 'video' ? genExtras.bitrate : undefined, // Seedance 'high' encode (free)
@@ -5221,7 +5222,11 @@ let pendingExtras = null;
 function sanitizeExtras(data) {
   if (!data) return null;
   const out = {};
-  if (data.sound === false) out.sound = false;
+  // NOTE (owner rule, 2026-07-17): the chatbox settings are authoritative —
+  // the director must never override anything the user can set there. Sound
+  // has a chatbox toggle, so a director-returned sound:false is IGNORED
+  // (this also strips it from review cards persisted before the rule).
+  // Everything below has no chatbox control and stays director-drivable.
   if (typeof data.negative === 'string' && data.negative.trim()) out.negative = data.negative.trim().slice(0, 300);
   const num = (v, lo, hi) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : null);
   const stab = num(data.stability, 0, 1), spd = num(data.speed, 0.7, 1.2), sty = num(data.style, 0, 1);

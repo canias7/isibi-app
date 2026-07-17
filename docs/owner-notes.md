@@ -1316,3 +1316,24 @@ checklist in the chat.
 - Verified headless both ways: switch-away mid-compose → review card
   persisted + renders on return, no generation fired, other chat clean;
   stay-put in Auto → generates immediately as before.
+
+### Chatbox settings are authoritative — director's sound override removed (2026-07-17)
+- **Owner rule (stated while planning the G14 test):** "the orchestrator has
+  no power to change anything that's set on the chatbox." Generations run
+  with exactly what the chatbox shows — sound toggle, duration, resolution,
+  ratio — the director's words never silently change a setting (or a price).
+- Sound was the ONE chatbox setting the director could override (an
+  earlier design: "make it silent" in words → extras.sound=false → cheaper
+  render without touching the toggle). Removed on all three layers:
+  client ignores a director sound flag (sanitizeExtras strips it, including
+  from review cards saved before the rule), the gen request only ever
+  carries the toggle's value, and the worker's write_prompt tool no longer
+  even offers the model a sound field.
+- Instead the ASK step now tells the user: silent video = flip the Sound
+  switch in the settings (and that it costs less) — then proceeds with the
+  creative request. The director advises about settings; it never drives them.
+- Everything else in extras stays director-drivable on purpose — negative
+  prompt, Kling cfg/auto-cuts, Seedance bitrate, Ray controls, voice
+  delivery — none of those have chatbox controls and all are price-neutral.
+- Verified headless: compose returning sound:false → price quote unchanged
+  and job body carries no sound flag (toggle on) / sound:false (toggle off).
