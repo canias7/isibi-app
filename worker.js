@@ -1691,7 +1691,7 @@ async function handleRequest(request, env, ctx) {
       // non-admin key) so monitoring can never block a paying user.
       const falUsd = await falBalanceUSD(env);
       if (falUsd !== null && falUsd < 0.5) {
-        return Response.json({ error: "generations are briefly paused — try again in a little while (you were not charged)" }, { status: 503 });
+        return Response.json({ error: "our generation servers are temporarily down — we're working on it, check back soon (you were not charged)" }, { status: 503 });
       }
       const tl = tooLargeBody(request, 100_000_000); if (tl) return tl; // ~100MB backstop
       let body;

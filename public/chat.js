@@ -4399,7 +4399,7 @@ function friendlyFail(job) {
   const exact = falErrorDetail(job);
   const withExact = (msg) => exact ? msg + ' (exact error: “' + exact + '”)' : msg;
   if (/daily limit/i.test(raw)) return "⚠️ You've hit today's generation limit — it resets within 24 hours.";
-  if (/briefly paused/i.test(raw)) return '⚠️ Generations are briefly paused — try again in a little while. You were not charged.';
+  if (/briefly paused|servers are temporarily down/i.test(raw)) return '⚠️ Our generation servers are temporarily down — we\'re working on it. Check back soon; you were not charged.';
   if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Generation is paused — the fal.ai balance ran out. Top it up and try again.';
   if (/content|safety|nsfw|moderation/i.test(raw)) return withExact('⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.');
   if (/validation|invalid|must be|unprocessable/i.test(raw)) return withExact('⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.');

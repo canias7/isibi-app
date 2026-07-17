@@ -1160,3 +1160,9 @@ checklist in the chat.
 - The stuck job from the discovery: it stays resumable (boot-resume record);
   once fal is topped up it should finish and deliver, or fail with the
   exact error + refund.
+
+### Balance-gate message reworded (2026-07-17)
+- Owner's wording call: the pre-flight refusal now reads "Our generation
+  servers are temporarily down — we're working on it. Check back soon; you
+  were not charged." (server + client matched; old "briefly paused" text
+  still recognized by the client for cache-skew).
