@@ -175,6 +175,13 @@ let quality = '720p';
 let voice = 'Rachel';
 let numImages = 1; // per-image billing — always defaults back to 1
 let gptSize = '2K'; // GPT Image 2 output resolution tier (2K/4K — 1K was dropped from the picker 2026-07-16, owner's call: fal bills 1K and 2K identically so 1K was a strictly-worse pick; the worker still accepts '1K' from stale clients)
+// Manual sound toggle (owner 2026-07-16: "there's no option to have audio on
+// and off") — previously silent renders only happened when the director
+// inferred them from the user's words. Families with native soundtracks;
+// mirrors the worker's soundCapable gate. Off is cheaper where fal lists
+// audio-off rates (Veo, Seedance, Kling v3).
+const SOUND_MODELS_RE = /seedance|kling-video\/(?:o3|v3)|veo/;
+let soundOn = true;
 // Each mode remembers its own model, so switching modes doesn't reset the pick.
 const selectedModels = { ...DEFAULT_MODELS };
 let model = selectedModels.video;
@@ -2023,7 +2030,8 @@ function currentOpts() {
       },
     };
   }
-  return MODEL_OPTS[model];
+  const o = MODEL_OPTS[model];
+  return o && SOUND_MODELS_RE.test(model) ? { ...o, sound: true } : o;
 }
 
 // Voice preview: generate a short line in the chosen voice once, then cache
@@ -2134,7 +2142,7 @@ function buildOptMenus() {
     if (opts.ratios) ratio = opts.defRatio;
     if (opts.nums) numImages = 1;
     if (opts.voices) voice = opts.defVoice;
-    hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto';
+    hdrOn = false; exrOn = false; loopOn = false; editMode = 'auto'; soundOn = true;
   }
 
   const sections = [];
@@ -2142,6 +2150,7 @@ function buildOptMenus() {
   if (opts.resolutions) sections.push(settingSection(opts.resLabel || 'Resolution', 'quality', opts.resItems || opts.resolutions.map((q) => ({ value: q, label: q }))));
   if (opts.sizes) sections.push(settingSection('Resolution', 'gptSize', opts.sizes.map((s) => ({ value: s, label: s }))));
   if (opts.durations) sections.push(settingSection('Duration', 'duration', opts.durations.map((d) => ({ value: d, label: d + 's' }))));
+  if (opts.sound) sections.push(settingSection('Sound', 'sound', [{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]));
   if (opts.hdr) sections.push(settingSection('HDR', 'hdr', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On · 2×' }, { value: 'exr', label: 'On + EXR · 3×' }]));
   if (opts.loop) sections.push(settingSection('Seamless loop', 'loop', [{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]));
   if (opts.v2v) sections.push(settingSection('Clip edit mode', 'editMode', [{ value: 'auto', label: 'Auto' }, { value: 'adhere', label: 'Adhere' }, { value: 'flex', label: 'Flex' }, { value: 'reimagine', label: 'Reimagine' }]));
@@ -2180,7 +2189,7 @@ function buildOptMenus() {
 // A settings section: a label + selectable chips. Long lists (>6) collapse
 // behind a "View all" toggle.
 function settingSection(label, kind, items, isVoice) {
-  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode }[kind];
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode, sound: soundOn ? 'on' : 'off' }[kind];
   const collapsible = items.length > 6;
   const chips = items.map((it) => {
     const active = String(it.value) === String(cur) ? ' active' : '';
@@ -2208,6 +2217,7 @@ function pickSetting(chip) {
   else if (kind === 'voice') voice = val;
   else if (kind === 'hdr') { hdrOn = val !== 'off'; exrOn = val === 'exr'; }
   else if (kind === 'loop') loopOn = val === 'on';
+  else if (kind === 'sound') soundOn = val === 'on';
   else if (kind === 'editMode') editMode = val;
   // Constraint web (fal): HDR runs 720p/1080p at 5s only; EXR requires HDR;
   // loop is 5s standard-dynamic-range only (so HDR and loop are exclusive).
@@ -2225,7 +2235,7 @@ function pickSetting(chip) {
   } else if (loopOn && duration === 10) {
     loopOn = false;
   }
-  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode };
+  const cur = { ratio: ratio, quality: quality, gptSize: gptSize, duration: duration, num: numImages, voice: voice, hdr: exrOn ? 'exr' : hdrOn ? 'on' : 'off', loop: loopOn ? 'on' : 'off', editMode: editMode, sound: soundOn ? 'on' : 'off' };
   const panel = chip.closest('.settings-panel') || document.getElementById('settingsMenu');
   if (panel) panel.querySelectorAll('.set-chip').forEach((c) => c.classList.toggle('active', String(cur[c.dataset.kind]) === String(c.dataset.value)));
   updateSettingsSummary();
@@ -2243,6 +2253,7 @@ function updateSettingsSummary() {
   if (opts.resolutions) parts.push(quality);
   if (opts.sizes && gptSize !== '2K') parts.push(gptSize); // 2K is the default
   if (opts.durations) parts.push(duration + 's');
+  if (opts.sound && !soundOn) parts.push('Silent');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');
   if (opts.v2v && editMode !== 'auto' && attachments.clip) parts.push(editMode);
@@ -2780,7 +2791,7 @@ function composerState() {
     mode, effort, dir: directorMode,
     models: { ...selectedModels },
     ratio, quality, gptSize, duration, num: numImages, voice,
-    hdr: hdrOn, exr: exrOn, loop: loopOn, editMode,
+    hdr: hdrOn, exr: exrOn, loop: loopOn, editMode, sound: soundOn,
   };
 }
 function stampComposer() {
@@ -2823,6 +2834,7 @@ function applyComposerState(cs) {
     numImages = o.nums && (o.nums || []).includes(cs.num) ? cs.num : 1;
     voice = (o.voices || []).includes(cs.voice) ? cs.voice : (o.defVoice || voice);
     hdrOn = !!(o.hdr && cs.hdr); exrOn = !!(o.hdr && cs.exr); loopOn = !!(o.loop && cs.loop);
+    soundOn = o.sound ? cs.sound !== false : true;
     editMode = ['auto', 'adhere', 'flex', 'reimagine'].includes(cs.editMode) ? cs.editMode : 'auto';
     setMode(mode); // paints mode buttons + menus; buildOptMenus keeps our values (restoringComp)
   } finally {
@@ -3710,7 +3722,10 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   // start image on a model that prices i2v separately (Ray) → i2s; else t2v —
   // discounted to aoff when the render is explicitly silent (Veo, Kling).
   const startImg = !!(attachments.image || attachments.ffirst || attachments.flast || kfList.length);
-  const soundOff = soundOverride === false;
+  // Silent when the director inferred it from the user's words (override) OR
+  // the manual Sound toggle is off — both hit fal's audio-off rate where one
+  // exists (Veo, Seedance, Kling v3).
+  const soundOff = soundOverride === false || (!soundOn && !!(currentOpts() || {}).sound);
   const tbl = p.v2s && attachments.clip ? p.v2s : p.i2s && startImg ? p.i2s : (soundOff && p.aoff ? p.aoff : p.s);
   const rate = tbl[quality] != null ? tbl[quality] : tbl.def != null ? tbl.def : tbl['720p'];
   if (rate == null) return '';
@@ -4228,7 +4243,9 @@ async function generateMedia(text, opts = {}) {
         shots: genShots || undefined, // Kling multi_prompt shot-list (t2v, or i2v with start/end frames)
         mask: (kind === 'image' && maskCapable() && maskData) ? maskData : undefined, // GPT inpainting region
         size: (kind === 'image' && currentOpts().sizes) ? gptSize : undefined, // GPT resolution tier (1K/2K/4K)
-        sound: genExtras.sound, // false = explicit silent request (cheaper on Veo/Kling)
+        // false = silent render (cheaper on Veo/Seedance/Kling v3). The manual
+        // Sound toggle wins; otherwise the director's inference rides along.
+        sound: !soundOn && (currentOpts() || {}).sound ? false : genExtras.sound,
         negative: genExtras.negative, // things to exclude (Kling v3 / Veo only)
         cfg: kind === 'video' ? genExtras.cfg : undefined, // Kling v3 prompt-adherence 0-1
         bitrate: kind === 'video' ? genExtras.bitrate : undefined, // Seedance 'high' encode (free)

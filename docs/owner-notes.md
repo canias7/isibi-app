@@ -945,3 +945,17 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   ratio of 'auto' falls back to 1:1; the worker still accepts 'auto' from
   stale clients. Nano keeps its 'auto' (different semantics, no billing
   quirk).
+
+### Manual Sound on/off toggle (2026-07-16)
+- **Owner (testing Veo):** "THERE'S NO OPTION TO HAVE AUDIO ON AND OFF" —
+  silent renders only existed via the director inferring them from the
+  user's words. Added a Sound On/Off section to the settings panel for the
+  sound-capable families (SOUND_MODELS_RE = seedance | kling v3/o3 | veo —
+  mirrors the worker's gate).
+- Off sends `sound:false` (the existing worker path: generate_audio=false +
+  the aoff billing rate where fal lists one — Veo, Seedance, Kling v3; o3
+  has no discount, just silence). The manual toggle wins over the director's
+  inference; the chip shows "· Silent"; per-chat composer state persists it;
+  non-capable models never see the toggle and reset it to On.
+- Verified: Veo Fast 8s 720p ✦150→✦100 and Veo 4k ✦600→✦400 on toggle, wire
+  body carries sound:false, Sora shows no section.
