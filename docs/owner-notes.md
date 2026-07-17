@@ -1517,3 +1517,26 @@ checklist in the chat.
   snapshot fields stay tolerated in restoreStaged.
 - Verified headless: 12 video models, no Ray anywhere user-facing, stale
   selection safe, LipSync rows intact, no page errors.
+
+### Lite first-&-last 422 + NEW VERIFICATION STANDARD (2026-07-17)
+- **Owner hit it live (and rightly called it out):** a 4s first-&-last run
+  on Lite bounced twice with 422 "duration: Input should be '8s'" (refunds
+  fired correctly both times). Root cause: fal's DOCS pages list a 4s/6s/8s
+  duration enum for endpoints where the LIVE validation disagrees.
+- **New standard (owner's rule: "check fal first, detail by detail"):**
+  endpoints are verified against fal's machine OpenAPI schema
+  (fal.ai/api/openapi/queue/openapi.json?endpoint_id=…) — the same source
+  their live validation runs on — never just the rendered docs page.
+- Machine-schema audit of everything shipped today:
+  - Lite t2v: duration enum 4s/6s/8s ✓ (all free)
+  - Lite i2v: duration enum 4s/6s/8s ✓ (all free — first fix over-locked
+    it; corrected)
+  - Lite first-&-last: duration CONST "8s" → picker locks to 8s (the veo
+    ref-lock mechanism, note included), worker forces "8s" and bills 8.
+  - Gemini reference-to-video: image_urls REQUIRED, maxItems 10 → our cap
+    raised 6→10 (was a guess); prompt cap 20k matches.
+  - Seedance reference (all 3 tiers): video_urls/audio_urls arrays
+    confirmed; our 3/3/9 caps and Mini's no-bitrate/no-1080p handling all
+    match the machine schema.
+- Verified headless: Lite t2v/i2v free at 4s (✦25), flf locked (✦50, note,
+  snap), Gemini cap 10.

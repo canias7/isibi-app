@@ -52,10 +52,10 @@ const MODEL_OPTS = {
     ratios: ['16:9', '9:16'], defRatio: '16:9',
     // image: start frame → image-to-video (its own fal endpoint, no end frame).
     // clip: attach a video → conversational edit (swap/relight/stabilize/bg).
-    // ref: reference-to-video (schema 2026-07-17: image refs only, bound as
-    // native <IMAGE_REF_N> tags — the worker translates our @ImageN; no
-    // documented cap, 6 is ours). Same $0.13/s rate as t2v.
-    caps: { image: true, end: false, avatar: false, clip: true, ref: 6 },
+    // ref: reference-to-video (fal OpenAPI 2026-07-17: image_urls required,
+    // maxItems 10, bound as native <IMAGE_REF_N> tags — the worker translates
+    // our @ImageN). Same $0.13/s rate as t2v.
+    caps: { image: true, end: false, avatar: false, clip: true, ref: 10 },
   },
   'fal-ai/veo3.1': {
     durations: [4, 6, 8], defDur: 8,
@@ -2615,6 +2615,9 @@ function veoDurLock() {
   if (/veo/.test(model)) {
     if (refList.length) return 'ref';
     if (attachments.clip) return 'extend';
+    // Lite first-&-last only accepts 8s (fal OpenAPI: duration const "8s";
+    // live 422 2026-07-17 confirmed). Lite t2v/i2v genuinely take 4s/6s/8s.
+    if (/\/lite/.test(model) && (attachments.ffirst || attachments.flast)) return 'lite8';
     return '';
   }
   // Reframe keeps the source clip's own length — no duration input exists.
@@ -2632,6 +2635,7 @@ function syncDurLock() {
   note.textContent = lock === 'ref'
     ? 'Reference runs always render 8s — the model fixes the length.'
     : lock === 'extend' ? 'Extending always adds 7s — the model fixes the length.'
+    : lock === 'lite8' ? 'First & last frame on Lite always renders 8s — the model fixes the length.'
     : lock === 'reframe' ? 'Reframing keeps the clip’s own length — billed per clip second.' : '';
   // Ray + clip: the ratio picker doubles as the reframe switch — say so.
   const rsec = menu.querySelector('.set-section.sec-ratio');
@@ -2647,7 +2651,7 @@ function syncDurLock() {
   }
   // Snap the picker to the truth so the chips + summary can't disagree with
   // what fal renders and bills.
-  if (lock === 'ref' && duration !== 8) {
+  if ((lock === 'ref' || lock === 'lite8') && duration !== 8) {
     duration = 8;
     menu.querySelectorAll('.set-chip[data-kind="duration"]').forEach((c) => c.classList.toggle('active', c.dataset.value === '8'));
     updateSettingsSummary();
@@ -4346,6 +4350,8 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   const shots = (shotsOverride && shotsApply(model)) ? sanitizeShots(shotsOverride) : null;
   const isVeoExtend = /veo/.test(model) && !!attachments.clip;
   const isVeoRef = /veo/.test(model) && refList.length > 0;
+  // Lite first-&-last renders 8s only (the duration picker locks too).
+  const isLite8 = /veo3\.1\/lite/.test(model) && !!(attachments.ffirst || attachments.flast);
   const isClipEdit = !!attachments.clip && (/kling-video\/o3/.test(model) || /gemini/.test(model));
   const clipEditMax = /gemini/.test(model) ? 30 : 15;
   const clipEditSecs = Math.min(clipEditMax, Math.ceil((clipMeta && clipMeta.dur) || clipEditMax));
@@ -4354,6 +4360,7 @@ function estimatePrice(textForAudio, shotsOverride, soundOverride) {
   const billDur = shots ? shots.reduce((t, s) => t + s.duration, 0)
     : isVeoRef ? 8
     : isVeoExtend ? 7
+    : isLite8 ? 8
     : isClipEdit ? clipEditSecs
     : isRayI2V ? 5
     : (duration || 5);

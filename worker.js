@@ -2014,12 +2014,12 @@ async function handleRequest(request, env, ctx) {
             input.prompt = (input.prompt.trim() + ` Feature ${tags.join(", ")}.`).trim();
           }
         } else if (isGemini && refs.length && !clip) {
-          // Gemini Omni Flash reference-to-video (schema verified 2026-07-17):
-          // prompt + image_urls ONLY — no video/audio refs despite the catalog
-          // copy, no resolution param, no documented image cap (ours is 6 to
-          // match the client row). Bills the same ~$0.13/s def rate as t2v.
+          // Gemini Omni Flash reference-to-video (fal OpenAPI 2026-07-17):
+          // prompt + image_urls ONLY (required, maxItems 10) — no video/audio
+          // refs despite the catalog copy, no resolution param. Bills the
+          // same ~$0.13/s def rate as t2v.
           endpoint = model + "/reference-to-video";
-          input.image_urls = refs.slice(0, 6);
+          input.image_urls = refs.slice(0, 10);
           // A raw prompt with no tags cites every ref (as @ImageN — the tag
           // reconciler below translates them into Gemini's native 0-based
           // <IMAGE_REF_N> form) so uploads are never silently ignored.
@@ -2198,6 +2198,9 @@ async function handleRequest(request, env, ctx) {
         if (duration && !bareEdit && !useShots) {
           // Veo/Ray want "8s"; Seedance/Kling want a string enum; the rest an integer.
           if (isVeo && endpoint.includes("/reference-to-video")) input.duration = "8s"; // fal locks Veo ref to 8s only
+          // Lite first-&-last only accepts "8s" (fal OpenAPI: duration const
+          // "8s"; live 422 2026-07-17); t2v/i2v keep the real 4s/6s/8s enum.
+          else if (model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame")) input.duration = "8s";
           else if (isVeo || isRay) input.duration = duration + "s";
           else if (isSeedance || isKling) input.duration = String(duration);
           else input.duration = duration;
@@ -2397,6 +2400,8 @@ async function handleRequest(request, env, ctx) {
       const isRayImgEndpoint = model.startsWith("luma/") && endpoint.includes("image-to-video");
       const isRayStart5s = isRayImgEndpoint && !input.keyframes;
       const isVeoRef = model.includes("veo") && endpoint.includes("/reference-to-video");
+      // Lite first-&-last renders (and bills) 8s regardless of the picker.
+      const isLiteFixed8 = model.endsWith("veo3.1/lite") && endpoint.includes("/first-last-frame");
       // The o3/Gemini clip edits have NO duration input — fal renders (and
       // bills) the WHOLE source clip, so the bill follows the clip's measured
       // length, never the duration picker (a real 15s edit billed $2.52 while
@@ -2416,6 +2421,7 @@ async function handleRequest(request, env, ctx) {
       const shotSecs = useShots ? shots.reduce((t, s) => t + Number(s.duration), 0) : 0;
       const billDuration = endpoint.includes("/extend-video") ? 7
         : isVeoRef ? 8
+        : isLiteFixed8 ? 8
         : isReframeEp ? reframeSecs
         : isClipEdit ? clipBillSecs
         : isRayStart5s ? 5
