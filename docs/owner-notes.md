@@ -1565,3 +1565,9 @@ checklist in the chat.
   rows swap their note-tags and generic chips for the badge pair; untiered
   rows render exactly as before. Applied to the three Veo variants; any
   family can adopt it by adding tier fields.
+
+### Tier design extended: multicolor Google G + Seedance tiers (2026-07-17)
+- Owner's follow-up references: the Veo rows now use Google's official
+  multicolor G (logos/google.svg was a white mono glyph), and Seedance got
+  the same tier treatment — Standard PREMIUM 4K · Fast CLASSIC 720p ·
+  Mini BASIC 720p. Res badges derive from each model's real caps.
