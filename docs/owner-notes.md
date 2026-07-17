@@ -2080,3 +2080,9 @@ the picked hosted URL (image URL doubles as the queue thumb; video uses its
 poster) + sets the type + shows a preview with a REEL badge. Still frontend-only
 (gallery URLs are already-hosted client-side; no new backend). Verified headless:
 picker lists, selects image+video, queues, persists — no page errors.
+
+Follow-up (same day): the Schedule post tab now shows ONLY the composer — the
+queue list + "N scheduled" count + "Queue" header were removed (owner: "under
+schedule post dont put anything"). Scheduling still persists to localStorage
+and now confirms inline ("Scheduled for <date>.") then resets the composer for
+the next post. Removed schRemove + the unused .sch-* queue CSS.

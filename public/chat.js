@@ -7877,10 +7877,8 @@ function schDefaultWhen() {
   return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
 function renderSchedule(body) {
-  const list = loadScheduled().slice().sort((a, b) => Date.parse(a.when) - Date.parse(b.when));
-  const head =
-    '<div class="posts-head"><span class="posts-count">' + list.length + ' scheduled</span></div>';
-  // Compose card — reuses the publish-composer look.
+  // Compose card only — reuses the publish-composer look. (No queue list below,
+  // owner's call 2026-07-17.)
   const compose =
     '<div class="ma-publish" id="schCompose">' +
       '<div class="ma-pub-head">' +
@@ -7910,27 +7908,7 @@ function renderSchedule(body) {
         '</div>' +
       '</div>' +
     '</div>';
-  // Queue
-  const queue = list.length
-    ? '<div class="sch-list">' + list.map((it) => {
-        const thumb = it.thumb
-          ? '<span class="sch-thumb" style="background-image:url(' + esc(it.thumb) + ')"></span>'
-          : '<span class="sch-thumb sch-thumb-none">' + (it.kind === 'video' ? '🎬' : '🖼') + '</span>';
-        const cap = it.caption ? esc(it.caption) : '<span class="sch-nocap">No caption</span>';
-        return '<div class="sch-card" data-sid="' + esc(it.id) + '">' +
-            thumb +
-            '<div class="sch-meta">' +
-              '<div class="sch-cap">' + cap + '</div>' +
-              '<div class="sch-sub"><span class="sch-pill">' + (it.kind === 'video' ? 'Reel' : 'Image') + '</span>' +
-                '<span class="sch-when">📅 ' + esc(schWhen(it.when)) + '</span></div>' +
-            '</div>' +
-            '<div class="sch-side"><span class="sch-status">Scheduled</span>' +
-              '<button type="button" class="sch-del" data-del="' + esc(it.id) + '" title="Remove" aria-label="Remove scheduled post">×</button></div>' +
-          '</div>';
-      }).join('') + '</div>'
-    : '<div class="sec-soon"><p>Nothing scheduled yet.</p>' +
-        '<p class="sec-soon-s">Compose a post above and pick a date &amp; time.</p></div>';
-  body.innerHTML = head + compose + '<div class="sch-queue-h">Queue</div>' + queue;
+  body.innerHTML = compose;
   schMedia = null;
 
   const fileBtn = document.getElementById('schFileBtn');
@@ -7943,7 +7921,6 @@ function renderSchedule(body) {
   if (galBtn) galBtn.onclick = () => openPubGalleryPicker(false, schSelectGalleryMedia);
   const sub = document.getElementById('schSubmit');
   if (sub) sub.onclick = () => schSubmit(body);
-  body.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => schRemove(b.dataset.del, body); });
 }
 // Stage a device-chosen file LOCALLY (no upload) — image → a small thumb for
 // the preview + queue; video → an icon (thumbs would bloat localStorage).
@@ -7999,12 +7976,13 @@ function schSubmit(body) {
     createdAt: Date.now(),
   });
   saveScheduled();
-  renderSchedule(body); // repaint with the new item + a fresh empty composer
-}
-function schRemove(id, body) {
-  igScheduled = loadScheduled().filter((it) => it.id !== id);
-  saveScheduled();
-  renderSchedule(body);
+  // No visible queue — confirm inline and reset the composer for the next post.
+  show('Scheduled for ' + schWhen(new Date(when).toISOString()) + '.', 'ma-pub-res-ok');
+  schMedia = null;
+  const cap = document.getElementById('schCaption'); if (cap) cap.value = '';
+  const prev = document.getElementById('schPreview'); if (prev) { prev.classList.remove('on'); prev.innerHTML = ''; }
+  const fileIn = document.getElementById('schFile'); if (fileIn) fileIn.value = '';
+  const dt = document.getElementById('schWhen'); if (dt) dt.value = schDefaultWhen();
 }
 
 // Upload a device-chosen file to storage (→ public URL Instagram can fetch),
