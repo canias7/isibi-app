@@ -209,9 +209,11 @@ const MODEL_LISTS = {
 // Families collapsed into one picker row (hover → side flyout with the variants).
 // `variant` derives the short name shown on the parent when one is selected.
 const GROUP_META = {
-  seedance:  { label: 'Seedance 2.0', variant: (l) => l.replace(/^Seedance 2\.0\s*/, '').trim() || 'Standard' },
-  kling:     { label: 'Kling',        variant: (l) => l.replace(/^Kling\s*/, '').trim() },
-  veo:       { label: 'Veo 3.1',      variant: (l) => l.replace(/^Veo 3\.1\s*/, '').trim() || 'Standard' },
+  seedance:  { label: 'Seedance 2.0', variant: () => '' },
+  kling:     { label: 'Kling',        variant: () => '' },
+  // No active-variant chip on the Veo parent row (owner 2026-07-17: the
+  // "Lite" pill next to "Veo 3.1" read badly) — the flyout's ✓ shows the pick.
+  veo:       { label: 'Veo 3.1',      variant: () => '' },
 };
 
 const modelMenu = document.getElementById('modelMenu');
