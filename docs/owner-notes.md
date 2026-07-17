@@ -975,3 +975,14 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
 ### Video-mode "Image" row renamed "Image to video" (2026-07-16)
 - Owner's call, same naming sweep as Edit image / Extend clip. Image mode
   keeps "Edit image".
+
+### Veo attach rows fully exclusive (2026-07-16)
+- **Owner:** "the 4 of them can't be activated at the same time" — right in
+  spirit, but the UI allowed staging several and the worker's routing
+  silently ignored the losers (refs > extend > first/last > image).
+- **Enforced, Veo only:** the clip now joins the existing image/flf/ref
+  exclusivity web in BOTH directions (attach a clip → the other rows clear;
+  attach anything else → the staged clip clears). Other families keep their
+  legitimate combos: Ray v2v + start image/keyframes, Kling o3 edit +
+  refs/elements, Seedance clip-as-reference.
+- Verified headless in all directions + Ray combo intact.

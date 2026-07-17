@@ -318,7 +318,13 @@ function onAttach(kind, inputEl) {
       awDur = 0; awPeaks = null; awDecoding = true; // clear the previous clip's duration/waveform until awDecode resolves — a send in this window must not bill the old length
       awDecode(reader.result);
     }
-    if (kind === 'clip') { clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' }; readClipMeta(reader.result); renderRefChips(); }
+    if (kind === 'clip') {
+      clipMeta = { dur: 0, w: 0, h: 0, type: file.type || '', name: file.name || 'clip' };
+      readClipMeta(reader.result); renderRefChips();
+      // Veo: attaching an Extend clip clears the other three rows (see
+      // clearImageInputsExcept — the reverse direction lives there).
+      if (mode === 'video' && /veo/.test(model)) clearImageInputsExcept('clip');
+    }
     // Image slots: measure dimensions and bounce anything the model hard-caps
     // (Kling: ≥300px, aspect 0.40–2.50) with the exact reason.
     if (IMG_KINDS.includes(kind)) measureAttachedImage(kind, reader.result);
@@ -1289,6 +1295,14 @@ function clearImageInputsExcept(keep) {
   if (keep !== 'ref' && refList.length) { refList.length = 0; renderRefList(); }
   if (keep !== 'kf' && kfList.length) { kfList.length = 0; renderKfList(); }
   if (keep !== 'el' && elList.length) { elList.length = 0; renderElList(); }
+  // On Veo the clip is exclusive too (owner 2026-07-16): its four rows are
+  // four separate fal endpoints, none accepting the others' inputs — so an
+  // image/flf/ref attach drops a staged Extend clip. Other families keep
+  // their legit combos (Ray v2v + start image/keyframes, Kling o3 edit +
+  // refs/elements, Seedance clip-as-reference).
+  if (keep !== 'clip' && attachments.clip && mode === 'video' && /veo/.test(model)) {
+    attachments.clip = null; clipMeta = null; renderAttach('clip'); renderRefChips();
+  }
 }
 
 // Reference-to-video images (Veo ≤3, Seedance ≤9): its own row, capped at caps.ref.
