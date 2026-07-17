@@ -1585,3 +1585,16 @@ checklist in the chat.
   1080p/4k on extend runs. With a clip attached on Veo the resolution
   section now locks to 720p (snap + note, same mechanism as the duration
   lock), and unlocks when the clip is removed.
+
+### LATER — Seedance price re-verification (owner, 2026-07-17)
+- fal's Seedance endpoint pages don't show cost cards, so today's money
+  sweep couldn't cross-check the family the way Veo was checked. Our
+  stored rates (per second, no audio discount): Std 480p $0.14 · 720p
+  $0.304 · 1080p $0.682 · 4k $1.59; Fast $0.135/$0.242; Mini
+  $0.0725/$0.155; video-ref runs 0.6× rate × (combined input + output
+  seconds). These predate the machine-schema standard — when fal surfaces
+  pricing (pricing page, or one cheap live run checked against the fal
+  dashboard charge), reconcile against these numbers.
+- Also open from the Veo sweep: whether Fast REFERENCE at 4k bills the 4k
+  tier (Std's card says yes for Std; Fast's card is written flat). We
+  charge the 4k tier — house-safe; one live 4k Fast ref settles it.
