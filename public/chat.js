@@ -4733,7 +4733,14 @@ async function generateMedia(text, opts = {}) {
     // then fetch `url=undefined`, dropping a charged render.
     if (!res.ok || !job.status_url || !job.response_url) {
       endGen(origin);
-      if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
+      // Platform-balance / paused errors get the DETERMINISTIC message — the
+      // AI explainer once rephrased them as "your account has run out of
+      // credits" (owner 2026-07-17), which is false and steers users to buy
+      // credits they don't need. Everything else may use the explainer.
+      const rawErr = JSON.stringify(job || {});
+      if (/briefly paused|servers are temporarily down|exhausted balance|user is locked/i.test(rawErr)) {
+        deliverAgent(origin, friendlyFail(job));
+      } else if (!(await explainFailure(origin, kind, text, job))) deliverAgent(origin, friendlyFail(job));
       return;
     }
     if (typeof job.balance === 'number') setCredits(job.balance);

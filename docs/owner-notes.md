@@ -1270,3 +1270,29 @@ checklist in the chat.
   dialog on purpose.
 - Verified headless: ref slot multi-picks 2 gallery images through the full
   conform pipeline; clip slot lists video tiles; menus per slot correct.
+
+### Platform errors can no longer be blamed on the user (2026-07-17)
+- **Owner's screenshot:** a render failed and the chat said "Your account
+  has run out of credits" — while the owner had ✦867. The raw failure was
+  the render provider's OWN balance lock (see below); the AI error-explainer
+  saw the word "balance" and invented a story about the USER's credits.
+- **Fix, two layers:**
+  - chat.js: known platform-side errors (briefly paused / servers
+    temporarily down / exhausted balance / user is locked) now BYPASS the
+    AI explainer entirely and get the deterministic friendlyFail message
+    ("our render servers…", never "your account").
+  - worker.js error-step prompt: explicitly forbidden from claiming the
+    user's account/credits/balance ran out unless the raw error literally
+    says "not enough credits" — platform balance problems are OUR
+    infrastructure, not the user's.
+- **Root cause of the failure itself (owner asked "I have $8 in fal, so
+  what happened?"):** the provider LOCKS an account whose balance goes
+  negative, and there's a KNOWN BUG where the lock doesn't always auto-clear
+  after topping back up (fal-ai/fal issue #922 — "Account locked despite
+  positive balance"). Our balance went negative during testing, was
+  recharged to $8, but the lock lingered and a submit bounced with
+  "User is locked. Reason: Exhausted balance." It usually clears on its
+  own shortly; if it sticks, fal support has to release it manually.
+- Verified headless: platform-flavored job errors never call /api/direct
+  (explainer skipped), the delivered chat message is the canned
+  servers-down text with no provider name.
