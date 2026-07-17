@@ -2072,3 +2072,11 @@ Code: IG_SECTIONS + renderSection dispatch + renderSchedule/schPickFile/
 schSubmit/schRemove/loadScheduled/saveScheduled in chat.js; `.sch-*` styles in
 styles.css. Verified headless: tab renders, schedules, persists to localStorage,
 counts, and removes with zero page errors (screenshotted composer + queue).
+
+Follow-up (same day): the Schedule composer now also offers "🖼 From gallery"
+— generalized openPubGalleryPicker to take an onPick callback (defaults to the
+Posts composer's pubSelectMedia) and added schSelectGalleryMedia, which stages
+the picked hosted URL (image URL doubles as the queue thumb; video uses its
+poster) + sets the type + shows a preview with a REEL badge. Still frontend-only
+(gallery URLs are already-hosted client-side; no new backend). Verified headless:
+picker lists, selects image+video, queues, persists — no page errors.

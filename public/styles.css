@@ -1247,6 +1247,7 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 /* Schedule post (Instagram) — the "not published yet" flag + the queue cards */
 .sch-flag { font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #ffb84d; border: 1px solid rgba(255, 170, 110, .45); border-radius: 999px; padding: .18rem .55rem; }
 .sch-urlprev { padding: .8rem; color: var(--muted); font-size: .85rem; word-break: break-all; }
+.sch-prev-k { position: absolute; left: .5rem; bottom: .5rem; font-size: .62rem; font-weight: 700; letter-spacing: .04em; color: #0a090e; background: linear-gradient(90deg, #ff79c6, #ffb84d); border-radius: 6px; padding: .12rem .4rem; }
 .sch-queue-h { margin: 1.8rem 0 .8rem; font-size: .78rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .sch-list { display: flex; flex-direction: column; gap: .7rem; }
 .sch-card { display: flex; align-items: center; gap: .85rem; padding: .7rem; border: 1px solid var(--line-2); border-radius: 14px; background: var(--panel-2); }

@@ -7892,6 +7892,7 @@ function renderSchedule(body) {
         '<div class="pub-preview" id="schPreview"></div>' +
         '<div class="pub-pick">' +
           '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="schFileBtn">📁 Choose from computer</button>' +
+          '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="schGal">🖼 From gallery</button>' +
         '</div>' +
         '<input type="file" id="schFile" accept="image/*,video/*" style="display:none">' +
         '<label class="ma-pub-l">or paste a public URL</label>' +
@@ -7940,6 +7941,8 @@ function renderSchedule(body) {
     fileBtn.onclick = () => fileIn.click();
     fileIn.onchange = () => { if (fileIn.files && fileIn.files[0]) schPickFile(fileIn.files[0]); };
   }
+  const galBtn = document.getElementById('schGal');
+  if (galBtn) galBtn.onclick = () => openPubGalleryPicker(false, schSelectGalleryMedia);
   const urlIn = document.getElementById('schUrl');
   if (urlIn) urlIn.oninput = () => {
     const u = urlIn.value.trim();
@@ -7969,6 +7972,23 @@ async function schPickFile(file) {
     prev.innerHTML = thumb
       ? '<img src="' + esc(thumb) + '" alt="">'
       : '<div class="sch-urlprev">🎬 ' + esc(file.name || 'video') + '</div>';
+  }
+}
+// A picked isibi-gallery item (already a hosted URL) → stage it + preview. The
+// URL doubles as the thumb for images; a video uses its poster if there is one.
+function schSelectGalleryMedia(it) {
+  const kind = it.kind === 'video' ? 'video' : 'image';
+  schMedia = { url: it.url, thumb: kind === 'video' ? (it.poster || '') : it.url, kind, name: '' };
+  const typeSel = document.getElementById('schType');
+  if (typeSel) typeSel.value = kind;
+  const urlIn = document.getElementById('schUrl');
+  if (urlIn) urlIn.value = '';   // gallery pick supersedes any typed URL
+  const prev = document.getElementById('schPreview');
+  if (prev) {
+    prev.classList.add('on');
+    const src = kind === 'video' ? (it.poster || it.url) : it.url;
+    prev.innerHTML = '<img src="' + esc(src) + '" alt="">' +
+      (kind === 'video' ? '<span class="sch-prev-k">REEL</span>' : '');
   }
 }
 function schSubmit(body) {
@@ -8073,7 +8093,8 @@ function allGalleryMedia() {
 
 // Gallery picker for the composer — images and videos; a pick fills the URL +
 // type fields (reusing the shared .gal-overlay styling).
-function openPubGalleryPicker(videoOnly) {
+function openPubGalleryPicker(videoOnly, onPick) {
+  const pick = typeof onPick === 'function' ? onPick : pubSelectMedia;
   const old = document.querySelector('.gal-overlay');
   if (old) old.remove();
   let items = allGalleryMedia();
@@ -8104,7 +8125,7 @@ function openPubGalleryPicker(videoOnly) {
       k.textContent = 'REEL';
       cell.appendChild(k);
     }
-    cell.onclick = () => { pubSelectMedia(it); ov.remove(); };
+    cell.onclick = () => { pick(it); ov.remove(); };
     gridEl.appendChild(cell);
   });
   document.body.appendChild(ov);
