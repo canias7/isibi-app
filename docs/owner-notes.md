@@ -1361,3 +1361,25 @@ checklist in the chat.
 - Verified headless: 422-with-checker-detail on the result path → exact-
   error message + refund note, then the reword lead-in + approval card
   (persisted + rendered), error step called once.
+
+### Extends get their own continuation writer (2026-07-17)
+- **Owner's screenshot:** an approved extend prompt re-narrated the ENTIRE
+  source clip (the tentacle grafting, the slide, the landing — all footage
+  that already exists) and closed with "for the 8s clip" on a +7s extend.
+  Result quality was "a little buggy" — re-describing makes the model try
+  to REPLAY events that already happened, which is exactly what glitchy,
+  morphing extensions look like.
+- Cause: the worker had no extend writer — a Veo clip attach fell into the
+  video-to-video EDIT branch (restyle language, "state the change to the
+  footage"), and the ask/context lines called it an edit with
+  "clip length: 8s" from the duration picker.
+- Fix (worker, new `veoExtend` split alongside `clipIsSeedanceRef`):
+  - Dedicated continuation-writer compose branch: describe ONLY the new 7
+    seconds, open from the final frame's exact state, 1-2 new beats, same
+    tone/camera/style unless the user changes them, never re-narrate the
+    clip, never state a total length; content-checker-safe phrasing.
+  - Context lines: "this run EXTENDS the attached clip by a fixed 7
+    seconds" replaces "clip length: Ns"; ask step describes the clip as an
+    extend (+7s), not an edit; revise's overstuffed-fix says "7s extension".
+- Kling o3 / Ray clip edits keep the edit writer; Seedance @Video1 keeps
+  the reference writer — this only splits Veo extends out.
