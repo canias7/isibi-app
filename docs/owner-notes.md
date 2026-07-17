@@ -1023,3 +1023,20 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   have blocked seeking). Chip stays as the placeholder while capturing.
 - CSS: clip slot joined the 190px thumbnail group; its fixed 96px chip-era
   height became min-height so the card grows around the frame.
+
+### Staged attachments survive refresh (2026-07-16, every model)
+- **Owner:** "when I refresh the page it loses the attached stuff."
+  stagedByChat was in-memory only (the old comment said "too big for
+  localStorage" — a clip data URI can be 25MB+).
+- **Built:** each chat's staged snapshot mirrors into IndexedDB
+  (zephyr_staged_v1): written debounced 400ms from a one-time wrap around
+  the attach renderers (renderAttach/ExtraImages/RefList/ElList/KfList/
+  MaskState — so every attach, clear, exclusivity eviction, and thumbnail
+  capture persists), hydrated at boot (enterApp) and on chat switch, row
+  deleted when a send consumes the inputs / the chat is deleted / snapshot
+  empties, whole DB cleared on sign-out and account-switch wipes.
+- Covers ALL slots: image/avatar/audio/clip (incl. the new thumbnail +
+  clipMeta), first/last, refs, elements, keyframes, inpaint mask, extras,
+  and the audio waveform state.
+- Verified headless: stage → reload → restored (counter intact); clear →
+  reload → stays empty.

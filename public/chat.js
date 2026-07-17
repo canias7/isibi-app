@@ -2908,30 +2908,123 @@ function stashStaged(id) {
   };
 }
 function restoreStaged(id) {
-  const s = stagedByChat[id];
-  Object.keys(attachments).forEach((k) => { attachments[k] = s ? s.att[k] || null : null; });
-  extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0;
-  if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); }
-  maskData = s ? s.mask : null;
-  clipMeta = s ? s.clipMeta : null;
-  awDur = s ? s.awDur : 0; awPeaks = s ? s.awPeaks : null;
-  awName = s ? s.awName : ''; awSize = s ? s.awSize : 0; awType = s ? s.awType : '';
-  Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
-  if (s && s.imgMeta) Object.assign(imgMeta, s.imgMeta);
-  Object.keys(attachments).forEach((k) => renderAttach(k));
-  renderExtraImages(); renderRefList(); renderElList(); renderKfList();
-  updateAttachVisibility();
-  updateSendPrice();
+  restoringStaged = true;
+  try {
+    const s = stagedByChat[id];
+    Object.keys(attachments).forEach((k) => { attachments[k] = s ? s.att[k] || null : null; });
+    extraImages.length = 0; refList.length = 0; elList.length = 0; kfList.length = 0;
+    if (s) { extraImages.push(...s.extras); refList.push(...s.refs); elList.push(...s.els); kfList.push(...s.kfs); }
+    maskData = s ? s.mask : null;
+    clipMeta = s ? s.clipMeta : null;
+    awDur = s ? s.awDur : 0; awPeaks = s ? s.awPeaks : null;
+    awName = s ? s.awName : ''; awSize = s ? s.awSize : 0; awType = s ? s.awType : '';
+    Object.keys(imgMeta).forEach((k) => delete imgMeta[k]);
+    if (s && s.imgMeta) Object.assign(imgMeta, s.imgMeta);
+    Object.keys(attachments).forEach((k) => renderAttach(k));
+    renderExtraImages(); renderRefList(); renderElList(); renderKfList();
+    updateAttachVisibility();
+    updateSendPrice();
+  } finally { restoringStaged = false; }
 }
+
+// ── Staged attachments survive a refresh (owner 2026-07-16, every model) ──
+// localStorage can't hold multi-MB clip data URIs, so each chat's staged
+// snapshot mirrors into IndexedDB: written (debounced) on every attach-panel
+// change, hydrated at boot and on chat switch, deleted when a send consumes
+// the inputs, the chat dies, or the account signs out/wipes.
+function stagedDbOpen() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('zephyr_staged_v1', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('staged');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function stagedDbPut(id, val) {
+  if (!id) return;
+  try {
+    const db = await stagedDbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('staged', 'readwrite');
+      if (val === null) tx.objectStore('staged').delete(id);
+      else tx.objectStore('staged').put(val, id);
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch (e) {}
+}
+async function stagedDbGet(id) {
+  try {
+    const db = await stagedDbOpen();
+    const val = await new Promise((res, rej) => {
+      const rq = db.transaction('staged').objectStore('staged').get(id);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => rej(rq.error);
+    });
+    db.close();
+    return val;
+  } catch (e) { return null; }
+}
+async function stagedDbClear() {
+  try {
+    const db = await stagedDbOpen();
+    await new Promise((res, rej) => {
+      const tx = db.transaction('staged', 'readwrite');
+      tx.objectStore('staged').clear();
+      tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch (e) {}
+}
+const stagedHasContent = (s) => !!s && (Object.values(s.att || {}).some(Boolean)
+  || (s.extras || []).length > 0 || (s.refs || []).length > 0
+  || (s.els || []).length > 0 || (s.kfs || []).length > 0 || !!s.mask);
+var restoringStaged = false; // var: read by renderers that run before this line executes
+let _stagedPersistT = 0;
+function schedulePersistStaged() {
+  if (restoringStaged) return;
+  clearTimeout(_stagedPersistT);
+  _stagedPersistT = setTimeout(() => {
+    let id; try { id = chatStore.active; } catch { return; }
+    if (!id) return;
+    stashStaged(id);
+    const s = stagedByChat[id];
+    stagedDbPut(id, stagedHasContent(s) ? s : null);
+  }, 400);
+}
+// A chat with no in-memory snapshot may have one persisted from before the
+// refresh — pull it and re-apply if the user is still looking at that chat.
+async function hydrateStaged(id) {
+  if (!id || stagedByChat[id]) return;
+  const rec = await stagedDbGet(id);
+  if (rec && !stagedByChat[id] && chatStore.active === id && stagedHasContent(rec)) {
+    stagedByChat[id] = rec;
+    restoreStaged(id);
+  }
+}
+// Every attach-panel change funnels through these renderers — wrap them once
+// so any change (attach, clear, exclusivity eviction, thumbnail landing)
+// persists without touching each call site.
+(() => {
+  ['renderAttach', 'renderExtraImages', 'renderRefList', 'renderElList', 'renderKfList', 'renderMaskState'].forEach((name) => {
+    const orig = window[name];
+    if (typeof orig !== 'function') return;
+    window[name] = function () { const r = orig.apply(this, arguments); schedulePersistStaged(); return r; };
+  });
+})();
 
 function switchChat(id) {
   if (id === chatStore.active) return;
   stampComposer();               // save the outgoing chat's composer setup
-  stashStaged(chatStore.active); // and its staged attachments (in-memory)
+  const outId = chatStore.active;
+  stashStaged(outId);            // and its staged attachments (in-memory)
+  const outSnap = stagedByChat[outId];
+  stagedDbPut(outId, stagedHasContent(outSnap) ? outSnap : null); // …and refresh-proof
   chatStore.active = id;
   persistStore();
   applyComposerState((activeChat() || {}).comp);
   restoreStaged(id);
+  hydrateStaged(id); // nothing in memory → maybe persisted from before a refresh
   renderChatList();
   renderThread();
   document.getElementById('input').focus();
@@ -2946,6 +3039,7 @@ function deleteChat(id) {
   // re-poll a render into a chat that no longer exists.
   jobClear(id);
   delete stagedByChat[id];
+  stagedDbPut(id, null);
   // Chat-only files (already gallery-deleted) whose ONLY references live in
   // this chat become invisible everywhere once it's gone — free their storage.
   const dying = chatStore.chats.find((c) => c.id === id);
@@ -4600,6 +4694,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // prompt. Only when the user is still on this chat: a background finish
       // must not wipe attachments they've since staged in another chat.
       delete stagedByChat[origin]; // consumed — never restore stale inputs on switch-back
+      stagedDbPut(origin, null);   // and never resurrect them after a refresh
       if (clearInputs && chatStore.active === origin) {
         Object.keys(attachments).forEach((k) => {
           if (attachments[k]) { attachments[k] = null; renderAttach(k); }
@@ -5639,6 +5734,7 @@ function enterApp() {
         [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
+      stagedDbClear(); // staged attachments belong to the outgoing account too
       chatStore = { active: null, chats: [] };
       memoryState = { items: [], enabled: true, updatedAt: 0 };
       syncDirty.clear(); syncDeleted.clear();
@@ -5669,6 +5765,8 @@ function enterApp() {
   try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
   const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'integrations', 'settings'];
   showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
+  // Staged attachments from before the refresh — re-apply the active chat's.
+  try { hydrateStaged(chatStore.active); } catch (e) {}
 }
 
 // Signed in via the nav buttons (not the chatbox): stay on the landing but flip
@@ -5701,6 +5799,7 @@ async function doSignOut(everywhere) {
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   if (typeof sbMediaClear === 'function') { try { await sbMediaClear(); } catch {} } // drop stored imports
+  try { await stagedDbClear(); } catch {} // staged attachments (IndexedDB) go too
   if (everywhere) await Auth.signOutEverywhere();
   else await Auth.signOut();
   location.reload();
