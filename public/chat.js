@@ -1471,12 +1471,22 @@ function renderKfList() {
 // A clip on a Seedance model is a @Video1 reference (reference-to-video), so it
 // gets a chip too — everywhere else a clip is an edit/extend, which has no tag.
 function clipIsVideoRef() { return mode === 'video' && !!attachments.clip && /seedance/.test(model); }
+// The chip bar is a mention picker, NOT a permanent fixture (owner
+// 2026-07-17: "don't make it appear when I put it in reference — only when
+// I go @…"): it shows only while the user is typing an @tag in the prompt,
+// offering the staged references to complete with a click.
+function refChipsWanted() {
+  const input = document.getElementById('input');
+  if (!input) return false;
+  const upto = input.value.slice(0, input.selectionStart ?? input.value.length);
+  return /@[a-z0-9]*$/i.test(upto);
+}
 function renderRefChips() {
   const composer = document.querySelector('#viewHome .composer');
   if (!composer) return;
   let bar = document.getElementById('refChips');
   const vidRef = clipIsVideoRef();
-  const want = (refTagBinding() && refList.length) || elList.length || vidRef;
+  const want = ((refTagBinding() && refList.length) || elList.length || vidRef) && refChipsWanted();
   if (!want) { if (bar) bar.remove(); return; }
   if (!bar) {
     bar = document.createElement('div');
@@ -1491,7 +1501,7 @@ function renderRefChips() {
     chip.className = 'ref-chip';
     chip.title = 'Insert @Image' + (i + 1) + ' into your message';
     chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Image' + (i + 1);
-    chip.onclick = () => insertAtCursor('@Image' + (i + 1));
+    chip.onclick = () => completeTag('@Image' + (i + 1));
     bar.appendChild(chip);
   });
   elList.forEach((src, i) => {
@@ -1500,7 +1510,7 @@ function renderRefChips() {
     chip.className = 'ref-chip';
     chip.title = 'Insert @Element' + (i + 1) + ' into your message';
     chip.innerHTML = '<img src="' + esc(src) + '" alt="" />@Element' + (i + 1);
-    chip.onclick = () => insertAtCursor('@Element' + (i + 1));
+    chip.onclick = () => completeTag('@Element' + (i + 1));
     bar.appendChild(chip);
   });
   if (vidRef) {
@@ -1509,9 +1519,27 @@ function renderRefChips() {
     chip.className = 'ref-chip ref-chip-vid';
     chip.title = 'Insert @Video1 into your message';
     chip.innerHTML = '<span class="ref-chip-glyph">🎬</span>@Video1';
-    chip.onclick = () => insertAtCursor('@Video1');
+    chip.onclick = () => completeTag('@Video1');
     bar.appendChild(chip);
   }
+}
+// Caret moves (arrows, clicks, focus) also decide whether an @token is being
+// typed — the input event alone misses them.
+(() => {
+  const inp = document.getElementById('input');
+  if (inp) ['click', 'keyup', 'focus'].forEach((ev) => inp.addEventListener(ev, () => { try { renderRefChips(); } catch (e) {} }));
+})();
+// Complete the @token being typed: select the partial "@im…" so the insert
+// replaces it, then re-render (the finished tag hides the picker).
+function completeTag(tag) {
+  const input = document.getElementById('input');
+  if (input) {
+    const s = input.selectionStart ?? input.value.length;
+    const m = input.value.slice(0, s).match(/@[a-z0-9]*$/i);
+    if (m) input.setSelectionRange(s - m[0].length, s);
+  }
+  insertAtCursor(tag);
+  renderRefChips();
 }
 function insertAtCursor(tag) {
   const input = document.getElementById('input');
@@ -1520,7 +1548,9 @@ function insertAtCursor(tag) {
   const e = input.selectionEnd ?? s;
   const before = input.value.slice(0, s), after = input.value.slice(e);
   const lead = before && !/\s$/.test(before) ? ' ' : '';
-  const tail = after && !/^\s/.test(after) ? ' ' : '';
+  // Always leave a space after the tag — the caret lands past the completed
+  // token, so the mention picker closes instead of re-matching "@Image1".
+  const tail = /^\s/.test(after) ? '' : ' ';
   input.value = before + lead + tag + tail + after;
   const pos = (before + lead + tag + tail).length;
   input.setSelectionRange(pos, pos);
@@ -8884,7 +8914,7 @@ const CHANGE_ACTIONS = {
 };
 const INPUT_ACTIONS = {
   'search': () => renderChatList(),
-  'autogrow': (e, el) => { autoGrow(el); refreshSendEnabled(); },
+  'autogrow': (e, el) => { autoGrow(el); refreshSendEnabled(); try { renderRefChips(); } catch (err) {} },
 };
 const KEYDOWN_ACTIONS = {
   'send': (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } },

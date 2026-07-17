@@ -1129,3 +1129,13 @@ checklist in the chat.
   moment the attachment clears; synced from updateSendPrice so every
   attach/model change re-evaluates. Seedance refs stay unlocked (no fixed
   length there).
+
+### @Image chips become a mention picker (2026-07-17)
+- **Owner:** the @Image1 chip bar auto-appeared in the composer the moment a
+  reference was attached — "don't make it appear… only when I go @".
+- Now it's mention-style: hidden by default; typing an @token in the prompt
+  (input/keyup/click/focus all re-evaluate the caret) pops the staged
+  refs/elements/@Video1 as chips; clicking one REPLACES the partial "@im…"
+  with the full tag plus a trailing space (which also closes the picker);
+  typing @ again reopens it. The @ImageN badges on the attach-panel
+  thumbnails stay — they're how you know which number is which.
