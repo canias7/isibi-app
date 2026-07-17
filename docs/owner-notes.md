@@ -1063,3 +1063,56 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   never resumes them (only a fresh load autoplays). showMarketing now
   re-kicks any paused video in the landing on every show. Same page as
   always — it just looked like a new static one because of the frozen loops.
+
+## ═══ SESSION RECAP: image-model testing → Veo testing (2026-07-16/17) ═══
+One-place index of the stretch from the GPT/Nano settings testing through
+the Veo live-test prep. Detailed entries for each item are above; commit
+hashes for archaeology.
+
+**Image models (GPT Image 2 + Nano Banana Pro):**
+- Price audit: owner's 8 Nano + GPT screenshots verified, then ALL 264
+  ratio×quality×size×count combos swept through estimatePrice() — all match
+  fal's sheet; totals ceil'd once, same as the worker charges. (no code)
+- GPT resolution row locked while ratio=auto with a note (abe4979) — then
+  superseded by the next two:
+- 1K deleted from the GPT picker (fal bills 1K/2K identically → strictly
+  worse; 2K default now) (bffc52c)
+- 'auto' ratio deleted from GPT (asked with the edits-reframe tradeoff
+  spelled out; picker is 1:1/16:9/9:16/4:3/3:4, default 1:1; every run
+  sends explicit dims and bills the real tier) (fdad16f)
+- Charge audit: worker's real creditCost extracted and compared to the UI
+  quote on all 120 GPT combos + a captured wire body — identical; tamper
+  edges (bad quality/size/num, stale auto) all fail safe. (no code)
+- Renamed "Image to image" → "Edit image" (row, tooltips, director wording)
+  (03c68ca)
+
+**Veo 3.1 + 3.1 Fast prep:**
+- Full price table built + verified against fal's LIVE pages (720p/1080p
+  same bracket, 4k up; audio-off discounts; margins: ~36% membership /
+  ~43% top-up per credit after the $0.008 fal basis). All 216 UI combos
+  (model×ratio×res×dur×sound×path incl. the 8s ref lock and 7s extend
+  lock) match the worker's charge. (no code)
+- Manual Sound On/Off toggle for Veo/Seedance/Kling v3+o3 — Off bills fal's
+  audio-off rate, chip shows "Silent", manual beats director (08ee13d)
+- "Extend clip" rename (Veo only — Ray/o3/Gemini keep "Video clip", theirs
+  means edit) (353917c); "Image to video" rename in video mode (6368eaa)
+- Veo's 4 attach rows made strictly mutually exclusive, both directions;
+  other families keep their real combos (3686612)
+- Extend caps fixed vs the live OpenAPI schema: input cap 8s→23s (chained
+  extends up to fal's 30s ceiling now work), plus an instant 16:9|9:16
+  aspect pre-check at attach (1597313)
+- Exact fal errors now shown to users on EVERY failure path (submit-time,
+  mid-render FAILED, 422 rejects) with refund notes (8fcf044)
+
+**In-app fixes found while testing:**
+- Clip attach slot shows the video's real first frame + duration tag
+  instead of a generic chip (18240ce)
+- Staged attachments survive page refresh — IndexedDB per chat, all slots
+  on all models (2c93346); hardened with 7-day expiry + boot GC so a stale
+  stash never ambushes a send and clips don't hoard disk (93d97cf)
+- Wordmark → the signed-in landing page (same page as post-signin, no new
+  page) (6c6ecd6); landing's autoplay loops resume on return (62578e6)
+
+**Live Veo tests:** A1 exclusivity ✓ · A2 square-clip aspect bounce ✓ ·
+next: A3 free price-flips, then B4 (first paid run, ✦50) onward per the
+checklist in the chat.
