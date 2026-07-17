@@ -173,7 +173,7 @@ let ratio = '16:9';
 let quality = '720p';
 let voice = 'Rachel';
 let numImages = 1; // per-image billing — always defaults back to 1
-let gptSize = '1K'; // GPT Image 2 output resolution tier (1K/2K/4K)
+let gptSize = '2K'; // GPT Image 2 output resolution tier (2K/4K — 1K was dropped from the picker 2026-07-16, owner's call: fal bills 1K and 2K identically so 1K was a strictly-worse pick; the worker still accepts '1K' from stale clients)
 // Each mode remembers its own model, so switching modes doesn't reset the pick.
 const selectedModels = { ...DEFAULT_MODELS };
 let model = selectedModels.video;
@@ -2011,7 +2011,7 @@ function currentOpts() {
       defRes: IMAGE_RES[model] ? IMAGE_RES[model].def : '2K',
       // GPT Image 2 output resolution tier (separate axis from its Quality) —
       // 1K uses the ratio's named preset; 2K/4K send explicit larger dimensions.
-      sizes: model === 'openai/gpt-image-2' ? ['1K', '2K', '4K'] : null, defSize: '1K',
+      sizes: model === 'openai/gpt-image-2' ? ['2K', '4K'] : null, defSize: '2K',
       nums: IMAGE_NUM_MODELS.has(model) ? [1, 2, 3, 4] : null,
       caps: {
         // Reference caps are the PROVIDERS' documented input maxima: Nano
@@ -2197,7 +2197,7 @@ function settingSection(label, kind, items, isVoice) {
     // GPT resolution needs a concrete shape — at auto ratio no size is sent
     // (the model picks) and billing is the 1K tier, so the row locks with a
     // note instead of looking like a live control that changes nothing.
-    (kind === 'gptSize' ? '<div class="set-note">On <b>auto</b> ratio the model picks the size — billed as 1K. Choose a ratio to set resolution.</div>' : '') +
+    (kind === 'gptSize' ? '<div class="set-note">On <b>auto</b> ratio the model picks the size — billed at the base rate. Choose a ratio to set resolution.</div>' : '') +
     (collapsible ? '<button type="button" class="set-viewall">View all</button>' : '') +
     '</div>';
 }
@@ -2253,7 +2253,7 @@ function updateSettingsSummary() {
   const parts = [];
   if (opts.ratios) parts.push(ratio);
   if (opts.resolutions) parts.push(quality);
-  if (opts.sizes && gptSize !== '1K' && ratio !== 'auto') parts.push(gptSize); // at auto no size is sent — don't imply one
+  if (opts.sizes && gptSize !== '2K' && ratio !== 'auto') parts.push(gptSize); // 2K is the default; at auto no size is sent — don't imply one
   if (opts.durations) parts.push(duration + 's');
   if (opts.hdr && hdrOn) parts.push(exrOn ? 'HDR+EXR' : 'HDR');
   if (opts.loop && loopOn) parts.push('Loop');

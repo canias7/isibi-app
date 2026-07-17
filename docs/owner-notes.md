@@ -922,3 +922,12 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   size × 1-4 images) swept through estimatePrice() — every one matches the
   fal sheet; totals are ceil'd once (not per image), same as the worker
   charges.
+
+### GPT 1K resolution removed from the picker (2026-07-16)
+- **Owner:** "1K and 2K cost the same — then delete 1K." Correct read: fal
+  bills GPT Image 2's 1K and 2K identically (per quality tier), so 1K was a
+  strictly-worse pick. The picker is now 2K/4K with 2K the default — same as
+  Nano's row.
+- Client-only change; the worker still accepts '1K' from stale cached
+  clients (same price), and a stale saved per-model gptSize of '1K' falls
+  back to 2K on model pick. The settings chip hides the 2K default.
