@@ -965,3 +965,9 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   now titled "Edit image" (video mode keeps plain "Image"); the row tooltip,
   the reference-row tooltip's either/or line, and the DIRECTOR's routing
   hint (the reference-images block in the worker) all use the same words.
+
+### Veo's clip row renamed "Extend clip" (2026-07-16)
+- Owner's call. Per-model title via #titleClip (like titleImage): /veo/ →
+  "Extend clip"; every other family keeps "Video clip" — on Ray / Kling o3 /
+  Gemini the same row means EDIT the clip, and on Seedance it's a motion
+  reference, so a global rename would have lied there.

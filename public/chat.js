@@ -875,6 +875,11 @@ function updateAttachVisibility() {
   // "Edit image", not "image to image" (owner 2026-07-16) — users think in
   // verbs; the row attaches ONE picture the model then changes.
   if (ti) ti.textContent = mode === 'image' ? 'Edit image' : 'Image';
+  // The clip row means different things per family — say the right verb
+  // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Ray / Kling o3
+  // / Gemini re-render it (edit); Seedance uses it as a motion reference.
+  const tc = document.getElementById('titleClip');
+  if (tc) tc.textContent = /veo/.test(model) ? 'Extend clip' : 'Video clip';
   renderExtraImages();
   renderMaskState(); // the GPT inpainting button depends on model + single image
   updateApCounts();
