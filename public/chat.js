@@ -386,9 +386,11 @@ const CLIP_LIMITS = {
   // kling-video/o3/pro/video-to-video/edit: mp4/mov, 3-15s, 720-3840px, 24-60fps, ≤200MB
   'fal-ai/kling-video/o3/pro/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'], fps: [24, 60] },
   'fal-ai/kling-video/o3/standard/text-to-video': { minDur: 3, maxDur: 15, minPx: 720, maxPx: 3840, formats: ['mp4', 'mov'], fps: [24, 60] },
-  // veo3.1/extend-video: 720p/1080p in 16:9|9:16, input clip up to 8s
-  'fal-ai/veo3.1': { maxDur: 8, minPx: 720, maxPx: 1920 },
-  'fal-ai/veo3.1/fast': { maxDur: 8, minPx: 720, maxPx: 1920 },
+  // veo3.1/extend-video: 720p/1080p in 16:9|9:16 (schema), output always +7s.
+  // Input cap 23s = fal's "extend up to 30 seconds" ceiling minus the 7s
+  // output — an 8s cap used to block re-extending an already-extended video.
+  'fal-ai/veo3.1': { maxDur: 23, minPx: 720, maxPx: 1920, aspects: [16 / 9, 9 / 16] },
+  'fal-ai/veo3.1/fast': { maxDur: 23, minPx: 720, maxPx: 1920, aspects: [16 / 9, 9 / 16] },
   // kling-video/lipsync/audio-to-video: mp4/mov, 2-10s, 720-1920px, ≤100MB
   'fal-ai/kling-video/lipsync/audio-to-video': { minDur: 2, maxDur: 10, minPx: 720, maxPx: 1920, formats: ['mp4', 'mov'] },
   // gemini-omni-flash/edit renders (and fal bills) the WHOLE source clip and
@@ -429,6 +431,15 @@ function clipIssue() {
   // detail for fal to reference — reject; ABOVE the band is handled by the free
   // on-device downscale (normalizeClipArea), so it's not an error here.
   if (lim.minArea && w && h && w * h < lim.minArea) return 'That clip is ' + w + '×' + h + ' — this model needs at least ~480p (' + lim.minArea.toLocaleString() + ' pixels per frame). Use a higher-resolution clip.';
+  // Required aspect ratios (Veo extend: the schema wants a 16:9 or 9:16
+  // input). 5% tolerance absorbs encoder rounding (1920×1088 etc.); without
+  // this check a square clip only died at fal after the wait + refund.
+  if (lim.aspects && w && h) {
+    const r = w / h;
+    if (!lim.aspects.some((a) => Math.abs(r - a) / a < 0.05)) {
+      return 'That clip is ' + w + '×' + h + ' — this model extends 16:9 or 9:16 clips only. Crop or re-export it in one of those shapes.';
+    }
+  }
   return '';
 }
 

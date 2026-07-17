@@ -986,3 +986,15 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   legitimate combos: Ray v2v + start image/keyframes, Kling o3 edit +
   refs/elements, Seedance clip-as-reference.
 - Verified headless in all directions + Ray combo intact.
+
+### Veo extend caps fixed against the live schema (2026-07-16)
+- Checked every Veo cap against fal's OpenAPI schemas: durations (4s/6s/8s),
+  resolutions, ratios, ref 8s lock, extend 7s output — all matched. Two
+  fixes from the sweep:
+  1. Extend INPUT cap was 8s, which blocked re-extending an already-extended
+     video. fal allows extending up to 30s total → input cap is now 23s
+     (30 − the fixed 7s output). Billing unchanged (extends bill 7s output).
+  2. New aspect pre-check on extend inputs: the schema requires a 16:9 or
+     9:16 clip; a square clip used to die at fal after the wait+refund, now
+     it's bounced at attach with the reason (5% tolerance for encoder
+     rounding like 1920×1088).
