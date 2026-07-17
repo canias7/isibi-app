@@ -1608,8 +1608,15 @@ function onAttachRef(inputEl) {
   const files = Array.from(inputEl.files || []);
   inputEl.value = '';
   const cap = refCap();
+  // Cap hits reject LOUDLY (owner 2026-07-17: no caps printed in the UI —
+  // reject with the reason instead), never silently drop files.
+  let capToasted = false;
   files.forEach((file) => {
-    if (refList.length >= cap || srCapHit()) return;
+    if (refList.length >= cap) {
+      if (!capToasted) { capToasted = true; sbToast('Reference images are capped at ' + cap + ' on this model.'); }
+      return;
+    }
+    if (srCapHit()) return;
     readImageConformed(file).then((uri) => {
       if (!uri) { tooBigMsg(); return; }
       if (refList.length < cap && !(vxAllowed() && srTotal() >= 12)) { refList.push(uri); clearImageInputsExcept('ref'); renderRefList(); }
@@ -1742,17 +1749,6 @@ function renderSrTabs() {
   n('srTabImgN', refList.length + '/9');
   n('srTabVidN', ((attachments.clip ? 1 : 0) + vxList.length) + '/3');
   n('srTabAudN', ((attachments.audio ? 1 : 0) + axList.length) + '/3');
-  // The caps, visible up front (fal's schema limits) — not just as bounce
-  // toasts when something exceeds them.
-  const hint = document.getElementById('srHint');
-  if (hint) {
-    hint.style.display = combine ? '' : 'none';
-    hint.textContent = srTab === 'img'
-      ? 'Up to 9 images · cite them as @Image1… · 12 files max across all types'
-      : srTab === 'vid'
-      ? 'Up to 3 videos · MP4/MOV · 2–15s combined · near 480–720p · cite as @Video1…'
-      : 'Up to 3 audio clips · MP3/WAV · 15s combined · needs an image or video ref too';
-  }
 }
 function pickSrTab(tab) { srTab = tab; renderSrTabs(); }
 function vxDurTotal() { return ((clipMeta && clipMeta.dur) || 0) + vxList.reduce((t, x) => t + (x.dur || 0), 0); }
@@ -1761,8 +1757,13 @@ function onAttachVx(inputEl) {
   const files = Array.from(inputEl.files || []);
   inputEl.value = '';
   if (!vxAllowed() || !attachments.clip) return;
+  let vxCapToasted = false;
   files.forEach((file) => {
-    if (vxList.length >= 2 || srCapHit()) return;
+    if (vxList.length >= 2) {
+      if (!vxCapToasted) { vxCapToasted = true; sbToast('Video references are capped at 3 (the clip + 2 more).'); }
+      return;
+    }
+    if (srCapHit()) return;
     // Same format rule as slot #1 (CLIP_LIMITS seedance): fal takes MP4/MOV.
     if (!/^video\/(mp4|quicktime)/.test(file.type || '')) { sbToast('Reference clips must be MP4 or MOV.'); return; }
     const bytesNow = Math.floor(((attachments.clip || '').length + vxList.reduce((t, x) => t + x.uri.length, 0)) * 0.75);
@@ -1819,8 +1820,13 @@ function onAttachAx(inputEl) {
   const files = Array.from(inputEl.files || []);
   inputEl.value = '';
   if (!vxAllowed() || !attachments.audio) return;
+  let axCapToasted = false;
   files.forEach((file) => {
-    if (axList.length >= 2 || srCapHit()) return;
+    if (axList.length >= 2) {
+      if (!axCapToasted) { axCapToasted = true; sbToast('Audio references are capped at 3 (the track + 2 more).'); }
+      return;
+    }
+    if (srCapHit()) return;
     if (!/^audio\//.test(file.type || '')) { sbToast('That file isn’t an audio clip.'); return; }
     if ((file.size || 0) > 15_000_000) { sbToast('Audio references are capped at 15 MB per file.'); return; }
     const reader = new FileReader();

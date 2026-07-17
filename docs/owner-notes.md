@@ -1691,3 +1691,12 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   combined · near 480-720p", audio "up to 3 · MP3/WAV · 15s combined ·
   needs an image or video ref too". Mini's schema verbatim-confirmed
   identical to Std/Fast (incl. the 12-file total).
+
+### Caps: no UI text, loud rejection instead (owner reversed, 2026-07-17)
+- The just-added per-tab caps hint was removed same-day (owner: "don't put
+  the cap there — whenever it exceeds, just reject it and tell the user
+  why"). Every cap on Seedance + Veo attach flows now rejects with the
+  reason; the previously SILENT count-cap drops got toasts: over-cap ref
+  images (Veo "capped at 3", Seedance "capped at 9"), 4th video ref, 4th
+  audio ref. The existing loud checks (combined duration/size/format/
+  12-total/pixel band/clip validation) were already compliant.
