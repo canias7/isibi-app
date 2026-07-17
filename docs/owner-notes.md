@@ -1608,3 +1608,32 @@ checklist in the chat.
   impossible example durations ("5 second video") on enums that don't
   include 5s — schema remains the only trustworthy source.
 - Open niche question stands: Fast reference at 4k (tier vs flat billing).
+
+### Veo expected-credits reference (owner: front-end check pending)
+The owner will verify these on the frontend later — every combo the app
+should quote AND charge:
+
+Veo 3.1 (Standard) — t2v / i2v / first-&-last (4s · 6s · 8s):
+  720p/1080p sound  ✦200 · ✦300 · ✦400
+  720p/1080p silent ✦100 · ✦150 · ✦200
+  4K sound          ✦300 · ✦450 · ✦600
+  4K silent         ✦150 · ✦225 · ✦300
+  Reference (8s lock): ✦400 / ✦200 · 4K ✦600 / ✦400
+  Extend (+7s, 720p pin): ✦350 / ✦175
+
+Veo 3.1 Fast — t2v / i2v / first-&-last (4s · 6s · 8s):
+  720p/1080p sound  ✦75 · ✦113 · ✦150
+  720p/1080p silent ✦50 · ✦75  · ✦100
+  4K sound          ✦175 · ✦263 · ✦350
+  4K silent         ✦150 · ✦225 · ✦300
+  Reference (8s lock): ✦150 / ✦100 · 4K ✦350 / ✦300 (tier-vs-flat open)
+  Extend (+7s, 720p pin): ✦132 / ✦88
+
+Veo 3.1 Lite — t2v / i2v (4s · 6s · 8s):
+  720p sound  ✦25 · ✦38 · ✦50     720p silent  ✦15 · ✦23 · ✦30
+  1080p sound ✦40 · ✦60 · ✦80     1080p silent ✦25 · ✦38 · ✦50
+  First-&-last (8s lock): 720p ✦50 / ✦30 · 1080p ✦80 / ✦50
+  (No reference / extend / 4K on Lite.)
+
+Fractional-looking cells are correct ceilings (✦113 = $0.90, ✦263 =
+$2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
