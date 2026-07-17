@@ -1675,3 +1675,11 @@ $2.10, ✦38 = $0.30, ✦23 = $0.18) — rounding is always up.
   Non-Seedance models keep the plain image group with the tabs hidden.
 - Verified headless: tabs render/switch/count correctly, only-one-group
   visibility, Veo fallback intact, no page errors.
+
+### Reference-tab polish: waveform bleed + clip label (owner caught, 2026-07-17)
+- Relocating the audio/clip controls out of their rows detached them from
+  their #rowAudio/#rowClip-scoped CSS — the empty audio slot's waveform
+  rendered unstyled and bled across the tabs. Every scoped selector now
+  has a #srAudGroup/#srVidGroup twin, so both slots keep their exact old
+  styling wherever they live. The clip tile also reads "+ Video" inside
+  the Reference row (it's a reference there, not the old Video-clip row).

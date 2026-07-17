@@ -831,7 +831,11 @@ function renderAttach(kind) {
     const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
     btn.classList.remove('has');
-    btn.innerHTML = ATTACH_LABELS[kind];
+    // Inside the combined Reference row the clip slot reads "Video" (it's a
+    // reference, not the old Video-clip row).
+    btn.innerHTML = kind === 'clip' && vxAllowed()
+      ? '<span class="plus-big">+</span><span class="slot-lab">Video</span>'
+      : ATTACH_LABELS[kind];
   }
   const cnt = document.getElementById('cnt' + kind[0].toUpperCase() + kind.slice(1));
   if (cnt) {
