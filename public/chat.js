@@ -5520,6 +5520,16 @@ function hideAuthGate() {
   if (shell) shell.inert = false;
 }
 
+// Wordmark → back to the landing page (owner 2026-07-16), in its signed-in
+// form when a session exists: profile pill top-right stays live, and the
+// landing chatbox drops back into the studio. Nothing in the app is lost —
+// chats/attachments keep their state behind the (inert) shell.
+function goLanding() {
+  try { stampComposer(); } catch (e) {}
+  try { if (Auth.email && Auth.email()) enterLandingAuthed(); } catch (e) {}
+  showMarketing();
+}
+
 // Public marketing landing (logged-out default). CTAs reveal the auth gate;
 // the gate's "← Back" returns here; signing in hides it for good.
 function showMarketing() {
@@ -8810,6 +8820,7 @@ const CLICK_ACTIONS = {
   'model-menu': (e) => toggleModelMenu(e),
   'opt-settings': (e) => toggleOpt(e, 'settings'),
   'send': () => send(true),
+  'landing': () => goLanding(),
   'gal-filter': (e, el) => setGalFilter(el.dataset.f),
   'gal-sort': () => toggleGalSort(),
   'gal-import': () => {

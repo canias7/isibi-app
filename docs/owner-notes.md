@@ -1048,3 +1048,11 @@ _Status key: 🔴 open · 🟡 in progress · ✅ fixed_
   along on — and re-route — a fresh send. A boot sweep also garbage-collects
   expired rows and rows whose chat no longer exists, so forgotten 25MB clips
   don't sit in the browser forever.
+
+### Wordmark → back to the landing page (2026-07-16)
+- Owner's ask: the top-left isibi logo now returns to the marketing landing
+  in its signed-in form (goLanding → enterLandingAuthed + showMarketing):
+  profile pill stays live top-right, the landing chatbox re-enters the
+  studio, and the app keeps all its state behind the inert shell (verified:
+  staged refs survive the round-trip). Previously the logo just went to the
+  Builder view.
