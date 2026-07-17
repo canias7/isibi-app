@@ -7895,8 +7895,6 @@ function renderSchedule(body) {
           '<button type="button" class="ma-btn ma-btn-off pub-pick-btn" id="schGal">🖼 From gallery</button>' +
         '</div>' +
         '<input type="file" id="schFile" accept="image/*,video/*" style="display:none">' +
-        '<label class="ma-pub-l">or paste a public URL</label>' +
-        '<input id="schUrl" class="ma-pub-in" placeholder="https://…">' +
         '<label class="ma-pub-l">Type</label>' +
         '<select id="schType" class="ma-pub-in">' +
           '<option value="image">Image post</option>' +
@@ -7943,15 +7941,6 @@ function renderSchedule(body) {
   }
   const galBtn = document.getElementById('schGal');
   if (galBtn) galBtn.onclick = () => openPubGalleryPicker(false, schSelectGalleryMedia);
-  const urlIn = document.getElementById('schUrl');
-  if (urlIn) urlIn.oninput = () => {
-    const u = urlIn.value.trim();
-    if (/^https?:\/\//i.test(u)) {
-      schMedia = { url: u, thumb: '', kind: (document.getElementById('schType') || {}).value || 'image', name: '' };
-      const prev = document.getElementById('schPreview');
-      if (prev) { prev.classList.add('on'); prev.innerHTML = '<div class="sch-urlprev">🔗 ' + esc(u.slice(0, 60)) + (u.length > 60 ? '…' : '') + '</div>'; }
-    }
-  };
   const sub = document.getElementById('schSubmit');
   if (sub) sub.onclick = () => schSubmit(body);
   body.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => schRemove(b.dataset.del, body); });
@@ -7981,8 +7970,6 @@ function schSelectGalleryMedia(it) {
   schMedia = { url: it.url, thumb: kind === 'video' ? (it.poster || '') : it.url, kind, name: '' };
   const typeSel = document.getElementById('schType');
   if (typeSel) typeSel.value = kind;
-  const urlIn = document.getElementById('schUrl');
-  if (urlIn) urlIn.value = '';   // gallery pick supersedes any typed URL
   const prev = document.getElementById('schPreview');
   if (prev) {
     prev.classList.add('on');
@@ -7996,7 +7983,7 @@ function schSubmit(body) {
   const show = (msg, cls) => { if (!res) return; res.style.display = ''; res.className = 'ma-pub-res ' + (cls || 'ma-pub-res-busy'); res.textContent = msg; };
   const whenRaw = (document.getElementById('schWhen') || {}).value || '';
   const when = Date.parse(whenRaw);
-  if (!schMedia || (!schMedia.thumb && !schMedia.url && schMedia.kind !== 'video')) { show('Add media first — choose a file or paste a URL.', 'ma-pub-res-warn'); return; }
+  if (!schMedia || (!schMedia.thumb && !schMedia.url && schMedia.kind !== 'video')) { show('Add media first — choose a file or pick from your gallery.', 'ma-pub-res-warn'); return; }
   if (!Number.isFinite(when)) { show('Pick a date and time.', 'ma-pub-res-warn'); return; }
   if (when < Date.now()) { show('Pick a time in the future.', 'ma-pub-res-warn'); return; }
   const caption = ((document.getElementById('schCaption') || {}).value || '').trim().slice(0, 2200);
