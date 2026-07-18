@@ -5791,7 +5791,7 @@ async function directorAsk(text, history, onDelta, snap) {
           if (!line) continue;
           let ev;
           try { ev = JSON.parse(line.slice(6)); } catch { continue; }
-          if (ev.d && onDelta) onDelta(ev.d);
+          if (ev.d && onDelta) onDelta(scrubProvider(ev.d));
           if (ev.done) final = ev.done;
           if (ev.error) throw 0;
         }
@@ -5801,7 +5801,7 @@ async function directorAsk(text, history, onDelta, snap) {
       // approval gate (unlike compose, which waits for the user to run it).
       if (Array.isArray(final.memory)) commitMemory(final.memory);
       return {
-        reply: final.reply || '',
+        reply: scrubProvider(final.reply || ''),
         ready: !!final.ready,
         rerun: !!final.rerun,
         revise: !!final.revise,
@@ -5811,7 +5811,7 @@ async function directorAsk(text, history, onDelta, snap) {
     const data = await res.json();
     if (Array.isArray(data.memory)) commitMemory(data.memory);
     return {
-      reply: data.reply || '',
+      reply: scrubProvider(data.reply || ''),
       ready: !!data.ready,
       rerun: !!data.rerun,
       revise: !!data.revise,
@@ -8836,7 +8836,7 @@ async function agentSend(text) {
     if (r.status === 429) agentMsgs.push({ role: 'assistant', content: 'You’ve hit today’s agent limit — try again tomorrow.' });
     else if (r.status === 501) agentMsgs.push({ role: 'assistant', content: 'The agent isn’t configured on the server yet.' });
     else if (!r.ok || !d.reply) agentMsgs.push({ role: 'assistant', content: 'Something went wrong reaching your accounts. Try again.' });
-    else agentMsgs.push({ role: 'assistant', content: d.reply });
+    else agentMsgs.push({ role: 'assistant', content: scrubProvider(d.reply) });
   } catch {
     agentMsgs.push({ role: 'assistant', content: 'Network error — try again.' });
   }
@@ -10129,7 +10129,10 @@ async function galleryDelete(it, el) {
     } catch {}
   } else {
     const m = it.url.match(/\/storage\/v1\/object\/public\/media\/(.+)$/);
-    if (m && window.Auth) { try { await Auth.storageDelete(m[1]); ok = true; } catch {} }
+    // storageDelete returns res.ok (false on a 4xx/expired-token DELETE) and
+    // only throws on a network error — capture the boolean so a non-throwing
+    // failure isn't reported as a successful delete (2026-07-18).
+    if (m && window.Auth) { try { ok = !!(await Auth.storageDelete(m[1])); } catch {} }
     else ok = true; // non-storage URL — nothing to remove server-side, treat as done
   }
   // The server op failed — the file is still there. Don't leave a phantom

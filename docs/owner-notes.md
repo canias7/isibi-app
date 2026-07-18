@@ -2388,3 +2388,33 @@ REMAINING MINOR LEAK (not yet fixed — flag):
   Lower priority (niche pro feature) but violates the same rule — proxy or drop
   it in a later pass. → DONE 2026-07-18: dropped the EXR block entirely (dead
   code since the Ray/HDR pipeline was excised — no model returns exr_file).
+
+## 2026-07-18 — Audit re-verification pass + 2 remaining fixes
+
+- Re-verified the 19 confirmed MEDIUM findings (+ leak/security) from the Jul-17
+  audit against CURRENT code (line numbers had drifted). Result: the vast
+  majority were ALREADY FIXED by later work — all money mediums (webm clip 30s
+  overcharge → clipMeasurable guard; GPT 4K auto → 1K bill; import-rescue -1 →
+  402 guard; /api/save tooLargeBody backstop), the two state-machine races
+  (awDecode identity guard, onAttach chat-scope guard), pushAssets requeue, the
+  director-prompt mismatches (multiImgLine now in from-scratch branch, gemini in
+  the tag branch), plan-card shot-drop (now warns), gallery non-URL (sbToast),
+  and the whole refresh/resume cluster (finishDeadJob re-persist + dtries cap,
+  scheduleResume idem recovery + terminal tries>=4 resolve, error-step prompt
+  scrub). Genuinely still-open, now FIXED this pass:
+  - **Provider-leak (chat.js): ask reply + SSE deltas + Media-Agent reply were
+    rendered UNSCRUBBED** (only the error step got scrubbed 2026-07-17). Fixed
+    at the source: directorAsk now returns scrubProvider(reply) on both the
+    streaming and non-streaming paths, onDelta scrubs each delta, and the
+    Media-Agent reply is scrubbed. Closes the absolute never-name-the-provider
+    rule for the conversational paths.
+  - **galleryDelete hard-delete swallowed a non-throwing failure**: storageDelete
+    returns res.ok (false on 4xx/expired token) without throwing, but the code
+    set ok=true regardless → phantom delete that reappears on next load with no
+    message. Now captures the boolean → toast + card restored on failure.
+- LEFT ALONE (per owner's "skip Media Agent"): the orphaned Media-Agent
+  agent-chat (#maThread/agentRenderThread/agentSend/AGENT_SUGGESTIONS) is
+  confirmed unreachable dead code — harmless, can delete on the owner's word.
+- Bounded residual (not a regression): a new send in the ~45s window after a job
+  hits tries==4 can still clobber the dead record before finishDeadJob refunds —
+  down from permanent silent loss to a narrow race. Noted, not urgent.
