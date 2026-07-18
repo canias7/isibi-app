@@ -190,6 +190,38 @@ and fixed, and add a preference line whenever the owner signals one.
   on healthy or dark-hero designs. Existing sites built before this need a
   refresh + Fix chip (or a revise) since the rule only governs new builds.
 
+### Website builder — function TRIGGERS: webhook + scheduled (2026-07-18)
+- **Status:** ✅ shipped to main + deployed + live-tested. Owner picked this from
+  the "more technical, like edge functions" backlog.
+- **What:** edge functions gained two triggers beyond the site's own JS calling
+  `/api/site/fn`:
+  1. **Webhook** — `POST https://isibi.ai/api/site/hook/<slug>/<name>`; the
+     ENTIRE POST body becomes the function's `input` (so Stripe/Zapier/etc. post
+     their native payload). Shares the load+run path with `/api/site/fn`
+     (`invokeSiteFunctionByName`). Same bounds + per-slug rate limit. The Cloud →
+     Edge functions panel shows each function's copyable webhook URL.
+  2. **Scheduled** — spec `"schedule":{"everyMinutes":N}` (clamped 5…43200). Runs
+     on the EXISTING 2-min cron (`scheduled()` → `runScheduledSiteFunctions`),
+     input `{scheduled:true}`. `schedule_minutes` + `last_run` columns on
+     site_functions; last_run is stamped BEFORE running so a slow job can't
+     double-fire; a 30s grace keeps a 2-min tick from skipping an hourly job.
+     Panel shows an amber Hourly/Daily/Every-Nm badge.
+- **Where:** worker.js (`invokeSiteFunctionByName`, `runScheduledSiteFunctions`,
+  the `/api/site/hook/` route, `scheduled()` hook, normalizeFnSpec schedule
+  parse, persist writes schedule_minutes, functions GET returns it, SITE_RULES
+  TRIGGERS paragraph), chat.js/styles.css (`fn-sch` badge + `fn-hook` URL row +
+  copy). Migration `site_functions_scheduling`.
+- **Live test (throwaway data, cleaned up):** webhook — POSTed
+  `{event:"payment.succeeded",data:{amount:4999}}` → function got it, nested
+  `{{input.data.amount}}` resolved to 4999 ✓; unknown fn → 404 ✓. Scheduled —
+  a 5-min function fired on the real cron (`cron_runs:1`, `last_run` stamped),
+  did not double-fire ✓.
+- **Next backlog (owner's picks):** FILE UPLOADS (visitor uploads → R2 →
+  collection URL) is the next build. Queryable DB was DECLINED for now — the
+  model does client-side filter/sort/search in the site's own JS for typical
+  sites (<100 records); only build server-side query if a collection outgrows
+  the 100-record fetch cap.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
