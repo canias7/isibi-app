@@ -2583,3 +2583,24 @@ Three levers, all in /api/site:
   quality comes from); revise stays "low" (surgical, cheap). MAX_OUT_TOK 32768→60000
   for room. A high-thinking build now runs ~30-35 credits (metered, still refunded
   to actual); revisions stay cheap.
+
+## 2026-07-18 — Website Builder: REAL image generation (Nano Banana Pro) + billing rewrite
+Closes the Lovable gap (they generate photos; now so do we — with our own models):
+- **Design pass** emits <img data-gen="<art-directed photo prompt>" data-ar="16:9"> (no
+  src) for the hero + up to 4 key visuals; SITE_RULES + build prompt teach the protocol.
+- **Server-side pipeline** (worker helpers genOneSiteImage/storeSiteImage/injectSiteImages):
+  generate each with Nano Banana Pro via fal's SYNC endpoint (fal.run/fal-ai/nano-banana-pro,
+  2K), download → upload to the user's Supabase storage (media/<uid>/site/), swap the real
+  hosted URL into the HTML. Generated in PARALLEL. Failures fall back to a gradient data-URI
+  placeholder (build never breaks). Cap SITE_MAX_IMAGES=4.
+- **Billing rewritten to CHARGE-AFTER-SUCCESS** (fixes the refund undercount the owner flagged):
+  no more reserve→credit_back. Flow: readCredits pre-check (≥ worst-case Gemini) → build →
+  charge measured Gemini cost → generate images capped to what the remaining balance affords
+  → charge per generated image ($0.15=19cr each). Nothing is charged before success, so a
+  failure needs NO refund. Response reports actual total cost + net balance.
+- Cost: a full build now ≈ Gemini (~25-35cr, high thinking) + up to 4×19 = ~75cr images ≈
+  100-110 credits (~$0.85) when it uses the full image budget; fewer images → less. Revisions
+  stay cheap (low thinking, usually no new images).
+- NOTE: latency is now ~1.5-2.5 min/build (high-thinking Gemini + parallel image gen). If
+  Cloudflare/edge ever times out the long request, move /api/site to an async job (return a
+  token, poll) — watch for it.

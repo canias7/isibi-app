@@ -1722,6 +1722,80 @@ async function openMediaToken(env, token) {
   }
 }
 
+// ── Website Builder: server-side image generation ──
+// The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
+// we generate each with Nano Banana Pro (fal sync endpoint), host it in the user's
+// Supabase storage, and swap the real URL in — real photography, not CSS art.
+const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
+const SITE_IMG_USD = 0.15; // 2K nano-banana-pro (fal), = ceil(0.15/0.008)=19 credits
+async function genOneSiteImage(env, prompt, aspect) {
+  const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
+    method: "POST",
+    headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      prompt: String(prompt || "").slice(0, 1500),
+      aspect_ratio: /^\d{1,2}:\d{1,2}$/.test(aspect) ? aspect : "16:9",
+      resolution: "2K", output_format: "jpeg", num_images: 1,
+    }),
+    signal: AbortSignal.timeout(120000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("img gen " + r.status);
+  const url = d.images && d.images[0] && d.images[0].url;
+  if (!url) throw new Error("img gen empty");
+  return url;
+}
+async function storeSiteImage(request, uid, falUrl) {
+  const media = await fetch(falUrl, { signal: AbortSignal.timeout(30000) });
+  if (!media.ok || !media.body) throw new Error("img fetch");
+  const ct = (media.headers.get("content-type") || "image/jpeg").split(";")[0];
+  const ext = ct.includes("png") ? "png" : ct.includes("webp") ? "webp" : "jpg";
+  const path = `${uid}/site/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${ext}`;
+  const jwt = (request.headers.get("Authorization") || "").slice(7);
+  const up = await fetch(`${SUPABASE_URL}/storage/v1/object/media/${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${jwt}`, apikey: SUPABASE_ANON_KEY, "Content-Type": ct, "cache-control": "max-age=31536000" },
+    body: media.body,
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!up.ok) throw new Error("img store " + up.status);
+  return `${SUPABASE_URL}/storage/v1/object/public/media/${path}`;
+}
+// Soft gradient placeholder (base64 SVG data URI) when an image can't be made —
+// keeps the layout intact instead of a broken-image icon.
+function siteImgFallback() {
+  const svg = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='10'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#241c2e'/><stop offset='1' stop-color='#0d0b12'/></linearGradient></defs><rect width='16' height='10' fill='url(#g)'/></svg>";
+  return "data:image/svg+xml;base64," + btoa(svg);
+}
+const decodeHtmlAttr = (s) => String(s || "").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+// Fill every data-gen <img> in `html`: generate the first `budget` in parallel,
+// host + swap real src; anything over budget or that fails gets the gradient
+// fallback. Returns { html, charged } (charged = images that actually generated).
+async function injectSiteImages(html, request, env, uid, budget) {
+  const tags = [];
+  html.replace(/<img\b[^>]*\bdata-gen="[^"]*"[^>]*>/gi, (tag) => { tags.push(tag); return tag; });
+  if (!tags.length) return { html, charged: 0 };
+  const withReal = tags.slice(0, Math.max(0, budget));
+  const overflow = tags.slice(Math.max(0, budget));
+  const done = await Promise.all(withReal.map(async (tag) => {
+    const prompt = decodeHtmlAttr((tag.match(/data-gen="([^"]*)"/i) || [])[1]);
+    const ar = (tag.match(/data-ar="([^"]*)"/i) || [])[1] || "16:9";
+    try {
+      const falUrl = await genOneSiteImage(env, prompt, ar);
+      const hosted = await storeSiteImage(request, uid, falUrl);
+      return { tag, src: hosted, ok: true };
+    } catch (e) {
+      console.log("site image failed:", e && e.message);
+      return { tag, src: siteImgFallback(), ok: false };
+    }
+  }));
+  let out = html, charged = 0;
+  const swap = (tag, src) => tag.replace(/\sdata-gen="[^"]*"/i, ' src="' + src + '"').replace(/\sdata-ar="[^"]*"/i, "");
+  for (const r of done) { out = out.replace(r.tag, swap(r.tag, r.src)); if (r.ok) charged++; }
+  for (const tag of overflow) out = out.replace(tag, swap(tag, siteImgFallback()));
+  return { html: out, charged };
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -3363,7 +3437,7 @@ async function handleRequest(request, env, ctx) {
       const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
-      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource allowed: NO CDN scripts/frameworks/icon-fonts, and NO external images (build all imagery from CSS gradients/meshes, CSS shapes, and hand-written inline SVG — decorative art, logos, icons, patterns). Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. Any <form> uses action=\"#\" (no real endpoint yet).";
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. Any <form> uses action=\"#\" (no real endpoint yet).";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
       if (!env.GEMINI_API_KEY) {
@@ -3383,32 +3457,31 @@ async function handleRequest(request, env, ctx) {
       // Real-money engine calls, directly callable → a daily cap BEFORE the
       // charge (same stance as research: a capped user is told, not debited).
       if (!(await useQuota(request, "site", 40))) return QUOTA_EXCEEDED();
-      // Metered billing (owner 2026-07-18): charge the ACTUAL Gemini token cost,
-      // no flat fee. gemini-3.5-flash = $1.50/M in, $9/M out (flat, no tier;
-      // output includes thinking tokens); 1 credit = $0.008. We reserve the MAX
-      // this call could cost (the known input size + the 32768 output cap) so the
-      // work is never unpaid, run it, then refund down to the real measured usage.
-      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000;
-      const stRate = () => ({ i: 1.5e-6, o: 9e-6 });
-      const toCredits = (inTok, outTok) => {
-        const rt = stRate(inTok);
-        return Math.max(1, Math.ceil((inTok * rt.i + outTok * rt.o) / CREDIT_USD));
-      };
-      // Upper bound from the payload we already hold (~4 chars/token) + output cap.
+      // Metered billing (owner 2026-07-18): charge the ACTUAL cost, and charge
+      // ONLY AFTER each step succeeds — so nothing is ever reserved or refunded
+      // (this replaced a reserve→credit_back model whose refund undercounted,
+      // since credit_back caps at 10/call). gemini-3.5-flash = $1.50/M in, $9/M
+      // out (flat; output incl. thinking); each Nano Banana Pro image = $0.15;
+      // 1 credit = $0.008. We pre-check the balance covers a worst-case build,
+      // run it, then debit the measured Gemini cost + each generated image.
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000, SITE_MAX_IMAGES = 4;
+      const IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
+      const auth = request.headers.get("Authorization") || "";
+      const toCredits = (inTok, outTok) => Math.max(1, Math.ceil((inTok * 1.5e-6 + outTok * 9e-6) / CREDIT_USD));
+      // Upper bound: the payload we already hold (~4 chars/token) + the output cap.
       const estInTok = Math.ceil((((step === "build" ? brief : instruction + curHtml) || "").length + 1800) / 4);
-      const maxCredits = toCredits(estInTok, MAX_OUT_TOK);
+      const estGemMax = toCredits(estInTok, MAX_OUT_TOK);
       let stBalance;
       try {
-        stBalance = await useCredits(request.headers.get("Authorization") || "", maxCredits);
+        stBalance = await readCredits(auth);
       } catch {
         return Response.json({ error: "site engine unavailable" }, { status: 503 });
       }
-      if (stBalance === -1) {
+      // Need enough for the worst-case Gemini pass up front (images are charged
+      // as-generated below, capped to whatever's left — never overspent).
+      if (!(stBalance >= estGemMax)) {
         return Response.json({ error: "not enough credits", need: "credits" }, { status: 402 });
       }
-      // Reverse `n` credits (credit_back caps at 10/call, so loop).
-      const giveBack = async (n) => { for (let left = n; left > 0; left -= 10) await creditBack(env, stUser.id, Math.min(10, left)); };
-      const refundSite = () => giveBack(maxCredits); // full reversal on failure
       let usedInTok = 0, usedOutTok = 0;
       const geminiCall = async (system, user, thinking = "low") => {
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
@@ -3456,7 +3529,8 @@ async function handleRequest(request, env, ctx) {
             "• TYPOGRAPHY is the identity: pull real fonts from Google Fonts — a characterful DISPLAY face paired with a clean, readable body face (and a mono/label face if it fits). Big confident headings with a clear type scale (clamp()), tight display leading, roomy body. Type carries the design; never leave it on a system default.\n" +
             "• COLOR: a considered palette — pick NEUTRALS with a slight hue bias (never pure #888 grey), one confident accent used with restraint, and grounds (near-black or a chosen off-white) that suit the brand. No default purple→blue gradients.\n" +
             "• LAYOUT: editorial and intentional — asymmetry, deliberate overlap, and generous negative space where they serve the design; a strong grid; NOT everything centered, NOT a cookie-cutter equal card grid. The HERO is a thesis: the single most characteristic thing about this brand, not a stock headline+two-buttons.\n" +
-            "• DEPTH & MOTION: build real atmosphere with CSS — layered gradients/mesh, grain or subtle texture, fine 1px borders, considered shadows; add tasteful scroll-reveal and hover microinteractions (guarded by prefers-reduced-motion). All imagery is CSS art or hand-written inline SVG (no external images).\n" +
+            "• PHOTOGRAPHY (this is what makes it feel real): for the hero and the 2-4 most impactful visual spots, use REAL generated photography — emit <img data-gen=\"<a vivid, specific art-directed photo prompt: subject, lighting, mood, composition, lens feel, color grade — on-brand>\" data-ar=\"16:9\" alt=\"...\" class=\"...\"> with NO src attribute (the platform generates each image from data-gen and fills the src). Use data-ar for the shape: \"16:9\"/\"3:2\" wide hero, \"4:5\"/\"1:1\" product/portrait. Write cinematic, editorial prompts (not generic stock). Budget: AT MOST 4 data-gen images — hero + the few that matter; make each count. Size them in CSS (object-fit:cover, real dimensions) so layout holds. Use CSS gradients/mesh and inline SVG for everything else (textures, icons, logos, decorative shapes).\n" +
+            "• DEPTH & MOTION: build real atmosphere with CSS — layered gradients/mesh, grain or subtle texture, fine 1px borders, considered shadows; add tasteful scroll-reveal and hover microinteractions (guarded by prefers-reduced-motion).\n" +
             "• COPY: real, specific, on-brand voice — headlines with a hook, feature copy that says something, CTAs with personality. Never lorem, never 'Welcome to X' filler, never fake 'John D.' testimonials with placeholder faces (design testimonials as typographic quotes instead).\n" +
             "• Include the sections the brief implies plus a matching nav and footer, each designed — not stacked identical blocks.\n\n" +
             "AVOID these AI-slop tells at all costs: everything centered; emoji as section icons; the same rounded-corner card repeated; a generic hero→3 features→pricing→footer with no personality; Inter/system-ui as the whole type identity; washed-out purple gradients; uniform spacing with no rhythm. Take ONE real aesthetic risk that fits the brand.\n\n" +
@@ -3475,21 +3549,31 @@ async function handleRequest(request, env, ctx) {
           html = extractHTML(out);
           if (!html) throw new Error("revision returned no document");
         }
-        // Refund the reserve down to the real measured cost.
-        const actualCredits = Math.min(maxCredits, toCredits(usedInTok, usedOutTok));
-        const overage = maxCredits - actualCredits;
-        if (overage > 0) {
-          const p = giveBack(overage);
-          if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
-        }
-        return Response.json({ html, cost: actualCredits, balance: stBalance + overage });
+        // The Gemini pass succeeded — charge its MEASURED cost now (charge-after,
+        // so a failure above never charged anything and needs no refund).
+        const gemCredits = toCredits(usedInTok, usedOutTok);
+        let balAfter = stBalance;
+        try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}
+        // Generate real photography for the data-gen placeholders — capped both
+        // to SITE_MAX_IMAGES and to whatever the remaining balance affords, so
+        // images can never overspend. Each successful image is billed after it lands.
+        const affordable = Math.max(0, Math.min(SITE_MAX_IMAGES, Math.floor(balAfter / IMG_CREDITS)));
+        let imgCredits = 0;
+        try {
+          const inj = await injectSiteImages(html, request, env, stUser.id, affordable);
+          html = inj.html;
+          if (inj.charged > 0) {
+            imgCredits = inj.charged * IMG_CREDITS;
+            try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {}
+          }
+        } catch (e) { console.log("site image pass failed:", e && e.message); }
+        return Response.json({ html, cost: gemCredits + imgCredits, balance: balAfter });
       } catch (e) {
         console.error("site engine failed:", e && e.message, "|", e && e.detail);
-        const p = refundSite();
-        if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
-        // Provider-neutral to the client — never name the engines. `code` is just
-        // a number (upstream HTTP status, or 0 for an empty response) for debugging.
-        return Response.json({ error: "build failed", refunded: maxCredits, code: (e && e.status != null ? e.status : -1) }, { status: 502 });
+        // Charge-after model: nothing was debited before this point, so there is
+        // nothing to refund. `code` is just a number (upstream HTTP status, or 0
+        // for an empty response) for debugging — never names the engine.
+        return Response.json({ error: "build failed", code: (e && e.status != null ? e.status : -1) }, { status: 502 });
       }
     }
 
