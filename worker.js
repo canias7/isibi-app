@@ -2249,6 +2249,24 @@ async function handleRequest(request, env, ctx) {
       if (um) return new Response("Not found", { status: 404 });
     }
 
+    // Serve a builder attachment (logo / reference the owner attached when
+    // building) from R2: isibi.ai/a/<siteId>/<file>. Same shape as /u/.
+    {
+      const am = url.pathname.match(/^\/a\/([a-z0-9][a-z0-9_-]{0,80})\/([A-Za-z0-9._-]{1,80})$/i);
+      if (am && env.SITES_BUCKET) {
+        const obj = await env.SITES_BUCKET.get("assets/" + am[1] + "/" + am[2]);
+        if (!obj) return new Response("Not found", { status: 404 });
+        return new Response(obj.body, {
+          headers: {
+            "content-type": (obj.httpMetadata && obj.httpMetadata.contentType) || "application/octet-stream",
+            "cache-control": "public, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
+      if (am) return new Response("Not found", { status: 404 });
+    }
+
     const genKind =
       url.pathname === "/api/video" ? "video" :
       url.pathname === "/api/image" ? "image" :
@@ -3922,14 +3940,39 @@ async function handleRequest(request, env, ctx) {
       if (!(stBalance >= estGemMax)) {
         return Response.json({ error: "not enough credits", need: "credits" }, { status: 402 });
       }
+      // Attached images (logo / product photo / design reference): host each in
+      // R2 (so the generator can EMBED it as a real <img>) AND keep the base64 to
+      // show Gemini's VISION (so it can match a reference). ≤3 images, ≤5MB each.
+      const assetSiteId = typeof body.siteId === "string" ? body.siteId.slice(0, 80) : "";
+      let imageParts = [], assetUrls = [];
+      {
+        const rawImages = Array.isArray(body.images) ? body.images.slice(0, 3) : [];
+        const A_MIME = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+        for (const im of rawImages) {
+          const m = im && typeof im.data === "string" ? im.data.match(/^data:([^;,]+);base64,(.+)$/s) : null;
+          if (!m) continue;
+          const mime = m[1].toLowerCase(), ext = A_MIME[mime]; if (!ext) continue;
+          let bytes; try { const bin = atob(m[2]); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { continue; }
+          if (bytes.length > 5_000_000) continue;
+          imageParts.push({ inlineData: { mimeType: mime, data: m[2] } });
+          if (env.SITES_BUCKET && assetSiteId) {
+            const id = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+            const key = "assets/" + assetSiteId + "/" + id + "." + ext;
+            try { await env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } }); assetUrls.push("https://isibi.ai/a/" + assetSiteId + "/" + id + "." + ext); } catch {}
+          }
+        }
+      }
+      const assetLine = (imageParts.length)
+        ? " ATTACHED IMAGES: the user attached " + imageParts.length + " image(s)" + (assetUrls.length ? ", hosted at these EXACT urls: " + assetUrls.join(", ") : "") + " — and you can SEE them below. If an image is a LOGO or a product/photo the user wants ON the site, EMBED it with a real <img src=\"<that exact hosted url>\" alt=\"...\"> (logo in the header/footer, product in a hero, etc.). If it's a DESIGN/STYLE reference (a screenshot, a mood board), MATCH its palette, layout and vibe but do NOT embed it. Use the brief/instruction to decide which. Never invent any other external image URL."
+        : "";
       let usedInTok = 0, usedOutTok = 0;
-      const geminiCall = async (system, user, thinking = "low") => {
+      const geminiCall = async (system, user, thinking = "low", imgParts = []) => {
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts: [{ text: user }] }],
+            contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
             // Thinking draws from the output budget and is billed as output. A
             // fresh BUILD gets "high" (design reasoning is where quality comes
             // from); a surgical REVISE stays "low". Big output headroom either way.
@@ -3975,8 +4018,8 @@ async function handleRequest(request, env, ctx) {
         if (step === "build") {
           // Phase 1 — plan the sitemap + a shared design system so all pages match.
           const planRaw = await geminiCall(
-            "You are the creative director + information architect of isibi Websites. From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the shared nav + footer, the voice/tone, and 2-3 signature visual motifs — concrete enough that every page built from it matches>\"}. Max 5 pages. Home is always first with path \"/\".",
-            "Brief:\n" + brief, "high"
+            "You are the creative director + information architect of isibi Websites. From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the shared nav + footer, the voice/tone, and 2-3 signature visual motifs — concrete enough that every page built from it matches. If a logo/brand image was attached, fold its exact hosted <img> url and placement into this paragraph so every page uses it; if a design reference was attached, describe the palette/layout to match.>\"}. Max 5 pages. Home is always first with path \"/\"." + assetLine,
+            "Brief:\n" + brief, "high", imageParts
           );
           let plan = null;
           try { const j = planRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); plan = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); } catch {}
@@ -3995,7 +4038,7 @@ async function handleRequest(request, env, ctx) {
           const built = (await Promise.all(pagesToBuild.map(async (pg) => {
             try {
               const h = extractHTML(await geminiCall(
-                "You are isibi Websites — a world-class designer + front-end engineer. Build ONE page of a multi-page site as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same fonts, palette, nav, footer, voice) so every page looks like one brand:\n" + design + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
+                "You are isibi Websites — a world-class designer + front-end engineer. Build ONE page of a multi-page site as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same fonts, palette, nav, footer, voice) so every page looks like one brand:\n" + design + assetLine + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
                 "Build the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
               ));
               return h ? { path: pg.path, name: pg.name, html: h } : null;
@@ -4049,8 +4092,8 @@ async function handleRequest(request, env, ctx) {
           const design0 = typeof body.design === "string" ? body.design.slice(0, 4000) : "";
           let html = extractHTML(await geminiCall(
             "You are isibi Websites — designer and front-end engineer in one, editing ONE page of a multi-page site. Apply the user's instruction: make EXACTLY the change asked and keep everything else — design, copy, sections, structure, and the site nav/footer — intact unless told otherwise. Stay consistent with the shared design system" + (design0 ? ":\n" + design0 + "\n" : " (fonts, palette, nav, footer). ") +
-            " Keep semantic, accessible, responsive. IMAGES: keep every existing <img src=\"...\"> as-is unless told to change it; if asked for MORE/NEW photos, add them with the data-gen <img> protocol (art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink; one data-gen img per new photo. " + SITE_RULES,
-            "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low"
+            " Keep semantic, accessible, responsive. IMAGES: keep every existing <img src=\"...\"> as-is unless told to change it; if asked for MORE/NEW photos, add them with the data-gen <img> protocol (art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink; one data-gen img per new photo. " + assetLine + " " + SITE_RULES,
+            "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low", imageParts
           ));
           if (!html) throw new Error("revision returned no document");
           const gemCredits = toCredits(usedInTok, usedOutTok);

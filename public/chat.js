@@ -9160,6 +9160,35 @@ let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
+// Images the owner attached for the next build/revise (logo / reference). Sent to
+// the builder, which hosts them + shows them to the generator's vision.
+let siteAttach = [];
+function siteAttachOpen() {
+  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp,image/gif'; inp.multiple = true;
+  inp.onchange = () => { siteAttachFiles(inp.files); };
+  inp.click();
+}
+function siteAttachFiles(fileList) {
+  const files = Array.from(fileList || []).filter((f) => /^image\/(png|jpe?g|webp|gif)$/.test(f.type)).slice(0, 3 - siteAttach.length);
+  let pending = files.length; if (!pending) return;
+  files.forEach((f) => {
+    if (f.size > 5 * 1024 * 1024) { if (typeof sbToast === 'function') sbToast('Each image must be under 5 MB.'); if (--pending === 0) paintAttachStrip(); return; }
+    const rd = new FileReader();
+    rd.onload = () => { if (siteAttach.length < 3) siteAttach.push({ data: rd.result, name: f.name }); if (--pending === 0) paintAttachStrip(); };
+    rd.onerror = () => { if (--pending === 0) paintAttachStrip(); };
+    rd.readAsDataURL(f);
+  });
+}
+// Repaint the thumbnail strip in place (both composers share id="stAttach") — no
+// full re-render, so the textarea the user is typing in is never reset.
+function paintAttachStrip() {
+  document.querySelectorAll('#stAttach').forEach((el) => {
+    el.innerHTML = siteAttach.map((a, i) => '<div class="st-att"><img src="' + a.data + '" alt=""><button type="button" class="st-att-x" data-att="' + i + '" aria-label="Remove">×</button></div>').join('');
+    el.querySelectorAll('[data-att]').forEach((b) => b.onclick = () => { siteAttach.splice(+b.dataset.att, 1); paintAttachStrip(); });
+  });
+}
 // Runtime errors caught in the live preview, keyed `siteId|path`. Populated by
 // postMessage from the preview's error shim; drives the "Fix with AI" badge.
 let sitePreviewErrs = {};
@@ -9297,7 +9326,9 @@ function renderSites() {
         '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
+        '<div class="st-attach" id="stAttach"></div>' +
         '<div class="st-new-foot">' +
+          '<button type="button" class="st-attbtn" id="stAttachBtn" title="Attach a logo or reference image">' + ic('image', 15) + ' Attach</button>' +
           '<span class="st-hint">Credits are used as you build — refunded if a build fails.</span>' +
           '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
@@ -9318,6 +9349,9 @@ function renderSites() {
     gen.onclick = go;
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } };
   }
+  const attBtn = document.getElementById('stAttachBtn');
+  if (attBtn) attBtn.onclick = siteAttachOpen;
+  paintAttachStrip();
   // thumbnails: srcdoc set via property (attribute-escaping-proof), inert
   view.querySelectorAll('.st-card').forEach((card) => {
     const s = siteById(card.dataset.open);
@@ -9375,6 +9409,7 @@ const ST_ICONS = {
   zap: '<path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13l0-8z"/>',
   alert: '<path d="M12 3.5l9.2 16H2.8l9.2-16z"/><path d="M12 10v4.5"/><path d="M12 18h.01"/>',
   bookmark: '<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 function siteFileName(p) { return (p.path === '/' ? 'index' : p.path.replace(/^\//, '').replace(/[^a-z0-9/_-]/gi, '-')) + '.html'; }
@@ -9605,8 +9640,9 @@ function renderSiteWorkspace(view, site) {
               '<div class="st-thread" id="stThread"></div>' +
               '<div class="st-comp">' +
                 '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
+                '<div class="st-attach" id="stAttach"></div>' +
                 '<div class="st-comp-row">' +
-                  '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
+                  '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
                   '<span class="st-buildsel">Build ▾</span>' +
                   '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
                 '</div>' +
@@ -9748,6 +9784,9 @@ function renderSiteWorkspace(view, site) {
   if (ib) ib.onclick = () => siteInbox(site);
   const mb = document.getElementById('stMembers');
   if (mb) mb.onclick = () => siteMembers(site);
+  const plusBtn = document.getElementById('stPlus');
+  if (plusBtn) plusBtn.onclick = siteAttachOpen;
+  paintAttachStrip();
   const sendBtn = document.getElementById('stSend');
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
@@ -9783,9 +9822,10 @@ function siteSend(text) {
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
+  const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
   const body = isBuild
-    ? { step: 'build', brief: t, siteId: site.id }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '', siteId: site.id };
+    ? { step: 'build', brief: t, siteId: site.id, images: imgs }
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '', siteId: site.id, images: imgs };
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

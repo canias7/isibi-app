@@ -1467,6 +1467,16 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-fixbar-btn:hover { filter: brightness(1.06); }
 .st-fixbar-x { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
 .st-fixbar-x:hover { color: #fff; }
+/* Builder image attach (composer) */
+.st-attach { display: flex; flex-wrap: wrap; gap: .5rem; }
+.st-attach:not(:empty) { margin: .6rem 0 .2rem; }
+.st-att { position: relative; width: 56px; height: 56px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line-2); flex: none; }
+.st-att img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.st-att-x { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; border-radius: 50%; border: none; background: rgba(0, 0, 0, .68); color: #fff; font-size: .8rem; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.st-att-x:hover { background: #ff5b7a; }
+.st-attbtn { display: inline-flex; align-items: center; gap: .35rem; font: inherit; font-size: .8rem; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 9px; padding: .35rem .7rem; cursor: pointer; margin-right: auto; }
+.st-attbtn:hover { color: var(--text, #e8e6ef); border-color: var(--amber, #ffb84d); }
+.st-attbtn svg { width: 15px; height: 15px; }
 /* ── Publish panel ── */
 .sp-intro { color: var(--muted); font-size: .88rem; line-height: 1.5; margin-bottom: 1rem; }
 .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line); }
