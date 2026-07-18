@@ -2604,3 +2604,24 @@ Closes the Lovable gap (they generate photos; now so do we — with our own mode
 - NOTE: latency is now ~1.5-2.5 min/build (high-thinking Gemini + parallel image gen). If
   Cloudflare/edge ever times out the long request, move /api/site to an async job (return a
   token, poll) — watch for it.
+
+## 2026-07-18 — Website Builder: REAL multi-page (owner: the page switcher should work)
+The "Homepage" picker was a placeholder; now it's real multi-page.
+- **Engine = two-phase** (worker /api/site build): (1) a PLAN pass (high thinking)
+  returns JSON {pages:[{path,name,purpose}], design:"<shared design system: palette
+  hexes, Google Font pairing, nav, footer, voice, motifs>"} — decides how many pages
+  the brief justifies (1 for a landing, up to 5); (2) each page generated in PARALLEL
+  against that shared design system + a nav linking all pages, so the site reads as one
+  brand. Images: site-wide budget (SITE_MAX_IMAGES=6) distributed across pages.
+  Response: {pages:[{path,name,html}], design}. Revise targets the ACTIVE page (body
+  carries html+path+design) → {html, path}. Token metering now ACCUMULATES across all
+  the calls; charge-after-success unchanged.
+- **Client**: site model = pages[] + active + design (legacy single-`html` sites read as
+  one Home page, migrated on first revise). Workspace top-bar picker (st-pagepick) lists
+  pages and switches the active one; preview + download + reload follow the active page;
+  sub-label shows "N pages". Preview nav: a shim injected into each page intercepts
+  internal "/path" link clicks and postMessages the parent (bindSiteNav) to switch the
+  picker — so clicking the site's own nav navigates the preview.
+- Cost/latency scale with page count (each page = its own high-thinking Gemini pass +
+  images). A multi-page build can run several minutes; if the edge ever times out the
+  long request, move /api/site to an async job (noted).

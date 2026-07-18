@@ -3464,7 +3464,7 @@ async function handleRequest(request, env, ctx) {
       // out (flat; output incl. thinking); each Nano Banana Pro image = $0.15;
       // 1 credit = $0.008. We pre-check the balance covers a worst-case build,
       // run it, then debit the measured Gemini cost + each generated image.
-      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000, SITE_MAX_IMAGES = 4;
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000, SITE_MAX_IMAGES = 6; // site-wide image cap (across all pages)
       const IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const auth = request.headers.get("Authorization") || "";
       const toCredits = (inTok, outTok) => Math.max(1, Math.ceil((inTok * 1.5e-6 + outTok * 9e-6) / CREDIT_USD));
@@ -3502,11 +3502,12 @@ async function handleRequest(request, env, ctx) {
         const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
         const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
         if (!text) { const e = new Error("empty"); e.status = 0; e.detail = "finish:" + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || "none"); throw e; }
-        // Real usage for metered billing — output is billed INCLUDING thinking tokens.
+        // Real usage for metered billing — output is billed INCLUDING thinking
+        // tokens. ACCUMULATE across calls (a multi-page build runs several).
         const um = d.usageMetadata || {};
-        usedInTok = um.promptTokenCount || estInTok;
-        usedOutTok = (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
-        console.log("site tokens:", usedInTok, "in /", usedOutTok, "out /", toCredits(usedInTok, usedOutTok), "credits");
+        usedInTok += um.promptTokenCount || 0;
+        usedOutTok += (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
+        console.log("site tokens (cum):", usedInTok, "in /", usedOutTok, "out");
         return text;
       };
       // Model output → the bare HTML document (fences stripped, prose cut).
@@ -3518,56 +3519,84 @@ async function handleRequest(request, env, ctx) {
         const end = t.toLowerCase().lastIndexOf("</html>");
         return end < 0 ? "" : t.slice(0, end + 7);
       };
+      // Shared design-director bar (the anti-"AI-slop" rules) used by every page.
+      const DESIGN_BAR =
+        "Design like the lead at a world-class studio — award-winning craft, never a template. " +
+        "TYPOGRAPHY is the identity (real Google Fonts: a characterful display face + a clean body face, clamp() scale, confident headings — never a system default). " +
+        "COLOR: a considered palette — hue-biased neutrals (never pure grey), one restrained accent, grounds that suit the brand; no default purple→blue gradients. " +
+        "LAYOUT: editorial and intentional — asymmetry, overlap, generous negative space, a strong grid; NOT everything centered, NOT cookie-cutter equal cards; the hero is a thesis. " +
+        "PHOTOGRAPHY: for the hero and up to ~3 more impactful spots on this page, emit <img data-gen=\"<a vivid art-directed photo prompt: subject, light, mood, composition, color grade — on-brand>\" data-ar=\"16:9\" alt=\"...\" class=\"...\"> with NO src (the platform generates + hosts each image and fills its src). data-ar: 16:9/3:2 wide, 4:5/1:1 portrait. Cinematic prompts, not stock. Size in CSS (object-fit:cover) so layout holds. Everything else = CSS gradients/mesh + inline SVG. " +
+        "DEPTH & MOTION: layered gradients/mesh, subtle grain/texture, fine borders, considered shadows, tasteful scroll-reveal + hover microinteractions (respect prefers-reduced-motion). " +
+        "COPY: real, specific, on-brand — never lorem, never 'Welcome to X', never fake 'John D.' testimonials. " +
+        "AVOID AI-slop tells: centered-everything, emoji section icons, identical rounded cards, a generic hero→features→pricing→footer, Inter/system-ui as the identity, washed-out purple gradients, no spacing rhythm. Take one real aesthetic risk that fits the brand. " +
+        "You are also the engineer: semantic structure, responsive to 360px, accessible (focus/contrast/aria), clean SEO meta, robust guarded JS. " + SITE_RULES;
+      const slug = (s) => "/" + String(s || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
       try {
-        let html = "";
         if (step === "build") {
-          // One Gemini pass designs AND engineers the site. The system prompt is
-          // a real design director — the anti-"AI-slop" bar is what lifts quality.
-          const out = await geminiCall(
-            "You are the lead designer at a world-class studio — the kind of work that wins awards, not a website template. Your job: from the brief, design and build ONE stunning single-page site whose craft makes people stop.\n\n" +
-            "FIRST, commit to a DISTINCTIVE ART DIRECTION rooted in this specific brand's world (its materials, mood, references) — a real point of view, not a safe default. Then execute it with precision:\n" +
-            "• TYPOGRAPHY is the identity: pull real fonts from Google Fonts — a characterful DISPLAY face paired with a clean, readable body face (and a mono/label face if it fits). Big confident headings with a clear type scale (clamp()), tight display leading, roomy body. Type carries the design; never leave it on a system default.\n" +
-            "• COLOR: a considered palette — pick NEUTRALS with a slight hue bias (never pure #888 grey), one confident accent used with restraint, and grounds (near-black or a chosen off-white) that suit the brand. No default purple→blue gradients.\n" +
-            "• LAYOUT: editorial and intentional — asymmetry, deliberate overlap, and generous negative space where they serve the design; a strong grid; NOT everything centered, NOT a cookie-cutter equal card grid. The HERO is a thesis: the single most characteristic thing about this brand, not a stock headline+two-buttons.\n" +
-            "• PHOTOGRAPHY (this is what makes it feel real): for the hero and the 2-4 most impactful visual spots, use REAL generated photography — emit <img data-gen=\"<a vivid, specific art-directed photo prompt: subject, lighting, mood, composition, lens feel, color grade — on-brand>\" data-ar=\"16:9\" alt=\"...\" class=\"...\"> with NO src attribute (the platform generates each image from data-gen and fills the src). Use data-ar for the shape: \"16:9\"/\"3:2\" wide hero, \"4:5\"/\"1:1\" product/portrait. Write cinematic, editorial prompts (not generic stock). Budget: AT MOST 4 data-gen images — hero + the few that matter; make each count. Size them in CSS (object-fit:cover, real dimensions) so layout holds. Use CSS gradients/mesh and inline SVG for everything else (textures, icons, logos, decorative shapes).\n" +
-            "• DEPTH & MOTION: build real atmosphere with CSS — layered gradients/mesh, grain or subtle texture, fine 1px borders, considered shadows; add tasteful scroll-reveal and hover microinteractions (guarded by prefers-reduced-motion).\n" +
-            "• COPY: real, specific, on-brand voice — headlines with a hook, feature copy that says something, CTAs with personality. Never lorem, never 'Welcome to X' filler, never fake 'John D.' testimonials with placeholder faces (design testimonials as typographic quotes instead).\n" +
-            "• Include the sections the brief implies plus a matching nav and footer, each designed — not stacked identical blocks.\n\n" +
-            "AVOID these AI-slop tells at all costs: everything centered; emoji as section icons; the same rounded-corner card repeated; a generic hero→3 features→pricing→footer with no personality; Inter/system-ui as the whole type identity; washed-out purple gradients; uniform spacing with no rhythm. Take ONE real aesthetic risk that fits the brand.\n\n" +
-            "You are also the engineer: correct semantic structure, responsive to 360px, accessible (focus states, contrast, aria), clean SEO meta, robust guarded JS. " + SITE_RULES,
-            "Design and build the complete website for this brief. Make it genuinely beautiful:\n\n" + brief,
-            "high"
+          // Phase 1 — plan the sitemap + a shared design system so all pages match.
+          const planRaw = await geminiCall(
+            "You are the creative director + information architect of isibi Websites. From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the shared nav + footer, the voice/tone, and 2-3 signature visual motifs — concrete enough that every page built from it matches>\"}. Max 5 pages. Home is always first with path \"/\".",
+            "Brief:\n" + brief, "high"
           );
-          html = extractHTML(out);
-          if (!html) throw new Error("build returned no document");
-        } else {
-          // All revisions — visual or functional — go to the one Gemini engine.
-          const out = await geminiCall(
-            "You are isibi Websites — designer and front-end engineer in one. Apply the user's instruction to their single-file site: make EXACTLY the change asked (a visual evolution OR a functional/structural fix) and keep everything else — design, copy, sections, structure — intact unless the instruction says otherwise. Keep the result semantic, accessible and responsive. IMAGES: keep every existing <img src=\"...\"> exactly as-is unless the instruction says to change it. If the instruction asks for MORE or NEW photos/imagery, add them with the data-gen <img> protocol (a vivid art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink an external URL; write one data-gen img per new photo requested. " + SITE_RULES,
-            "Instruction: " + instruction + "\n\nCurrent site:\n\n" + curHtml
-          );
-          html = extractHTML(out);
-          if (!html) throw new Error("revision returned no document");
-        }
-        // The Gemini pass succeeded — charge its MEASURED cost now (charge-after,
-        // so a failure above never charged anything and needs no refund).
-        const gemCredits = toCredits(usedInTok, usedOutTok);
-        let balAfter = stBalance;
-        try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}
-        // Generate real photography for the data-gen placeholders — capped both
-        // to SITE_MAX_IMAGES and to whatever the remaining balance affords, so
-        // images can never overspend. Each successful image is billed after it lands.
-        const affordable = Math.max(0, Math.min(SITE_MAX_IMAGES, Math.floor(balAfter / IMG_CREDITS)));
-        let imgCredits = 0;
-        try {
-          const inj = await injectSiteImages(html, request, env, stUser.id, affordable);
-          html = inj.html;
-          if (inj.charged > 0) {
-            imgCredits = inj.charged * IMG_CREDITS;
-            try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {}
+          let plan = null;
+          try { const j = planRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); plan = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); } catch {}
+          const seen = new Set();
+          let planned = ((plan && Array.isArray(plan.pages)) ? plan.pages : []).filter((p) => p && p.name).slice(0, 5)
+            .map((p, i) => ({ path: i === 0 ? "/" : (String(p.path || "").startsWith("/") ? String(p.path).slice(0, 32) : slug(p.name)), name: String(p.name).slice(0, 40), purpose: String(p.purpose || "").slice(0, 300) }))
+            .filter((p) => !seen.has(p.path) && seen.add(p.path));
+          if (!planned.length) planned = [{ path: "/", name: "Home", purpose: "the single landing page" }];
+          const design = String((plan && plan.design) || "").slice(0, 4000);
+          // Cap page COUNT to what the balance affords (estPageMax generously covers
+          // one page's Gemini cost; the pre-check already guaranteed ≥ one page).
+          const estPageMax = toCredits(Math.ceil((design.length + brief.length + 2000) / 4), MAX_OUT_TOK);
+          const pagesToBuild = planned.slice(0, Math.max(1, Math.min(planned.length, Math.floor(stBalance / estPageMax))));
+          const navList = pagesToBuild.map((p) => p.name + " (" + p.path + ")").join(", ");
+          // Phase 2 — generate every page in parallel against the shared system.
+          const built = (await Promise.all(pagesToBuild.map(async (pg) => {
+            try {
+              const h = extractHTML(await geminiCall(
+                "You are isibi Websites — a world-class designer + front-end engineer. Build ONE page of a multi-page site as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same fonts, palette, nav, footer, voice) so every page looks like one brand:\n" + design + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
+                "Build the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
+              ));
+              return h ? { path: pg.path, name: pg.name, html: h } : null;
+            } catch (e) { console.log("site page failed", pg.path, e && e.message); return null; }
+          }))).filter(Boolean);
+          if (!built.length) throw new Error("build returned no pages");
+          // Charge measured Gemini cost (plan + all pages), then generate images
+          // across the WHOLE site within a site-wide budget capped to the balance.
+          const gemCredits = toCredits(usedInTok, usedOutTok);
+          let balAfter = stBalance;
+          try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}
+          let imgBudget = Math.max(0, Math.min(SITE_MAX_IMAGES, Math.floor(balAfter / IMG_CREDITS)));
+          let imgCharged = 0;
+          for (const pg of built) {
+            const inj = await injectSiteImages(pg.html, request, env, stUser.id, imgBudget);
+            pg.html = inj.html; imgBudget -= inj.charged; imgCharged += inj.charged;
           }
-        } catch (e) { console.log("site image pass failed:", e && e.message); }
-        return Response.json({ html, cost: gemCredits + imgCredits, balance: balAfter });
+          let imgCredits = 0;
+          if (imgCharged > 0) { imgCredits = imgCharged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
+          return Response.json({ pages: built, design, cost: gemCredits + imgCredits, balance: balAfter });
+        } else {
+          // Revise ONE page (the active one) against the shared design system.
+          const design0 = typeof body.design === "string" ? body.design.slice(0, 4000) : "";
+          let html = extractHTML(await geminiCall(
+            "You are isibi Websites — designer and front-end engineer in one, editing ONE page of a multi-page site. Apply the user's instruction: make EXACTLY the change asked and keep everything else — design, copy, sections, structure, and the site nav/footer — intact unless told otherwise. Stay consistent with the shared design system" + (design0 ? ":\n" + design0 + "\n" : " (fonts, palette, nav, footer). ") +
+            " Keep semantic, accessible, responsive. IMAGES: keep every existing <img src=\"...\"> as-is unless told to change it; if asked for MORE/NEW photos, add them with the data-gen <img> protocol (art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink; one data-gen img per new photo. " + SITE_RULES,
+            "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low"
+          ));
+          if (!html) throw new Error("revision returned no document");
+          const gemCredits = toCredits(usedInTok, usedOutTok);
+          let balAfter = stBalance;
+          try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}
+          const affordable = Math.max(0, Math.min(SITE_MAX_IMAGES, Math.floor(balAfter / IMG_CREDITS)));
+          let imgCredits = 0;
+          try {
+            const inj = await injectSiteImages(html, request, env, stUser.id, affordable);
+            html = inj.html;
+            if (inj.charged > 0) { imgCredits = inj.charged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
+          } catch (e) { console.log("site image pass failed:", e && e.message); }
+          return Response.json({ html, path: typeof body.path === "string" ? body.path : "/", cost: gemCredits + imgCredits, balance: balAfter });
+        }
       } catch (e) {
         console.error("site engine failed:", e && e.message, "|", e && e.detail);
         // Charge-after model: nothing was debited before this point, so there is

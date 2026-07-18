@@ -9164,11 +9164,27 @@ function sitesLoad() {
 }
 function sitesSave() {
   try {
-    const slim = (sitesCache || []).slice(0, 20).map((s) => ({ ...s, html: (s.html || '').slice(0, 400000), msgs: (s.msgs || []).slice(-40) }));
+    const slim = (sitesCache || []).slice(0, 20).map((s) => ({
+      ...s,
+      html: (s.html || '').slice(0, 400000),
+      pages: Array.isArray(s.pages) ? s.pages.slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 400000) })) : undefined,
+      msgs: (s.msgs || []).slice(-40),
+    }));
     localStorage.setItem(SITES_KEY, JSON.stringify(slim));
   } catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
 }
 function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
+// Multi-page model: a site holds `pages` [{path,name,html}] with an `active`
+// path. Legacy single-`html` sites read as one Home page (backward-compat).
+function sitePages(site) {
+  if (site && Array.isArray(site.pages) && site.pages.length) return site.pages;
+  if (site && site.html) return [{ path: '/', name: 'Home', html: site.html }];
+  return [];
+}
+function siteActivePage(site) {
+  const pages = sitePages(site);
+  return pages.find((p) => p.path === (site && site.active)) || pages[0] || null;
+}
 // The workspace preview renders from a Blob URL in a sandboxed allow-scripts
 // iframe (opaque origin — no access to the app), NOT srcdoc: srcdoc inherits
 // the app CSP, which blocks the generated site's own inline scripts. One live
@@ -9176,8 +9192,24 @@ function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
 let sitePrevUrl = null;
 function sitePreviewSrc(html) {
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
-  sitePrevUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  // Intercept internal "/path" link clicks in the preview and hand them to the
+  // parent so the picker switches pages (a blob preview can't route by itself).
+  const shim = '<script>(function(){document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a");if(!a)return;var h=a.getAttribute("href")||"";if(h.charAt(0)==="/"&&h.indexOf("//")!==0){e.preventDefault();try{parent.postMessage({__siteNav:h.split("#")[0].split("?")[0]||"/"},"*");}catch(x){}}},true);})();<\/script>';
+  const withShim = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, shim + '</body>') : (html + shim);
+  sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
   return sitePrevUrl;
+}
+// Bind ONCE: preview link clicks (postMessaged from the shim) switch the picker.
+let siteNavBound = false;
+function bindSiteNav() {
+  if (siteNavBound) return; siteNavBound = true;
+  window.addEventListener('message', (e) => {
+    const nav = e.data && e.data.__siteNav;
+    if (!nav) return;
+    const s = siteById(siteOpenId); if (!s) return;
+    const target = sitePages(s).find((p) => p.path === nav);
+    if (target && s.active !== target.path) { s.active = target.path; sitesSave(); renderSites(); }
+  });
 }
 function renderSites() {
   const view = document.getElementById('viewSites');
@@ -9218,7 +9250,8 @@ function renderSites() {
   view.querySelectorAll('.st-card').forEach((card) => {
     const s = siteById(card.dataset.open);
     const fr = card.querySelector('iframe');
-    if (s && fr && s.html) fr.srcdoc = s.html;
+    const home = s && (siteActivePage(s) || sitePages(s)[0]);
+    if (fr && home && home.html) fr.srcdoc = home.html;
     card.onclick = (e) => { if (e.target.closest('[data-del]')) return; siteOpenId = card.dataset.open; renderSites(); };
     card.onkeydown = (e) => { if (e.key === 'Enter') { siteOpenId = card.dataset.open; renderSites(); } };
   });
@@ -9247,6 +9280,16 @@ function stStamp(ts) {
 // "Ask isibi…" composer with a Build selector + round send), and the preview
 // dominating in a rounded card. Skinned in isibi's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
+  const pages = sitePages(site);
+  const active = siteActivePage(site);
+  const curHtml = active ? active.html : '';
+  const hasSite = !!curHtml;
+  const picker = pages.length > 1
+    ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
+        '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>
+          '<button type="button" class="st-pageitem' + (active && p.path === active.path ? ' on' : '') + '" data-path="' + esc(p.path) + '"><span class="st-pi-name">' + esc(p.name) + '</span><span class="st-pi-path">' + esc(p.path) + '</span></button>').join('') +
+        '</div></div>'
+    : '<span class="st-tb-page">Homepage</span>';
   view.innerHTML =
     '<div class="st-ws st-lv">' +
       '<div class="st-topbar">' +
@@ -9254,12 +9297,12 @@ function renderSiteWorkspace(view, site) {
           '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">←</button>' +
           '<div class="st-tb-names">' +
             '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
-            '<span class="st-ws-sub">' + (site.html ? 'Previewing last saved version' : 'New project') + '</span>' +
+            '<span class="st-ws-sub">' + (hasSite ? (pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version') : 'New project') + '</span>' +
           '</div>' +
         '</div>' +
         '<div class="st-tb-mid">' +
           '<span class="st-pillbtn on">◉ Preview</span>' +
-          '<span class="st-tb-page">Homepage</span>' +
+          picker +
           '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">⟳</button>' +
         '</div>' +
         '<div class="st-tb-right">' +
@@ -9268,9 +9311,9 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">▯</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
           '</div>' +
-          '<button type="button" class="st-icon" id="stDl" title="Download HTML" aria-label="Download HTML"' + (site.html ? '' : ' disabled') + '>⤓</button>' +
+          '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>⤓</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
-          '<button type="button" class="st-publish" id="stPub"' + (site.html ? '' : ' disabled') + '>Publish</button>' +
+          '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
@@ -9287,12 +9330,13 @@ function renderSiteWorkspace(view, site) {
           '</div>' +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
-          (site.html
+          (hasSite
             ? '<iframe id="stFrame" sandbox="allow-scripts" title="Site preview"></iframe>'
             : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>') +
         '</div>' +
       '</div>' +
     '</div>';
+  bindSiteNav();
   const thread = document.getElementById('stThread');
   if (thread) {
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
@@ -9306,11 +9350,26 @@ function renderSiteWorkspace(view, site) {
     });
   }
   const fr = document.getElementById('stFrame');
-  if (fr && site.html) fr.src = sitePreviewSrc(site.html);
+  if (fr && curHtml) fr.src = sitePreviewSrc(curHtml);
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
-  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && site.html) f.src = sitePreviewSrc(site.html); };
+  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) f.src = sitePreviewSrc(curHtml); };
+  // Page picker: toggle the menu; clicking a page switches the active page.
+  const pageBtn = document.getElementById('stPageBtn');
+  const pageMenu = document.getElementById('stPageMenu');
+  if (pageBtn && pageMenu) {
+    const onOutside = (ev) => { if (!ev.target.closest('.st-pagepick')) { pageMenu.hidden = true; document.removeEventListener('click', onOutside); } };
+    pageBtn.onclick = (e) => {
+      e.stopPropagation();
+      if (pageMenu.hidden) { pageMenu.hidden = false; setTimeout(() => document.addEventListener('click', onOutside), 0); }
+      else { pageMenu.hidden = true; document.removeEventListener('click', onOutside); }
+    };
+    pageMenu.querySelectorAll('[data-path]').forEach((b) => b.onclick = () => {
+      const s = siteById(siteOpenId); if (!s) return;
+      s.active = b.dataset.path; sitesSave(); renderSites();
+    });
+  }
   view.querySelectorAll('.st-dev').forEach((b) => b.onclick = () => {
     siteDevice = b.dataset.dev;
     const st = document.getElementById('stStage');
@@ -9319,11 +9378,12 @@ function renderSiteWorkspace(view, site) {
   });
   const dl = document.getElementById('stDl');
   if (dl) dl.onclick = () => {
-    if (!site.html) return;
-    const blob = new Blob([site.html], { type: 'text/html' });
+    if (!curHtml) return;
+    const blob = new Blob([curHtml], { type: 'text/html' });
     const u = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = u; a.download = (site.name || 'site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.html';
+    const pn = (active && active.path && active.path !== '/') ? active.path.replace(/^\//, '') : (site.name || 'index');
+    a.href = u; a.download = String(pn).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.html';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 5000);
   };
@@ -9339,52 +9399,72 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
 }
-// The REAL engine (wired 2026-07-18, Gemini-only): first message on a project =
-// a full build, every later message = a revision. Metered — the worker charges
-// the ACTUAL Gemini token cost (reserves a max, refunds down to real usage) and
-// refunds fully on failure; builds take a minute or two — the busy state holds
-// the rail while the request runs.
+// The REAL engine (2026-07-18, Gemini-only, multi-page): the FIRST message on a
+// project builds the whole site (a plan pass decides the pages + a shared design
+// system, then each page is generated to match); every later message revises the
+// ACTIVE page. Metered charge-after-success (no reserve/refund): the worker bills
+// the measured Gemini cost + each generated Nano Banana Pro image, only once each
+// step lands, so a failure costs nothing. Builds take a minute or two.
 function siteSend(text) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) return;
-  const isBuild = !site.html;
+  const isBuild = !sitePages(site).length;
+  const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });
   siteBusy = true;
   sitesSave();
   renderSites();
   const origin = siteOpenId;
-  const done = (reply, html) => {
+  const finish = (reply) => {
     siteBusy = false;
     const s = siteById(origin);
     if (!s) return;
-    if (html) s.html = html;
     s.msgs.push({ r: 'a', t: reply });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
   };
+  const body = isBuild
+    ? { step: 'build', brief: t }
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '' };
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(isBuild ? { step: 'build', brief: t } : { step: 'revise', instruction: t, html: site.html }),
+    body: JSON.stringify(body),
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
-    if (r.ok && d.html) {
-      const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
-      done((isBuild ? '✅ Built — take a look on the right, then tell me what to change.' : '✅ Updated — check the preview.') + used, d.html);
+    const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
+    if (r.ok && isBuild && Array.isArray(d.pages) && d.pages.length) {
+      const s = siteById(origin);
+      if (s) {
+        s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
+        s.design = typeof d.design === 'string' ? d.design : '';
+        s.active = (s.pages[0] || {}).path || '/';
+        delete s.html;
+      }
+      finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
+    } else if (r.ok && !isBuild && d.html) {
+      const s = siteById(origin);
+      if (s) {
+        if (!Array.isArray(s.pages)) s.pages = sitePages(s); // migrate legacy single-html
+        const tgt = s.pages.find((p) => p.path === (d.path || s.active)) || s.pages.find((p) => p.path === s.active) || s.pages[0];
+        if (tgt) tgt.html = d.html;
+        delete s.html;
+      }
+      finish('✅ Updated — check the preview.' + used);
     } else if (r.status === 402) {
-      done('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
+      finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (r.status === 429) {
-      done('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
+      finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
     } else if (r.status === 501) {
-      done('⚠️ The build engine isn’t switched on yet — check back soon.');
+      finish('⚠️ The build engine isn’t switched on yet — check back soon.');
     } else {
-      done('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
+      finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
     }
     if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
   }).catch(() => {
-    done('⚠️ Lost the connection while building — check your internet and try again in a moment.');
+    finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
   });
 }
 
