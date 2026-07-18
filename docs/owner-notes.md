@@ -2777,3 +2777,21 @@ the PRIVATE inbox; collections are PUBLIC by design.
 - Live-tested: 2 reviews saved + read back publicly, owner list grouped by collection,
   bot honeypot dropped (0 records after the fix).
 - Remaining Cloud "Soon" (real products, not wires): Emails, Secrets, Edge functions.
+
+## 2026-07-18 — Wired: Cloud → Secrets (encrypted vault)
+Owner-managed secrets vault — same contract as Lovable's Secrets page.
+- **DB**: site_secrets (owner_id/slug/name unique, value_encrypted, timestamps).
+  RLS owner read+delete; service-key encrypted writes; FK cascade.
+- **Crypto**: AES-GCM, key derived from SUPABASE_SERVICE_KEY (siteSecretKey/encryptSecret).
+  Values encrypted before storage; NEVER returned (list = name + timestamps only;
+  rotate = re-POST; delete). No decrypt path yet — consumed server-side by Edge
+  functions (the next build).
+- **Worker**: POST (verify slug ownership → encrypt → upsert on owner_id,slug,name) /
+  GET (names only) / DELETE /api/site/secrets (owner JWT + RLS).
+- **Client**: Cloud → Secrets card live → vault modal (add name/value, list w/ dates,
+  delete). Reuses si-modal.
+- Live-tested: add → stored AES-GCM (leaks_plaintext=false) → list returns no value →
+  rotate updates the row → delete removes it. (First POST 404'd on edge-propagation lag,
+  fine a second later.)
+- Remaining Cloud "Soon": Emails, Edge functions (Edge functions = the consumer that
+  reads these secrets server-side).
