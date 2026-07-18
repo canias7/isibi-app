@@ -2724,3 +2724,21 @@ every site a real identity the moment it's built.
   needs the live URL (the sandbox can't persist a session across blob page-swaps); on the
   published /s/<slug> it all works. True in-preview session nav would need a separate preview
   origin (ties to the deferred custom-domain work).
+
+## 2026-07-18 — Website Builder workspace: Lovable-style chrome + wired Analytics/History
+Reskinned the workspace to mirror Lovable (owner reference), then wired two for real.
+- **View tabs**: Preview / Code / More. Code = page file list + read-only HTML (line
+  numbers, per-page download). More = Analytics / Cloud / Security / SEO sub-nav.
+- **History rail** (⟲): lists every version; **Restore** rolls back (snapshots current
+  first so it's undoable). Snapshots stored in site.history (cap 8) in localStorage;
+  sitesSave drops history first if storage is tight so current state always persists.
+- **Publish panel**: live URL / visibility / visitors / Republish / Copy (Unpublish soon).
+- **"Try to fix"** error card over the preview on a failed build/revise → re-runs a fix.
+- **Icons**: all workspace emoji replaced with a monochrome inline-SVG set (currentColor).
+- **Analytics WIRED (real)**: site_hits table + site_analytics() RPC (owner-scoped).
+  Worker logs one hit per served /s/<slug> page (ctx.waitUntil, bots skipped, IP hashed
+  → distinct-hash = visitors). GET /api/site/analytics. Panel shows real Visitors/Page
+  views/Views-per-visit + 7-day bar chart. Live-tested: 5 browser hits logged, Googlebot
+  skipped, RPC returned the right totals, ownership guard rejects non-owned slugs.
+- Still visual-only (full features, not quick wires): Cloud Database/Emails/Secrets/Edge,
+  Security scan, SEO→head-tag injection, Unpublish.
