@@ -2165,3 +2165,21 @@ Built: a "Websites" top-bar tab → viewSites.
 Verified headless end to end: create→build→revise→device toggles→download
 enabled→back→thumbnail card→reopen→delete, zero page errors (the sandboxed
 preview correctly blocks storage access from inside). Screenshots reviewed.
+
+Follow-up (owner correction): the Websites TAB was wrong — the builder is a
+separate product whose ONLY door is the landing's WEBSITE / MOBILE APP
+channel. Changes: (1) top-bar Websites tab REMOVED; (2) selecting the WEBSITE
+channel on the landing (or typing a brief there and hitting Enter) points the
+boot view at 'sites' and routes through auth into the standalone builder —
+the typed text arrives as the first site brief (pendingSiteBrief, consumed by
+enterApp; never a media prompt); (3) while the sites view is open a body
+class (in-sites) hides ALL studio chrome — chats sidebar, Gallery/Avatar/
+Media-Agent tabs, the Back arrow — only the profile bubble (shared account/
+credits surface) remains; leaving via profile→Settings etc. restores the
+chrome; (4) backing out of the auth popup clears the brief and resets the
+boot view to home so the next login doesn't land in sites by accident.
+OPEN QUESTION for owner: a signed-in user who leaves the sites view has no
+way back in (signed-in visits skip the landing) — decide later whether the
+account menu gets a "Websites" row or the landing stays reachable signed-in.
+Verified headless: landing→channel→brief→auth→standalone builder with chrome
+hidden; exit restores chrome; no Websites tab anywhere; zero page errors.

@@ -3046,6 +3046,9 @@ function tombAdd(id) {
 function tombHas(id) { return Object.prototype.hasOwnProperty.call(tombLoad(), id); }
 let lastPull = 0;
 let pendingFirstMsg = null; // a ?q= prompt held until a signed-out visitor logs in
+// A website brief typed on the landing's WEBSITE channel, held through login —
+// consumed by enterApp into the standalone Website Builder (never the studio).
+let pendingSiteBrief = null;
 
 // Reschedule a push (used when a flush rejects and the dirty set was requeued),
 // so those edits get another try instead of waiting for the next manual touch.
@@ -6486,6 +6489,10 @@ function enterApp() {
   // would land in the outgoing account's chat and be discarded by the reset.
   const ranFirstMsg = !!pendingFirstMsg;
   if (pendingFirstMsg) { const q = pendingFirstMsg; pendingFirstMsg = null; startDirector(q); }
+  // A website brief from the landing's WEBSITE channel goes to the standalone
+  // builder instead (its VIEW_KEY was already pointed at 'sites' on submit —
+  // this kicks the first build with the typed brief).
+  if (pendingSiteBrief) { const b = pendingSiteBrief; pendingSiteBrief = null; showView('sites'); siteCreate(b); }
   // Signed in — pull the account's chats, universal memory, and the synced
   // avatars/products, merge all of them.
   pullChats();
@@ -8842,7 +8849,14 @@ function initAuthGate() {
   // The popup closes three ways — ✕, backdrop click, Esc — all back to the landing.
   // Backing out of the popup drops any prompt typed into the landing chatbox,
   // so a later sign-in doesn't fire a stale generation.
-  const closeAuth = () => { pendingFirstMsg = null; hideAuthGate(); showMarketing(); };
+  const closeAuth = () => {
+    pendingFirstMsg = null;
+    // Backing out of a WEBSITE-channel signup must not strand the NEXT login
+    // in the sites view — drop the brief and point the boot view back home.
+    pendingSiteBrief = null;
+    try { if (localStorage.getItem(VIEW_KEY) === 'sites') localStorage.setItem(VIEW_KEY, 'home'); } catch (e) {}
+    hideAuthGate(); showMarketing();
+  };
   const back = document.getElementById('authHome');
   if (back) back.addEventListener('click', closeAuth);
   const gateEl = document.getElementById('authGate');
@@ -9029,7 +9043,16 @@ function crtMove(delta) {
 function crtSelect() {
   const opt = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
   if (!opt) return;
+  // WEBSITE / MOBILE APP is the ONLY door into the standalone Website Builder
+  // (owner 2026-07-18) — selecting it routes there, never the media studio.
+  if (opt.dataset.kind === 'website') {
+    try { localStorage.setItem(VIEW_KEY, 'sites'); } catch (e) {}
+    if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+    return;
+  }
   if (opt.dataset.live === '1') {
+    try { if (localStorage.getItem(VIEW_KEY) === 'sites') localStorage.setItem(VIEW_KEY, 'home'); } catch (e) {}
     if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }   // already in → straight to the studio
     if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');  // picked a channel → into the studio
   }
@@ -9145,9 +9168,19 @@ function initCrt() {
   const landSend = document.getElementById('crtLandSend');
   const landBox = document.getElementById('crtChatbox');
   const submitLand = () => {
+    const sel = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
+    // WEBSITE channel: the typed text is a site brief for the standalone
+    // Website Builder — never a media prompt (owner 2026-07-18).
+    if (sel && sel.dataset.kind === 'website') {
+      const b = (landInput && landInput.value.trim()) || '';
+      if (b) pendingSiteBrief = b;
+      try { localStorage.setItem(VIEW_KEY, 'sites'); } catch (e) {}
+      if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+      if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+      return;
+    }
     // Only the live channel (Video/Image/Voice) generates. On a coming-soon
     // channel the chatbox is inert — Enter does nothing.
-    const sel = document.querySelectorAll('#crtMenu .crt-opt')[crtSel];
     if (sel && sel.dataset.live !== '1') return;
     // Carry the typed prompt into the studio — it survives login (consumed by
     // enterApp) and is cleared if the user backs out of the auth popup.
@@ -9948,6 +9981,10 @@ function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById('view' + name.charAt(0).toUpperCase() + name.slice(1));
   if (el) el.classList.add('active');
+  // The Website Builder is a SEPARATE product (entered only via the landing's
+  // WEBSITE channel) — while it's open, the studio chrome (chats sidebar, the
+  // Gallery/Avatar/Media-Agent tabs, the Back arrow) disappears entirely.
+  document.body.classList.toggle('in-sites', name === 'sites');
   // The jump-to-latest chevron belongs to the Home thread only.
   const sd = document.getElementById('scrollDown');
   if (sd && name !== 'home') sd.classList.remove('show');

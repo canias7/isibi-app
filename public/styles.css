@@ -1283,6 +1283,10 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 .scal-item-cap { font-size: .88rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .scal-item-sub { font-size: .76rem; color: var(--muted); margin-top: .15rem; }
 /* ── Websites — the standalone website builder (frontend preview) ── */
+/* Its ONLY entrance is the landing's WEBSITE channel; while open, the studio
+   chrome vanishes — no chats sidebar, no section tabs, no back arrow. */
+body.in-sites .sidebar { display: none; }
+body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .view-sites.active { flex-direction: column; overflow-y: auto; padding: 2.4rem 2rem 3rem; }
 .st-page { width: 100%; max-width: 1080px; margin: 0 auto; }
 .st-head h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; text-transform: uppercase; }
