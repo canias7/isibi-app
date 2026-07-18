@@ -708,6 +708,20 @@
   background: rgba(10, 9, 14, .38);
   backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
 }
+/* isibi wordmark in the Website Builder top bar (the section tabs are hidden
+   there) — clicking it returns to the landing. Shown only in sites mode. */
+.st-home {
+  display: none; align-items: center; gap: .5rem; cursor: pointer;
+  font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 900;
+  font-size: 1.15rem; letter-spacing: -.02em; color: var(--text);
+  height: 40px; padding: 0 .5rem; border-radius: 11px;
+  transition: opacity .12s ease, transform .12s ease;
+}
+.st-home .logo-mark { width: 28px; height: 28px; }
+.st-home:hover { opacity: .82; }
+.st-home:active { transform: scale(.97); }
+body.in-sites .st-home { display: inline-flex; }
+
 /* Back-to-Builder button — only shown while a section view is open. */
 .top-back {
   display: none; align-items: center; gap: .35rem; cursor: pointer;
