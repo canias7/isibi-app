@@ -1664,9 +1664,10 @@ async function handleRequest(request, env, ctx) {
     // Old full-app snapshots (public/demo-hero*) are kept in the repo as
     // reference but must NOT be served — they're pre-scrub clones that name the
     // provider and run against the live backend (owner 2026-07-18: keep the
-    // files, stop serving them). Only /demo-hero* — the marketing /mkt/demo*
-    // cascade on the landing is a different path and stays live.
-    if (/^\/demo-hero(\/|$)/i.test(url.pathname)) {
+    // files, stop serving them). The `-2`/`-3` numbered variants MUST be covered
+    // too — demo-hero-2 is a full-app clone that still names the provider. Only
+    // /demo-hero*; the marketing /mkt/demo* cascade is a different path, stays live.
+    if (/^\/demo-hero(-\d+)?(\/|$)/i.test(url.pathname)) {
       return new Response("Not found", { status: 404 });
     }
 
