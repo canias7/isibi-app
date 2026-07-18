@@ -3494,7 +3494,10 @@ async function handleRequest(request, env, ctx) {
       try { body = await request.json(); } catch {
         return Response.json({ error: "invalid JSON" }, { status: 400 });
       }
-      let step = ["compose", "revise", "error", "studio", "research"].includes(body.step) ? body.step : "ask";
+      // "studio" was removed with the Studio editor — no client sends it; drop it
+      // from the allowlist so a stray step:"studio" falls back to "ask" instead of
+      // reaching the dead studio branch (2026-07-18).
+      let step = ["compose", "revise", "error", "research"].includes(body.step) ? body.step : "ask";
       const kind = ["video", "image", "audio"].includes(body.kind) ? body.kind : "video";
       const prompt = typeof body.prompt === "string" ? body.prompt.trim().slice(0, 2000) : "";
       if (!prompt) return Response.json({ error: "no prompt" }, { status: 400 });
@@ -3695,9 +3698,10 @@ async function handleRequest(request, env, ctx) {
         // o3's reference endpoint takes multi_prompt too; v3 has no ref mode.
         (!refCount || /\/o3\//.test(genModel));
       // Director-driven knobs (owner's call: the AI sets these from the user's
-      // words, no new UI). sound: families with an audio-track switch
-      // (generate_audio / o3-edit keep_audio). negative: only Kling v3 and Veo
-      // have a real negative_prompt field. tune: ElevenLabs voice delivery.
+      // words, no new UI). negative: only Kling v3 and Veo have a real
+      // negative_prompt field. tune: ElevenLabs voice delivery. (Sound is NOT
+      // director-driven — owner rule 2026-07-17, it follows the user's Sound
+      // toggle only; soundCapable below is just the model's capability flag.)
       const soundCapable = kind === "video" && /seedance|kling-video\/(?:o3|v3)|veo/.test(genModel);
       const negCapable = kind === "video" && /kling-video\/v3|veo/.test(genModel);
       // cfg_scale exists only on Kling v3 (pro/standard) — o3's schema lacks it.
@@ -3820,10 +3824,14 @@ async function handleRequest(request, env, ctx) {
       const elLine = (elCount && kind === "video")
         ? `\nThe user attached ${elCount} character element${elCount > 1 ? "s" : ""} — image${elCount > 1 ? "s" : ""} of specific characters/objects whose exact identity must appear in the video. Cite them as ${Array.from({ length: elCount }, (_, i) => "@Element" + (i + 1)).join(", ")} (1-indexed, in order), weaving each tag into the sentence where that character acts (e.g. "@Element1 walks in and hands @Element2 the keys"). Don't re-describe their appearance — the tag carries it. If you return a \`shots\` list, cite the @ElementN tags inside the shot prompts the same way.`
         : "";
-      // Seedance video reference (@Video1): a clip whose motion/subject carries
-      // into a fresh generated scene. Cite it by tag, like the image refs.
+      // Seedance video reference (@Video1…@VideoN): clips whose motion/subject
+      // carries into a fresh generated scene. Cite each by tag, like the image
+      // refs — the guidance pluralizes to match the ctx line when >1 is staged
+      // (else extra clips go uncited/inert). 2026-07-18.
       const vidRefLine = clipIsSeedanceRef
-        ? `\nThe user also attached a VIDEO clip as a reference (labelled @Video1). Seedance binds it by tag: weave @Video1 into the prompt where that clip's motion, subject or framing should carry into the scene (e.g. "the trucks weave like @Video1"). Cite it by tag rather than re-describing the clip; the model receives the footage.`
+        ? (vidRefN > 1
+          ? `\nThe user also attached ${vidRefN} VIDEO clips as references (labelled @Video1…@Video${vidRefN}). Seedance binds them by tag: weave EACH @VideoN into the prompt where that clip's motion, subject or framing should carry into the scene (e.g. "the trucks weave like @Video1, lit like @Video2"). Cite them by tag rather than re-describing the clips; the model receives all the footage — leave none uncited.`
+          : `\nThe user also attached a VIDEO clip as a reference (labelled @Video1). Seedance binds it by tag: weave @Video1 into the prompt where that clip's motion, subject or framing should carry into the scene (e.g. "the trucks weave like @Video1"). Cite it by tag rather than re-describing the clip; the model receives the footage.`)
         : "";
       // Kling multi-shot: the model can render a cut sequence of distinct shots.
       const shotsLine = shotsCapable

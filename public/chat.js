@@ -3552,6 +3552,7 @@ function deleteChat(id) {
   if (wasActive) {
     applyComposerState((activeChat() || {}).comp);
     restoreStaged(chatStore.active);
+    hydrateStaged(chatStore.active); // else the fallback chat's refresh-persisted staged inputs stay hidden (mirror switchChat)
   }
   persistStore();
   deleteSync(id);
@@ -9703,15 +9704,17 @@ function anyChatMediaRef(url) {
 // from /api/gallery on gallery open. Existence is driven by storage (so a save
 // survives deleting its chat); chat messages only supply prompt/poster overlay.
 let serverGallery = null; // [{ url, kind, size, at }] or null before first load
+let galleryLoadFailed = false; // true when the last fetch errored → show "couldn't load", not "empty"
 
 async function loadServerGallery() {
   try {
     const r = await apiFetch('/api/gallery');
     if (r && r.ok) {
       const j = await r.json();
-      if (j && Array.isArray(j.items)) serverGallery = j.items;
+      if (j && Array.isArray(j.items)) { serverGallery = j.items; galleryLoadFailed = false; return; }
     }
-  } catch {}
+    galleryLoadFailed = true; // non-ok / unexpected body — don't pass it off as an empty gallery
+  } catch { galleryLoadFailed = true; }
 }
 
 function galleryItems() {
@@ -9981,9 +9984,13 @@ function renderGallery() {
   const empty = document.getElementById('galleryEmpty');
   if (empty) {
     empty.style.display = items.length ? 'none' : '';
-    empty.textContent = galFilter === 'all'
-      ? 'Nothing here yet — everything you generate lands in your gallery.'
-      : 'No ' + (galFilter === 'audio' ? 'audio' : galFilter + 's') + ' yet.';
+    // Distinguish a genuinely empty gallery from a fetch that failed — a load
+    // error on a device with saved media must not read as "nothing here yet".
+    empty.textContent = (galleryLoadFailed && !items.length)
+      ? 'Couldn’t load your gallery just now — check your connection and reopen it.'
+      : galFilter === 'all'
+        ? 'Nothing here yet — everything you generate lands in your gallery.'
+        : 'No ' + (galFilter === 'audio' ? 'audio' : galFilter + 's') + ' yet.';
   }
   grid.innerHTML = '';
   items.forEach((it) => {

@@ -2418,3 +2418,45 @@ REMAINING MINOR LEAK (not yet fixed — flag):
 - Bounded residual (not a regression): a new send in the ~45s window after a job
   hits tries==4 can still clobber the dead record before finishDeadJob refunds —
   down from permanent silent loss to a narrow race. Noted, not urgent.
+
+## 2026-07-18 — Low-severity re-verify pass (33 low + 9 plausible)
+
+Re-verified all 42 low/plausible audit findings against current code. The large
+majority were ALREADY FIXED by later work (audio 2000-char billing parity, GPT
+auto-ratio demotion, director leak scrub, awPlayer teardown on chat switch,
+voice-preview refund, clearReviews per-card, sign-out refund, quota on the free
+import path, all the CLAUDE.md doc-drift lines, dead helper blocks, etc.).
+
+Fixed this batch (real-value opens):
+- **deleteChat didn't hydrateStaged** — deleting the active chat left the
+  fallback chat's refresh-persisted staged inputs hidden (switchChat + boot both
+  hydrate; deleteChat didn't). Added hydrateStaged, mirroring switchChat.
+- **Gallery load-failure looked like an empty gallery** — a failed /api/gallery
+  fetch left serverGallery null and showed "Nothing here yet" on a device that
+  DOES have saved media. Added a galleryLoadFailed flag → "Couldn't load your
+  gallery just now — check your connection and reopen it."
+- **`studio` director step** removed from the /api/direct allowlist (Studio was
+  deleted; no client sends it) so a stray step:"studio" falls back to "ask"
+  instead of reaching the dead studio branch.
+- **vidRefLine only cited @Video1** for multi-clip Seedance reference runs (the
+  ctx line already pluralized) — extra staged clips went uncited/inert. Now
+  pluralizes to @Video1…@VideoN when >1.
+- Stale "sound is director-driven" comment corrected (sound follows the user's
+  toggle only, owner rule 2026-07-17).
+
+Still OPEN, deliberately deferred (see the audit report):
+- **Pure dead code / dead CSS** (renderPublish, enterCrt/hideCrt/crtNoSignal,
+  initLeadHero, preset-chip/renderLanding block, 4 dead CSS blocks, triple
+  .sb-toast) — cosmetic only, zero user impact; a bulk-deletion sweep in the
+  live app carries more regression risk than value. Do as a dedicated cleanup
+  when desired.
+- **Refresh/resume money-edges** (jobsWrite slice(-8) silent eviction; finishDeadJob
+  no idem recovery/refund for provisional records; cancel-then-new-send jobClear
+  scoped by chatId) — narrow charged-render edge cases in the resume machinery;
+  worth doing but they touch the just-reworked resume code, so batching them
+  carefully & separately.
+- **Infra/security decisions**: SSRF DNS-rebinding (no trivial Workers fix),
+  /api/cancel+poll ownership check (adds a DB round-trip to a hot path), /api/*
+  wrong-method → 404 not 405 (cosmetic).
+- **Media Agent** comment-reply route (missing quota + raw error string) — LEFT
+  per owner's "skip Media Agent".
