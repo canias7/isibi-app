@@ -9160,6 +9160,28 @@ let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
+// Runtime errors caught in the live preview, keyed `siteId|path`. Populated by
+// postMessage from the preview's error shim; drives the "Fix with AI" badge.
+let sitePreviewErrs = {};
+function previewErrKey() { const s = siteById(siteOpenId); return s ? (s.id + '|' + (s.active || '/')) : ''; }
+function collectPreviewErr(err) {
+  const key = previewErrKey(); if (!key) return;
+  const msg = String(err && err.msg || '').trim(); if (!msg) return;
+  const list = sitePreviewErrs[key] || (sitePreviewErrs[key] = []);
+  if (list.length >= 6 || list.some((x) => x.msg === msg)) return;
+  list.push({ msg, info: String((err && err.info) || '') });
+  paintPreviewErrBadge();
+}
+// Update the badge in place (NOT via renderSites — that would reload the iframe
+// and re-trigger the errors). Errors arrive async, a moment after the preview loads.
+function paintPreviewErrBadge() {
+  const bar = document.getElementById('stFixBar'); if (!bar) return;
+  const list = sitePreviewErrs[previewErrKey()] || [];
+  if (!list.length || siteView !== 'preview') { bar.hidden = true; return; }
+  const n = list.length;
+  const label = bar.querySelector('.st-fixbar-n'); if (label) label.textContent = n + ' issue' + (n === 1 ? '' : 's') + ' detected';
+  bar.hidden = false;
+}
 function sitesLoad() {
   if (sitesCache) return sitesCache;
   try { const raw = JSON.parse(localStorage.getItem(SITES_KEY) || '[]'); sitesCache = Array.isArray(raw) ? raw : []; }
@@ -9229,15 +9251,19 @@ function sitePreviewSrc(html, slug) {
   // Intercept internal "/path" link clicks in the preview and hand them to the
   // parent so the picker switches pages (a blob preview can't route by itself).
   const shim = '<script>(function(){document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a");if(!a)return;var h=a.getAttribute("href")||"";if(h.charAt(0)==="/"&&h.indexOf("//")!==0){e.preventDefault();try{parent.postMessage({__siteNav:h.split("#")[0].split("?")[0]||"/"},"*");}catch(x){}}},true);})();<\/script>';
+  // Error watcher (preview-only QA): catch UNCAUGHT script errors + unhandled
+  // promise rejections in the running preview and report them to the parent, so
+  // the workspace can offer a one-click AI fix. Runs FIRST in <head> so it sees
+  // load-time errors too. Resource-load errors have no .message → ignored (noise).
+  const errShim = '<script>(function(){var seen={};function post(m,info){m=String(m||"").slice(0,300);if(!m||seen[m])return;seen[m]=1;try{parent.postMessage({__siteErr:{msg:m,info:String(info||"").slice(0,160)}},"*");}catch(x){}}window.addEventListener("error",function(e){if(e&&e.message)post(e.message,"");},true);window.addEventListener("unhandledrejection",function(e){var r=e&&e.reason;post((r&&(r.message||r))||"Unhandled promise rejection","promise");});})();<\/script>';
   // Draft identity: the blob preview has no /s/<slug> URL, so hand the site its
   // slug directly (runs BEFORE the site's own JS) — forms/accounts/maps resolve
   // it exactly like they will on the live URL. Published pages read it from the
   // path instead, so this injection is preview-only.
   let out = String(html || '');
-  if (slug) {
-    const tag = '<script>window.__SITE_SLUG__=' + JSON.stringify(String(slug)) + ';<\/script>';
-    out = /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (m) => m + tag) : (tag + out);
-  }
+  const slugTag = slug ? '<script>window.__SITE_SLUG__=' + JSON.stringify(String(slug)) + ';<\/script>' : '';
+  const headInject = errShim + slugTag; // errShim first so it observes the site's own scripts
+  out = /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (m) => m + headInject) : (headInject + out);
   const withShim = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, shim + '</body>') : (out + shim);
   sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
   return sitePrevUrl;
@@ -9247,6 +9273,7 @@ let siteNavBound = false;
 function bindSiteNav() {
   if (siteNavBound) return; siteNavBound = true;
   window.addEventListener('message', (e) => {
+    if (e.data && e.data.__siteErr) { collectPreviewErr(e.data.__siteErr); return; }
     const nav = e.data && e.data.__siteNav;
     if (!nav) return;
     const s = siteById(siteOpenId); if (!s) return;
@@ -9593,6 +9620,9 @@ function renderSiteWorkspace(view, site) {
               : siteView === 'more'
                 ? siteMoreView(site)
                 : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
+          ((hasSite && siteView === 'preview')
+            ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
+            : '') +
           ((siteErr && siteErr.chatId === site.id)
             ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">' + ic('alert', 16) + '</span> Error</div><div class="st-err-b">That change didn’t go through — you weren’t charged.</div>' +
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
@@ -9615,7 +9645,22 @@ function renderSiteWorkspace(view, site) {
     });
   }
   const fr = document.getElementById('stFrame');
-  if (fr && curHtml) fr.src = sitePreviewSrc(curHtml, site.slug);
+  if (fr && curHtml) {
+    sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
+    fr.src = sitePreviewSrc(curHtml, site.slug);
+  }
+  paintPreviewErrBadge(); // hidden until the preview reports errors
+  // "Fix with AI": route the caught runtime errors through the normal revise flow.
+  const fixBtn = document.getElementById('stFixBtn');
+  if (fixBtn) fixBtn.onclick = () => {
+    const errs = (sitePreviewErrs[previewErrKey()] || []).slice(0, 6);
+    if (!errs.length) return;
+    const detail = errs.map((x, i) => (i + 1) + '. ' + x.msg + (x.info ? ' [' + x.info + ']' : '')).join('\n');
+    const bar = document.getElementById('stFixBar'); if (bar) bar.hidden = true;
+    siteSend('The live page is throwing these JavaScript errors — find the root cause in the code and fix it, changing as little else as possible:\n' + detail);
+  };
+  const fixX = document.getElementById('stFixX');
+  if (fixX) fixX.onclick = () => { sitePreviewErrs[previewErrKey()] = []; const bar = document.getElementById('stFixBar'); if (bar) bar.hidden = true; };
   // View tabs (Preview / Code / More).
   view.querySelectorAll('.st-vtab').forEach((b) => b.onclick = () => { siteView = b.dataset.view; renderSites(); });
   // Code view: clicking a page "file" switches which page's code shows.

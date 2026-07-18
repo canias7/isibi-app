@@ -1458,6 +1458,15 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-err-row { display: flex; gap: .6rem; justify-content: flex-end; }
 .st-err-logs { font: inherit; font-size: .82rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line-2); border-radius: 9px; padding: .45rem .8rem; cursor: pointer; }
 .st-err-fix { font: inherit; font-size: .82rem; font-weight: 700; color: #0a0a0b; background: var(--split); border: none; border-radius: 9px; padding: .45rem .9rem; cursor: pointer; }
+/* Runtime-error "Fix with AI" chip — bottom-left of the preview (Lovable-style). */
+.st-fixbar { position: absolute; left: 22px; bottom: 22px; display: flex; align-items: center; gap: .55rem; background: rgba(28, 16, 18, .94); backdrop-filter: blur(14px); border: 1px solid rgba(255, 120, 120, .38); border-radius: 12px; padding: .5rem .5rem .5rem .8rem; box-shadow: 0 20px 48px rgba(0, 0, 0, .5); z-index: 5; max-width: calc(100% - 44px); }
+.st-fixbar[hidden] { display: none; }
+.st-fixbar-ic { display: flex; color: #ff8a8a; flex: none; }
+.st-fixbar-n { font-size: .84rem; font-weight: 600; color: #ffd9d9; white-space: nowrap; }
+.st-fixbar-btn { font: inherit; font-size: .82rem; font-weight: 700; color: #0a0a0b; background: var(--split); border: none; border-radius: 9px; padding: .42rem .85rem; cursor: pointer; flex: none; }
+.st-fixbar-btn:hover { filter: brightness(1.06); }
+.st-fixbar-x { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); cursor: pointer; font-size: 1rem; line-height: 1; }
+.st-fixbar-x:hover { color: #fff; }
 /* ── Publish panel ── */
 .sp-intro { color: var(--muted); font-size: .88rem; line-height: 1.5; margin-bottom: 1rem; }
 .sp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line); }
