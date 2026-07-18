@@ -2118,3 +2118,16 @@ so it wins the earlier fills):
 Colors untouched. Verified headless on the real app (full screen + composer
 close-up), no page errors. The mkt marketing composer reuses these classes
 and inherits the same look — consistent by design.
+
+## 2026-07-18 — Gemini edit: EEA/UK/Switzerland friendly error
+
+The fal schema for google/gemini-omni-flash/edit states editing uploaded
+videos is NOT available in the EEA, Switzerland or the UK (also: "voice
+editing is not supported", and Google's own tip — simple prompts + "Keep
+everything else the same." — which our edit-writer already follows). Added
+region-rejection detection in BOTH failure surfaces (friendlyFail + the
+terminal-4xx poll branch): a blocked EU/UK/CH user now gets "the model maker
+blocks it in the EU, UK and Switzerland — pick a Kling o3 model for clip
+edits instead" plus the refund note, instead of a raw validation shrug.
+Verified headless: fires on the schema's exact wording; content-filter and
+validation branches unaffected; no provider named.
