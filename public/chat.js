@@ -9419,7 +9419,7 @@ function moreCloud(site) {
     ['database', 'Database', site.slug ? 'Store + show dynamic content (reviews, menu…)' : 'Publish to enable collections', true, 'database'],
     ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
     ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
-    ['zap', 'Edge functions', 'Server-side logic', false, ''],
+    ['zap', 'Edge functions', site.slug ? 'Custom server logic your app builds' : 'Publish to add functions', true, 'functions'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
@@ -9636,6 +9636,7 @@ function renderSiteWorkspace(view, site) {
     if (b.dataset.cloud === 'members') siteMembers(site);
     else if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
+    else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -9959,6 +9960,53 @@ async function siteSecrets(site) {
       if (d && d.ok) { box.querySelector('#skName').value = ''; box.querySelector('#skVal').value = ''; load(); }
       else { errEl.textContent = (d && d.error) || 'Couldn’t save the secret.'; errEl.style.display = ''; }
     } catch (e) { errEl.textContent = 'Couldn’t save the secret.'; errEl.style.display = ''; }
+  };
+  load();
+}
+
+// Edge functions — server-side logic the builder DECLARES from chat (call a
+// third-party API with a saved secret, aggregate collection data, multi-step
+// flows). Read-only list + delete here; you add/change them by asking in the
+// builder. Owner-only, RLS-scoped.
+async function siteFunctions(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its functions show up here.'); return; }
+  let box = document.getElementById('siteFnModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteFnModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Edge functions</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Server-side logic your app builds from chat — calling an API with a saved secret, aggregating data, multi-step flows. Ask in the builder to add or change one.</p><div id="fnList">Loading…</div></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const listEl = box.querySelector('#fnList');
+  const host = (u) => { try { return new URL(String(u).replace(/\{\{[^}]*\}\}/g, 'x')).hostname.replace(/^www\./, ''); } catch (e) { return 'an API'; } };
+  const stepLabel = (s) => {
+    if (!s || typeof s !== 'object') return '';
+    if (s.do === 'read') return 'read ' + esc(s.collection || 'data');
+    if (s.do === 'save') return 'save to ' + esc(s.collection || 'data');
+    if (s.do === 'fetch') return esc(s.method || 'GET') + ' ' + esc(host(s.url));
+    if (s.do === 'respond') return 'respond';
+    return esc(s.do || '');
+  };
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/functions?slug=' + encodeURIComponent(slug));
+      const d = await r.json().catch(() => ({ functions: [] }));
+      const fns = Array.isArray(d.functions) ? d.functions : [];
+      if (!fns.length) { listEl.innerHTML = '<div class="si-empty">No functions yet. In the builder, describe the server logic you want (e.g. “when someone signs up, post it to my Slack webhook”) and it’ll appear here.</div>'; return; }
+      listEl.innerHTML = fns.map((f) => {
+        const steps = (f.spec && Array.isArray(f.spec.steps)) ? f.spec.steps : [];
+        const chips = steps.map((s) => '<span class="fn-step">' + stepLabel(s) + '</span>').join('<span class="fn-arrow">→</span>');
+        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('zap', 15) + '</span><b class="fn-name">' + esc(f.name) + '</b><span class="fn-trig">HTTP</span>' + (f.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">Live</span>') + '<button type="button" class="sk-del" data-del="' + esc(f.name) + '" title="Delete">×</button></div><div class="fn-flow">' + (chips || '<span class="fn-step">no steps</span>') + '</div></div>';
+      }).join('');
+      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+        await apiFetch('/api/site/functions?slug=' + encodeURIComponent(slug) + '&name=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+        load();
+      });
+    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load functions — try again.</div>'; }
   };
   load();
 }

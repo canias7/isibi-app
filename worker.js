@@ -1855,6 +1855,165 @@ async function encryptSecret(env, plaintext) {
   const packed = new Uint8Array(iv.length + ct.length); packed.set(iv, 0); packed.set(ct, iv.length);
   return b64urlFromBytes(packed);
 }
+// Inverse of encryptSecret — used ONLY server-side by the function interpreter to
+// inject a stored secret into an outbound fetch. A plaintext secret NEVER leaves
+// the Worker (never returned in an API response).
+async function decryptSecret(env, packed) {
+  const key = await siteSecretKey(env);
+  const bytes = bytesFromB64url(String(packed || ""));
+  const iv = bytes.slice(0, 12), ct = bytes.slice(12);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  return new TextDecoder().decode(pt);
+}
+
+// ── Site "edge functions" (Path A): the generator DECLARES a function-SPEC (a
+// bounded trigger→steps recipe), never arbitrary code. The Worker interprets the
+// spec against primitives we already own (collections, secrets, external fetch),
+// so nothing user-authored ever executes — there is no code to sandbox. ──
+const FN_ACTIONS = new Set(["read", "save", "fetch", "respond"]);
+const cleanColl = (s) => (typeof s === "string" ? s.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) : "");
+const cleanAs = (s) => (typeof s === "string" ? s.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : "");
+// Bound a spec value: keep template placeholders intact, cap strings/arrays/objects.
+function cleanTempl(v, depth = 0) {
+  if (typeof v === "string") return v.slice(0, 4000);
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  if (depth >= 4) return undefined;
+  if (Array.isArray(v)) return v.slice(0, 20).map((x) => cleanTempl(x, depth + 1)).filter((x) => x !== undefined);
+  if (v && typeof v === "object") { const o = {}; let n = 0; for (const k of Object.keys(v)) { if (n++ >= 20) break; const cv = cleanTempl(v[k], depth + 1); if (cv !== undefined) o[String(k).slice(0, 80)] = cv; } return o; }
+  return undefined;
+}
+// Validate + normalize a declared spec to the tight shape the interpreter runs.
+// Returns null for anything empty or unrecognizable (block is then just dropped).
+function normalizeFnSpec(spec) {
+  if (!spec || typeof spec !== "object") return null;
+  const stepsIn = Array.isArray(spec.steps) ? spec.steps : [];
+  const steps = []; let fetches = 0;
+  for (const s of stepsIn) {
+    if (steps.length >= 8) break;
+    if (!s || typeof s !== "object") continue;
+    const op = String(s.do || s.action || "").toLowerCase();
+    if (!FN_ACTIONS.has(op)) continue;
+    if (op === "read") {
+      const collection = cleanColl(s.collection); if (!collection) continue;
+      steps.push({ do: "read", collection, limit: Math.min(50, Math.max(1, parseInt(s.limit, 10) || 20)), as: cleanAs(s.as) || "records" });
+    } else if (op === "save") {
+      const collection = cleanColl(s.collection); if (!collection) continue;
+      steps.push({ do: "save", collection, data: cleanTempl(s.data) || {} });
+    } else if (op === "fetch") {
+      if (fetches >= 2) continue; fetches++;
+      const url = typeof s.url === "string" ? s.url.slice(0, 600) : ""; if (!url) continue;
+      const method = ["GET", "POST", "PUT", "PATCH", "DELETE"].includes(String(s.method || "GET").toUpperCase()) ? String(s.method).toUpperCase() : "GET";
+      const step = { do: "fetch", url, method, headers: cleanTempl(s.headers) || {}, as: cleanAs(s.as) || "response" };
+      if (s.body != null) step.body = cleanTempl(s.body);
+      steps.push(step);
+    } else if (op === "respond") {
+      steps.push({ do: "respond", data: cleanTempl(s.data != null ? s.data : s.body) });
+    }
+  }
+  if (!steps.length) return null;
+  return { trigger: "http", steps };
+}
+// Pull declared <script type="application/isibi-fn" data-name="X">{spec}</script>
+// blocks out of a page: return the cleaned HTML (blocks stripped — the spec must
+// never ship to the public page) plus the validated {name, spec} list.
+function extractSiteFunctions(html) {
+  const fns = [];
+  const clean = String(html || "").replace(/<script\b[^>]*type=["']application\/isibi-fn["'][^>]*>([\s\S]*?)<\/script>/gi, (m, inner) => {
+    const nameM = m.match(/data-name=["']([A-Za-z0-9_-]{1,64})["']/i);
+    const name = nameM ? nameM[1] : "";
+    let spec = null; try { spec = JSON.parse(String(inner).trim()); } catch {}
+    const norm = name && spec ? normalizeFnSpec(spec) : null;
+    if (name && norm) fns.push({ name, spec: norm });
+    return ""; // strip regardless — never leave a dead/leaky block on the page
+  });
+  return { clean, fns };
+}
+// Resolve {{input.x}} / {{steps.<as>.<path>}} placeholders. {{secret.NAME}} is
+// resolved ONLY when `secrets` is provided (fetch step); everywhere else (save,
+// respond) a secret ref collapses to "" so a plaintext key can never be echoed.
+function resolveStr(s, data, secrets) {
+  return String(s).replace(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g, (m, path) => {
+    const parts = path.split(".");
+    if (parts[0] === "secret") { const name = parts[1] || ""; return secrets && Object.prototype.hasOwnProperty.call(secrets, name) ? String(secrets[name]) : ""; }
+    let cur = parts[0] === "input" ? data.input : parts[0] === "steps" ? data.steps : undefined;
+    for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
+    if (cur == null) return "";
+    return typeof cur === "object" ? JSON.stringify(cur) : String(cur);
+  }).slice(0, 6000);
+}
+function resolveTempl(v, data, secrets) {
+  if (typeof v === "string") return resolveStr(v, data, secrets);
+  if (Array.isArray(v)) return v.map((x) => resolveTempl(x, data, secrets));
+  if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = resolveTempl(v[k], data, secrets); return o; }
+  return v;
+}
+// Decrypt this site's secrets into a name→plaintext map (server-only, per run).
+async function loadSiteSecrets(env, ownerId, slug) {
+  const map = {};
+  try {
+    const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?owner_id=eq.${ownerId}&slug=eq.${encodeURIComponent(slug)}&select=name,value_encrypted&limit=100`, { headers: svc, signal: AbortSignal.timeout(8000) });
+    const rows = await r.json().catch(() => []);
+    for (const row of (Array.isArray(rows) ? rows : [])) { try { map[row.name] = await decryptSecret(env, row.value_encrypted); } catch {} }
+  } catch {}
+  return map;
+}
+// Run one declared function against the live primitives. Every path is bounded
+// (≤8 steps, ≤2 fetches already enforced in the spec, 8s per network op, 32KB
+// response reads) and external fetches go through safeFetch (SSRF-guarded).
+async function runSiteFunction(env, row, input, slug) {
+  const steps = Array.isArray(row.spec && row.spec.steps) ? row.spec.steps.slice(0, 8) : [];
+  const data = { input: input && typeof input === "object" && !Array.isArray(input) ? input : {}, steps: {} };
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+  let secrets = null, response = null;
+  for (const st of steps) {
+    try {
+      if (st.do === "read") {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=data,created_at&order=created_at.desc&limit=${st.limit || 20}`, { headers: svc, signal: AbortSignal.timeout(8000) });
+        const rows = await r.json().catch(() => []);
+        const records = Array.isArray(rows) ? rows.map((x) => x.data) : [];
+        data.steps[st.as] = { records, count: records.length };
+      } else if (st.do === "save") {
+        const rec = resolveTempl(st.data, data, null); // secrets never saved to a public collection
+        // Bound abuse: same ≤500-per-(slug,collection) cap as /api/site/data.
+        let total = 0;
+        try { const c = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=id`, { headers: { ...svc, Prefer: "count=exact", Range: "0-0" }, signal: AbortSignal.timeout(8000) }); total = parseInt(((c.headers.get("content-range") || "").split("/")[1] || "0"), 10) || 0; } catch {}
+        if (total < 500) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_collections`, { method: "POST", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ published_site_id: row.published_site_id || null, owner_id: row.owner_id, slug, collection: st.collection, data: rec && typeof rec === "object" ? rec : {} }), signal: AbortSignal.timeout(8000) }); } catch {} }
+        data.steps[st.as || "saved"] = { ok: true };
+      } else if (st.do === "fetch") {
+        if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
+        const url = resolveStr(st.url, data, secrets);
+        const headers = resolveTempl(st.headers, data, secrets) || {};
+        let out; if (st.body != null) { const b = resolveTempl(st.body, data, secrets); out = typeof b === "string" ? b : JSON.stringify(b); }
+        const resp = await safeFetch(url, { method: st.method, headers, body: (st.method === "GET" || st.method === "DELETE") ? undefined : out, signal: AbortSignal.timeout(8000) });
+        let status = 0, parsed = null;
+        if (resp) { status = resp.status; const txt = new TextDecoder().decode(await readCapped(resp, 32768)); try { parsed = JSON.parse(txt); } catch { parsed = txt; } }
+        data.steps[st.as] = { status, body: parsed };
+      } else if (st.do === "respond") {
+        response = resolveTempl(st.data, data, null); // NEVER expose secrets to the caller
+      }
+    } catch { data.steps[st.as || "_err"] = { error: true }; }
+  }
+  return response != null ? response : { ok: true };
+}
+// Persist declared functions (service-key upsert on owner+slug+name). Called at
+// build/revise time; declared functions overwrite prior versions, none are auto-
+// deleted (the owner removes them from the Cloud panel).
+async function persistSiteFunctions(env, ownerId, slug, fns) {
+  if (!env.SUPABASE_SERVICE_KEY || !slug || !ownerId || !fns.length) return;
+  const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+  const now = new Date().toISOString();
+  const rows = fns.slice(0, 20).map((f) => ({ owner_id: ownerId, slug, name: f.name, spec: f.spec, enabled: true, updated_at: now }));
+  try { await fetch(`${SUPABASE_URL}/rest/v1/site_functions?on_conflict=owner_id,slug,name`, { method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(rows), signal: AbortSignal.timeout(10000) }); } catch {}
+}
+// Best-effort per-slug rate limit (per isolate) — a coarse backstop on top of the
+// hard per-run bounds, since /api/site/fn is public like /api/site/form.
+const _fnRate = new Map();
+function fnRateOk(slug) {
+  const now = Date.now(), e = _fnRate.get(slug);
+  if (!e || now > e.reset) { _fnRate.set(slug, { n: 1, reset: now + 60000 }); return true; }
+  if (e.n >= 120) return false; e.n++; return true;
+}
 
 // ── Website Builder: server-side image generation ──
 // The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
@@ -3607,7 +3766,7 @@ async function handleRequest(request, env, ctx) {
       const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
-      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. SITE CONTEXT — define ONCE at the very top of your single <script> and use everywhere: function siteSlug(){return (window.__SITE_SLUG__)||(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'';} and a storage helper that never throws (so accounts work in the sandboxed live-preview too): var store={_m:{},get:function(k){try{return localStorage.getItem(k)}catch(e){return this._m[k]||null}},set:function(k,v){try{localStorage.setItem(k,v)}catch(e){this._m[k]=v}},del:function(k){try{localStorage.removeItem(k)}catch(e){delete this._m[k]}}}; — use siteSlug() wherever a slug is needed and store for the session token. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:siteSlug(), form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible. ACCOUNTS / LOGIN (REAL — this platform provides a real auth backend, so NEVER fake it): if the site needs sign-up / log-in / a members-only area, wire it to the REAL endpoints — do NOT build a pretend login or an ungated 'dashboard'. Use the shared token key K='zephyr_site_auth_'+siteSlug(). SIGN-UP form → fetch('/api/site/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),email,password})}); LOG-IN form → POST /api/site/auth/login with the same body. Parse the JSON: on {ok:true} do store.set(K,json.token) then redirect to the member area (e.g. location.href='/dashboard'); on {ok:false} show json.error inline by the form. Require the password field minlength 8 and include the hidden _hp honeypot on these forms too. Every MEMBER-ONLY / dashboard / account page MUST guard on load: var t=store.get(K); if(!t){location.replace('/login')} else fetch('/api/site/auth/me',{headers:{Authorization:'Bearer '+t}}).then(r=>r.json()).then(d=>{if(!d.ok)throw 0; /* reveal page + show d.email */}).catch(()=>{store.del(K);location.replace('/login')}); — NEVER render member content without this real check. A LOG-OUT control does store.del(K) then goes home. Show the member's REAL email from /api/site/auth/me — never invent fake names, fake stats, or fake 'logged in as' data. NEVER put a password field in a form that POSTs to /api/site/form. (Accounts only work on the PUBLISHED site; in preview SLUG is '' and the endpoint replies that it isn't live yet — surface that message, don't fake success.) LIVE MAP (REAL): for a location / 'find us' / directions section with a real address, embed a REAL interactive map with an <iframe> — this iframe is the ONE allowed exception to the no-embeds rule. Use OpenStreetMap (no API key): <iframe title=\"Map\" loading=\"lazy\" style=\"border:0;width:100%;height:380px\" src=\"https://www.openstreetmap.org/export/embed.html?bbox=LON1,LAT1,LON2,LAT2&layer=mapnik&marker=LAT,LON\"></iframe> where the marker is the address's approximate lat/lon and the bbox spans ~0.004° around it, plus a 'View larger map' link to openstreetmap.org. NEVER fake a map with a static image or an empty box when a real address is given. DATABASE / COLLECTIONS (REAL — public, displayable data the site both SAVES and SHOWS: testimonials/reviews walls, menus, guestbooks, listings, anything a visitor submits AND everyone sees; NOT for private/sensitive captures — those go to /api/site/form). To SAVE a record: fetch('/api/site/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),collection:'<name, e.g. reviews>',data:{field:value,…}})}) (fire-and-forget; include the hidden _hp honeypot; then show the inline success state). To DISPLAY records: fetch('/api/site/data?slug='+encodeURIComponent(siteSlug())+'&collection=<name>').then(r=>r.json()).then(d=>{(d.records||[]).forEach(function(rec){ /* render rec.data — escape text before inserting */ });}); run it on page load to populate the list. Records are PUBLIC and newest-first (cap 100). Use collections for content the visitor both adds and sees; keep anything private in /api/site/form. GENERAL HONESTY: never ship UI that pretends to do something it can't — if a capability truly isn't supported, degrade honestly (a clear 'coming soon' or a real waitlist via /api/site/form) instead of faking it.";
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. SITE CONTEXT — define ONCE at the very top of your single <script> and use everywhere: function siteSlug(){return (window.__SITE_SLUG__)||(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'';} and a storage helper that never throws (so accounts work in the sandboxed live-preview too): var store={_m:{},get:function(k){try{return localStorage.getItem(k)}catch(e){return this._m[k]||null}},set:function(k,v){try{localStorage.setItem(k,v)}catch(e){this._m[k]=v}},del:function(k){try{localStorage.removeItem(k)}catch(e){delete this._m[k]}}}; — use siteSlug() wherever a slug is needed and store for the session token. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:siteSlug(), form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible. ACCOUNTS / LOGIN (REAL — this platform provides a real auth backend, so NEVER fake it): if the site needs sign-up / log-in / a members-only area, wire it to the REAL endpoints — do NOT build a pretend login or an ungated 'dashboard'. Use the shared token key K='zephyr_site_auth_'+siteSlug(). SIGN-UP form → fetch('/api/site/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),email,password})}); LOG-IN form → POST /api/site/auth/login with the same body. Parse the JSON: on {ok:true} do store.set(K,json.token) then redirect to the member area (e.g. location.href='/dashboard'); on {ok:false} show json.error inline by the form. Require the password field minlength 8 and include the hidden _hp honeypot on these forms too. Every MEMBER-ONLY / dashboard / account page MUST guard on load: var t=store.get(K); if(!t){location.replace('/login')} else fetch('/api/site/auth/me',{headers:{Authorization:'Bearer '+t}}).then(r=>r.json()).then(d=>{if(!d.ok)throw 0; /* reveal page + show d.email */}).catch(()=>{store.del(K);location.replace('/login')}); — NEVER render member content without this real check. A LOG-OUT control does store.del(K) then goes home. Show the member's REAL email from /api/site/auth/me — never invent fake names, fake stats, or fake 'logged in as' data. NEVER put a password field in a form that POSTs to /api/site/form. (Accounts only work on the PUBLISHED site; in preview SLUG is '' and the endpoint replies that it isn't live yet — surface that message, don't fake success.) LIVE MAP (REAL): for a location / 'find us' / directions section with a real address, embed a REAL interactive map with an <iframe> — this iframe is the ONE allowed exception to the no-embeds rule. Use OpenStreetMap (no API key): <iframe title=\"Map\" loading=\"lazy\" style=\"border:0;width:100%;height:380px\" src=\"https://www.openstreetmap.org/export/embed.html?bbox=LON1,LAT1,LON2,LAT2&layer=mapnik&marker=LAT,LON\"></iframe> where the marker is the address's approximate lat/lon and the bbox spans ~0.004° around it, plus a 'View larger map' link to openstreetmap.org. NEVER fake a map with a static image or an empty box when a real address is given. DATABASE / COLLECTIONS (REAL — public, displayable data the site both SAVES and SHOWS: testimonials/reviews walls, menus, guestbooks, listings, anything a visitor submits AND everyone sees; NOT for private/sensitive captures — those go to /api/site/form). To SAVE a record: fetch('/api/site/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),collection:'<name, e.g. reviews>',data:{field:value,…}})}) (fire-and-forget; include the hidden _hp honeypot; then show the inline success state). To DISPLAY records: fetch('/api/site/data?slug='+encodeURIComponent(siteSlug())+'&collection=<name>').then(r=>r.json()).then(d=>{(d.records||[]).forEach(function(rec){ /* render rec.data — escape text before inserting */ });}); run it on page load to populate the list. Records are PUBLIC and newest-first (cap 100). Use collections for content the visitor both adds and sees; keep anything private in /api/site/form. EDGE FUNCTIONS / SERVER LOGIC (REAL — for custom backend behavior the primitives above don't cover: calling a THIRD-PARTY API with a saved key (Slack/Discord webhook, Stripe, an LLM API, a mailing service), computing/aggregating collection data, or a multi-step 'on submit do A then B'). Do NOT fake server logic in front-end JS, and NEVER hardcode an API key in the page — DECLARE a function instead. Put a spec block in <head>: <script type=\"application/isibi-fn\" data-name=\"notify-signup\">{\"steps\":[ … ]}</script> (data-name is a unique short id, letters/numbers/dash). Each step is exactly ONE of: {\"do\":\"read\",\"collection\":\"reviews\",\"limit\":20,\"as\":\"list\"} → reads public collection records, then {{steps.list.records}} / {{steps.list.count}} are available; {\"do\":\"save\",\"collection\":\"signups\",\"data\":{\"email\":\"{{input.email}}\"}} → saves a record; {\"do\":\"fetch\",\"url\":\"https://api.example.com/x\",\"method\":\"POST\",\"headers\":{\"Authorization\":\"Bearer {{secret.API_KEY}}\",\"Content-Type\":\"application/json\"},\"body\":{\"text\":\"{{input.msg}}\"},\"as\":\"api\"} → calls an external HTTPS API, then {{steps.api.status}} / {{steps.api.body}} are available; {\"do\":\"respond\",\"data\":{\"ok\":true}} → the JSON the browser receives back. TEMPLATES: {{input.x}} = the caller's input; {{steps.<as>.<path>}} = an earlier step's output; {{secret.NAME}} = a saved secret, resolved SERVER-SIDE and injected ONLY into fetch (url/headers/body) — it is NEVER sent to the browser, so every real API key goes in {{secret.NAME}} (the owner adds the value in Cloud → Secrets), never inline. Limits: ≤8 steps, ≤2 fetch per function. CALL a function from your page JS: fetch('/api/site/fn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),fn:'notify-signup',input:{email:val}})}).then(function(r){return r.json()}).then(function(d){ /* d is your respond data */ }). Use a function ONLY when the primitives above don't fit — for plain public save+show use collections, for a private capture use /api/site/form. GENERAL HONESTY: never ship UI that pretends to do something it can't — if a capability truly isn't supported, degrade honestly (a clear 'coming soon' or a real waitlist via /api/site/form) instead of faking it.";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
       if (!env.GEMINI_API_KEY) {
@@ -3770,6 +3929,9 @@ async function handleRequest(request, env, ctx) {
               }
             } catch (e) { console.log("draft identity failed:", e && e.message); draftSlug = ""; }
           }
+          // Extract any declared edge functions from every page (strip the spec
+          // blocks so they never ship publicly), then persist them for this site.
+          { const byName = {}; for (const pg of built) { const ex = extractSiteFunctions(pg.html); pg.html = ex.clean; for (const f of ex.fns) byName[f.name] = f; } const fnList = Object.values(byName); if (draftSlug && fnList.length) await persistSiteFunctions(env, stUser.id, draftSlug, fnList); }
           return Response.json({ pages: built, design, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
         } else {
           // Revise ONE page (the active one) against the shared design system.
@@ -3790,6 +3952,18 @@ async function handleRequest(request, env, ctx) {
             html = inj.html;
             if (inj.charged > 0) { imgCredits = inj.charged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
           } catch (e) { console.log("site image pass failed:", e && e.message); }
+          // A revision can add/replace edge functions too — extract, strip, persist.
+          { const ex = extractSiteFunctions(html); html = ex.clean;
+            const reviseSiteId = typeof body.siteId === "string" ? body.siteId.slice(0, 80) : "";
+            if (ex.fns.length && reviseSiteId) {
+              try {
+                const jwtR = (request.headers.get("Authorization") || "").slice(7);
+                const rr = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?site_id=eq.${encodeURIComponent(reviseSiteId)}&select=slug&limit=1`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwtR }, signal: AbortSignal.timeout(8000) });
+                const rows = await rr.json().catch(() => []);
+                const rSlug = Array.isArray(rows) && rows[0] ? rows[0].slug : "";
+                if (rSlug) await persistSiteFunctions(env, stUser.id, rSlug, ex.fns);
+              } catch (e) { console.log("revise fn persist failed:", e && e.message); }
+            } }
           return Response.json({ html, path: typeof body.path === "string" ? body.path : "/", cost: gemCredits + imgCredits, balance: balAfter });
         }
       } catch (e) {
@@ -4170,6 +4344,65 @@ async function handleRequest(request, env, ctx) {
         const rows = await r.json().catch(() => []);
         return Response.json({ records: Array.isArray(rows) ? rows : [] });
       } catch { return Response.json({ records: [] }); }
+    }
+
+    // ── Site functions ("Edge functions") ──────────────────────────────────
+    // Runtime: the published site's JS calls its own declared functions here.
+    // Public + fail-soft like /api/site/form, but each run is hard-bounded and
+    // external calls are SSRF-guarded (see runSiteFunction). No credit charge —
+    // abuse is bounded by per-run caps + a per-slug rate limit.
+    if (url.pathname === "/api/site/fn" && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" } });
+    }
+    if (url.pathname === "/api/site/fn" && request.method === "POST") {
+      const cors = { "Access-Control-Allow-Origin": "*" };
+      const tlFn = tooLargeBody(request, 24000); if (tlFn) return Response.json({ error: "too large" }, { status: 413, headers: cors });
+      let body; try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400, headers: cors }); }
+      const slug = typeof body.slug === "string" ? body.slug.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90) : "";
+      const fnName = typeof body.fn === "string" ? body.fn.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) : "";
+      const input = body.input && typeof body.input === "object" && !Array.isArray(body.input) ? body.input : {};
+      if (!slug || !fnName) return Response.json({ error: "unknown function" }, { status: 404, headers: cors });
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ error: "functions unavailable" }, { status: 501, headers: cors });
+      if (!fnRateOk(slug)) return Response.json({ error: "rate limited" }, { status: 429, headers: cors });
+      const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
+      let row = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&name=eq.${encodeURIComponent(fnName)}&enabled=is.true&select=owner_id,published_site_id,spec&limit=1`, { headers: svc, signal: AbortSignal.timeout(8000) });
+        const rows = await r.json().catch(() => []); row = Array.isArray(rows) ? rows[0] : null;
+      } catch {}
+      if (!row) return Response.json({ error: "unknown function" }, { status: 404, headers: cors });
+      try {
+        const out = await runSiteFunction(env, row, input, slug);
+        return Response.json(out && typeof out === "object" ? out : { result: out }, { headers: cors });
+      } catch { return Response.json({ error: "function failed" }, { status: 500, headers: cors }); }
+    }
+    // Owner lists their site's declared functions (RLS-scoped, for the Cloud panel).
+    if (url.pathname === "/api/site/functions" && request.method === "GET") {
+      const fUser = await authUser(request);
+      if (!fUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const base = `${SUPABASE_URL}/rest/v1/site_functions?select=name,spec,enabled,created_at,updated_at${slug ? "&slug=eq." + encodeURIComponent(slug) : ""}&order=created_at.desc&limit=100`;
+      try {
+        const r = await fetch(base, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt }, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        return Response.json({ functions: Array.isArray(rows) ? rows : [] });
+      } catch { return Response.json({ functions: [] }); }
+    }
+    // Owner deletes one of their functions (RLS delete policy scopes to them).
+    if (url.pathname === "/api/site/functions" && request.method === "DELETE") {
+      const fUser = await authUser(request);
+      if (!fUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const name = (url.searchParams.get("name") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+      if (!slug || !name) return Response.json({ ok: false });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&name=eq.${encodeURIComponent(name)}`, {
+          method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, Prefer: "return=minimal" }, signal: AbortSignal.timeout(10000),
+        });
+      } catch {}
+      return Response.json({ ok: true });
     }
 
     // Public form submissions from published sites (waitlist/contact). Anonymous
