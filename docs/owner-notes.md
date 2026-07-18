@@ -2204,3 +2204,12 @@ hosting. Owner is considering a GitHub-repo-per-generated-site model (Pages).
 Alternative pitched: Cloudflare-native hosting (Workers static assets / R2
 under isibi.ai subdomains — no third-party coupling, instant deploys, own
 domain). Decide when the engine phase starts. No work authorized yet.
+
+ENGINE PLAN (owner, 2026-07-18 — for the Website Builder engine phase):
+owner's call on models: "Gemini is better at design, Claude better at backend/
+architecture." Agreed pipeline: (1) build ✦25 = Claude-cheap spec → Gemini
+visual generation → Claude hardening (semantics/a11y/SEO/form wiring);
+(2) revision ✦10 = route by intent (visual → Gemini, functional → Claude)
+via a cheap classifier, same pattern as the director's effort routing.
+Opus reserved for heavy architecture; Gemini Pro on the visual pass keeps
+✦25/✦10 margins healthy. Needs GEMINI key from owner (pending) — not built.
