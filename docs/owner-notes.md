@@ -2498,3 +2498,14 @@ DELIBERATELY DEFERRED (with reasons — these are NOT clear wins):
   guard covers the common case. Behind auth + quota. Left as documented residual.
 - **Media Agent comment-reply route** (missing quota + raw error string): left
   per owner's "skip Media Agent".
+
+## 2026-07-18 — FOUC fix: app shell flashed behind the landing on refresh
+
+Owner noticed: refreshing the landing briefly flashed the app UI (top-bar
+tabs / chatbox) for a frame. Cause: `.shell` (the app) had no display:none —
+it was only made `inert` behind the landing — while `#marketing`/`#authGate`
+start hidden. So on a fresh load the shell painted for one frame before
+showMarketing() ran. Fix: `.shell` now starts `style="display:none"` in the
+HTML and enterApp() reveals it (`shell.style.display=''`) — the single authed
+entry point. Logged-out never calls enterApp, so the shell never paints on the
+landing. Verified headless: logged-out, .shell=none from DOM-ready, marketing=flex.

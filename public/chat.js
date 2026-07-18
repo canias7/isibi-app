@@ -6366,6 +6366,10 @@ async function resendAuthCode() {
 }
 
 function enterApp() {
+  // Reveal the app shell (hidden by default in the HTML so it never flashes
+  // behind the landing on a fresh load). This is the single authed entry point.
+  const shell = document.querySelector('.shell');
+  if (shell) shell.style.display = '';
   hideMarketing();
   hideAuthGate();
   const email = Auth.email();

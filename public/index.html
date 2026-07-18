@@ -141,7 +141,10 @@
   </div>
 
 
-  <div class="shell">
+  <!-- Hidden until enterApp() reveals it, so the app never paints for a frame
+       behind the landing on a fresh load (FOUC). Only signed-in boot / auth
+       calls enterApp; the logged-out landing never shows the shell. -->
+  <div class="shell" style="display:none">
     <aside class="sidebar" id="sideBar">
       <div class="side-top">
         <div class="side-logo" data-act="landing" title="Back to the isibi home page"><img class="logo-mark" src="/logo.png" alt="" /><span>isibi</span></div>
