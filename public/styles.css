@@ -1288,10 +1288,13 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 body.in-sites .sidebar { display: none; }
 body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .view-sites.active { flex-direction: column; overflow-y: auto; padding: 2.4rem 2rem 3rem; }
+.view-sites.ws-open { padding: .8rem 1rem 1rem; overflow: hidden; }
 .st-page { width: 100%; max-width: 1080px; margin: 0 auto; }
-.st-head h1 { font-size: 1.7rem; font-weight: 800; letter-spacing: -.01em; text-transform: uppercase; }
-.st-head p { color: var(--muted); font-size: .92rem; margin-top: .35rem; line-height: 1.5; display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
-.st-new { margin-top: 1.6rem; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); padding: 1rem 1.1rem; }
+/* Start screen: a centered hero (Lovable-style home) — big ask, input below. */
+.st-hero { max-width: 760px; margin: 6vh auto 0; text-align: center; }
+.st-hero h1 { font-size: clamp(1.9rem, 3.4vw, 2.7rem); font-weight: 800; letter-spacing: -.02em; }
+.st-hero p { color: var(--muted); font-size: .95rem; margin-top: .55rem; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; }
+.st-new { margin-top: 1.5rem; text-align: left; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); padding: 1rem 1.1rem; }
 .st-in { width: 100%; font: inherit; font-size: .95rem; color: var(--text); background: rgba(255, 255, 255, .035); border: 1px solid var(--line-2); border-radius: 12px; padding: .75rem .9rem; resize: vertical; }
 .st-in:focus { outline: none; border-color: rgba(255, 170, 110, .5); }
 .st-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .8rem; flex-wrap: wrap; }
@@ -1317,24 +1320,63 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-card-name { font-size: .92rem; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-card-sub { font-size: .75rem; color: var(--muted); }
 .st-card-del { position: absolute; top: 8px; right: 8px; background: rgba(0, 0, 0, .55); }
-/* Workspace: chat rail left, live preview right. */
-.st-ws { display: flex; gap: 1rem; width: 100%; max-width: 1500px; margin: 0 auto; height: calc(100vh - 150px); min-height: 480px; }
-.st-rail { flex: 0 0 330px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); overflow: hidden; }
-.st-rail-head { display: flex; flex-direction: column; gap: .35rem; padding: .85rem 1rem; border-bottom: 1px solid var(--line-2); }
+/* Workspace — mirrors Lovable's anatomy: top bar, slim chat rail, dominant
+   preview card. isibi dark + pink→amber skin throughout. */
+.st-ws.st-lv { display: flex; flex-direction: column; gap: .7rem; width: 100%; height: calc(100vh - 88px); min-height: 480px; }
+.st-topbar { display: flex; align-items: center; gap: 1rem; padding: .35rem .35rem .35rem .2rem; }
+.st-tb-left { display: flex; align-items: center; gap: .6rem; min-width: 0; flex: 1 1 0; }
+.st-tb-names { display: flex; flex-direction: column; min-width: 0; }
 .st-ws-name { font-weight: 700; font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-thread { flex: 1; overflow-y: auto; padding: .9rem 1rem; display: flex; flex-direction: column; gap: .6rem; }
-.st-msg { max-width: 92%; font-size: .88rem; line-height: 1.5; padding: .55rem .8rem; border-radius: 12px; }
-.st-msg.u { align-self: flex-end; background: rgba(255, 120, 198, .12); border: 1px solid rgba(255, 120, 198, .3); }
-.st-msg.a { align-self: flex-start; background: rgba(255, 255, 255, .045); border: 1px solid var(--line-2); color: var(--muted); }
-.st-msg.st-busy::after { content: '…'; animation: sbpulse .9s ease-in-out infinite alternate; }
-.st-comp { display: flex; flex-direction: column; gap: .55rem; padding: .8rem 1rem .95rem; border-top: 1px solid var(--line-2); }
-.st-stagewrap { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .7rem; }
-.st-tools { display: flex; align-items: center; gap: .8rem; flex-wrap: wrap; }
-.st-devs { display: flex; gap: .3rem; margin-left: auto; }
+.st-ws-sub { font-size: .72rem; color: var(--muted); }
+.st-tb-mid { display: flex; align-items: center; gap: .55rem; }
+.st-pillbtn { display: inline-flex; align-items: center; gap: .35rem; font-size: .8rem; font-weight: 650; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .34rem .8rem; }
+.st-pillbtn.on { color: var(--text); background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box, var(--split) border-box; border: 1px solid transparent; }
+.st-tb-page { font-size: .84rem; font-weight: 600; color: var(--text); }
+.st-icon { font: inherit; font-size: .95rem; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.st-icon:hover:not([disabled]) { color: var(--text); border-color: rgba(255, 170, 110, .45); }
+.st-icon[disabled] { opacity: .4; cursor: default; }
+.st-tb-right { display: flex; align-items: center; gap: .5rem; flex: 1 1 0; justify-content: flex-end; }
+.st-share { font: inherit; font-size: .84rem; font-weight: 650; color: var(--text); background: none; border: 1px solid var(--line-2); border-radius: 11px; padding: .5rem .95rem; cursor: pointer; }
+.st-share:hover { border-color: rgba(255, 170, 110, .45); }
+.st-publish {
+  font: inherit; font-size: .84rem; font-weight: 750; color: var(--text); cursor: pointer; border-radius: 11px; padding: .5rem 1.05rem;
+  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box, var(--split) border-box;
+  border: 1.5px solid transparent; box-shadow: 0 0 18px -6px rgba(255, 121, 198, .4);
+}
+.st-publish:hover:not([disabled]) { box-shadow: 0 0 26px -6px rgba(255, 121, 198, .6); }
+.st-publish[disabled] { opacity: .45; cursor: default; box-shadow: none; }
+.st-devs { display: flex; gap: .3rem; }
 .st-dev { font: inherit; font-size: .85rem; width: 34px; height: 30px; border-radius: 9px; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; }
 .st-dev.on { color: var(--text); background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box, var(--split) border-box; border: 1px solid transparent; }
-.st-dl { font-size: .82rem; }
-.st-stage { flex: 1; min-height: 0; border: 1px solid var(--line-2); border-radius: 18px; background: #0c0b10; display: flex; align-items: stretch; justify-content: center; overflow: hidden; }
+.st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; }
+.st-rail { flex: 0 0 330px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; }
+.st-date { padding: .7rem 1rem .2rem; font-size: .72rem; color: var(--muted); text-align: center; }
+.st-date-flag { color: #ffb84d; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; font-size: .66rem; }
+.st-thread { flex: 1; overflow-y: auto; padding: .7rem .95rem .9rem; display: flex; flex-direction: column; gap: .7rem; }
+.st-msg { font-size: .88rem; line-height: 1.5; }
+.st-msg.u { align-self: flex-end; max-width: 88%; background: rgba(255, 255, 255, .07); border-radius: 14px; padding: .55rem .85rem; }
+.st-msg.a { align-self: stretch; color: var(--text); padding: 0 .1rem; }
+.st-msg.a .st-acts { display: block; margin-top: .35rem; }
+.st-act { font: inherit; font-size: .8rem; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; }
+.st-act:hover { color: var(--text); }
+.st-msg.st-busy { color: var(--muted); }
+.st-msg.st-busy::after { content: '…'; animation: sbpulse .9s ease-in-out infinite alternate; }
+/* Composer — "Ask isibi…" card with a Build selector + round send. */
+.st-comp { margin: .4rem .7rem .7rem; border: 1px solid var(--line-2); border-radius: 16px; background: rgba(255, 255, 255, .03); padding: .6rem .7rem .55rem; }
+.st-comp-in { width: 100%; font: inherit; font-size: .9rem; color: var(--text); background: none; border: none; resize: none; }
+.st-comp-in:focus { outline: none; }
+.st-comp-row { display: flex; align-items: center; gap: .55rem; margin-top: .45rem; }
+.st-plus { font: inherit; font-size: 1.05rem; width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.st-buildsel { font-size: .8rem; font-weight: 650; color: var(--muted); border: 1px solid var(--line-2); border-radius: 999px; padding: .3rem .7rem; margin-right: auto; }
+.st-comp-price { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; font-size: .82rem; }
+.st-sendc {
+  font: inherit; font-size: 1rem; font-weight: 800; width: 34px; height: 34px; border-radius: 50%; color: var(--text); cursor: pointer; display: grid; place-items: center;
+  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box, var(--split) border-box;
+  border: 1.5px solid transparent; box-shadow: 0 0 16px -6px rgba(255, 121, 198, .45);
+}
+.st-sendc:hover { box-shadow: 0 0 24px -6px rgba(255, 121, 198, .65); }
+/* Preview — the dominant rounded card. */
+.st-stage { flex: 1; min-width: 0; border: 1px solid var(--line-2); border-radius: 16px; background: #0c0b10; display: flex; align-items: stretch; justify-content: center; overflow: hidden; box-shadow: 0 18px 44px -22px rgba(0, 0, 0, .8); }
 .st-stage iframe { border: 0; height: 100%; background: #0c0b10; }
 .st-stage[data-dev="desktop"] iframe { width: 100%; }
 .st-stage[data-dev="tablet"] iframe { width: 820px; max-width: 100%; border-left: 1px solid var(--line-2); border-right: 1px solid var(--line-2); }

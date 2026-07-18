@@ -2183,3 +2183,18 @@ way back in (signed-in visits skip the landing) — decide later whether the
 account menu gets a "Websites" row or the landing stays reachable signed-in.
 Verified headless: landing→channel→brief→auth→standalone builder with chrome
 hidden; exit restores chrome; no Websites tab anywhere; zero page errors.
+
+Follow-up (owner reference: Lovable screenshot): the Websites workspace now
+MIRRORS Lovable's anatomy, skinned in isibi dark + pink→amber —
+- top bar: ← back · project name + "Previewing last saved version" ·
+  centered ◉ Preview pill + "Homepage" + refresh · devices, ⤓ download,
+  Share, Publish (Share/Publish are visual-only: sbToast "publishing arrives
+  with the build engine"; Publish disabled until a build exists);
+- left rail: session date stamp + SAMPLE ENGINE flag, Lovable-style messages
+  (grey right-aligned user bubbles, plain agent text with a working copy ⧉
+  action), "Ask isibi…" composer with + (inert), Build ▾ selector chip,
+  gradient ✦ price, round gradient-ring send;
+- right: the preview dominating in one rounded shadowed card;
+- start screen: centered hero "What are we building?" (Lovable-home style).
+All flows re-verified headless (create/build/revise/devices/download/list/
+reopen/delete), zero page errors.

@@ -9357,20 +9357,21 @@ function renderSites() {
   const view = document.getElementById('viewSites');
   if (!view) return;
   const open = siteOpenId && siteById(siteOpenId);
+  view.classList.toggle('ws-open', !!open);
   if (open) { renderSiteWorkspace(view, open); return; }
   siteOpenId = null;
   const sites = sitesLoad();
   view.innerHTML =
     '<div class="st-page">' +
-      '<div class="st-head"><h1>Websites</h1>' +
-        '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Preview · engine hooks up next</span></p></div>' +
+      '<div class="st-hero"><h1>What are we building?</h1>' +
+        '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Preview · engine hooks up next</span></p>' +
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="3" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-new-foot">' +
           '<span class="st-hint">Bills your ✦ credits once the engine is live</span>' +
           '<button type="button" class="st-gen" id="stGen">Build it <span class="st-price">✦ 25</span></button>' +
         '</div>' +
-      '</div>' +
+      '</div></div>' +
       (sites.length
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
             '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
@@ -9409,29 +9410,56 @@ function siteCreate(prompt) {
   renderSites();
   siteSend(prompt);
 }
+// "Jul 18 at 9:58 PM" — the thread's session stamp (Lovable-style).
+function stStamp(ts) {
+  try { return new Date(ts || Date.now()).toLocaleString('en-US', { month: 'short', day: 'numeric' }) + ' at ' + new Date(ts || Date.now()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
+  catch { return ''; }
+}
+// The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
+// bar (project name + "Previewing…" · Preview pill + page + refresh · devices,
+// Share, Publish), a slim chat rail (grey user bubbles, plain agent replies,
+// "Ask isibi…" composer with a Build selector + round send), and the preview
+// dominating in a rounded card. Skinned in isibi's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   view.innerHTML =
-    '<div class="st-ws">' +
-      '<div class="st-rail">' +
-        '<div class="st-rail-head">' +
-          '<button type="button" class="ma-pub-back" id="stBack">← Your sites</button>' +
-          '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
+    '<div class="st-ws st-lv">' +
+      '<div class="st-topbar">' +
+        '<div class="st-tb-left">' +
+          '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">←</button>' +
+          '<div class="st-tb-names">' +
+            '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
+            '<span class="st-ws-sub">' + (site.html ? 'Previewing last saved version' : 'New project') + '</span>' +
+          '</div>' +
         '</div>' +
-        '<div class="st-thread" id="stThread"></div>' +
-        '<div class="st-comp">' +
-          '<textarea id="stRevise" class="st-in" rows="2" placeholder="Describe a change — “make the hero darker”…"></textarea>' +
-          '<button type="button" class="st-gen st-gen-sm" id="stSend">' + (site.html ? 'Update site <span class="st-price">✦ 10</span>' : 'Build it <span class="st-price">✦ 25</span>') + '</button>' +
+        '<div class="st-tb-mid">' +
+          '<span class="st-pillbtn on">◉ Preview</span>' +
+          '<span class="st-tb-page">Homepage</span>' +
+          '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">⟳</button>' +
         '</div>' +
-      '</div>' +
-      '<div class="st-stagewrap">' +
-        '<div class="st-tools">' +
-          '<span class="sch-flag">Sample · engine hooks up next</span>' +
+        '<div class="st-tb-right">' +
           '<div class="st-devs">' +
             '<button type="button" class="st-dev' + (siteDevice === 'desktop' ? ' on' : '') + '" data-dev="desktop" title="Desktop">🖥</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">▯</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
           '</div>' +
-          '<button type="button" class="ma-btn ma-btn-off st-dl" id="stDl"' + (site.html ? '' : ' disabled') + '>⤓ Download HTML</button>' +
+          '<button type="button" class="st-icon" id="stDl" title="Download HTML" aria-label="Download HTML"' + (site.html ? '' : ' disabled') + '>⤓</button>' +
+          '<button type="button" class="st-share" id="stShare">Share</button>' +
+          '<button type="button" class="st-publish" id="stPub"' + (site.html ? '' : ' disabled') + '>Publish</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="st-body">' +
+        '<div class="st-rail">' +
+          '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + ' · <span class="st-date-flag">sample engine</span></div>' +
+          '<div class="st-thread" id="stThread"></div>' +
+          '<div class="st-comp">' +
+            '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
+            '<div class="st-comp-row">' +
+              '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
+              '<span class="st-buildsel">Build ▾</span>' +
+              '<span class="st-comp-price">' + (site.html ? '✦ 10' : '✦ 25') + '</span>' +
+              '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (site.html
@@ -9442,15 +9470,22 @@ function renderSiteWorkspace(view, site) {
     '</div>';
   const thread = document.getElementById('stThread');
   if (thread) {
-    thread.innerHTML = (site.msgs || []).map((m) =>
-      '<div class="st-msg ' + (m.r === 'u' ? 'u' : 'a') + '">' + esc(m.t) + '</div>').join('') +
-      (siteBusy ? '<div class="st-msg a st-busy">Building…</div>' : '');
+    thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
+      ? '<div class="st-msg u">' + esc(m.t) + '</div>'
+      : '<div class="st-msg a">' + esc(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+    ).join('') + (siteBusy ? '<div class="st-msg a st-busy">Building</div>' : '');
     thread.scrollTop = thread.scrollHeight;
+    thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
+      const txt = (b.closest('.st-msg') || {}).textContent || '';
+      try { navigator.clipboard.writeText(txt.replace(/⧉\s*$/, '').trim()); } catch (e) {}
+    });
   }
   const fr = document.getElementById('stFrame');
   if (fr && site.html) fr.srcdoc = site.html;
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
+  const rl = document.getElementById('stReload');
+  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && site.html) f.srcdoc = site.html; };
   view.querySelectorAll('.st-dev').forEach((b) => b.onclick = () => {
     siteDevice = b.dataset.dev;
     const st = document.getElementById('stStage');
@@ -9467,11 +9502,16 @@ function renderSiteWorkspace(view, site) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 5000);
   };
+  // Share/Publish are visual for now — hosting arrives with the engine.
+  const soon = () => { if (typeof sbToast === 'function') sbToast('Publishing arrives with the build engine — nothing goes live yet.'); };
+  const sh = document.getElementById('stShare'); if (sh) sh.onclick = soon;
+  const pb = document.getElementById('stPub'); if (pb) pb.onclick = () => { if (!pb.disabled) soon(); };
   const sendBtn = document.getElementById('stSend');
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
     sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; siteSend(t); };
     ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.onclick(); } };
+    ta.focus();
   }
 }
 function siteSend(text) {
