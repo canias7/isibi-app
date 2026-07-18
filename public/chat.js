@@ -4831,6 +4831,8 @@ function openCredits(topupsOnly) {
         });
         const d = await r.json().catch(() => ({}));
         if (r.status === 501) { note.textContent = 'Payments are switching on very soon — this is where you\'ll buy them.'; return; }
+        // Already a member — refuse a second subscription (would double-bill).
+        if (r.status === 409) { note.textContent = d.reason || 'You already have an active membership — manage it from Settings before changing plans.'; return; }
         if (r.ok && d.url) { note.textContent = 'Taking you to checkout…'; location.href = d.url; return; }
         note.textContent = 'Checkout hit a snag — try again in a moment.';
       } catch {
@@ -6830,6 +6832,31 @@ function renderSettings() {
     if (!confirm('Last check — this cannot be undone. Delete everything?')) return;
     btn.disabled = true;
     try {
+      // Cancel any live Stripe subscription FIRST, while the account still
+      // exists (billing/cancel needs auth). Deleting without this leaves the
+      // membership billing monthly forever on a gone account. Immediate =
+      // end it now, all subs. If Stripe genuinely can't cancel, STOP — better
+      // to leave the account than to keep charging a deleted user.
+      try {
+        const cr = await apiFetch('/api/billing/cancel', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirm: true, immediate: true }),
+        });
+        if (cr.status !== 501) { // 501 = payments not configured → nothing to cancel
+          const cd = await cr.json().catch(() => ({}));
+          // Abort the delete ONLY on a real cancel failure. active:false (no
+          // sub) and cancelled:true both mean "safe to proceed".
+          if (!cr.ok || cd.error === 'cancel_failed') {
+            btn.disabled = false;
+            alert('Couldn’t cancel your membership just now, so we didn’t delete the account (you shouldn’t keep being billed). Try again in a moment.');
+            return;
+          }
+        }
+      } catch (ce) {
+        btn.disabled = false;
+        alert('Couldn’t reach billing to cancel your membership — the account wasn’t deleted so you’re not billed again. Try again in a moment.');
+        return;
+      }
       // Files first via the Storage API (clean byte removal; best-effort —
       // the RPC sweeps whatever this misses), then the account itself.
       await Auth.storageWipeOwn();

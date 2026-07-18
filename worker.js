@@ -1876,8 +1876,11 @@ async function handleRequest(request, env, ctx) {
       if (genKind === "audio") {
         // Voice generation: the prompt is the words to speak, and `voice`
         // selects an ElevenLabs preset (defaults to Rachel server-side).
+        // Cap the spoken text at 2,000 chars — the SAME cap billing uses
+        // (creditCost bills Math.min(2000, len)). Sending the full 4,000-char
+        // prompt uncut let TTS bill us for up to 2× what we charged the user.
         delete input.prompt;
-        input.text = prompt;
+        input.text = prompt.slice(0, 2000);
         const voice =
           typeof body.voice === "string" &&
           /^[A-Za-z][A-Za-z0-9 _-]{0,39}$/.test(body.voice)
@@ -2510,6 +2513,26 @@ async function handleRequest(request, env, ctx) {
       const topup = !plan && body.topup != null ? TOPUPS[String(body.topup)] : null;
       if (!plan && !topup) return Response.json({ error: "unknown plan" }, { status: 400 });
       const sub = plan; // memberships are the only subscription
+      // Duplicate-membership guard: a second plan checkout would create a SECOND
+      // live subscription (double billing). If the caller already has any live
+      // subscription, refuse and tell the client to manage the existing one
+      // (top-ups are one-time, so they're exempt). Fails open if Stripe is down
+      // — a lookup outage must never block a first-time buyer.
+      if (sub && user.email) {
+        try {
+          const sAuth = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+          const cr = await fetch(`https://api.stripe.com/v1/customers?email=${encodeURIComponent(user.email)}&limit=100`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
+          const cd = await cr.json().catch(() => ({}));
+          const LIVE = ["active", "trialing", "past_due", "unpaid", "paused"];
+          for (const c of ((cd && cd.data) || [])) {
+            const srr = await fetch(`https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10`, { headers: sAuth, signal: AbortSignal.timeout(12000) });
+            const sdd = await srr.json().catch(() => ({}));
+            if (((sdd && sdd.data) || []).some((s) => LIVE.includes(s.status))) {
+              return Response.json({ error: "already_subscribed", reason: "You already have an active membership. Manage or cancel it from Settings before changing plans." }, { status: 409 });
+            }
+          }
+        } catch {} // Stripe unreachable → let the purchase proceed (fail open)
+      }
       const form = new URLSearchParams({
         mode: sub ? "subscription" : "payment",
         success_url: "https://isibi.ai/?credits=added",
@@ -2583,35 +2606,47 @@ async function handleRequest(request, env, ctx) {
         );
         const cd = await cr.json().catch(() => ({}));
         const customers = (cd && cd.data) || [];
-        // First live subscription across the caller's customers (plan or add-on).
-        let sub = null;
+        // EVERY live subscription across the caller's customers — a duplicate-buy
+        // (bug: /api/checkout doesn't block a second plan) can leave two, and a
+        // cancel that stopped at the first would leave the user billed on the
+        // other. Collect them all.
+        const subs = [];
         for (const c of customers) {
           const sr = await fetch(
             `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10`,
             { headers: sAuth, signal: AbortSignal.timeout(15000) },
           );
           const sd = await sr.json().catch(() => ({}));
-          const live = ((sd && sd.data) || []).find((s) => LIVE.includes(s.status));
-          if (live) { sub = live; break; }
+          ((sd && sd.data) || []).forEach((s) => { if (LIVE.includes(s.status)) subs.push(s); });
         }
-        if (!sub) return Response.json({ active: false });
+        if (!subs.length) return Response.json({ active: false });
+        const sub = subs[0];
         const until = subUntil(sub);
         // Status probe (no confirm) — lets the client show the end date + whether
         // a cancellation is already scheduled before asking to confirm.
         if (!body.confirm) {
-          return Response.json({ active: true, until, alreadyCanceling: !!sub.cancel_at_period_end });
+          return Response.json({ active: true, until, alreadyCanceling: !!sub.cancel_at_period_end, count: subs.length });
         }
-        // Confirmed cancel: schedule at period end (idempotent if already set).
-        if (!sub.cancel_at_period_end) {
-          const ur = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(sub.id)}`, {
-            method: "POST",
-            headers: { ...sAuth, "Content-Type": "application/x-www-form-urlencoded" },
-            body: "cancel_at_period_end=true",
-            signal: AbortSignal.timeout(15000),
-          });
-          if (!ur.ok) return Response.json({ error: "cancel_failed" }, { status: 502 });
+        // immediate = account deletion: end billing NOW on every subscription
+        // (the account is going away; don't leave live subs on a deleted user).
+        // Otherwise a normal cancel schedules each at period end.
+        for (const s of subs) {
+          if (body.immediate) {
+            const dr = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(s.id)}`, {
+              method: "DELETE", headers: sAuth, signal: AbortSignal.timeout(15000),
+            });
+            if (!dr.ok) return Response.json({ error: "cancel_failed" }, { status: 502 });
+          } else if (!s.cancel_at_period_end) {
+            const ur = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(s.id)}`, {
+              method: "POST",
+              headers: { ...sAuth, "Content-Type": "application/x-www-form-urlencoded" },
+              body: "cancel_at_period_end=true",
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!ur.ok) return Response.json({ error: "cancel_failed" }, { status: 502 });
+          }
         }
-        return Response.json({ cancelled: true, until });
+        return Response.json({ cancelled: true, until, count: subs.length });
       } catch {
         return Response.json({ error: "cancel_failed" }, { status: 502 });
       }

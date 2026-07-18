@@ -2267,3 +2267,26 @@ exist on the Worker) — owner runs the first one.
 KNOWN EDGE (accepted, same exposure as /api/direct): a connection drop
 after the server charged but before the response lands loses the fee with
 no auto-retry — revisit with idempotency keys if it ever bites.
+
+## 2026-07-18 — Audit round-2 fixes: BILLING batch (money)
+
+- **Delete account now cancels Stripe FIRST** (chat.js delete handler): calls
+  /api/billing/cancel {confirm,immediate} while still authed, then deletes.
+  If cancel genuinely fails (502 cancel_failed / network), the delete is
+  ABORTED with a message — fails safe (never orphan a live subscription on a
+  deleted account = "billed forever"). 501 (payments off) / active:false /
+  cancelled:true all proceed. Fixes the HIGH.
+- **/api/billing/cancel cancels ALL live subs, added `immediate` mode**
+  (worker): collects every live subscription across the caller's customers
+  (was: first only) so a duplicate-buy can't leave one billing; immediate=true
+  DELETEs each now (used by account deletion), else cancel_at_period_end each.
+- **Duplicate-membership guard in /api/checkout** (worker): a plan checkout
+  now 409s if the caller already has any live subscription (top-ups exempt);
+  fails OPEN if Stripe is unreachable so a first-time buyer is never blocked.
+  Client shows the 409 reason in the pricing modal. Fixes the HIGH.
+- **TTS undercharge fixed** (worker): input.text is now sliced to 2,000 chars
+  — the SAME cap billing uses (was sending up to 4,000 uncut → fal billed us
+  up to 2× the charge). Fixes the HIGH.
+NOTE: the delete→cancel Stripe path is logic/syntax-verified + fail-safe by
+construction; a real-Stripe smoke test (delete a test account that has a live
+sub, confirm the sub ends) is worth doing once with a throwaway account.
