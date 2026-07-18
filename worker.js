@@ -3356,7 +3356,11 @@ async function handleRequest(request, env, ctx) {
     // use_credits exactly like /api/direct; every terminal failure refunds the
     // full fee via credit_back (looped — that RPC caps 10 credits per call).
     if (url.pathname === "/api/site" && request.method === "POST") {
-      const GEMINI_MODEL = "gemini-3.1-pro-preview";
+      // gemini-3.5-flash — the current GA flagship (the 3.1-pro-PREVIEW model
+      // 429s at Paid Tier 1: preview models get near-zero quota until a higher
+      // tier). 3.5-flash is generally available so it has full Tier-1 quota, and
+      // it's the latest model. 2026-07-18.
+      const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
       const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> only when the design needs it (menus, tabs, smooth scroll). ZERO external resources: no CDNs, no external fonts, images, or scripts — use system font stacks, CSS gradients, and inline SVG for all visuals. Fully responsive down to 360px. Semantic landmarks (<header> <nav> <main> <section> <footer>), alt text on every img/svg role, <meta name=viewport>, a real <title> and <meta name=description>. Any <form> uses action=\"#\" (no real endpoint yet).";
@@ -3380,12 +3384,12 @@ async function handleRequest(request, env, ctx) {
       // charge (same stance as research: a capped user is told, not debited).
       if (!(await useQuota(request, "site", 40))) return QUOTA_EXCEEDED();
       // Metered billing (owner 2026-07-18): charge the ACTUAL Gemini token cost,
-      // no flat fee. gemini-3.1-pro-preview = $2/M in, $12/M out for ≤200k-token
-      // prompts ($4/$18 above); 1 credit = $0.008. We reserve the MAX this call
-      // could cost (the known input size + the 24576 output cap) so the work is
-      // never unpaid, run it, then refund down to the real measured usage.
+      // no flat fee. gemini-3.5-flash = $1.50/M in, $9/M out (flat, no tier;
+      // output includes thinking tokens); 1 credit = $0.008. We reserve the MAX
+      // this call could cost (the known input size + the 32768 output cap) so the
+      // work is never unpaid, run it, then refund down to the real measured usage.
       const CREDIT_USD = 0.008, MAX_OUT_TOK = 32768;
-      const stRate = (inTok) => (inTok > 200000 ? { i: 4e-6, o: 18e-6 } : { i: 2e-6, o: 12e-6 });
+      const stRate = () => ({ i: 1.5e-6, o: 9e-6 });
       const toCredits = (inTok, outTok) => {
         const rt = stRate(inTok);
         return Math.max(1, Math.ceil((inTok * rt.i + outTok * rt.o) / CREDIT_USD));
@@ -3413,10 +3417,9 @@ async function handleRequest(request, env, ctx) {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            // Gemini 3 defaults to high thinking, which draws from the output
-            // budget and can leave the actual HTML empty — keep thinking LOW
-            // (also far cheaper: thinking is billed as output) and give headroom.
-            // Temperature left at the model default (1.0) per Google's guidance.
+            // Thinking draws from the output budget and is billed as output, so
+            // keep it LOW (3.5-flash defaults to "medium") — leaves room for the
+            // HTML and keeps builds cheap. Big output headroom too.
             generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: "low" } },
           }),
           signal: AbortSignal.timeout(160000),

@@ -2545,3 +2545,15 @@ that we have the Gemini key. Done:
   actual `cost` + net `balance`; token+credit line is console-logged per call.
 - Net effect: a typical build (~8k output) now costs ~13 credits instead of the
   old flat 60 — users usually pay LESS, and always exactly what it cost.
+
+## 2026-07-18 — Website Builder engine → gemini-3.5-flash (fixes the 429)
+
+The 3.1-pro-PREVIEW model 429'd at Paid Tier 1 (preview models get near-zero
+quota until the account tiers up — a Google-side limit, not billing; owner's key
+IS paid/active). Switched to **gemini-3.5-flash** — the current GA flagship, so
+full Tier-1 quota + latest model. Metering repriced to its rate: $1.50/M in,
+$9/M out (flat, thinking incl.). Thinking set to "low" (3.5-flash defaults to
+medium; thinkingConfig.thinkingLevel is the right field — validated because the
+3.1 call reached 429, i.e. passed request validation, not 400). Everything else
+(reserve→refund metering, send button, refunds) unchanged. A typical build now
+lands around ~9 credits.
