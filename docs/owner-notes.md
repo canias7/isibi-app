@@ -2198,3 +2198,9 @@ MIRRORS Lovable's anatomy, skinned in isibi dark + pink→amber —
 - start screen: centered hero "What are we building?" (Lovable-home style).
 All flows re-verified headless (create/build/revise/devices/download/list/
 reopen/delete), zero page errors.
+
+BACKLOG (owner, 2026-07-18 — do NOT build yet): Website Builder "Publish"
+hosting. Owner is considering a GitHub-repo-per-generated-site model (Pages).
+Alternative pitched: Cloudflare-native hosting (Workers static assets / R2
+under isibi.ai subdomains — no third-party coupling, instant deploys, own
+domain). Decide when the engine phase starts. No work authorized yet.
