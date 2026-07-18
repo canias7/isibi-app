@@ -2759,3 +2759,21 @@ Reskinned the workspace to mirror Lovable (owner reference), then wired two for 
   target=_blank tabnabbing) with correct severities; charged 8 credits.
 - Still genuine backend PRODUCTS (not wires), left "Soon": Cloud Database / Emails /
   Secrets / Edge functions, and SEO→head-tag injection (owner said skip SEO for now).
+
+## 2026-07-18 — Wired: Cloud → Database (collections)
+Public, displayable data store the generated site both writes and reads — for
+dynamic content (testimonials/reviews, menus, guestbooks, listings). Forms stay
+the PRIVATE inbox; collections are PUBLIC by design.
+- **DB**: site_collections (published_site_id/owner_id/slug/collection/data jsonb).
+  RLS owner read+delete; service-key writes; FK cascade on site/account delete.
+- **Worker**: POST /api/site/data (anon, fail-soft, honeypot drops bots — check is on
+  data._hp not just body, fixed in testing; ≤500 records/collection cap) ·
+  GET /api/site/data?slug=&collection= (PUBLIC read, newest-first, cap 100) ·
+  GET /api/site/collections?slug= (owner list, RLS).
+- **SITE_RULES**: collections protocol — save via /api/site/data {slug,collection,data}
+  + _hp honeypot; render by GET on load; PUBLIC + newest-first.
+- **Client**: Cloud → Database card is Live + opens a modal grouping records by
+  collection (owner view). Reuses the si-modal styling.
+- Live-tested: 2 reviews saved + read back publicly, owner list grouped by collection,
+  bot honeypot dropped (0 records after the fix).
+- Remaining Cloud "Soon" (real products, not wires): Emails, Secrets, Edge functions.
