@@ -2135,3 +2135,33 @@ validation branches unaffected; no provider named.
 Follow-up: owner — no model suggestion in the regional error. Both messages
 now state only the cause ("the model maker blocks it in the EU, UK and
 Switzerland") + the refund note; the "pick Kling o3 instead" line is gone.
+
+## 2026-07-18 — Website Builder: standalone view, FRONTEND ONLY (v1)
+
+The landing's "WEBSITE / MOBILE APP" channel becomes a real product surface.
+Owner's calls: SEPARATE UI (not a chatbox mode) — the only thing it shares
+with the media builder is the ✦ credit ledger; V1 = generate + preview +
+iterate (no hosting); engine will be Opus + Gemini (owner supplies the Gemini
+key later) through the same credit system — BUILD THE FRONTEND NOW.
+
+Built: a "Websites" top-bar tab → viewSites.
+- Start screen: brief textarea + "Build it ✦25" (Outline-language button) +
+  a grid of saved projects (live srcdoc thumbnails, delete).
+- Workspace: left chat rail (thread + "Update site ✦10" revise composer),
+  right preview stage with desktop/tablet/phone viewport toggles + Download
+  HTML (Blob a[download]). Back → project list.
+- Projects persist in localStorage (zephyr_sites_v1, 20 projects × 200KB html
+  × last 40 msgs). NOTHING calls any API yet — Generate renders a clearly
+  labeled SAMPLE single-file page (CSS-only, prompt-derived accent hue) so
+  the loop is testable; flags read "engine hooks up next".
+- Engine-phase notes: (1) preview iframes are srcdoc + fully sandboxed and
+  inherit the app CSP — inline styles OK, inline <script> BLOCKED, so
+  JS-bearing generated sites need a serving route with a relaxed CSP (the
+  /mkt/demo* pattern) or a sandbox/CSP rework; (2) credit_back caps refunds
+  at 10 credits/call — a ✦25 site fee needs a loop or a raised cap on the
+  refund path; (3) UI never names the engine/providers (checked in tests).
+- Landing's WEBSITE option stays data-live="0" until the engine is real.
+
+Verified headless end to end: create→build→revise→device toggles→download
+enabled→back→thumbnail card→reopen→delete, zero page errors (the sandboxed
+preview correctly blocks storage access from inside). Screenshots reviewed.
