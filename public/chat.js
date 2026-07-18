@@ -9293,26 +9293,53 @@ function stStamp(ts) {
 // Preview / Code / More(Analytics·Cloud·Security·SEO). Real data where we have it
 // (the page HTML, the live URL); tasteful "coming soon" where the backend isn't
 // wired yet. All visual for now — owner reference 2026-07-18 (Lovable).
+// Monochrome inline-SVG icon set (currentColor, no fill) — no emoji anywhere in
+// the workspace chrome, so every glyph inherits the UI's own colour.
+const ST_ICONS = {
+  back: '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
+  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
+  reload: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/>',
+  desktop: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/><path d="M12 16v4"/>',
+  tablet: '<rect x="6" y="3" width="12" height="18" rx="2"/><path d="M11 18h2"/>',
+  phone: '<rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.5h13l3.5 6.5v6a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1v-6z"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="3.5"/><path d="M21 21v-2a4 4 0 0 0-3-3.85"/>',
+  download: '<path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.9 2.6 15.1 0 18"/><path d="M12 3c-2.6 2.9-2.6 15.1 0 18"/>',
+  code: '<path d="M9 7l-5 5 5 5"/><path d="M15 7l5 5-5 5"/>',
+  grid: '<rect x="3" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.4"/>',
+  chart: '<path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 20v-5"/><path d="M13 20V9"/><path d="M18 20v-8"/>',
+  cloud: '<path d="M17.5 18.5a4.5 4.5 0 0 0 .3-9A6 6 0 0 0 6 10a4 4 0 0 0 0 8.5z"/>',
+  shield: '<path d="M12 3l7 3v5.5c0 4.4-3 7.4-7 8.9-4-1.5-7-4.5-7-8.9V6l7-3z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  database: '<ellipse cx="12" cy="5.5" rx="7.5" ry="3"/><path d="M4.5 5.5v13c0 1.6 3.4 3 7.5 3s7.5-1.4 7.5-3v-13"/><path d="M4.5 12c0 1.6 3.4 3 7.5 3s7.5-1.4 7.5-3"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3.5 6.5l8.5 6 8.5-6"/>',
+  key: '<circle cx="8" cy="15" r="4.5"/><path d="M11.2 11.8l8-8"/><path d="M17 6l2.5 2.5"/><path d="M14.5 8.5L17 11"/>',
+  zap: '<path d="M13 2L4.5 13.5H11l-1 8.5L19.5 10H13l0-8z"/>',
+  alert: '<path d="M12 3.5l9.2 16H2.8l9.2-16z"/><path d="M12 10v4.5"/><path d="M12 18h.01"/>',
+  bookmark: '<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>',
+};
+function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 function siteFileName(p) { return (p.path === '/' ? 'index' : p.path.replace(/^\//, '').replace(/[^a-z0-9/_-]/gi, '-')) + '.html'; }
 function siteCodeView(site, active, pages) {
   const files = pages.map((p) =>
     '<button type="button" class="st-file' + (active && p.path === active.path ? ' on' : '') + '" data-codepath="' + esc(p.path) + '">' +
-    '<span class="st-file-ic">&lt;/&gt;</span><span class="st-file-n">' + esc(siteFileName(p)) + '</span></button>').join('');
+    '<span class="st-file-ic">' + ic('code', 13) + '</span><span class="st-file-n">' + esc(siteFileName(p)) + '</span></button>').join('');
   const raw = active ? String(active.html).slice(0, 120000) : '';
   const gutter = raw ? Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n') : '';
   return '<div class="st-code">' +
     '<div class="st-code-tree"><div class="st-code-h">Pages</div>' + files + '</div>' +
     '<div class="st-code-main">' +
       '<div class="st-code-bar"><span class="st-code-fname">' + (active ? esc(siteFileName(active)) : '') + '</span>' +
-      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this page">⤓ Download</button></div>' +
+      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this page">' + ic('download', 14) + ' Download</button></div>' +
       '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
     '</div>' +
   '</div>';
 }
 function moreStat(label, val) { return '<div class="st-stat"><span class="st-stat-l">' + label + '</span><span class="st-stat-v">' + val + '</span></div>'; }
 function siteMoreView(site) {
-  const items = [['analytics', '📈', 'Analytics'], ['cloud', '☁︎', 'Cloud'], ['security', '🛡︎', 'Security'], ['seo', '🔍', 'SEO & AI search']];
-  const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + it[1] + '</span>' + it[2] + '</button>').join('');
+  const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search']];
+  const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
   const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity() : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics();
   return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
 }
@@ -9325,23 +9352,23 @@ function moreAnalytics() {
 }
 function moreCloud(site) {
   const cards = [
-    ['👥', 'Members', site.slug ? 'Real accounts — open the 👥 Members panel' : 'Publish to enable member accounts', true],
-    ['📥', 'Submissions', 'Form entries land in your 📥 Inbox', true],
-    ['🗄', 'Database', 'View tables and data', false],
-    ['✉', 'Emails', 'Send branded emails from your domain', false],
-    ['🔑', 'Secrets', 'Securely store API keys', false],
-    ['⚡', 'Edge functions', 'Server-side logic', false],
+    ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true],
+    ['inbox', 'Submissions', 'Form entries land in your Inbox', true],
+    ['database', 'Database', 'View tables and data', false],
+    ['mail', 'Emails', 'Send branded emails from your domain', false],
+    ['key', 'Secrets', 'Securely store API keys', false],
+    ['zap', 'Edge functions', 'Server-side logic', false],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) =>
-      '<div class="st-cloudcard' + (c[3] ? ' live' : '') + '"><span class="st-cc-ic">' + c[0] + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>').join('') +
+      '<div class="st-cloudcard' + (c[3] ? ' live' : '') + '"><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>').join('') +
     '</div></div>';
 }
 function moreSecurity() {
   return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
-    '<div class="st-sec-hero"><span class="st-sec-ic">🛡</span><div class="st-cc-tx"><b>Run a security scan</b><span>Surface risky configuration before you publish.</span></div><button type="button" class="st-gen2" disabled>Scan · soon</button></div>' +
+    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Run a security scan</b><span>Surface risky configuration before you publish.</span></div><button type="button" class="st-gen2" disabled>Scan · soon</button></div>' +
     '<div class="st-panel-sub">Detected issues</div>' +
-    '<div class="st-sec-empty"><span class="st-sec-ok">🛡</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div>' +
+    '<div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div>' +
   '</div>';
 }
 function moreSeo(site) {
@@ -9355,10 +9382,10 @@ function moreSeo(site) {
 function siteHistoryRail(site) {
   const edits = (site.msgs || []).filter((m) => m.r === 'u').slice().reverse();
   const list = edits.length
-    ? edits.map((m, i) => '<div class="st-hitem"><span class="st-hi-ic">⟲</span><div class="st-hi-tx"><b>' + esc(String(m.t).slice(0, 80)) + '</b><span>' + (i === 0 ? 'Latest change' : 'Change') + '</span></div></div>').join('')
+    ? edits.map((m, i) => '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span><div class="st-hi-tx"><b>' + esc(String(m.t).slice(0, 80)) + '</b><span>' + (i === 0 ? 'Latest change' : 'Change') + '</span></div></div>').join('')
     : '<div class="st-hi-empty">No edits yet. Every change you make shows up here.</div>';
   return '<div class="st-hist">' +
-    '<div class="st-hist-tabs"><button type="button" class="st-htab on">⟲ History</button><button type="button" class="st-htab" disabled>🔖 Bookmarks</button></div>' +
+    '<div class="st-hist-tabs"><button type="button" class="st-htab on">' + ic('history', 14) + ' History</button><button type="button" class="st-htab" disabled>' + ic('bookmark', 14) + ' Bookmarks</button></div>' +
     '<div class="st-hist-list">' + list + '</div>' +
   '</div>';
 }
@@ -9373,7 +9400,7 @@ function sitePublishPanel(site) {
   box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + (published ? 'Published' : 'Publish') + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
     (published
       ? '<div class="sp-row"><span class="sp-k">Live URL</span><a class="sp-url" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url.replace(/^https?:\/\//, '')) + '</a></div>' +
-        '<div class="sp-row"><span class="sp-k">Visibility</span><span class="sp-v">🌐 Public · anyone with the link</span></div>' +
+        '<div class="sp-row"><span class="sp-k">Visibility</span><span class="sp-v sp-vis">' + ic('globe', 14) + ' Public · anyone with the link</span></div>' +
         '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share" disabled>Unpublish · soon</button></div>'
       : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
@@ -9409,30 +9436,30 @@ function renderSiteWorkspace(view, site) {
     '<div class="st-ws st-lv">' +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
-          '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">←</button>' +
+          '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">' + ic('back', 18) + '</button>' +
           '<div class="st-tb-names">' +
             '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
             '<span class="st-ws-sub">' + (hasSite ? (pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version') : 'New project') + '</span>' +
           '</div>' +
-          '<button type="button" class="st-icon' + (siteRail === 'history' ? ' on' : '') + '" id="stHist" title="Edit history" aria-label="Edit history">⟲</button>' +
+          '<button type="button" class="st-icon' + (siteRail === 'history' ? ' on' : '') + '" id="stHist" title="Edit history" aria-label="Edit history">' + ic('history', 17) + '</button>' +
         '</div>' +
         '<div class="st-tb-mid">' +
           '<div class="st-vtabs">' +
-            '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">◉ Preview</button>' +
-            '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">&lt;/&gt; Code</button>' +
-            '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">▤ More</button>' +
+            '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">' + ic('globe', 14) + ' Preview</button>' +
+            '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>' +
+            '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
-          (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">⟳</button>' : '') +
+          (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button>' : '') +
         '</div>' +
         '<div class="st-tb-right">' +
           '<div class="st-devs">' +
-            '<button type="button" class="st-dev' + (siteDevice === 'desktop' ? ' on' : '') + '" data-dev="desktop" title="Desktop">🖥</button>' +
-            '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">▯</button>' +
-            '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
+            '<button type="button" class="st-dev' + (siteDevice === 'desktop' ? ' on' : '') + '" data-dev="desktop" title="Desktop">' + ic('desktop', 16) + '</button>' +
+            '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">' + ic('tablet', 16) + '</button>' +
+            '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">' + ic('phone', 16) + '</button>' +
           '</div>' +
-          (site.slug ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">📥</button>' : '') +
-          (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">👥</button>' : '') +
-          '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>⤓</button>' +
+          (site.slug ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">' + ic('inbox', 16) + '</button>' : '') +
+          (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">' + ic('users', 16) + '</button>' : '') +
+          '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
         '</div>' +
@@ -9461,7 +9488,7 @@ function renderSiteWorkspace(view, site) {
                 ? siteMoreView(site)
                 : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
           ((siteErr && siteErr.chatId === site.id)
-            ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">⚠</span> Error</div><div class="st-err-b">That change didn’t go through — you weren’t charged.</div>' +
+            ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">' + ic('alert', 16) + '</span> Error</div><div class="st-err-b">That change didn’t go through — you weren’t charged.</div>' +
               '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
             : '') +
         '</div>' +
@@ -9659,7 +9686,7 @@ function sitePublish(site) {
     if (!s) return;
     if (r.ok && d.url) {
       s.liveUrl = d.url; s.published = true; s.slug = d.slug || s.slug;
-      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change. Form submissions land in your Inbox (📥, top bar).' });
+      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change. Form submissions land in your Inbox (top bar).' });
     } else if (r.status === 501) {
       s.msgs.push({ r: 'a', t: '⚠️ Hosting isn’t switched on yet — hang tight.' });
     } else {
