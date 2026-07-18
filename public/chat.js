@@ -9167,15 +9167,45 @@ function sitesLoad() {
   return sitesCache;
 }
 function sitesSave() {
+  const build = (withHist) => (sitesCache || []).slice(0, 20).map((s) => ({
+    ...s,
+    html: (s.html || '').slice(0, 400000),
+    pages: Array.isArray(s.pages) ? s.pages.slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 400000) })) : undefined,
+    msgs: (s.msgs || []).slice(-40),
+    // Version history (for restore). Best-effort: dropped first if storage is tight.
+    history: (withHist && Array.isArray(s.history)) ? s.history.slice(0, 8).map((h) => ({
+      ts: h.ts, label: h.label, active: h.active, design: (h.design || '').slice(0, 4000),
+      pages: (h.pages || []).slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 300000) })),
+    })) : undefined,
+  }));
+  try { localStorage.setItem(SITES_KEY, JSON.stringify(build(true))); }
+  catch (e) {
+    try { localStorage.setItem(SITES_KEY, JSON.stringify(build(false))); } // drop history to fit; current state still persists
+    catch (e2) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
+  }
+}
+// Snapshot the site's CURRENT pages as a restore point, newest first (cap 8).
+function siteSnap(s, label) {
+  if (!s) return;
   try {
-    const slim = (sitesCache || []).slice(0, 20).map((s) => ({
-      ...s,
-      html: (s.html || '').slice(0, 400000),
-      pages: Array.isArray(s.pages) ? s.pages.slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 400000) })) : undefined,
-      msgs: (s.msgs || []).slice(-40),
-    }));
-    localStorage.setItem(SITES_KEY, JSON.stringify(slim));
-  } catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
+    const snap = { ts: Date.now(), label: String(label || 'Change').slice(0, 120), active: s.active || '/', design: s.design || '', pages: (sitePages(s) || []).map((p) => ({ path: p.path, name: p.name, html: p.html })) };
+    s.history = [snap].concat(Array.isArray(s.history) ? s.history : []).slice(0, 8);
+  } catch (e) {}
+}
+// Restore a site to a saved version (snapshots the current state first, so the
+// restore itself is undoable).
+function siteRestore(id, idx) {
+  const s = siteById(id);
+  if (!s || !Array.isArray(s.history) || !s.history[idx]) return;
+  const snap = s.history[idx];
+  siteSnap(s, 'Before restore');
+  s.pages = (snap.pages || []).map((p) => ({ path: p.path, name: p.name, html: p.html }));
+  s.design = snap.design || s.design;
+  s.active = snap.active || '/';
+  s.msgs.push({ r: 'a', t: '↩ Restored to: ' + (snap.label || 'a previous version') + '.' });
+  s.updatedAt = Date.now();
+  siteRail = 'chat'; siteView = 'preview';
+  sitesSave(); renderSites();
 }
 function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
 // Multi-page model: a site holds `pages` [{path,name,html}] with an `active`
@@ -9340,15 +9370,47 @@ function moreStat(label, val) { return '<div class="st-stat"><span class="st-sta
 function siteMoreView(site) {
   const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search']];
   const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
-  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity() : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics();
+  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity() : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics(site);
   return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
 }
-function moreAnalytics() {
-  return '<div class="st-panel">' +
-    '<div class="st-panel-head"><h3>Web traffic</h3><span class="st-chip-muted">Last 7 days</span></div>' +
-    '<div class="st-stats">' + moreStat('Visitors', '0') + moreStat('Page views', '0') + moreStat('Views / visit', '0') + moreStat('Visit duration', '0s') + moreStat('Bounce rate', '0%') + '</div>' +
-    '<div class="st-chart"><div class="st-chart-empty">Traffic shows up here once your published site gets its first visitors.</div></div>' +
+function moreAnalytics(site) {
+  if (!site.slug) return '<div class="st-panel"><div class="st-panel-head"><h3>Web traffic</h3></div><div class="st-chart"><div class="st-chart-empty">Publish your site to start tracking visits.</div></div></div>';
+  return '<div class="st-panel" id="anPanel">' +
+    '<div class="st-panel-head"><h3>Web traffic</h3><span class="st-chip-muted">All time</span></div>' +
+    '<div class="st-stats">' +
+      '<div class="st-stat"><span class="st-stat-l">Visitors</span><span class="st-stat-v" id="anVisitors">·</span></div>' +
+      '<div class="st-stat"><span class="st-stat-l">Page views</span><span class="st-stat-v" id="anViews">·</span></div>' +
+      '<div class="st-stat"><span class="st-stat-l">Views / visit</span><span class="st-stat-v" id="anVpv">·</span></div>' +
+    '</div>' +
+    '<div class="st-panel-sub">Last 7 days</div>' +
+    '<div class="st-chart" id="anChart"><div class="st-chart-empty">Loading…</div></div>' +
   '</div>';
+}
+// Fill the Analytics panel with real numbers from /api/site/analytics.
+async function loadSiteAnalytics(site) {
+  const vEl = document.getElementById('anVisitors'); if (!vEl) return;
+  try {
+    const r = await apiFetch('/api/site/analytics?slug=' + encodeURIComponent(site.slug || ''));
+    const d = await r.json().catch(() => ({}));
+    if (!d || !d.ok) throw 0;
+    const views = d.views || 0, visitors = d.visitors || 0;
+    vEl.textContent = visitors;
+    const viEl = document.getElementById('anViews'); if (viEl) viEl.textContent = views;
+    const vpv = document.getElementById('anVpv'); if (vpv) vpv.textContent = visitors ? (views / visitors).toFixed(1) : '0';
+    const chart = document.getElementById('anChart');
+    if (chart) {
+      const series = Array.isArray(d.series) ? d.series : [];
+      const max = Math.max(1, ...series.map((s) => s.views || 0));
+      chart.innerHTML = (series.length && views > 0)
+        ? '<div class="an-bars">' + series.map((s) => '<div class="an-bar" title="' + esc(String(s.day)) + ': ' + (s.views || 0) + '"><div class="an-bar-fill" style="height:' + Math.round(((s.views || 0) / max) * 100) + '%"></div><span class="an-bar-l">' + esc(String(s.day).replace(/^\w+ /, '')) + '</span></div>').join('') + '</div>'
+        : '<div class="st-chart-empty">No visits yet — share your link and watch this fill up.</div>';
+    }
+  } catch (e) {
+    vEl.textContent = '0';
+    const viEl = document.getElementById('anViews'); if (viEl) viEl.textContent = '0';
+    const vpv = document.getElementById('anVpv'); if (vpv) vpv.textContent = '0';
+    const chart = document.getElementById('anChart'); if (chart) chart.innerHTML = '<div class="st-chart-empty">Couldn’t load analytics just now.</div>';
+  }
 }
 function moreCloud(site) {
   const cards = [
@@ -9380,10 +9442,10 @@ function moreSeo(site) {
 }
 // Edit history — the rail flips from chat to a list of every change you asked for.
 function siteHistoryRail(site) {
-  const edits = (site.msgs || []).filter((m) => m.r === 'u').slice().reverse();
-  const list = edits.length
-    ? edits.map((m, i) => '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span><div class="st-hi-tx"><b>' + esc(String(m.t).slice(0, 80)) + '</b><span>' + (i === 0 ? 'Latest change' : 'Change') + '</span></div></div>').join('')
-    : '<div class="st-hi-empty">No edits yet. Every change you make shows up here.</div>';
+  const hist = Array.isArray(site.history) ? site.history : [];
+  const list = hist.length
+    ? hist.map((h, i) => '<div class="st-hitem"><span class="st-hi-ic">' + ic('history', 14) + '</span><div class="st-hi-tx"><b>' + esc(String(h.label || 'Change').slice(0, 80)) + '</b><span>' + (i === 0 ? 'Current version' : esc(stStamp(h.ts))) + '</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-restore="' + i + '">Restore</button>') + '</div>').join('')
+    : '<div class="st-hi-empty">No versions yet. Each change is saved here so you can roll back.</div>';
   return '<div class="st-hist">' +
     '<div class="st-hist-tabs"><button type="button" class="st-htab on">' + ic('history', 14) + ' History</button><button type="button" class="st-htab" disabled>' + ic('bookmark', 14) + ' Bookmarks</button></div>' +
     '<div class="st-hist-list">' + list + '</div>' +
@@ -9524,9 +9586,11 @@ function renderSiteWorkspace(view, site) {
   };
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
-  // History rail toggle.
+  if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
+  // History rail toggle + restore.
   const hist = document.getElementById('stHist');
   if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
+  view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
   // "Try to fix" error card.
   const errFix = document.getElementById('stErrFix');
   if (errFix) errFix.onclick = () => { siteErr = null; siteSend('There was an error on this page — please find and fix it.'); };
@@ -9636,6 +9700,7 @@ function siteSend(text) {
         s.active = (s.pages[0] || {}).path || '/';
         if (d.slug) s.slug = d.slug; // draft identity — accounts/forms/maps work in preview now
         delete s.html;
+        siteSnap(s, t); // version-history restore point
       }
       siteErr = null;
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
@@ -9646,6 +9711,7 @@ function siteSend(text) {
         const tgt = s.pages.find((p) => p.path === (d.path || s.active)) || s.pages.find((p) => p.path === s.active) || s.pages[0];
         if (tgt) tgt.html = d.html;
         delete s.html;
+        siteSnap(s, t); // version-history restore point
       }
       siteErr = null;
       finish('✅ Updated — check the preview.' + used);

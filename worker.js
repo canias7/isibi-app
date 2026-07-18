@@ -1810,6 +1810,32 @@ async function verifySiteToken(env, token) {
 }
 const SITE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// ── Published-site analytics: one hit per served page, aggregated per slug/day.
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+// Fire-and-forget (ctx.waitUntil) so serving the page is never slowed. Bots are
+// skipped; the IP is hashed (never stored raw) so "visitors" = distinct hash/day.
+function logSiteHit(env, ctx, slug, path, request) {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  const ua = request.headers.get("User-Agent") || "";
+  if (/bot|crawl|spider|slurp|facebookexternalhit|bingpreview|headless|monitor|uptime|curl|wget/i.test(ua)) return;
+  const ip = request.headers.get("CF-Connecting-IP") || request.headers.get("X-Forwarded-For") || "0";
+  const p = (async () => {
+    try {
+      const ipHash = (await sha256hex(ip + "|" + slug + "|isibi-analytics-v1")).slice(0, 32);
+      await fetch(`${SUPABASE_URL}/rest/v1/site_hits`, {
+        method: "POST",
+        headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ slug, ip_hash: ipHash, path: (path || "/").slice(0, 200) }),
+        signal: AbortSignal.timeout(8000),
+      });
+    } catch {}
+  })();
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+}
+
 // ── Website Builder: server-side image generation ──
 // The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
 // we generate each with Nano Banana Pro (fal sync endpoint), host it in the user's
@@ -1922,6 +1948,7 @@ async function handleRequest(request, env, ctx) {
         const pageKey = rest === "" ? "index" : rest.replace(/[^a-z0-9/_-]/gi, "-");
         const obj = await env.SITES_BUCKET.get("sites/" + slug + "/" + pageKey + ".html");
         if (!obj) return new Response("Not found", { status: 404 });
+        if (request.method === "GET") logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views
         return new Response(obj.body, {
           headers: {
             "content-type": "text/html; charset=utf-8",
@@ -3898,6 +3925,25 @@ async function handleRequest(request, env, ctx) {
         const rows = await r.json().catch(() => []);
         return Response.json({ members: Array.isArray(rows) ? rows : [] });
       } catch { return Response.json({ members: [] }); }
+    }
+
+    // Owner reads their published site's analytics (RPC verifies ownership).
+    if (url.pathname === "/api/site/analytics" && request.method === "GET") {
+      const aUser = await authUser(request);
+      if (!aUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      if (!slug) return Response.json({ ok: false });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/site_analytics`, {
+          method: "POST",
+          headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+          body: JSON.stringify({ p_slug: slug }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const d = await r.json().catch(() => ({ ok: false }));
+        return Response.json(d && typeof d === "object" ? d : { ok: false });
+      } catch { return Response.json({ ok: false }); }
     }
 
     // Public form submissions from published sites (waitlist/contact). Anonymous

@@ -1517,6 +1517,12 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-stat-v { display: block; font-size: 1.5rem; font-weight: 700; margin-top: .2rem; font-family: 'Space Grotesk', sans-serif; }
 .st-chart { margin-top: 1rem; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); height: 220px; display: grid; place-items: center; }
 .st-chart-empty { color: var(--muted); font-size: .88rem; max-width: 320px; text-align: center; }
+.an-bars { display: flex; align-items: flex-end; gap: .5rem; width: 100%; height: 100%; padding: 1.1rem 1rem .6rem; }
+.an-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: .4rem; }
+.an-bar-fill { width: 100%; max-width: 46px; min-height: 3px; border-radius: 6px 6px 2px 2px; background: var(--split); }
+.an-bar-l { font-size: .66rem; color: var(--muted); white-space: nowrap; }
+.st-hi-restore { margin-left: auto; align-self: center; flex: none; font: inherit; font-size: .74rem; font-weight: 600; color: var(--text); background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px; padding: .3rem .6rem; cursor: pointer; }
+.st-hi-restore:hover { border-color: rgba(255, 170, 110, .5); }
 .st-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .9rem; }
 .st-cloudcard { display: flex; gap: .8rem; align-items: flex-start; border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); padding: 1rem; }
 .st-cloudcard.live { border-color: rgba(255, 170, 110, .28); }
