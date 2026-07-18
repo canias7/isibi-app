@@ -9312,6 +9312,7 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
           '</div>' +
           (site.published ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">📥</button>' : '') +
+          (site.published ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">👥</button>' : '') +
           '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>⤓</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
@@ -9403,6 +9404,8 @@ function renderSiteWorkspace(view, site) {
   }
   const ib = document.getElementById('stInbox');
   if (ib) ib.onclick = () => siteInbox(site);
+  const mb = document.getElementById('stMembers');
+  if (mb) mb.onclick = () => siteMembers(site);
   const sendBtn = document.getElementById('stSend');
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
@@ -9543,6 +9546,35 @@ async function siteInbox(site) {
         fields.map((k) => '<div class="si-row"><span class="si-k">' + esc(k) + '</span><span class="si-v">' + esc(String(s.data[k])) + '</span></div>').join('') + '</div>';
     }).join('');
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load submissions just now — try again.</div>'; }
+}
+
+// Site members — the real end-user accounts that signed up on the published site
+// (auth backend). Owner-only, RLS-scoped by their JWT. Mirrors the inbox modal.
+async function siteMembers(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then member sign-ups show up here.'); return; }
+  let box = document.getElementById('siteMembersModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteMembersModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Site members</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const bodyEl = box.querySelector('.si-body');
+  try {
+    const r = await apiFetch('/api/site/members?slug=' + encodeURIComponent(slug));
+    const d = await r.json().catch(() => ({ members: [] }));
+    const members = Array.isArray(d.members) ? d.members : [];
+    if (!members.length) { bodyEl.innerHTML = '<div class="si-empty">No members yet. When someone signs up on your live site, their account shows up here.</div>'; return; }
+    const fmt = (t) => { try { return t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'; } catch (e) { return '—'; } };
+    bodyEl.innerHTML = '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
+      '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div>' +
+      '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
+    ).join('');
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load members just now — try again.</div>'; }
 }
 
 // ── Gallery view: every generation across all (synced) chats ──

@@ -592,6 +592,9 @@ function harden(res, request) {
       "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com",
       "img-src 'self' data: blob: https://*.supabase.co",
       "connect-src 'self'",
+      // Live map embeds (OpenStreetMap / Google Maps) — no API key, real interactive
+      // maps. Without this, default-src 'self' would block the map iframe on publish.
+      "frame-src 'self' https://www.openstreetmap.org https://www.google.com https://maps.google.com",
       "base-uri 'self'",
       "frame-ancestors 'self'",
     ].join("; "));
@@ -1741,6 +1744,71 @@ async function openMediaToken(env, token) {
     return null;
   }
 }
+
+// ── Published-site visitor auth (real accounts for the sites the builder makes) ──
+// Storage is Supabase (site_users, service-key writes); the Worker is the brains:
+// PBKDF2 password hashing + HMAC-signed stateless session tokens. The signing key
+// is derived from a server-only secret so no new secret is needed and it never
+// leaves the Worker. These accounts are the SITE'S members — wholly separate from
+// isibi's own auth.users (the builder). Same-origin (isibi.ai/s/… → isibi.ai/api),
+// so the published-site CSP (connect-src 'self') already allows the calls.
+let _siteAuthKeyPromise = null;
+function siteAuthKey(env) {
+  if (!_siteAuthKeyPromise) {
+    _siteAuthKeyPromise = (async () => {
+      const material = new TextEncoder().encode((env.SUPABASE_SERVICE_KEY || env.FAL_KEY || "isibi") + "|site-auth-v1");
+      const digest = await crypto.subtle.digest("SHA-256", material);
+      return crypto.subtle.importKey("raw", digest, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+    })();
+  }
+  return _siteAuthKeyPromise;
+}
+// Constant-time byte compare (avoid leaking hash equality via timing).
+function timingSafeEqualBytes(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+  return diff === 0;
+}
+const PBKDF2_ITERS = 100000;
+async function hashSitePassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMat = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: PBKDF2_ITERS, hash: "SHA-256" }, keyMat, 256));
+  return "pbkdf2$" + PBKDF2_ITERS + "$" + b64urlFromBytes(salt) + "$" + b64urlFromBytes(bits);
+}
+async function verifySitePassword(password, stored) {
+  try {
+    const parts = String(stored || "").split("$");
+    if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
+    const iters = parseInt(parts[1], 10) || PBKDF2_ITERS;
+    const salt = bytesFromB64url(parts[2]);
+    const expected = bytesFromB64url(parts[3]);
+    const keyMat = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: iters, hash: "SHA-256" }, keyMat, expected.length * 8));
+    return timingSafeEqualBytes(bits, expected);
+  } catch { return false; }
+}
+async function signSiteToken(env, payload, ttlMs = 30 * 24 * 3600 * 1000) {
+  const body = { ...payload, exp: Date.now() + ttlMs };
+  const b = b64urlFromBytes(new TextEncoder().encode(JSON.stringify(body)));
+  const key = await siteAuthKey(env);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(b)));
+  return b + "." + b64urlFromBytes(sig);
+}
+async function verifySiteToken(env, token) {
+  try {
+    const [b, sigStr] = String(token || "").split(".");
+    if (!b || !sigStr) return null;
+    const key = await siteAuthKey(env);
+    const ok = await crypto.subtle.verify("HMAC", key, bytesFromB64url(sigStr), new TextEncoder().encode(b));
+    if (!ok) return null;
+    const obj = JSON.parse(new TextDecoder().decode(bytesFromB64url(b)));
+    if (!obj || (obj.exp && Date.now() > obj.exp)) return null;
+    return obj;
+  } catch { return null; }
+}
+const SITE_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ── Website Builder: server-side image generation ──
 // The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
@@ -3492,7 +3560,7 @@ async function handleRequest(request, env, ctx) {
       const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
-      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'', form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible.";
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'', form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible. ACCOUNTS / LOGIN (REAL — this platform provides a real auth backend, so NEVER fake it): if the site needs sign-up / log-in / a members-only area, wire it to the REAL endpoints — do NOT build a pretend login or an ungated 'dashboard'. Compute the slug once: const SLUG=(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||''; and a token key K='zephyr_site_auth_'+SLUG. SIGN-UP form → fetch('/api/site/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:SLUG,email,password})}); LOG-IN form → POST /api/site/auth/login with the same body. Parse the JSON: on {ok:true} do localStorage.setItem(K,json.token) then redirect to the member area (e.g. location.href='/dashboard'); on {ok:false} show json.error inline by the form. Require the password field minlength 8 and include the hidden _hp honeypot on these forms too. Every MEMBER-ONLY / dashboard / account page MUST guard on load: const t=localStorage.getItem(K); if(!t){location.replace('/login')} else fetch('/api/site/auth/me',{headers:{Authorization:'Bearer '+t}}).then(r=>r.json()).then(d=>{if(!d.ok)throw 0; /* reveal page + show d.email */}).catch(()=>{localStorage.removeItem(K);location.replace('/login')}); — NEVER render member content without this real check. A LOG-OUT control does localStorage.removeItem(K) then goes home. Show the member's REAL email from /api/site/auth/me — never invent fake names, fake stats, or fake 'logged in as' data. NEVER put a password field in a form that POSTs to /api/site/form. (Accounts only work on the PUBLISHED site; in preview SLUG is '' and the endpoint replies that it isn't live yet — surface that message, don't fake success.) LIVE MAP (REAL): for a location / 'find us' / directions section with a real address, embed a REAL interactive map with an <iframe> — this iframe is the ONE allowed exception to the no-embeds rule. Use OpenStreetMap (no API key): <iframe title=\"Map\" loading=\"lazy\" style=\"border:0;width:100%;height:380px\" src=\"https://www.openstreetmap.org/export/embed.html?bbox=LON1,LAT1,LON2,LAT2&layer=mapnik&marker=LAT,LON\"></iframe> where the marker is the address's approximate lat/lon and the bbox spans ~0.004° around it, plus a 'View larger map' link to openstreetmap.org. NEVER fake a map with a static image or an empty box when a real address is given. GENERAL HONESTY: never ship UI that pretends to do something it can't — if a capability truly isn't supported, degrade honestly (a clear 'coming soon' or a real waitlist via /api/site/form) instead of faking it.";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
       if (!env.GEMINI_API_KEY) {
@@ -3722,6 +3790,89 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("publish db failed:", e && e.message); }
       return Response.json({ url: `https://isibi.ai/s/${slug}`, slug, pages: outPages.length });
+    }
+
+    // ── Published-site visitor auth: REAL accounts for the sites the builder
+    // makes. Storage = Supabase site_users (service-key writes, no client policy);
+    // brains = the Worker (PBKDF2 hashing + HMAC-signed sessions). Unlike forms
+    // these RETURN real success/failure so the site's login UI can react.
+    const siteAuthCors = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+    if (url.pathname.startsWith("/api/site/auth/") && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+    }
+    if ((url.pathname === "/api/site/auth/signup" || url.pathname === "/api/site/auth/login") && request.method === "POST") {
+      const isSignup = url.pathname.endsWith("/signup");
+      const fail = (error, status = 200) => Response.json({ ok: false, error }, { status, headers: siteAuthCors });
+      if (!env.SUPABASE_SERVICE_KEY) return fail("Accounts are unavailable right now.");
+      const tlA = tooLargeBody(request, 8000); if (tlA) return fail("Bad request.");
+      let body; try { body = await request.json(); } catch { return fail("Bad request."); }
+      if (body && (body._hp || body.hp)) return Response.json({ ok: true }, { headers: siteAuthCors }); // honeypot → fake-ok for bots
+      const slug = typeof body.slug === "string" ? body.slug.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90) : "";
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 200) : "";
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!slug) return fail("This site isn’t published yet — accounts work once it’s live.");
+      if (!SITE_EMAIL_RE.test(email)) return fail("Enter a valid email address.");
+      if (password.length < 8) return fail("Password must be at least 8 characters.");
+      if (password.length > 200) return fail("Password is too long.");
+      const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+      // Resolve the published site (confirms the slug is real + gets the owner).
+      let site = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id,user_id&limit=1`, { headers: svc, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        site = Array.isArray(rows) ? rows[0] : null;
+      } catch {}
+      if (!site) return fail("This site isn’t available.");
+      // Existing member for this (site, email)?
+      let existing = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_users?published_site_id=eq.${site.id}&email=eq.${encodeURIComponent(email)}&select=id,password_hash&limit=1`, { headers: svc, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        existing = Array.isArray(rows) ? rows[0] : null;
+      } catch { return fail("Something went wrong. Please try again."); }
+      if (isSignup) {
+        if (existing) return fail("An account with this email already exists — try logging in.");
+        const password_hash = await hashSitePassword(password);
+        let created = null;
+        try {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_users`, {
+            method: "POST", headers: { ...svc, Prefer: "return=representation" },
+            body: JSON.stringify({ published_site_id: site.id, owner_id: site.user_id, slug, email, password_hash, last_login_at: new Date().toISOString() }),
+            signal: AbortSignal.timeout(10000),
+          });
+          if (r.status === 409) return fail("An account with this email already exists — try logging in.");
+          const rows = await r.json().catch(() => []);
+          created = Array.isArray(rows) ? rows[0] : (rows && rows.id ? rows : null);
+          if (!r.ok || !created) return fail("Couldn’t create your account. Please try again.");
+        } catch { return fail("Couldn’t create your account. Please try again."); }
+        const token = await signSiteToken(env, { sid: site.id, sub: created.id, em: email, slug });
+        return Response.json({ ok: true, token, email }, { headers: siteAuthCors });
+      }
+      // login
+      if (!existing || !(await verifySitePassword(password, existing.password_hash))) return fail("Incorrect email or password.");
+      try { await fetch(`${SUPABASE_URL}/rest/v1/site_users?id=eq.${existing.id}`, { method: "PATCH", headers: { ...svc, Prefer: "return=minimal" }, body: JSON.stringify({ last_login_at: new Date().toISOString() }), signal: AbortSignal.timeout(8000) }); } catch {}
+      const token = await signSiteToken(env, { sid: site.id, sub: existing.id, em: email, slug });
+      return Response.json({ ok: true, token, email }, { headers: siteAuthCors });
+    }
+    // Validate a session token — the member-page guard calls this on load.
+    if (url.pathname === "/api/site/auth/me" && request.method === "GET") {
+      const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      const claims = await verifySiteToken(env, tok);
+      if (!claims) return Response.json({ ok: false }, { status: 401, headers: siteAuthCors });
+      return Response.json({ ok: true, email: claims.em || "", slug: claims.slug || "" }, { headers: siteAuthCors });
+    }
+    // Owner lists a site's members (like the form inbox). RLS scopes to their JWT.
+    if (url.pathname === "/api/site/members" && request.method === "GET") {
+      const mUser = await authUser(request);
+      if (!mUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const base = `${SUPABASE_URL}/rest/v1/site_users?select=email,created_at,last_login_at${slug ? ",slug&slug=eq." + encodeURIComponent(slug) : ",slug"}&order=created_at.desc&limit=500`;
+      try {
+        const r = await fetch(base, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt }, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        return Response.json({ members: Array.isArray(rows) ? rows : [] });
+      } catch { return Response.json({ members: [] }); }
     }
 
     // Public form submissions from published sites (waitlist/contact). Anonymous
