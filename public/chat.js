@@ -9156,6 +9156,8 @@ let sitesCache = null;
 let siteOpenId = null;      // project open in the workspace (null → project list)
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
+let siteView = 'preview';   // workspace stage: preview | code | more
+let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 function sitesLoad() {
   if (sitesCache) return sitesCache;
   try { const raw = JSON.parse(localStorage.getItem(SITES_KEY) || '[]'); sitesCache = Array.isArray(raw) ? raw : []; }
@@ -9285,11 +9287,71 @@ function stStamp(ts) {
   try { return new Date(ts || Date.now()).toLocaleString('en-US', { month: 'short', day: 'numeric' }) + ' at ' + new Date(ts || Date.now()).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }); }
   catch { return ''; }
 }
+// ── Workspace stage views (frontend chrome, isibi-skinned) ────────────────────
+// Preview / Code / More(Analytics·Cloud·Security·SEO). Real data where we have it
+// (the page HTML, the live URL); tasteful "coming soon" where the backend isn't
+// wired yet. All visual for now — owner reference 2026-07-18 (Lovable).
+function siteFileName(p) { return (p.path === '/' ? 'index' : p.path.replace(/^\//, '').replace(/[^a-z0-9/_-]/gi, '-')) + '.html'; }
+function siteCodeView(site, active, pages) {
+  const files = pages.map((p) =>
+    '<button type="button" class="st-file' + (active && p.path === active.path ? ' on' : '') + '" data-codepath="' + esc(p.path) + '">' +
+    '<span class="st-file-ic">&lt;/&gt;</span><span class="st-file-n">' + esc(siteFileName(p)) + '</span></button>').join('');
+  const raw = active ? String(active.html).slice(0, 120000) : '';
+  const gutter = raw ? Array.from({ length: raw.split('\n').length }, (_, i) => i + 1).join('\n') : '';
+  return '<div class="st-code">' +
+    '<div class="st-code-tree"><div class="st-code-h">Pages</div>' + files + '</div>' +
+    '<div class="st-code-main">' +
+      '<div class="st-code-bar"><span class="st-code-fname">' + (active ? esc(siteFileName(active)) : '') + '</span>' +
+      '<button type="button" class="st-code-dl" id="stCodeDl" title="Download this page">⤓ Download</button></div>' +
+      '<div class="st-code-scroll"><pre class="st-code-gutter" aria-hidden="true">' + gutter + '</pre><pre class="st-code-pre"><code>' + esc(raw) + '</code></pre></div>' +
+    '</div>' +
+  '</div>';
+}
+function moreStat(label, val) { return '<div class="st-stat"><span class="st-stat-l">' + label + '</span><span class="st-stat-v">' + val + '</span></div>'; }
+function siteMoreView(site) {
+  const items = [['analytics', '📈', 'Analytics'], ['cloud', '☁︎', 'Cloud'], ['security', '🛡︎', 'Security'], ['seo', '🔍', 'SEO & AI search']];
+  const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + it[1] + '</span>' + it[2] + '</button>').join('');
+  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity() : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics();
+  return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
+}
+function moreAnalytics() {
+  return '<div class="st-panel">' +
+    '<div class="st-panel-head"><h3>Web traffic</h3><span class="st-chip-muted">Last 7 days</span></div>' +
+    '<div class="st-stats">' + moreStat('Visitors', '0') + moreStat('Page views', '0') + moreStat('Views / visit', '0') + moreStat('Visit duration', '0s') + moreStat('Bounce rate', '0%') + '</div>' +
+    '<div class="st-chart"><div class="st-chart-empty">Traffic shows up here once your published site gets its first visitors.</div></div>' +
+  '</div>';
+}
+function moreCloud(site) {
+  const cards = [
+    ['👥', 'Members', site.slug ? 'Real accounts — open the 👥 Members panel' : 'Publish to enable member accounts', true],
+    ['📥', 'Submissions', 'Form entries land in your 📥 Inbox', true],
+    ['🗄', 'Database', 'View tables and data', false],
+    ['✉', 'Emails', 'Send branded emails from your domain', false],
+    ['🔑', 'Secrets', 'Securely store API keys', false],
+    ['⚡', 'Edge functions', 'Server-side logic', false],
+  ];
+  return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
+    '<div class="st-cards">' + cards.map((c) =>
+      '<div class="st-cloudcard' + (c[3] ? ' live' : '') + '"><span class="st-cc-ic">' + c[0] + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>').join('') +
+    '</div></div>';
+}
+function moreSecurity() {
+  return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
+    '<div class="st-sec-hero"><span class="st-sec-ic">🛡</span><div class="st-cc-tx"><b>Run a security scan</b><span>Surface risky configuration before you publish.</span></div><button type="button" class="st-gen2" disabled>Scan · soon</button></div>' +
+    '<div class="st-panel-sub">Detected issues</div>' +
+    '<div class="st-sec-empty"><span class="st-sec-ok">🛡</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div>' +
+  '</div>';
+}
+function moreSeo(site) {
+  return '<div class="st-panel"><div class="st-panel-head"><h3>SEO &amp; social</h3></div>' +
+    '<div class="st-field"><label>Title</label><div class="st-inp">' + esc(site.name || 'Your site') + ' — built with isibi</div></div>' +
+    '<div class="st-field"><label>Description</label><div class="st-inp st-inp-area">A short, on-brand description of your site for search engines and social shares.</div></div>' +
+    '<div class="st-field"><label>Social image</label><div class="st-social"><div class="st-social-ph">1200 × 630</div><div class="st-social-btns"><button type="button" class="st-gen2" disabled>Upload · soon</button><button type="button" class="st-gen2" disabled>Generate · soon</button></div></div></div>' +
+  '</div>';
+}
 // The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
-// bar (project name + "Previewing…" · Preview pill + page + refresh · devices,
-// Share, Publish), a slim chat rail (grey user bubbles, plain agent replies,
-// "Ask isibi…" composer with a Build selector + round send), and the preview
-// dominating in a rounded card. Skinned in isibi's own dark + pink→amber.
+// bar (project name + view tabs · devices, Share, Publish), a slim chat rail,
+// and the stage (Preview / Code / More). Skinned in isibi's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
   const active = siteActivePage(site);
@@ -9316,9 +9378,12 @@ function renderSiteWorkspace(view, site) {
           '</div>' +
         '</div>' +
         '<div class="st-tb-mid">' +
-          '<span class="st-pillbtn on">◉ Preview</span>' +
-          picker +
-          '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">⟳</button>' +
+          '<div class="st-vtabs">' +
+            '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">◉ Preview</button>' +
+            '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">&lt;/&gt; Code</button>' +
+            '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">▤ More</button>' +
+          '</div>' +
+          (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">⟳</button>' : '') +
         '</div>' +
         '<div class="st-tb-right">' +
           '<div class="st-devs">' +
@@ -9347,9 +9412,13 @@ function renderSiteWorkspace(view, site) {
           '</div>' +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
-          (hasSite
-            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>'
-            : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>') +
+          (!hasSite
+            ? '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>'
+            : siteView === 'code'
+              ? siteCodeView(site, active, pages)
+              : siteView === 'more'
+                ? siteMoreView(site)
+                : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
         '</div>' +
       '</div>' +
     '</div>';
@@ -9369,6 +9438,20 @@ function renderSiteWorkspace(view, site) {
   }
   const fr = document.getElementById('stFrame');
   if (fr && curHtml) fr.src = sitePreviewSrc(curHtml, site.slug);
+  // View tabs (Preview / Code / More).
+  view.querySelectorAll('.st-vtab').forEach((b) => b.onclick = () => { siteView = b.dataset.view; renderSites(); });
+  // Code view: clicking a page "file" switches which page's code shows.
+  view.querySelectorAll('[data-codepath]').forEach((b) => b.onclick = () => {
+    const s = siteById(siteOpenId); if (!s) return; s.active = b.dataset.codepath; sitesSave(); renderSites();
+  });
+  const codeDl = document.getElementById('stCodeDl');
+  if (codeDl && curHtml) codeDl.onclick = () => {
+    const blob = new Blob([curHtml], { type: 'text/html' }); const u = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = u; a.download = (active ? siteFileName(active) : 'index.html'); document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(u), 5000);
+  };
+  // More sub-nav (Analytics / Cloud / Security / SEO).
+  view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
