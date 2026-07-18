@@ -2045,6 +2045,43 @@ select.ma-pub-in { appearance: none; cursor: pointer; }
 @media (min-width: 1100px) { .view-home .composer-row .mode-switch { border-radius: 20px; } }
 .mode-btn { border-radius: 99px; padding: .45rem .9rem; }
 
+/* ── Outline button language (owner pick 2026-07-18) ──
+   The pink→amber gradient moves from FILLS to BORDERS: the send is a hollow
+   button ringed in the gradient with a gradient-text credit count, and the
+   active mode is outlined instead of filled. Colors untouched — only shape.
+   (The two-layer background is the gradient-border trick: inner paint on
+   padding-box, gradient on border-box. Placed late so it wins the earlier
+   .send / .send:hover / .mode-btn.active fills.) */
+.mode-btn { border: 1px solid transparent; } /* all modes carry the 1px so the active ring never shifts widths */
+.send {
+  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box,
+              var(--split) border-box;
+  border: 1.5px solid transparent;
+  box-shadow: 0 0 22px -6px rgba(255, 121, 198, .4), 0 6px 24px rgba(0, 0, 0, .35);
+}
+.send:hover {
+  background: linear-gradient(rgba(30, 22, 38, .92), rgba(30, 22, 38, .92)) padding-box,
+              var(--split) border-box;
+  border-color: transparent;
+  box-shadow: 0 0 30px -6px rgba(255, 121, 198, .6), 0 8px 30px rgba(0, 0, 0, .45);
+}
+.send:disabled, .send:disabled:hover {
+  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box,
+              var(--split) border-box;
+  border-color: transparent;
+}
+.send-price {
+  background: var(--split);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  padding: .3rem 0; font-weight: 800;
+}
+.mode-btn.active {
+  background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box,
+              var(--split) border-box;
+  border: 1px solid transparent;
+  color: var(--text);
+}
+
 /* Account avatar → dark chip (matches the mockup). */
 .side-avatar { background: linear-gradient(140deg, #3a3344, #221d2b); border: 1px solid var(--line); color: var(--muted); }
 

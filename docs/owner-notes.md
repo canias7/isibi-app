@@ -2102,3 +2102,19 @@ is [thumb][compact time] (e.g. red image + "9am"); a video with no poster falls
 back to a 🎬/🖼 icon. Added schTimeShort() for the tight chips (day-panel keeps
 the full "9:00 AM"). Verified headless: real thumb data-URLs render as chip
 backgrounds, icon fallback for no-thumb.
+
+## 2026-07-18 — Builder buttons: "Outline" language (owner pick)
+
+Explored 10 design directions in artifact mockups (5 recolors, then 5 button
+languages on the untouched pink→amber palette). Owner picked **Outline**:
+the gradient moves from fills to borders. Applied to styles.css (late block
+so it wins the earlier fills):
+- .send → hollow, 1.5px pink→amber gradient ring (padding-box/border-box
+  trick), soft pink glow; hover deepens interior + glow; disabled keeps the
+  ring, no glow (earlier box-shadow:none still applies).
+- .send-price → gradient TEXT (background-clip:text), no more filled pill.
+- .mode-btn.active → outlined with the gradient ring instead of the gradient
+  fill; all .mode-btn carry a transparent 1px border so widths never shift.
+Colors untouched. Verified headless on the real app (full screen + composer
+close-up), no page errors. The mkt marketing composer reuses these classes
+and inherits the same look — consistent by design.
