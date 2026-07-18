@@ -2673,3 +2673,34 @@ Generated-site forms now actually save, and the owner reads them.
   success state. In the preview (no /s/ slug) it just no-ops → shows success, stores nothing.
 - **Client**: published sites get a 📥 Inbox button in the workspace top bar → siteInbox()
   modal lists submissions (form name, fields, timestamp), newest first. site.slug stored on publish.
+
+## 2026-07-18 — HOSTING milestone 3: real visitor-auth backend (+ live-map fix)
+Stress-tested the builder with "user login" + "live map" (checkout deferred by owner).
+Findings: map degraded HONESTLY to a real OpenStreetMap iframe (good) but our publish
+CSP had no frame-src so it broke on /s/; login was FAKED (ungated /dashboard, "simulation
+API" — it did NOT transmit the password though). Owner's call: build the REAL auth backend.
+- **DB**: site_users (published_site_id, owner_id→auth.users cascade, slug, email citext,
+  password_hash, created_at, last_login_at; unique (published_site_id,email)). RLS: owner
+  SELECT only (auth.uid()=owner_id); NO write policy — only the service-role Worker writes.
+  Cascades on site delete AND account delete.
+- **Worker (brains, storage=Supabase)**: PBKDF2 (100k, SHA-256, 16-byte salt) hashing +
+  HMAC-SHA256 signed stateless session tokens (30d), signing key derived from
+  SUPABASE_SERVICE_KEY (no new secret). Endpoints:
+  · POST /api/site/auth/signup {slug,email,password} → hash+insert, returns {ok,token,email}
+  · POST /api/site/auth/login → verify (constant-time), returns {ok,token,email}
+  · GET  /api/site/auth/me (Bearer) → validates token for member-page guards
+  · GET  /api/site/members?slug= (owner JWT, RLS) → the site's sign-ups
+  Validation: email regex, password 8–200, dup→friendly error, honeypot, empty-slug→
+  "not published yet". Unit-tested crypto (12/12) + live e2e (signup/login/wrong-pw/me/
+  tamper/dup/bad-email/short-pw/bad-slug all correct; DB confirmed pbkdf2, no plaintext).
+- **Engine (SITE_RULES)**: wires login/signup/member-pages to the real endpoints (store
+  token in localStorage zephyr_site_auth_<slug>, guard member pages via /me, real logout,
+  show the member's REAL email); NEVER-FAKE guardrail (no pretend login, no ungated
+  dashboard, no password field posting to the form inbox, honest degrade). LIVE-MAP protocol:
+  real OSM iframe embed for address/find-us (the one allowed iframe). Publish CSP now allows
+  frame-src for OSM + Google Maps.
+- **Client**: published sites get a 👥 Members button next to 📥 Inbox → siteMembers() modal
+  (email, joined, last login).
+- **Note**: accounts work on the PUBLISHED site (real slug), not the in-builder preview —
+  same as forms. Member-page gating is client-side (standard for static sites); the accounts/
+  passwords/sessions themselves are fully real + server-side. Deployed 4ef7096.
