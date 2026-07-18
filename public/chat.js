@@ -2368,7 +2368,15 @@ async function previewVoice(name, btn) {
   stopPreview();
   const key = model + '|' + name;
   if (voicePreviewCache[key]) { playPreview(voicePreviewCache[key], btn); return; }
-  if (previewing) return; // a live TTS preview is already generating — don't spend a second credit
+  if (previewing) {
+    // Another preview is mid-generation. The control is a <span> (no disabled
+    // state), so without a cue the click reads as ignored — flash the clicked
+    // button briefly so the user knows it registered (2026-07-18).
+    const prev = btn.textContent;
+    btn.textContent = '⏳';
+    setTimeout(() => { if (btn.textContent === '⏳') btn.textContent = prev; }, 800);
+    return; // don't spend a second credit while one is already generating
+  }
   previewing = true;
   let previewStatusUrl = null;
 
