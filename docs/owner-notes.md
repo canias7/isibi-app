@@ -2222,3 +2222,13 @@ range ✦50-75 build / ✦15-25 revision; pin from real token measurements).
 Pure-visual revisions route to Gemini alone (no Claude call at all); the
 revision-intent router must NOT be Haiku/Sonnet — use a keyword heuristic
 or Gemini Flash.
+
+Follow-up: GEMINI_API_KEY (already in the GitHub secrets vault, owner
+confirmed the exact name) is now wired into deploy.yml — uploads to the
+Worker on every deploy alongside FAL/ANTHROPIC/etc. Unused until the engine
+lands. Model pinned by live docs check (ai.google.dev, 2026-07-18): Google's
+flagship is **Gemini 3.1 Pro** (`gemini-3.1-pro-preview`) — that's the
+design-pass model per the owner's "their best LLM" call; re-verify the id
+at wiring time (preview ids rotate; fall back to the newest stable Pro).
+NOTE: if the deploy fails on the secret upload, the vault name doesn't
+match GEMINI_API_KEY exactly — check the Actions log.

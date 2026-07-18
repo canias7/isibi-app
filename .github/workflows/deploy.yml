@@ -36,6 +36,7 @@ jobs:
           secrets: |
             FAL_KEY
             ANTHROPIC_API_KEY
+            GEMINI_API_KEY
             STRIPE_SECRET_KEY
             STRIPE_WEBHOOK_SECRET
             CREDITS_MINT_SECRET
@@ -44,6 +45,8 @@ jobs:
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Website Builder engine (Gemini = design pass; Opus = architecture).
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           CREDITS_MINT_SECRET: ${{ secrets.CREDITS_MINT_SECRET }}
