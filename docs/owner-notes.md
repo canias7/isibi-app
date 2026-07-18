@@ -2308,3 +2308,25 @@ sub, confirm the sub ends) is worth doing once with a throwaway account.
   skipping enterApp's account-switch wipe → previous account's chats/avatars
   shown and synced under the NEW account. finishAuth now forces enterApp()
   (full reset) whenever the authed uid != stored owner. Fixes the HIGH.
+
+## 2026-07-18 — Audit round-2 fixes: REFUND / JOB-RECOVERY batch
+
+- **Avatar renders now survive a refresh** (chat.js): the charged render is
+  registered in JOBS_KEY under a reserved '__avatar__' key at submit and
+  cleared in `finally`. If a refresh/tab-close skips the finally, boot-resume
+  (resumeJobs → resumeAvatarJob) recovers it: fal COMPLETED → save the avatar;
+  stuck/failed → cancel + refund. The sign-out sweep already refunds any
+  pending job (avatar included). Fixes the HIGH (lost credits on refresh).
+- **finishDeadJob cancels before refunding** (chat.js): a job wedged IN_QUEUE
+  forever is never terminal, so /api/refund couldn't credit it. New
+  cancelThenRefund() cancels first (→ CANCELED) so the refund lands. finishDeadJob
+  now uses it. Fixes the HIGH.
+- **recoverJob no longer destroys the record on a lookup blip** (worker): the
+  idem-recovery gen_charges lookup now returns a retryable 503 when it FAILS
+  (not-ok/throws/unparseable) — only a SUCCESSFUL lookup that finds no charge
+  row falls through to the no-prompt 400 that tells the client to drop the
+  record. The client already treats 503 as transient (bumpTries). Fixes the
+  HIGH (a transient DB failure was destroying the only recovery record for a
+  possibly-charged job).
+Verified headless: avatar recover-on-complete + cancel-then-refund-when-stuck,
+finishDeadJob cancel-before-refund, all green.

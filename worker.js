@@ -1711,19 +1711,28 @@ async function handleRequest(request, env, ctx) {
       // Only a recovery re-POST (body.recover) pays for the lookup — a normal
       // first submit skips it, so the hot path adds no DB round-trip.
       if (idem && body.recover === true && env.SUPABASE_SERVICE_KEY) {
+        // The lookup MUST distinguish "no charge exists" (safe to drop the
+        // client's record) from "couldn't check" (transient — the client must
+        // keep the record and retry). A failed/throwing lookup returns a
+        // retryable 503; only a SUCCESSFUL lookup that finds no row falls
+        // through to the normal no-prompt 400 that tells the client to drop it.
+        // (Before: any lookup failure fell through to that 400 and destroyed
+        // the only recovery record for a possibly-charged job.)
         try {
           const q = await fetch(
             `${SUPABASE_URL}/rest/v1/gen_charges?user_id=eq.${genUser.id}&idem=eq.${encodeURIComponent(idem)}&select=request_id,status_url,response_url,cost&limit=1`,
             { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` }, signal: AbortSignal.timeout(6000) }
           );
-          if (q.ok) {
-            const rows = await q.json().catch(() => []);
-            const ex = Array.isArray(rows) && rows[0];
-            if (ex && ex.status_url && ex.response_url) {
-              return Response.json({ request_id: ex.request_id, status_url: ex.status_url, response_url: ex.response_url, model, cost: ex.cost, recovered: true });
-            }
+          if (!q.ok) return Response.json({ error: "recovery lookup failed", retry: true }, { status: 503 });
+          const rows = await q.json().catch(() => null);
+          if (rows === null) return Response.json({ error: "recovery lookup failed", retry: true }, { status: 503 });
+          const ex = Array.isArray(rows) && rows[0];
+          if (ex && ex.status_url && ex.response_url) {
+            return Response.json({ request_id: ex.request_id, status_url: ex.status_url, response_url: ex.response_url, model, cost: ex.cost, recovered: true });
           }
-        } catch {} // recovery is best-effort; fall through to a normal submit
+          // Lookup succeeded, no charge row → genuinely nothing to recover;
+          // fall through to the normal submit (→ 400 no prompt → client drops).
+        } catch { return Response.json({ error: "recovery lookup failed", retry: true }, { status: 503 }); }
       }
 
       // Lip-sync models drive off attachments, not text; everything else needs a prompt.

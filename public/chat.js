@@ -3933,6 +3933,9 @@ function pauseGen(chatId, autoResume = true) {
 // render. Gallery copies that fail queue here too and retry at boot,
 // swapping the temporary fal URL for the permanent one wherever it landed.
 const JOBS_KEY = 'zephyr_jobs_v1';
+// Avatar renders use the same JOBS_KEY store (so boot-resume + the sign-out
+// sweep can recover/refund one abandoned by a refresh) under a reserved key.
+const AVATAR_JOB_ID = '__avatar__';
 const SAVES_KEY = 'zephyr_pending_saves_v1';
 
 function jobsLoad() { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]'); } catch { return []; } }
@@ -4212,7 +4215,15 @@ function scheduleSaveRetries() {
 
 // Boot: pick up any generation that was in flight when the tab last died.
 function resumeJobs() {
-  const jobs = jobsLoad().filter((j) => j.chatId && ((j.statusUrl && j.responseUrl) || j.idem));
+  const all = jobsLoad();
+  // Avatar renders (reserved key) can't ride the chat-delivery resume path —
+  // recover/refund them separately and drop the record.
+  const avatarJobs = all.filter((j) => j.avatar || j.chatId === AVATAR_JOB_ID);
+  if (avatarJobs.length) {
+    jobsWrite(all.filter((j) => !(j.avatar || j.chatId === AVATAR_JOB_ID)));
+    avatarJobs.forEach((j) => resumeAvatarJob(j));
+  }
+  const jobs = jobsLoad().filter((j) => j.chatId && j.chatId !== AVATAR_JOB_ID && ((j.statusUrl && j.responseUrl) || j.idem));
   const live = jobs.filter((j) => (j.tries || 0) < 4);
   const dead = jobs.filter((j) => (j.tries || 0) >= 4);
   jobsWrite(live);
@@ -4247,9 +4258,10 @@ async function finishDeadJob(j) {
         }
       } catch (e) {}
     }
-    // Not recoverable: refund (server re-verifies with fal — only jobs that
-    // never ran get credited back) and tell the chat instead of going quiet.
-    const refunded = j.statusUrl ? await requestRefund(j.statusUrl) : 0;
+    // Not recoverable: cancel (in case it's wedged IN_QUEUE — otherwise the
+    // refund can't credit a non-terminal job) then refund; the server
+    // re-verifies with fal so only jobs that never ran get credited back.
+    const refunded = j.statusUrl ? await cancelThenRefund(j.statusUrl) : 0;
     deliverAgent(j.chatId, '⚠️ A render from earlier couldn\'t be recovered'
       + (refunded > 0
         ? ' — your ' + refunded + (refunded === 1 ? ' credit was' : ' credits were') + ' refunded.'
@@ -4649,6 +4661,20 @@ function falErrorDetail(body) {
 // A fal-confirmed failure means fal never billed us — ask the server to refund
 // the charge (it independently re-verifies the failure with fal). Returns the
 // refunded credit amount, and refreshes the balance display when it's non-zero.
+// Cancel a possibly-stuck job THEN refund. A job wedged IN_QUEUE forever is
+// never in a terminal state, so /api/refund (which only credits FAILED/ERROR/
+// CANCELED) wouldn't refund it — cancelling first moves it to CANCELED so the
+// refund can land (fal doesn't bill a cancelled-while-queued job).
+async function cancelThenRefund(statusUrl) {
+  if (!statusUrl) return 0;
+  try {
+    await apiFetch('/api/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: statusUrl.replace(/\/status\b.*$/, '/cancel') }),
+    });
+  } catch {}
+  return requestRefund(statusUrl);
+}
 async function requestRefund(statusUrl) {
   if (!statusUrl) return 0;
   try {
@@ -7326,6 +7352,10 @@ async function acGenerate() {
       fail(typeof friendlyFail === 'function' ? friendlyFail(job) : 'Generation failed — try again.'); return;
     }
     if (typeof job.balance === 'number' && typeof setCredits === 'function') setCredits(job.balance);
+    // Register the charged render so a refresh/tab-close mid-poll doesn't strand
+    // the credit — boot-resume (resumeJobs) + the sign-out sweep recover or
+    // refund it. Cleared in `finally` when this in-page loop resolves normally.
+    jobRecord(AVATAR_JOB_ID, { avatar: true, statusUrl: job.status_url, responseUrl: job.response_url, at: Date.now() });
     // Poll fal until the render completes (avatars are quick — 5 min ceiling).
     const deadline = Date.now() + 5 * 60 * 1000;
     let state = '';
@@ -7383,9 +7413,41 @@ async function acGenerate() {
   } catch (e) {
     fail('Network hiccup — please try again.');
   } finally {
+    // This loop resolved in-page (success/fail/timeout) — the render no longer
+    // needs recovery. (A refresh mid-poll skips this, leaving the record for
+    // boot-resume.)
+    jobClear(AVATAR_JOB_ID);
     acBusy = false;
     if (genBtn) { genBtn.disabled = false; genBtn.innerHTML = '<span class="ac-gen-t">Generate avatar</span><span class="ac-gen-cost">' + avatarCost() + '</span>'; }
   }
+}
+// Recover an avatar render abandoned by a refresh: if fal finished it, save the
+// avatar; otherwise cancel + refund the credit. (Avatars aren't delivered to a
+// chat, so they can't ride resumeOne's chat-delivery path.)
+async function resumeAvatarJob(j) {
+  try {
+    let state = '';
+    if (j.statusUrl) {
+      const sr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(j.statusUrl));
+      if (sr.ok) { const st = await sr.json().catch(() => ({})); state = st.status || ''; }
+    }
+    if (state === 'COMPLETED' && j.responseUrl) {
+      const rr = await apiFetch('/api/video/poll?url=' + encodeURIComponent(j.responseUrl));
+      const out = await rr.json().catch(() => ({}));
+      const imgs = ((out.images || (out.data && out.data.images) || []).map((im) => im && im.url).filter(Boolean));
+      const url = imgs[0] || (out.image && out.image.url) || '';
+      if (url) {
+        let finalUrl = url;
+        try { const saved = await saveOutput(url, 'image'); if (saved && saved.url) finalUrl = saved.url; } catch (e) {}
+        const list = loadAvatars();
+        list.unshift({ id: avUid(), name: 'Avatar', image: finalUrl, at: Date.now() });
+        saveAvatars(list);
+        return;
+      }
+    }
+    // Not completed (stuck/failed/abandoned) → cancel + refund the credit.
+    await cancelThenRefund(j.statusUrl);
+  } catch (e) {}
 }
 
 // ── Memory: universal auto-learned taste is a SYSTEM feature with no
