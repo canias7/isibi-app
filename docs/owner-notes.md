@@ -273,6 +273,32 @@ and fixed, and add a preference line whenever the owner signals one.
   that we'd move to real SQL-side filtering; not needed until a collection is
   genuinely that large.
 
+### Website builder — ATTACH IMAGES to the builder (2026-07-18)
+- **Status:** ✅ shipped to main + deployed. UI + routing verified; the full
+  build path (host → vision → embed) NOT live-tested yet (a real build spends the
+  owner's credits — offered to run one on request).
+- **What:** the builder composer (BOTH the home "What are we building" box and the
+  workspace revise box) can attach up to 3 images (≤5 MB, png/jpg/webp/gif). On
+  build/revise they ride in `body.images` (base64 data URLs). The engine, for each:
+  (1) hosts it in R2 under `assets/<siteId>/` → a public URL served from
+  `/a/<siteId>/<file>` (nosniff, immutable), and (2) passes it to **Gemini's
+  vision** (inlineData). A dynamic `assetLine` tells the generator: if it's a
+  LOGO/product photo → embed a real `<img src="<hosted url>">`; if it's a design
+  REFERENCE → match palette/layout but don't embed; decide from the brief. Vision
+  goes to the PLAN phase (build) + the revise call; the hosted URLs fold into the
+  design system so every page can use the logo. Image input tokens are already
+  captured by the metered billing (usageMetadata) — no separate charge logic.
+- **Where:** worker.js (`/a/` serve route, `geminiCall` 4th `imgParts` arg, the
+  image-prep block that hosts + builds imageParts/assetLine, plan + page + revise
+  calls updated), chat.js (`siteAttach` state + `siteAttachOpen`/`siteAttachFiles`/
+  `paintAttachStrip`, attach button in both composers, `images` in siteSend, new
+  `image` icon), styles.css (`.st-attach`/`.st-att`/`.st-attbtn`). The attach strip
+  repaints in place (no full re-render) so the prompt text isn't lost on attach.
+- **Verified:** `/a/<siteId>/<file>` route live (404s cleanly for a missing asset);
+  UI screenshot approved. TODO on next real build: confirm a logo actually embeds
+  and a reference actually shifts the design.
+- **Next picks (owner):** FILE MANAGEMENT (list+delete uploads) then PAYMENTS.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
