@@ -329,8 +329,13 @@ and fixed, and add a preference line whenever the owner signals one.
   no-sig webhook → 400, valid-sig → runs+saves order, tampered-body+same-sig →
   400, checkout-without-key → refuses (empty url, no Stripe call). Throwaway
   user/site/secret/functions all cleaned up.
-- **Not yet:** a live end-to-end paid checkout (needs a real Stripe test key). A
-  Cloud → Payments card that guides the Stripe setup would help discovery (v1.1).
+- **Not yet:** a live end-to-end paid checkout (needs a real Stripe test key).
+- **Payments setup card — DONE 2026-07-18:** Cloud → Payments card (credit-card
+  icon) opens `sitePayments()`, a 3-step guide (Stripe key in Secrets → ask the
+  builder for a Buy button → optional signature-verified order webhook). Mirrors
+  the Emails guide. With this, EVERY Cloud card is now Live (no "Soon" left):
+  Members · Submissions · Database · Emails · Secrets · Edge functions · Payments
+  · Files.
 
 ### Website builder — EMAIL (owner's own provider) (2026-07-18)
 - **Status:** ✅ shipped to main + deployed. Guard live-tested; a real send needs
