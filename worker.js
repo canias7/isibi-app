@@ -3543,7 +3543,7 @@ async function handleRequest(request, env, ctx) {
         } else {
           // All revisions — visual or functional — go to the one Gemini engine.
           const out = await geminiCall(
-            "You are isibi Websites — designer and front-end engineer in one. Apply the user's instruction to their single-file site: make EXACTLY the change asked (a visual evolution OR a functional/structural fix) and keep everything else — design, copy, sections, structure — intact unless the instruction says otherwise. Keep the result semantic, accessible and responsive. " + SITE_RULES,
+            "You are isibi Websites — designer and front-end engineer in one. Apply the user's instruction to their single-file site: make EXACTLY the change asked (a visual evolution OR a functional/structural fix) and keep everything else — design, copy, sections, structure — intact unless the instruction says otherwise. Keep the result semantic, accessible and responsive. IMAGES: keep every existing <img src=\"...\"> exactly as-is unless the instruction says to change it. If the instruction asks for MORE or NEW photos/imagery, add them with the data-gen <img> protocol (a vivid art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink an external URL; write one data-gen img per new photo requested. " + SITE_RULES,
             "Instruction: " + instruction + "\n\nCurrent site:\n\n" + curHtml
           );
           html = extractHTML(out);
