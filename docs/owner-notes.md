@@ -81,9 +81,8 @@ and fixed, and add a preference line whenever the owner signals one.
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
 ### Website builder — real EDGE FUNCTIONS (Path A, 2026-07-18)
-- **Status:** 🟡 built on branch `claude/chat-session-xsvtz5`, NOT merged to main
-  (owner reviewing before it goes to production). Backend logic + secret
-  isolation verified locally (16/16); full end-to-end curl test needs a deploy.
+- **Status:** ✅ SHIPPED to main + deployed + live-tested 2026-07-18 (owner said
+  "deploy and run test"). Every property verified on production (results below).
 - **The decision (why Path A):** the owner wanted the model to build "edge
   functions" like Lovable (describe backend logic in chat → model builds it →
   appears in the Cloud panel → runs live). Walked the owner through the real
@@ -128,10 +127,28 @@ and fixed, and add a preference line whenever the owner signals one.
     says deletion is a full wipe). `published_sites` + `site_hits` + the R2 site
     files are still NOT wiped on deletion — separate follow-up (R2 can't be
     reached from Postgres; needs a Worker/client purge).
-- **Next (after owner OK):** merge to main, then live curl test end-to-end
-  (respond/save/read/fetch + SSRF block + secret-at-rest) with a throwaway site,
-  clean up test data. Possible v1.1: a pause/enable toggle in the panel; an
-  `email` action once we decide the abuse posture.
+- **Live test (2026-07-18, all pass, throwaway data cleaned up after):**
+  respond+input templating ✓ · save→read→count (records landed, count flows) ✓ ·
+  external fetch from the deployed Worker (GitHub zen, 200) ✓ · **SSRF block** —
+  a fetch at the cloud-metadata IP (169.254.169.254) returns status 0 / empty,
+  safeFetch refused it ✓ · unknown fn → 404 ✓ · **secret injection** — a real
+  vault secret decrypts on the Worker and lands in the outbound header the echo
+  service reflects ✓ · **secret isolation** — the same secret returned BLANK when
+  a function tried to leak it via respond ✓ · **encrypted at rest**
+  (`leaks_plaintext:false`) ✓. Local: 16/16 logic tests + encrypt/decrypt
+  round-trip ✓. (Test note: `site_collections.owner_id` has an FK to auth.users,
+  so a save only works under a real owner — always true for real functions.)
+- **Known v1.1 nits (not blocking):**
+  1. Template paths don't span hyphens — `{{steps.h.body.headers.x-secret}}`
+     won't resolve a hyphenated JSON key (regex is `[a-zA-Z0-9_.]`). Rare (most
+     API fields are snake/camelCase); widen the charset to include `-` when we
+     next touch it. Everything non-hyphenated resolves fine.
+  2. No pause/enable toggle in the panel yet (delete works; `enabled` flips only
+     in the DB). Add a toggle if wanted.
+  3. `email` action deliberately not shipped — decide the abuse posture first.
+- **Still NOT wiped on account deletion (follow-up):** `published_sites` +
+  `site_hits` + the R2 site files. R2 can't be reached from Postgres, so it needs
+  a Worker/client purge on delete. The site_* owner tables ARE now wiped.
 
 ## Shipped
 
