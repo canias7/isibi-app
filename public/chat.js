@@ -9416,7 +9416,7 @@ function moreCloud(site) {
   const cards = [
     ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true, 'members'],
     ['inbox', 'Submissions', 'Form entries land in your Inbox', true, 'inbox'],
-    ['database', 'Database', 'View tables and data', false, ''],
+    ['database', 'Database', site.slug ? 'Store + show dynamic content (reviews, menu…)' : 'Publish to enable collections', true, 'database'],
     ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
     ['key', 'Secrets', 'Securely store API keys', false, ''],
     ['zap', 'Edge functions', 'Server-side logic', false, ''],
@@ -9632,7 +9632,11 @@ function renderSiteWorkspace(view, site) {
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
   // Cloud cards that are live open their real panels.
-  view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => { if (b.dataset.cloud === 'members') siteMembers(site); else siteInbox(site); });
+  view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
+    if (b.dataset.cloud === 'members') siteMembers(site);
+    else if (b.dataset.cloud === 'database') siteDatabase(site);
+    else siteInbox(site);
+  });
   // Deep security scan (Opus).
   const secBtn = document.getElementById('secScan');
   if (secBtn) secBtn.onclick = () => siteSecurityScan(site);
@@ -9873,6 +9877,40 @@ async function siteMembers(site) {
       '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
     ).join('');
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load members just now — try again.</div>'; }
+}
+
+// Database — the site's collections (public records it saves + shows). Owner view,
+// grouped by collection, RLS-scoped by their JWT.
+async function siteDatabase(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its collections show up here.'); return; }
+  let box = document.getElementById('siteDbModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteDbModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Database</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const bodyEl = box.querySelector('.si-body');
+  try {
+    const r = await apiFetch('/api/site/collections?slug=' + encodeURIComponent(slug));
+    const d = await r.json().catch(() => ({ records: [] }));
+    const recs = Array.isArray(d.records) ? d.records : [];
+    if (!recs.length) { bodyEl.innerHTML = '<div class="si-empty">No collections yet. When your site saves records (reviews, entries, …) to a collection, they show up here.</div>'; return; }
+    const groups = {};
+    recs.forEach((x) => { const c = x.collection || 'data'; (groups[c] = groups[c] || []).push(x); });
+    bodyEl.innerHTML = Object.keys(groups).map((c) => {
+      const rows = groups[c];
+      return '<div class="si-count">' + esc(c) + ' · ' + rows.length + ' record' + (rows.length === 1 ? '' : 's') + '</div>' + rows.slice(0, 50).map((x) => {
+        const dt = (x.data && typeof x.data === 'object') ? x.data : {};
+        const fields = Object.keys(dt).filter((k) => k !== '_hp' && k !== 'hp');
+        return '<div class="si-item">' + fields.map((k) => '<div class="si-row"><span class="si-k">' + esc(k) + '</span><span class="si-v">' + esc(String(dt[k])) + '</span></div>').join('') + '</div>';
+      }).join('');
+    }).join('');
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load collections just now — try again.</div>'; }
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
