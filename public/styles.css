@@ -1409,7 +1409,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-dev { font: inherit; font-size: .85rem; width: 34px; height: 30px; border-radius: 9px; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; }
 .st-dev.on { color: var(--text); background: linear-gradient(rgba(28, 21, 35, .92), rgba(28, 21, 35, .92)) padding-box, var(--split) border-box; border: 1px solid transparent; }
 .st-body { display: flex; gap: .8rem; flex: 1; min-height: 0; }
-.st-rail { flex: 0 0 330px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; }
+.st-rail { flex: 0 0 400px; display: flex; flex-direction: column; border: 1px solid var(--line-2); border-radius: 16px; background: var(--panel-2); overflow: hidden; }
 .st-date { padding: .7rem 1rem .2rem; font-size: .72rem; color: var(--muted); text-align: center; }
 .st-date-flag { color: #ffb84d; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; font-size: .66rem; }
 .st-thread { flex: 1; overflow-y: auto; padding: .7rem .95rem .9rem; display: flex; flex-direction: column; gap: .7rem; }
