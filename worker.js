@@ -4625,6 +4625,33 @@ async function handleRequest(request, env, ctx) {
       } catch { return Response.json({ error: "couldn’t save the file" }, { status: 502, headers: cors }); }
       return Response.json({ url: "https://isibi.ai/u/" + slug + "/" + id + "." + ext, name: typeof ub.name === "string" ? ub.name.slice(0, 120) : "", type: mime }, { headers: cors });
     }
+    // Owner lists / deletes their site's uploaded files (R2). Ownership is proven
+    // by reading published_sites under the caller's JWT (owner-only RLS).
+    if (url.pathname === "/api/site/files" && (request.method === "GET" || request.method === "DELETE")) {
+      const fUser = await authUser(request);
+      if (!fUser) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ files: [] });
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      if (!slug) return Response.json(request.method === "GET" ? { files: [] } : { ok: false });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      let owns = false;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt }, signal: AbortSignal.timeout(8000) });
+        const rows = await r.json().catch(() => []); owns = Array.isArray(rows) && !!rows[0];
+      } catch {}
+      if (!owns) return Response.json(request.method === "GET" ? { files: [] } : { ok: false });
+      if (request.method === "DELETE") {
+        const file = (url.searchParams.get("file") || "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 80);
+        if (file) { try { await env.SITES_BUCKET.delete("uploads/" + slug + "/" + file); } catch {} }
+        return Response.json({ ok: true });
+      }
+      try {
+        const listed = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", limit: 300 });
+        const files = ((listed && listed.objects) || []).map((o) => { const nm = o.key.split("/").pop(); return { name: nm, url: "https://isibi.ai/u/" + slug + "/" + nm, size: o.size, uploaded: o.uploaded }; })
+          .sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0));
+        return Response.json({ files });
+      } catch { return Response.json({ files: [] }); }
+    }
 
     // Public form submissions from published sites (waitlist/contact). Anonymous
     // visitors POST here; we validate the slug and insert with the service key

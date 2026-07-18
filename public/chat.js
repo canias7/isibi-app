@@ -9482,6 +9482,7 @@ function moreCloud(site) {
     ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
     ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
     ['zap', 'Edge functions', site.slug ? 'Custom server logic your app builds' : 'Publish to add functions', true, 'functions'],
+    ['image', 'Files', site.slug ? 'Images + PDFs uploaded to your site' : 'Publish to manage files', true, 'files'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
@@ -9718,6 +9719,7 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'database') siteDatabase(site);
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
+    else if (b.dataset.cloud === 'files') siteFiles(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -10100,6 +10102,45 @@ async function siteFunctions(site) {
         if (typeof sbToast === 'function') sbToast('Webhook URL copied — paste it into Stripe, Zapier, etc.');
       });
     } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load functions — try again.</div>'; }
+  };
+  load();
+}
+
+// Files — the images/PDFs visitors uploaded to this site (R2). Owner can view +
+// delete. Owner-only (ownership proven server-side via the site's RLS row).
+async function siteFiles(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its files show up here.'); return; }
+  let box = document.getElementById('siteFilesModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteFilesModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Files</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Images and PDFs uploaded to your site by visitors (listing photos, avatars, resumes).</p><div id="flList">Loading…</div></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const listEl = box.querySelector('#flList');
+  const kb = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
+  const isImg = (n) => /\.(png|jpe?g|webp|gif)$/i.test(n);
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/files?slug=' + encodeURIComponent(slug));
+      const d = await r.json().catch(() => ({ files: [] }));
+      const files = Array.isArray(d.files) ? d.files : [];
+      if (!files.length) { listEl.innerHTML = '<div class="si-empty">No uploads yet. When a visitor uploads a file on your site, it shows up here.</div>'; return; }
+      listEl.innerHTML = '<div class="fl-grid">' + files.map((f) =>
+        '<div class="fl-item">' +
+          '<a class="fl-thumb" href="' + esc(f.url) + '" target="_blank" rel="noopener">' + (isImg(f.name) ? '<img src="' + esc(f.url) + '" alt="" loading="lazy">' : '<span class="fl-doc">PDF</span>') + '</a>' +
+          '<div class="fl-meta"><span class="fl-name" title="' + esc(f.name) + '">' + esc(f.name) + '</span><span class="fl-size">' + kb(f.size || 0) + '</span></div>' +
+          '<button type="button" class="sk-del fl-del" data-del="' + esc(f.name) + '" title="Delete">×</button>' +
+        '</div>').join('') + '</div>';
+      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+        await apiFetch('/api/site/files?slug=' + encodeURIComponent(slug) + '&file=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+        load();
+      });
+    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load files — try again.</div>'; }
   };
   load();
 }
