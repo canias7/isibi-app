@@ -2213,3 +2213,12 @@ visual generation → Claude hardening (semantics/a11y/SEO/form wiring);
 via a cheap classifier, same pattern as the director's effort routing.
 Opus reserved for heavy architecture; Gemini Pro on the visual pass keeps
 ✦25/✦10 margins healthy. Needs GEMINI key from owner (pending) — not built.
+
+ENGINE PLAN amendment (owner, 2026-07-18): Claude side is OPUS ONLY — no
+Haiku/Sonnet anywhere in the Website Builder (owner's explicit call). Cost
+consequence: a full build runs ~$0.55-0.65 (Opus spec + Gemini visual +
+Opus hardening), so ✦25 would lose money → reprice at engine time (working
+range ✦50-75 build / ✦15-25 revision; pin from real token measurements).
+Pure-visual revisions route to Gemini alone (no Claude call at all); the
+revision-intent router must NOT be Haiku/Sonnet — use a keyword heuristic
+or Gemini Flash.
