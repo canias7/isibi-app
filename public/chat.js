@@ -9479,7 +9479,7 @@ function moreCloud(site) {
     ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true, 'members'],
     ['inbox', 'Submissions', 'Form entries land in your Inbox', true, 'inbox'],
     ['database', 'Database', site.slug ? 'Store + show dynamic content (reviews, menu…)' : 'Publish to enable collections', true, 'database'],
-    ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
+    ['mail', 'Emails', site.slug ? 'Send email from your own provider' : 'Publish to enable email', true, 'emails'],
     ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
     ['zap', 'Edge functions', site.slug ? 'Custom server logic your app builds' : 'Publish to add functions', true, 'functions'],
     ['image', 'Files', site.slug ? 'Images + PDFs uploaded to your site' : 'Publish to manage files', true, 'files'],
@@ -9720,6 +9720,7 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else if (b.dataset.cloud === 'files') siteFiles(site);
+    else if (b.dataset.cloud === 'emails') siteEmails(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -10143,6 +10144,30 @@ async function siteFiles(site) {
     } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load files — try again.</div>'; }
   };
   load();
+}
+
+// Emails — your site sends email through YOUR OWN provider. This is a setup guide;
+// the actual sending is wired by the builder as an edge-function step.
+function siteEmails(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can wire up email.'); return; }
+  let box = document.getElementById('siteEmailModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteEmailModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Emails</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    '<p class="sp-intro">Your site sends email through <b>your own</b> email provider — welcome emails, “new form entry” alerts, order receipts. Two quick steps:</p>' +
+    '<div class="em-steps">' +
+      '<div class="em-step"><span class="em-n">1</span><div><b>Add your provider key in Secrets</b><span>Use Resend, SendGrid, or Postmark. Verify your sending domain there, then paste that provider’s API key into <b>Cloud → Secrets</b> (name it e.g. <code>RESEND_KEY</code>).</span></div></div>' +
+      '<div class="em-step"><span class="em-n">2</span><div><b>Ask the builder</b><span>Say what you want — “email me when someone submits the contact form”, “send a welcome email on signup”. It wires the send as an edge function using your key.</span></div></div>' +
+    '</div>' +
+    '<p class="sp-intro" style="margin-top:1rem">Your key stays encrypted and never touches the page — it’s used server-side only, exactly like payments.</p>' +
+  '</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
