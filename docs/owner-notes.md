@@ -2625,3 +2625,17 @@ The "Homepage" picker was a placeholder; now it's real multi-page.
 - Cost/latency scale with page count (each page = its own high-thinking Gemini pass +
   images). A multi-page build can run several minutes; if the edge ever times out the
   long request, move /api/site to an async job (noted).
+
+## 2026-07-18 — Website Builder: make buttons/forms actually WORK (owner: theirs work, ours didn't)
+Our sites looked great but were static — dead buttons, inert forms. Fixed:
+- **Engine**: SITE_RULES now mandates working interactions — every CTA/nav link uses
+  href="#id" and smooth-scrolls to a section id; mobile menu + tabs/accordions/sliders
+  genuinely function; FORMS preventDefault and show an inline success state ("You're on
+  the list ✓") since there's no backend yet (never a real-submit, never a dead form); no
+  placeholder "#" links. (Replaced the old "forms use action=# inert" rule.)
+- **Preview sandbox** widened allow-scripts → "allow-scripts allow-forms allow-popups" so
+  the wired forms/links actually run in the preview iframe (was allow-scripts only, which
+  blocked form behavior).
+- CAUGHT A SELF-INFLICTED BUG mid-edit: a stray backslash made the SITE_RULES string
+  close as \"; (escaped) → it was swallowing following code. Fixed; verified the runtime
+  value (2034 chars, clean close).

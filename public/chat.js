@@ -9331,7 +9331,7 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (hasSite
-            ? '<iframe id="stFrame" sandbox="allow-scripts" title="Site preview"></iframe>'
+            ? '<iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe>'
             : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>') +
         '</div>' +
       '</div>' +
