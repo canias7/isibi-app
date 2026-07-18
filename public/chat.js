@@ -9410,6 +9410,7 @@ const ST_ICONS = {
   alert: '<path d="M12 3.5l9.2 16H2.8l9.2-16z"/><path d="M12 10v4.5"/><path d="M12 18h.01"/>',
   bookmark: '<path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/>',
+  card: '<rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/><path d="M6 15h4"/>',
 };
 function ic(name, size) { size = size || 16; return '<svg class="st-svg" width="' + size + '" height="' + size + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ST_ICONS[name] || '') + '</svg>'; }
 function siteFileName(p) { return (p.path === '/' ? 'index' : p.path.replace(/^\//, '').replace(/[^a-z0-9/_-]/gi, '-')) + '.html'; }
@@ -9482,6 +9483,7 @@ function moreCloud(site) {
     ['mail', 'Emails', site.slug ? 'Send email from your own provider' : 'Publish to enable email', true, 'emails'],
     ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
     ['zap', 'Edge functions', site.slug ? 'Custom server logic your app builds' : 'Publish to add functions', true, 'functions'],
+    ['card', 'Payments', site.slug ? 'Sell with your own Stripe' : 'Publish to enable payments', true, 'payments'],
     ['image', 'Files', site.slug ? 'Images + PDFs uploaded to your site' : 'Publish to manage files', true, 'files'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
@@ -9721,6 +9723,7 @@ function renderSiteWorkspace(view, site) {
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else if (b.dataset.cloud === 'files') siteFiles(site);
     else if (b.dataset.cloud === 'emails') siteEmails(site);
+    else if (b.dataset.cloud === 'payments') sitePayments(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -10163,6 +10166,31 @@ function siteEmails(site) {
       '<div class="em-step"><span class="em-n">2</span><div><b>Ask the builder</b><span>Say what you want — “email me when someone submits the contact form”, “send a welcome email on signup”. It wires the send as an edge function using your key.</span></div></div>' +
     '</div>' +
     '<p class="sp-intro" style="margin-top:1rem">Your key stays encrypted and never touches the page — it’s used server-side only, exactly like payments.</p>' +
+  '</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+}
+
+// Payments — sell through the owner's OWN Stripe. Setup guide (the checkout +
+// order-webhook are wired by the builder as edge-function steps).
+function sitePayments(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can wire up payments.'); return; }
+  let box = document.getElementById('sitePayModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'sitePayModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Payments</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    '<p class="sp-intro">Take payments with <b>your own</b> Stripe account — one-time or subscriptions. You keep 100%; isibi takes no cut.</p>' +
+    '<div class="em-steps">' +
+      '<div class="em-step"><span class="em-n">1</span><div><b>Add your Stripe key in Secrets</b><span>From your Stripe dashboard (Developers → API keys) copy your <b>secret</b> key and paste it into <b>Cloud → Secrets</b> as <code>STRIPE_KEY</code>.</span></div></div>' +
+      '<div class="em-step"><span class="em-n">2</span><div><b>Ask the builder</b><span>“Add a Buy button for $29”, “sell a monthly membership”. It builds a real Stripe checkout using your key and redirects buyers to pay.</span></div></div>' +
+      '<div class="em-step"><span class="em-n">3</span><div><b>Track paid orders (optional)</b><span>The builder makes an order function; its webhook URL appears in <b>Cloud → Edge functions</b>. In Stripe (Developers → Webhooks) add that URL for the <code>checkout.session.completed</code> event, and add your signing secret to Secrets as <code>STRIPE_WEBHOOK_SECRET</code>. isibi verifies Stripe’s signature so fake orders can’t slip in.</span></div></div>' +
+    '</div>' +
+    '<p class="sp-intro" style="margin-top:1rem">Your keys stay encrypted and are used server-side only — never exposed on the page.</p>' +
   '</div></div>';
   document.body.appendChild(box);
   const close = () => box.remove();
