@@ -300,6 +300,38 @@ and fixed, and add a preference line whenever the owner signals one.
   and a reference actually shifts the design.
 - **Next picks (owner):** FILE MANAGEMENT (list+delete uploads) then PAYMENTS.
 
+### Website builder — PAYMENTS (Stripe, owner's own key) (2026-07-18)
+- **Status:** ✅ shipped to main + deployed. Security gate live-tested; the actual
+  Stripe checkout call needs a real Stripe key to fully exercise (owner adds
+  theirs) — offered.
+- **Model:** each SITE OWNER uses their OWN Stripe account (no Connect, no platform
+  fee, no onboarding) — they paste their Stripe secret key into Cloud → Secrets as
+  STRIPE_KEY. Built on the functions/secrets/webhooks stack.
+- **What:**
+  1. **checkout action** — a new function step `{do:"checkout", secret:"STRIPE_KEY",
+     amount:<cents>, currency, name, quantity, mode:"payment"|"subscription",
+     interval, success_url, cancel_url, as}` creates a real Stripe Checkout
+     Session (form-POST to api.stripe.com). The key goes ONLY to Stripe; only the
+     returned {url,id} is captured. Buy button calls the fn via /api/site/fn and
+     redirects to the url. amount/urls support templating.
+  2. **Signature-verified order webhooks** — a function with `"verify":"stripe"`
+     at the top of its spec only runs when the `Stripe-Signature` header HMACs
+     (SHA-256, 5-min replay window) against the site's STRIPE_WEBHOOK_SECRET. The
+     hook route now reads the RAW body for verification. A forged/tampered/unsigned
+     event is 400'd and never runs → can't record a fake paid order. Owner pastes
+     the fn's webhook URL into Stripe (checkout.session.completed only) + adds the
+     signing secret as STRIPE_WEBHOOK_SECRET.
+- **Where:** worker.js (`hmacSha256Hex`/`ctEqHex`/`verifyStripeSig`, `checkout`
+  action in runSiteFunction + normalizeFnSpec + `verify` field, hook route raw-body
+  + verification, SITE_RULES PAYMENTS paragraph). No schema change (reuses
+  site_functions + site_secrets + site_collections).
+- **Tested:** 7/7 unit (valid/wrong-secret/tampered/replay/malformed sig) + live:
+  no-sig webhook → 400, valid-sig → runs+saves order, tampered-body+same-sig →
+  400, checkout-without-key → refuses (empty url, no Stripe call). Throwaway
+  user/site/secret/functions all cleaned up.
+- **Not yet:** a live end-to-end paid checkout (needs a real Stripe test key). A
+  Cloud → Payments card that guides the Stripe setup would help discovery (v1.1).
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
