@@ -9308,50 +9308,20 @@ function sitesLoad() {
 }
 function sitesSave() {
   try {
-    const slim = (sitesCache || []).slice(0, 20).map((s) => ({ ...s, html: (s.html || '').slice(0, 200000), msgs: (s.msgs || []).slice(-40) }));
+    const slim = (sitesCache || []).slice(0, 20).map((s) => ({ ...s, html: (s.html || '').slice(0, 400000), msgs: (s.msgs || []).slice(-40) }));
     localStorage.setItem(SITES_KEY, JSON.stringify(slim));
   } catch (e) { if (typeof sbToast === 'function') sbToast('Storage is full — this website may not stick after a reload.'); }
 }
 function siteById(id) { return sitesLoad().find((s) => s.id === id) || null; }
-// Deterministic accent hue from the prompt so revisions visibly change the sample.
-function siteHue(text) { let h = 0; for (let i = 0; i < (text || '').length; i++) h = (h * 31 + text.charCodeAt(i)) % 360; return h; }
-// The sample single-file site (CSS only — srcdoc inherits the app CSP, which
-// blocks inline scripts; styles are fine). Every text interpolation is esc()'d.
-function sampleSiteHTML(site) {
-  const brief = (site.msgs || []).filter((m) => m.r === 'u').map((m) => m.t);
-  const head = esc((brief[0] || site.name || 'Your new site').slice(0, 90));
-  const hue = siteHue(brief.join(' '));
-  const acc = 'hsl(' + hue + ' 85% 62%)';
-  const acc2 = 'hsl(' + ((hue + 45) % 360) + ' 85% 60%)';
-  const name = esc((site.name || 'Your site').slice(0, 30));
-  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' + name + '</title><style>' +
-    '*{box-sizing:border-box;margin:0}body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#0c0b10;color:#f0edf5;-webkit-font-smoothing:antialiased}' +
-    'nav{display:flex;align-items:center;justify-content:space-between;padding:1.1rem 2rem;border-bottom:1px solid rgba(255,255,255,.08)}' +
-    '.logo{font-weight:800;letter-spacing:-.02em;font-size:1.1rem}.logo i{display:inline-block;width:11px;height:11px;border-radius:3px;background:linear-gradient(135deg,' + acc + ',' + acc2 + ');margin-right:.5rem}' +
-    'nav div a{color:rgba(240,237,245,.6);text-decoration:none;font-size:.85rem;margin-left:1.4rem}' +
-    '.hero{padding:5.5rem 2rem 4.5rem;text-align:center;background:radial-gradient(60% 90% at 50% 0%,hsl(' + hue + ' 60% 20% / .55),transparent)}' +
-    '.hero h1{font-size:clamp(2rem,5vw,3.4rem);line-height:1.06;letter-spacing:-.03em;max-width:18ch;margin:0 auto}' +
-    '.hero p{color:rgba(240,237,245,.55);max-width:52ch;margin:1.1rem auto 0;line-height:1.6}' +
-    '.cta{display:inline-block;margin-top:2rem;padding:.85rem 1.7rem;border-radius:12px;font-weight:700;color:#0c0b10;background:linear-gradient(90deg,' + acc + ',' + acc2 + ');text-decoration:none}' +
-    '.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:1rem;padding:2.5rem 2rem;max-width:1000px;margin:0 auto}' +
-    '.f{border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:1.4rem;background:rgba(255,255,255,.025)}' +
-    '.f b{display:block;margin-bottom:.4rem}.f span{color:rgba(240,237,245,.55);font-size:.9rem;line-height:1.55}' +
-    '.f i{display:block;width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,' + acc + ',' + acc2 + ');margin-bottom:.9rem}' +
-    'footer{padding:2.2rem;text-align:center;color:rgba(240,237,245,.4);font-size:.82rem;border-top:1px solid rgba(255,255,255,.07);margin-top:2rem}' +
-    '.smp{position:fixed;right:12px;bottom:12px;font-size:.68rem;font-weight:700;letter-spacing:.05em;color:#0c0b10;background:linear-gradient(90deg,' + acc + ',' + acc2 + ');border-radius:999px;padding:.3rem .7rem;opacity:.92}' +
-    '</style></head><body>' +
-    '<nav><span class="logo"><i></i>' + name + '</span><div><a href="#">About</a><a href="#">Work</a><a href="#">Contact</a></div></nav>' +
-    '<section class="hero"><h1>' + head + '</h1>' +
-    '<p>This is a sample layout of your idea — hero, features and footer roughed in. Once the real build engine is live, every word you type reshapes this page for real.</p>' +
-    '<a class="cta" href="#">Get started</a></section>' +
-    '<section class="feats">' +
-      '<div class="f"><i></i><b>Made from your words</b><span>The layout, copy and colors come from the brief you typed.</span></div>' +
-      '<div class="f"><i></i><b>Refine by chatting</b><span>“Make the hero darker”, “add a pricing section” — each message reshapes the page.</span></div>' +
-      '<div class="f"><i></i><b>Yours to keep</b><span>Download the site as a single file, ready to host anywhere.</span></div>' +
-    '</section>' +
-    '<footer>Built with isibi</footer>' +
-    '<span class="smp">SAMPLE PREVIEW</span>' +
-    '</body></html>';
+// The workspace preview renders from a Blob URL in a sandboxed allow-scripts
+// iframe (opaque origin — no access to the app), NOT srcdoc: srcdoc inherits
+// the app CSP, which blocks the generated site's own inline scripts. One live
+// URL at a time; the previous one is revoked so long sessions don't leak.
+let sitePrevUrl = null;
+function sitePreviewSrc(html) {
+  if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
+  sitePrevUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  return sitePrevUrl;
 }
 function renderSites() {
   const view = document.getElementById('viewSites');
@@ -9364,12 +9334,12 @@ function renderSites() {
   view.innerHTML =
     '<div class="st-page">' +
       '<div class="st-hero"><h1>What are we building?</h1>' +
-        '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Preview · engine hooks up next</span></p>' +
+        '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="3" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-new-foot">' +
-          '<span class="st-hint">Bills your ✦ credits once the engine is live</span>' +
-          '<button type="button" class="st-gen" id="stGen">Build it <span class="st-price">✦ 25</span></button>' +
+          '<span class="st-hint">✦60 to build · ✦20 per change — refunded if a build fails</span>' +
+          '<button type="button" class="st-gen" id="stGen">Build it <span class="st-price">✦ 60</span></button>' +
         '</div>' +
       '</div></div>' +
       (sites.length
@@ -9449,22 +9419,22 @@ function renderSiteWorkspace(view, site) {
       '</div>' +
       '<div class="st-body">' +
         '<div class="st-rail">' +
-          '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + ' · <span class="st-date-flag">sample engine</span></div>' +
+          '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
           '<div class="st-thread" id="stThread"></div>' +
           '<div class="st-comp">' +
             '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
             '<div class="st-comp-row">' +
               '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
               '<span class="st-buildsel">Build ▾</span>' +
-              '<span class="st-comp-price">' + (site.html ? '✦ 10' : '✦ 25') + '</span>' +
+              '<span class="st-comp-price">' + (site.html ? '✦ 20' : '✦ 60') + '</span>' +
               '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (site.html
-            ? '<iframe id="stFrame" sandbox="" title="Site preview"></iframe>'
-            : '<div class="st-empty">' + (siteBusy ? 'Building your site…' : 'Describe your site on the left to build the first draft.') + '</div>') +
+            ? '<iframe id="stFrame" sandbox="allow-scripts" title="Site preview"></iframe>'
+            : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>') +
         '</div>' +
       '</div>' +
     '</div>';
@@ -9481,11 +9451,11 @@ function renderSiteWorkspace(view, site) {
     });
   }
   const fr = document.getElementById('stFrame');
-  if (fr && site.html) fr.srcdoc = site.html;
+  if (fr && site.html) fr.src = sitePreviewSrc(site.html);
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
-  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && site.html) f.srcdoc = site.html; };
+  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && site.html) f.src = sitePreviewSrc(site.html); };
   view.querySelectorAll('.st-dev').forEach((b) => b.onclick = () => {
     siteDevice = b.dataset.dev;
     const st = document.getElementById('stStage');
@@ -9514,28 +9484,51 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
 }
+// The REAL engine (wired 2026-07-18): first message on a project = a full
+// build (✦60), every later message = a revision (✦20). The worker charges up
+// front and refunds on failure; builds take a minute or two — the busy state
+// holds the rail while the request runs.
 function siteSend(text) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) return;
+  const isBuild = !site.html;
   site.msgs.push({ r: 'u', t });
   siteBusy = true;
   sitesSave();
   renderSites();
-  // SAMPLE engine: brief "build" beat, then the templated page from the whole
-  // brief so far. The real engine replaces exactly this block.
   const origin = siteOpenId;
-  setTimeout(() => {
+  const done = (reply, html) => {
     siteBusy = false;
     const s = siteById(origin);
     if (!s) return;
-    s.html = sampleSiteHTML(s);
-    s.msgs.push({ r: 'a', t: '⚡ Sample preview updated from your brief. The real build engine hooks up next — everything you wrote is saved for it.' });
+    if (html) s.html = html;
+    s.msgs.push({ r: 'a', t: reply });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
-  }, 900);
+  };
+  apiFetch('/api/site', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(isBuild ? { step: 'build', brief: t } : { step: 'revise', instruction: t, html: site.html }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.html) {
+      done(isBuild ? '✅ Built — take a look on the right, then tell me what to change.' : '✅ Updated — check the preview.', d.html);
+    } else if (r.status === 402) {
+      done('⚡ Not enough credits — this needs ✦' + (d.cost || (isBuild ? 60 : 20)) + '. Tap your ✦ balance up top to get more.');
+    } else if (r.status === 429) {
+      done('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
+    } else if (r.status === 501) {
+      done('⚠️ The build engine isn’t switched on yet — check back soon.');
+    } else {
+      done('⚠️ That build didn’t come together' + (d.refunded ? ' — your ✦' + d.refunded + ' was refunded' : '') + '. Try again in a moment.');
+    }
+    if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
+  }).catch(() => {
+    done('⚠️ Lost the connection while building — check your internet and try again in a moment.');
+  });
 }
 
 // ── Gallery view: every generation across all (synced) chats ──

@@ -519,6 +519,11 @@ const CSP = [
   // JS eval() — the narrow token, not 'unsafe-eval'.
   // style-src keeps 'unsafe-inline' for the handful of inline style attributes.
   "script-src 'self' 'wasm-unsafe-eval'",
+  // blob: frames = the Website Builder's preview (generated sites render in a
+  // sandboxed allow-scripts iframe from a Blob URL — an opaque origin with no
+  // access to the app's DOM/storage; srcdoc would inherit THIS CSP and block
+  // the generated site's own inline scripts).
+  "frame-src 'self' blob:",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   // *.ytimg.com = YouTube video thumbnails, *.cdninstagram.com / *.fbcdn.net =
@@ -3222,6 +3227,141 @@ async function handleRequest(request, env, ctx) {
         turns.push({ role: "user", content: results });
       }
       return Response.json({ reply: "I ran several steps but couldn't wrap that up — try narrowing the question.", actions: actionsLog });
+    }
+
+    // ── Website Builder engine ────────────────────────────────────────────
+    // A SEPARATE product from the media studio; shares only the ✦ ledger.
+    // Pipeline (owner 2026-07-18): the design model drafts the whole site,
+    // the architecture model hardens it — build = design pass → hardening;
+    // revise = visual instructions go to the design model alone, functional
+    // ones to the architecture model alone (keyword-routed; NEVER the small
+    // Claude tiers — owner's call). Charged up front through use_credits
+    // exactly like /api/direct; every terminal failure refunds the full fee
+    // via credit_back (looped — that RPC caps 10 credits per call).
+    if (url.pathname === "/api/site" && request.method === "POST") {
+      const SITE_BUILD_CREDITS = 60;
+      const SITE_REVISE_CREDITS = 20;
+      const GEMINI_MODEL = "gemini-3.1-pro-preview";
+      const SITE_OPUS_MODEL = "claude-opus-4-8";
+      // The single-file contract both models must obey. Forms stay inert
+      // (action="#") until the hosting/backend phase wires real endpoints.
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> only when the design needs it (menus, tabs, smooth scroll). ZERO external resources: no CDNs, no external fonts, images, or scripts — use system font stacks, CSS gradients, and inline SVG for all visuals. Fully responsive down to 360px. Semantic landmarks (<header> <nav> <main> <section> <footer>), alt text on every img/svg role, <meta name=viewport>, a real <title> and <meta name=description>. Any <form> uses action=\"#\" (no real endpoint yet).";
+      const stUser = await authUser(request);
+      if (!stUser) return UNAUTHED();
+      if (!env.GEMINI_API_KEY || !env.ANTHROPIC_API_KEY) {
+        return Response.json({ error: "site engine not configured" }, { status: 501 });
+      }
+      const tlS = tooLargeBody(request, 1_000_000); if (tlS) return tlS;
+      let body;
+      try { body = await request.json(); } catch {
+        return Response.json({ error: "invalid JSON" }, { status: 400 });
+      }
+      const step = body.step === "revise" ? "revise" : "build";
+      const brief = typeof body.brief === "string" ? body.brief.trim().slice(0, 4000) : "";
+      const instruction = typeof body.instruction === "string" ? body.instruction.trim().slice(0, 2000) : "";
+      const curHtml = typeof body.html === "string" ? body.html.slice(0, 400000) : "";
+      if (step === "build" && !brief) return Response.json({ error: "no brief" }, { status: 400 });
+      if (step === "revise" && (!instruction || !curHtml)) return Response.json({ error: "no instruction" }, { status: 400 });
+      // Real-money engine calls, directly callable → a daily cap BEFORE the
+      // charge (same stance as research: a capped user is told, not debited).
+      if (!(await useQuota(request, "site", 40))) return QUOTA_EXCEEDED();
+      const stCredits = step === "build" ? SITE_BUILD_CREDITS : SITE_REVISE_CREDITS;
+      let stBalance;
+      try {
+        stBalance = await useCredits(request.headers.get("Authorization") || "", stCredits);
+      } catch {
+        return Response.json({ error: "site engine unavailable" }, { status: 503 });
+      }
+      if (stBalance === -1) {
+        return Response.json({ error: "not enough credits", need: "credits", cost: stCredits }, { status: 402 });
+      }
+      // Full-fee reversal on failure — credit_back caps at 10/call, so loop.
+      const refundSite = async () => {
+        for (let left = stCredits; left > 0; left -= 10) await creditBack(env, stUser.id, Math.min(10, left));
+      };
+      const geminiCall = async (system, user) => {
+        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: [{ role: "user", parts: [{ text: user }] }],
+            generationConfig: { temperature: 0.85, maxOutputTokens: 24576 },
+          }),
+          signal: AbortSignal.timeout(160000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error("design pass " + r.status + " " + JSON.stringify(d).slice(0, 200));
+        const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
+        const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
+        if (!text) throw new Error("design pass empty " + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || ""));
+        // Token log for pricing tuning (owner-notes: pin ✦ from real measurements).
+        if (d.usageMetadata) console.log("site design tokens:", d.usageMetadata.promptTokenCount, "in /", d.usageMetadata.candidatesTokenCount, "out");
+        return text;
+      };
+      const opusCall = async (system, user) => {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: SITE_OPUS_MODEL, max_tokens: 24000, system, messages: [{ role: "user", content: user }] }),
+          signal: AbortSignal.timeout(160000),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error("build pass " + r.status + " " + JSON.stringify(d && d.error ? d.error : d).slice(0, 200));
+        const text = Array.isArray(d.content) ? d.content.map((b) => b.text || "").join("") : "";
+        if (!text) throw new Error("build pass empty");
+        if (d.usage) console.log("site build tokens:", d.usage.input_tokens, "in /", d.usage.output_tokens, "out");
+        return text;
+      };
+      // Model output → the bare HTML document (fences stripped, prose cut).
+      const extractHTML = (s) => {
+        let t = String(s || "").trim().replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/i, "").trim();
+        const i = t.search(/<!doctype html|<html[\s>]/i);
+        if (i < 0) return "";
+        t = t.slice(i);
+        const end = t.toLowerCase().lastIndexOf("</html>");
+        return end < 0 ? "" : t.slice(0, end + 7);
+      };
+      try {
+        let html = "";
+        if (step === "build") {
+          const draft = await geminiCall(
+            "You are the visual design engine of isibi Websites. From the user's brief you design a COMPLETE, stunning, production-quality single-page website: a distinctive visual identity (palette, type scale, spacing rhythm) that fits the brand's world — never a generic template. Write real copy from the brief (headlines, feature text, CTAs), never lorem ipsum. Include the sections the brief implies (hero, and e.g. features/gallery/testimonials/pricing/contact as fits) plus a matching nav and footer. " + SITE_RULES,
+            "Design the complete website for this brief:\n\n" + brief
+          );
+          const draftHtml = extractHTML(draft);
+          if (!draftHtml) throw new Error("design pass returned no document");
+          const hardened = await opusCall(
+            "You are the engineering pass of isibi Websites. You receive a designed single-file site and return the SAME site, hardened: correct semantic structure, working responsive behavior at 360/768/1200px, accessible (labels, contrast-safe text, focus states, alt text), clean SEO meta, and any small JS made robust (guards, no globals leaking). Preserve the visual design EXACTLY — same palette, type, layout, copy. Fix only what is broken, unsafe, or non-semantic. " + SITE_RULES,
+            "The brief was:\n" + brief + "\n\nHarden this site:\n\n" + draftHtml
+          );
+          // A hardening glitch must never eat a paid build — ship the draft.
+          html = extractHTML(hardened) || draftHtml;
+        } else {
+          // Route the revision: functional/correctness work → the architecture
+          // model; everything visual → the design model. Keyword heuristic —
+          // deliberately NOT a model call (owner: no small tiers here).
+          const functional = /\bfix\b|\bbug\b|broken|doesn'?t\s+work|not\s+work|form\b|submit|\bmenu\b|\bnav\b|script|\bcode\b|\berror\b|\bseo\b|\bmeta\b|analytics|speed|slower|faster|loading|mobile\s+(menu|nav|layout)|accessib/i.test(instruction);
+          const out = functional
+            ? await opusCall(
+                "You are the engineering pass of isibi Websites. Apply the user's instruction to their single-file site with surgical precision: change ONLY what the instruction requires, keep the visual design and copy otherwise identical, and keep everything semantic, accessible and responsive. " + SITE_RULES,
+                "Instruction: " + instruction + "\n\nCurrent site:\n\n" + curHtml
+              )
+            : await geminiCall(
+                "You are the visual design engine of isibi Websites. Apply the user's instruction to their single-file site: evolve the design as asked while keeping everything else — structure, copy, sections — intact unless the instruction says otherwise. " + SITE_RULES,
+                "Instruction: " + instruction + "\n\nCurrent site:\n\n" + curHtml
+              );
+          html = extractHTML(out);
+          if (!html) throw new Error("revision returned no document");
+        }
+        return Response.json({ html, cost: stCredits, balance: stBalance });
+      } catch (e) {
+        console.error("site engine failed:", e && e.message);
+        const p = refundSite();
+        if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
+        // Provider-neutral to the client — never name the engines.
+        return Response.json({ error: "build failed", refunded: stCredits }, { status: 502 });
+      }
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

@@ -2232,3 +2232,38 @@ design-pass model per the owner's "their best LLM" call; re-verify the id
 at wiring time (preview ids rotate; fall back to the newest stable Pro).
 NOTE: if the deploy fails on the secret upload, the vault name doesn't
 match GEMINI_API_KEY exactly — check the Actions log.
+
+## 2026-07-18 — WEBSITE BUILDER ENGINE WIRED (owner: "engine time")
+
+The builder is REAL now. Worker route POST /api/site (before /api/direct):
+- Models: design pass = Gemini 3.1 Pro (`gemini-3.1-pro-preview`, verified
+  as Google's flagship on ai.google.dev same day); engineering pass =
+  Opus (`claude-opus-4-8`). NO Haiku/Sonnet anywhere (owner's call).
+- build (✦60): Gemini designs the full single-file site from the brief →
+  Opus hardens (semantics/a11y/responsive/SEO, design preserved verbatim);
+  a hardening glitch ships the draft rather than failing the paid build.
+- revise (✦20): keyword-routed — functional/correctness instructions → Opus,
+  visual → Gemini alone. Router is a regex, deliberately not a model call.
+- Money: `useQuota("site", 40)`/day BEFORE the charge; `use_credits` up
+  front (402 → not enough, cost in body); EVERY terminal failure refunds the
+  full fee via a credit_back LOOP (RPC caps 10/call → 6 calls for ✦60).
+  ✦60/✦20 are the owner-approved range midpoints; token counts are logged
+  (console: "site design tokens" / "site build tokens") — tune from real
+  usage. Errors to the client are provider-neutral ("build failed").
+- Single-file contract enforced in both prompts: no external resources,
+  inline CSS/JS only, responsive 360px+, semantic + SEO meta, forms inert
+  (action="#") until hosting/backends land.
+- CSP: added `frame-src 'self' blob:` — the preview now renders from a Blob
+  URL in a sandbox="allow-scripts" iframe (opaque origin, no app access);
+  srcdoc would inherit the app CSP and kill generated sites' own JS.
+Frontend: siteSend calls the real engine (first message = build, later =
+revise), busy state holds ~1-2 min, replies cover ok/402/429/501/refund,
+✦ pill refreshes after every call; prices now ✦60/✦20 everywhere; SAMPLE
+machinery deleted; hero flag now "Beta"; localStorage html cap 400KB.
+Verified headless with a mocked /api/site: build→blob preview (scripts
+sandbox-run), revise request carries current html, 402 + refund messages,
+no provider names anywhere. REAL end-to-end needs a live build (keys only
+exist on the Worker) — owner runs the first one.
+KNOWN EDGE (accepted, same exposure as /api/direct): a connection drop
+after the server charged but before the response lands loses the fee with
+no auto-retry — revisit with idempotency keys if it ever bites.
