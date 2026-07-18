@@ -4044,6 +4044,7 @@ async function handleRequest(request, env, ctx) {
       const slug = typeof body.slug === "string" ? body.slug.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90) : "";
       const collection = typeof body.collection === "string" ? body.collection.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) : "";
       const raw = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      if (raw._hp || raw.hp) return ok(); // honeypot lives in the record fields → drop bots
       const data = {}; let n = 0;
       for (const k of Object.keys(raw)) { if (n++ >= 30) break; const v = raw[k]; data[String(k).slice(0, 80)] = typeof v === "string" ? v.slice(0, 2000) : (typeof v === "number" || typeof v === "boolean" ? v : String(v).slice(0, 2000)); }
       delete data._hp; delete data.hp;
