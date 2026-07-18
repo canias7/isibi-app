@@ -2509,3 +2509,20 @@ showMarketing() ran. Fix: `.shell` now starts `style="display:none"` in the
 HTML and enterApp() reveals it (`shell.style.display=''`) — the single authed
 entry point. Logged-out never calls enterApp, so the shell never paints on the
 landing. Verified headless: logged-out, .shell=none from DOM-ready, marketing=flex.
+
+## 2026-07-18 — Website Builder: Opus pass removed, Gemini-only
+
+Owner funded the Gemini key and called it: drop the Opus hardening/architecture
+pass — the Website Builder engine is now **Gemini-only** (gemini-3.1-pro-preview).
+- build: ONE Gemini pass that both designs AND engineers the site (the old
+  Opus-hardening requirements — semantics, 360/768/1200 responsive, a11y, robust
+  JS — are folded into the Gemini build prompt).
+- revise: all instructions (visual OR functional) go to Gemini; the keyword
+  functional/visual routing to Opus is gone.
+- Removed SITE_OPUS_MODEL + opusCall; /api/site now needs only GEMINI_API_KEY
+  (ANTHROPIC_API_KEY still required elsewhere for /api/direct).
+- Pricing UNCHANGED for now (build ✦60 / revise ✦20). Charge timing is already
+  correct: credits are only taken when the user clicks Build AFTER typing a brief
+  (the /api/site call), never on page load or an empty box — the ✦60 is just the
+  price label. NOTE: with Opus gone the real per-build cost dropped a lot, so the
+  ✦60/✦20 price is now high-margin — pending owner decision on whether to lower.
