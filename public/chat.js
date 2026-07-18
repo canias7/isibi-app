@@ -9380,7 +9380,7 @@ function siteSend(text) {
     } else if (r.status === 501) {
       done('⚠️ The build engine isn’t switched on yet — check back soon.');
     } else {
-      done('⚠️ That build didn’t come together' + (d.refunded ? ' — your ✦' + d.refunded + ' was refunded' : '') + '. Try again in a moment.');
+      done('⚠️ That build didn’t come together' + (d.refunded ? ' — your ✦' + d.refunded + ' was refunded' : '') + '. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
     }
     if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
   }).catch(() => {

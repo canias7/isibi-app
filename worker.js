@@ -3384,7 +3384,7 @@ async function handleRequest(request, env, ctx) {
       // prompts ($4/$18 above); 1 credit = $0.008. We reserve the MAX this call
       // could cost (the known input size + the 24576 output cap) so the work is
       // never unpaid, run it, then refund down to the real measured usage.
-      const CREDIT_USD = 0.008, MAX_OUT_TOK = 24576;
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 32768;
       const stRate = (inTok) => (inTok > 200000 ? { i: 4e-6, o: 18e-6 } : { i: 2e-6, o: 12e-6 });
       const toCredits = (inTok, outTok) => {
         const rt = stRate(inTok);
@@ -3413,15 +3413,19 @@ async function handleRequest(request, env, ctx) {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: { temperature: 0.85, maxOutputTokens: MAX_OUT_TOK },
+            // Gemini 3 defaults to high thinking, which draws from the output
+            // budget and can leave the actual HTML empty — keep thinking LOW
+            // (also far cheaper: thinking is billed as output) and give headroom.
+            // Temperature left at the model default (1.0) per Google's guidance.
+            generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: "low" } },
           }),
           signal: AbortSignal.timeout(160000),
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error("design pass " + r.status + " " + JSON.stringify(d).slice(0, 200));
+        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 300); throw e; }
         const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
         const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
-        if (!text) throw new Error("design pass empty " + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || ""));
+        if (!text) { const e = new Error("empty"); e.status = 0; e.detail = "finish:" + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || "none"); throw e; }
         // Real usage for metered billing — output is billed INCLUDING thinking tokens.
         const um = d.usageMetadata || {};
         usedInTok = um.promptTokenCount || estInTok;
@@ -3468,11 +3472,12 @@ async function handleRequest(request, env, ctx) {
         }
         return Response.json({ html, cost: actualCredits, balance: stBalance + overage });
       } catch (e) {
-        console.error("site engine failed:", e && e.message);
+        console.error("site engine failed:", e && e.message, "|", e && e.detail);
         const p = refundSite();
         if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
-        // Provider-neutral to the client — never name the engines.
-        return Response.json({ error: "build failed", refunded: maxCredits }, { status: 502 });
+        // Provider-neutral to the client — never name the engines. `code` is just
+        // a number (upstream HTTP status, or 0 for an empty response) for debugging.
+        return Response.json({ error: "build failed", refunded: maxCredits, code: (e && e.status != null ? e.status : -1) }, { status: 502 });
       }
     }
 
