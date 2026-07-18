@@ -2330,3 +2330,24 @@ sub, confirm the sub ends) is worth doing once with a throwaway account.
   possibly-charged job).
 Verified headless: avatar recover-on-complete + cancel-then-refund-when-stuck,
 finishDeadJob cancel-before-refund, all green.
+
+## 2026-07-18 — Audit round-2 fixes: import overcharge + remaining leak flagged
+
+- **Import AI-rescue no longer charges users who can't save** (worker
+  /api/import/fetch): before charging ✦3 for the paid image lookup, it now
+  checks storageStatus — a cap-0 user (free/lapsed/top-up-only) gets the
+  402 {reason:"free"} upgrade block UNCHARGED, instead of paying ✦3 for an
+  image the subsequent /api/save would 402 on anyway. Fails open (ledger
+  unreachable → proceed) so a real member is never wrongly blocked. Fixes HIGH.
+
+FLAGGED FOR OWNER DECISION (not fixed — has a cost tradeoff):
+- **Free-tier videos are delivered on the raw fal.media URL as the <video>
+  src** (chat.js ~5330 blocked-save path). Provider leak: right-click "copy
+  video address" / devtools shows fal.media, violating the never-show-provider
+  rule. Free images are rescued client-side (watermark → data: URL), but a
+  video can't be. The ONLY full hide is a worker reverse-proxy that STREAMS the
+  bytes same-origin (a 302 redirect still resolves to fal.media in devtools) —
+  which adds Worker EGRESS bandwidth for every free-tier video play. Options:
+  (a) build the streaming proxy (accept the bandwidth), (b) block free-tier
+  video playback entirely (deliver a "upgrade to view" card — but they paid
+  credits for it), (c) accept the minor right-click leak. Needs owner's call.

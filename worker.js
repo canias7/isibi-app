@@ -4372,6 +4372,14 @@ Return just the line to be voiced — keep it to what should actually come out o
               : "no image found on that page",
           }, { status: 422 });
           if (!env.ANTHROPIC_API_KEY) return freeFail();
+          // The whole import lands via /api/save, which refuses users with no
+          // gallery storage (free/lapsed/top-up-only, cap 0). Charging ✦3 for
+          // the AI rescue and THEN 402'ing on save would take money for an
+          // image they can never keep. Gate the paid rescue behind entitlement
+          // — a cap-0 user gets the upgrade block, uncharged. (Fails open if
+          // the ledger is unreachable, so a real member is never wrongly blocked.)
+          const impStore = await storageStatus(request);
+          if (impStore && impStore.cap <= 0) return Response.json({ error: "free", reason: "free" }, { status: 402 });
           if (!(await useQuota(request, "scanai", 20))) return QUOTA_EXCEEDED();
           const AI_CR = 3;
           const auth = request.headers.get("Authorization") || "";
