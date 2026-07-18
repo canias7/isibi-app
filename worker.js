@@ -1661,6 +1661,15 @@ export default {
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Old full-app snapshots (public/demo-hero*) are kept in the repo as
+    // reference but must NOT be served — they're pre-scrub clones that name the
+    // provider and run against the live backend (owner 2026-07-18: keep the
+    // files, stop serving them). Only /demo-hero* — the marketing /mkt/demo*
+    // cascade on the landing is a different path and stays live.
+    if (/^\/demo-hero(\/|$)/i.test(url.pathname)) {
+      return new Response("Not found", { status: 404 });
+    }
+
     const genKind =
       url.pathname === "/api/video" ? "video" :
       url.pathname === "/api/image" ? "image" :
