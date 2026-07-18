@@ -1305,23 +1305,39 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .view-sites.ws-open { padding: .8rem 1rem 1rem; overflow: hidden; }
 .st-page { width: 100%; max-width: 1080px; margin: 0 auto; }
 /* Start screen: a centered hero (Lovable-style home) — big ask, input below. */
-.st-hero { max-width: 760px; margin: 6vh auto 0; text-align: center; }
-.st-hero h1 { font-size: clamp(1.9rem, 3.4vw, 2.7rem); font-weight: 800; letter-spacing: -.02em; }
-.st-hero p { color: var(--muted); font-size: .95rem; margin-top: .55rem; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; }
-.st-new { margin-top: 1.5rem; text-align: left; border: 1px solid var(--line-2); border-radius: 18px; background: var(--panel-2); padding: 1rem 1.1rem; }
-.st-in { width: 100%; font: inherit; font-size: .95rem; color: var(--text); background: rgba(255, 255, 255, .035); border: 1px solid var(--line-2); border-radius: 12px; padding: .75rem .9rem; resize: vertical; }
-.st-in:focus { outline: none; border-color: rgba(255, 170, 110, .5); }
-.st-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .8rem; flex-wrap: wrap; }
-.st-hint { color: var(--muted); font-size: .8rem; }
-/* Generate — the Outline language: hollow with the gradient ring. */
-.st-gen {
-  display: inline-flex; align-items: center; gap: .55rem; font: inherit; font-size: .92rem; font-weight: 750;
-  color: var(--text); cursor: pointer; border-radius: 13px; padding: .7rem 1.2rem;
-  background: linear-gradient(rgba(19, 14, 25, .88), rgba(19, 14, 25, .88)) padding-box, var(--split) border-box;
-  border: 1.5px solid transparent; box-shadow: 0 0 22px -6px rgba(255, 121, 198, .4);
-  transition: box-shadow .2s ease, transform .15s ease;
+.st-hero { max-width: 720px; margin: 8.5vh auto 0; text-align: center; }
+/* Glowing orb (mirrors the video-generator hero), with two drifting sparks. */
+.st-orb {
+  width: 62px; height: 62px; margin: 0 auto 1.5rem; border-radius: 50%;
+  background: var(--split); position: relative;
+  box-shadow: 0 0 60px 8px rgba(255, 121, 198, .34), 0 0 34px rgba(255, 184, 77, .4);
+  animation: stOrbFloat 5.5s ease-in-out infinite;
 }
-.st-gen:hover { transform: translateY(-1px); box-shadow: 0 0 30px -6px rgba(255, 121, 198, .6); }
+@keyframes stOrbFloat { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.045); } }
+.st-spark { position: absolute; font-style: normal; color: #ffb84d; opacity: .92; }
+.st-spark.s1 { top: -12px; right: -7px; font-size: .82rem; }
+.st-spark.s2 { bottom: -9px; left: -11px; font-size: .6rem; color: #ff79c6; }
+@media (prefers-reduced-motion: reduce) { .st-orb { animation: none; } }
+.st-hero h1 { font-size: clamp(2rem, 3.7vw, 3rem); font-weight: 800; letter-spacing: -.025em; line-height: 1.04; }
+.st-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.st-hero p { color: var(--muted); font-size: 1rem; margin-top: .7rem; line-height: 1.5; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; }
+/* Glass composer — one calm surface, no chrome inside; the panel is the border. */
+.st-new { margin-top: 2rem; text-align: left; border: 1px solid var(--line-2); border-radius: 20px; background: var(--panel); padding: 1.1rem 1.15rem .8rem; box-shadow: 0 24px 60px rgba(0, 0, 0, .42); transition: border-color .18s ease, box-shadow .18s ease; }
+.st-new:focus-within { border-color: rgba(255, 170, 110, .42); box-shadow: 0 24px 60px rgba(0, 0, 0, .5), 0 0 0 3px rgba(255, 170, 110, .07); }
+.st-hero .st-in { width: 100%; font: inherit; font-size: 1.04rem; line-height: 1.5; color: var(--text); background: transparent; border: none; border-radius: 0; padding: .35rem .3rem; resize: none; min-height: 3.2rem; }
+.st-hero .st-in:focus { outline: none; }
+.st-new-foot { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: .55rem; flex-wrap: wrap; }
+.st-hint { color: var(--muted); font-size: .8rem; }
+/* Send — round gradient button, mirroring the studio composer. */
+.st-gen {
+  width: 44px; height: 44px; border-radius: 50%; margin-left: auto; flex: none;
+  display: grid; place-items: center; color: #0a0a0b; cursor: pointer;
+  background: var(--split); border: none;
+  box-shadow: 0 6px 20px -3px rgba(255, 121, 198, .5);
+  transition: box-shadow .18s ease, transform .15s ease;
+}
+.st-gen:hover { transform: translateY(-1px); box-shadow: 0 9px 26px -4px rgba(255, 121, 198, .7); }
+.st-gen svg { display: block; }
 .st-price, .st-arrow { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
 .st-arrow { font-size: 1.05rem; }
 .st-gen-sm { font-size: .85rem; padding: .55rem .95rem; align-self: flex-end; }

@@ -9230,13 +9230,15 @@ function renderSites() {
   const sites = sitesLoad();
   view.innerHTML =
     '<div class="st-page">' +
-      '<div class="st-hero"><h1>What are we building?</h1>' +
+      '<div class="st-hero">' +
+        '<div class="st-orb" aria-hidden="true"><i class="st-spark s1">✦</i><i class="st-spark s2">✦</i></div>' +
+        '<h1>What are we <span class="st-grad">building</span>?</h1>' +
         '<p>Describe a site and isibi builds it — then refine it by chatting. <span class="sch-flag">Beta</span></p>' +
       '<div class="st-new">' +
-        '<textarea id="stPrompt" class="st-in" rows="3" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
+        '<textarea id="stPrompt" class="st-in" rows="2" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-new-foot">' +
-          '<span class="st-hint">Credits are based on what each build actually uses — and refunded if it fails.</span>' +
-          '<button type="button" class="st-gen" id="stGen">Build it <span class="st-arrow" aria-hidden="true">↑</span></button>' +
+          '<span class="st-hint">Credits are used as you build — refunded if a build fails.</span>' +
+          '<button type="button" class="st-gen" id="stGen" aria-label="Build it" title="Build it"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>' +
         '</div>' +
       '</div></div>' +
       (sites.length
@@ -9250,11 +9252,11 @@ function renderSites() {
         : '');
   const gen = document.getElementById('stGen');
   const ta = document.getElementById('stPrompt');
-  if (gen && ta) gen.onclick = () => {
-    const t = ta.value.trim();
-    if (!t) { ta.focus(); return; }
-    siteCreate(t);
-  };
+  if (gen && ta) {
+    const go = () => { const t = ta.value.trim(); if (!t) { ta.focus(); return; } siteCreate(t); };
+    gen.onclick = go;
+    ta.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); go(); } };
+  }
   // thumbnails: srcdoc set via property (attribute-escaping-proof), inert
   view.querySelectorAll('.st-card').forEach((card) => {
     const s = siteById(card.dataset.open);
