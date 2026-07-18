@@ -3356,8 +3356,6 @@ async function handleRequest(request, env, ctx) {
     // use_credits exactly like /api/direct; every terminal failure refunds the
     // full fee via credit_back (looped — that RPC caps 10 credits per call).
     if (url.pathname === "/api/site" && request.method === "POST") {
-      const SITE_BUILD_CREDITS = 60;
-      const SITE_REVISE_CREDITS = 20;
       const GEMINI_MODEL = "gemini-3.1-pro-preview";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
@@ -3381,20 +3379,33 @@ async function handleRequest(request, env, ctx) {
       // Real-money engine calls, directly callable → a daily cap BEFORE the
       // charge (same stance as research: a capped user is told, not debited).
       if (!(await useQuota(request, "site", 40))) return QUOTA_EXCEEDED();
-      const stCredits = step === "build" ? SITE_BUILD_CREDITS : SITE_REVISE_CREDITS;
+      // Metered billing (owner 2026-07-18): charge the ACTUAL Gemini token cost,
+      // no flat fee. gemini-3.1-pro-preview = $2/M in, $12/M out for ≤200k-token
+      // prompts ($4/$18 above); 1 credit = $0.008. We reserve the MAX this call
+      // could cost (the known input size + the 24576 output cap) so the work is
+      // never unpaid, run it, then refund down to the real measured usage.
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 24576;
+      const stRate = (inTok) => (inTok > 200000 ? { i: 4e-6, o: 18e-6 } : { i: 2e-6, o: 12e-6 });
+      const toCredits = (inTok, outTok) => {
+        const rt = stRate(inTok);
+        return Math.max(1, Math.ceil((inTok * rt.i + outTok * rt.o) / CREDIT_USD));
+      };
+      // Upper bound from the payload we already hold (~4 chars/token) + output cap.
+      const estInTok = Math.ceil((((step === "build" ? brief : instruction + curHtml) || "").length + 1800) / 4);
+      const maxCredits = toCredits(estInTok, MAX_OUT_TOK);
       let stBalance;
       try {
-        stBalance = await useCredits(request.headers.get("Authorization") || "", stCredits);
+        stBalance = await useCredits(request.headers.get("Authorization") || "", maxCredits);
       } catch {
         return Response.json({ error: "site engine unavailable" }, { status: 503 });
       }
       if (stBalance === -1) {
-        return Response.json({ error: "not enough credits", need: "credits", cost: stCredits }, { status: 402 });
+        return Response.json({ error: "not enough credits", need: "credits" }, { status: 402 });
       }
-      // Full-fee reversal on failure — credit_back caps at 10/call, so loop.
-      const refundSite = async () => {
-        for (let left = stCredits; left > 0; left -= 10) await creditBack(env, stUser.id, Math.min(10, left));
-      };
+      // Reverse `n` credits (credit_back caps at 10/call, so loop).
+      const giveBack = async (n) => { for (let left = n; left > 0; left -= 10) await creditBack(env, stUser.id, Math.min(10, left)); };
+      const refundSite = () => giveBack(maxCredits); // full reversal on failure
+      let usedInTok = 0, usedOutTok = 0;
       const geminiCall = async (system, user) => {
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
           method: "POST",
@@ -3402,7 +3413,7 @@ async function handleRequest(request, env, ctx) {
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            generationConfig: { temperature: 0.85, maxOutputTokens: 24576 },
+            generationConfig: { temperature: 0.85, maxOutputTokens: MAX_OUT_TOK },
           }),
           signal: AbortSignal.timeout(160000),
         });
@@ -3411,8 +3422,11 @@ async function handleRequest(request, env, ctx) {
         const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
         const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
         if (!text) throw new Error("design pass empty " + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || ""));
-        // Token log for pricing tuning (owner-notes: pin ✦ from real measurements).
-        if (d.usageMetadata) console.log("site design tokens:", d.usageMetadata.promptTokenCount, "in /", d.usageMetadata.candidatesTokenCount, "out");
+        // Real usage for metered billing — output is billed INCLUDING thinking tokens.
+        const um = d.usageMetadata || {};
+        usedInTok = um.promptTokenCount || estInTok;
+        usedOutTok = (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
+        console.log("site tokens:", usedInTok, "in /", usedOutTok, "out /", toCredits(usedInTok, usedOutTok), "credits");
         return text;
       };
       // Model output → the bare HTML document (fences stripped, prose cut).
@@ -3445,13 +3459,20 @@ async function handleRequest(request, env, ctx) {
           html = extractHTML(out);
           if (!html) throw new Error("revision returned no document");
         }
-        return Response.json({ html, cost: stCredits, balance: stBalance });
+        // Refund the reserve down to the real measured cost.
+        const actualCredits = Math.min(maxCredits, toCredits(usedInTok, usedOutTok));
+        const overage = maxCredits - actualCredits;
+        if (overage > 0) {
+          const p = giveBack(overage);
+          if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
+        }
+        return Response.json({ html, cost: actualCredits, balance: stBalance + overage });
       } catch (e) {
         console.error("site engine failed:", e && e.message);
         const p = refundSite();
         if (ctx && ctx.waitUntil) ctx.waitUntil(p); else await p;
         // Provider-neutral to the client — never name the engines.
-        return Response.json({ error: "build failed", refunded: stCredits }, { status: 502 });
+        return Response.json({ error: "build failed", refunded: maxCredits }, { status: 502 });
       }
     }
 

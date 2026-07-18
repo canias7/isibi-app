@@ -9194,8 +9194,8 @@ function renderSites() {
       '<div class="st-new">' +
         '<textarea id="stPrompt" class="st-in" rows="3" placeholder="Describe the website you want — “a landing page for my sneaker brand, dark, bold type, waitlist form”…"></textarea>' +
         '<div class="st-new-foot">' +
-          '<span class="st-hint">✦60 to build · ✦20 per change — refunded if a build fails</span>' +
-          '<button type="button" class="st-gen" id="stGen">Build it <span class="st-price">✦ 60</span></button>' +
+          '<span class="st-hint">Credits are based on what each build actually uses — and refunded if it fails.</span>' +
+          '<button type="button" class="st-gen" id="stGen">Build it <span class="st-arrow" aria-hidden="true">↑</span></button>' +
         '</div>' +
       '</div></div>' +
       (sites.length
@@ -9282,7 +9282,6 @@ function renderSiteWorkspace(view, site) {
             '<div class="st-comp-row">' +
               '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
               '<span class="st-buildsel">Build ▾</span>' +
-              '<span class="st-comp-price">' + (site.html ? '✦ 20' : '✦ 60') + '</span>' +
               '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
             '</div>' +
           '</div>' +
@@ -9340,10 +9339,11 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
 }
-// The REAL engine (wired 2026-07-18): first message on a project = a full
-// build (✦60), every later message = a revision (✦20). The worker charges up
-// front and refunds on failure; builds take a minute or two — the busy state
-// holds the rail while the request runs.
+// The REAL engine (wired 2026-07-18, Gemini-only): first message on a project =
+// a full build, every later message = a revision. Metered — the worker charges
+// the ACTUAL Gemini token cost (reserves a max, refunds down to real usage) and
+// refunds fully on failure; builds take a minute or two — the busy state holds
+// the rail while the request runs.
 function siteSend(text) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
@@ -9371,9 +9371,10 @@ function siteSend(text) {
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     if (r.ok && d.html) {
-      done(isBuild ? '✅ Built — take a look on the right, then tell me what to change.' : '✅ Updated — check the preview.', d.html);
+      const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
+      done((isBuild ? '✅ Built — take a look on the right, then tell me what to change.' : '✅ Updated — check the preview.') + used, d.html);
     } else if (r.status === 402) {
-      done('⚡ Not enough credits — this needs ✦' + (d.cost || (isBuild ? 60 : 20)) + '. Tap your ✦ balance up top to get more.');
+      done('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
     } else if (r.status === 429) {
       done('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
     } else if (r.status === 501) {

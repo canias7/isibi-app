@@ -2526,3 +2526,22 @@ pass — the Website Builder engine is now **Gemini-only** (gemini-3.1-pro-previ
   (the /api/site call), never on page load or an empty box — the ✦60 is just the
   price label. NOTE: with Opus gone the real per-build cost dropped a lot, so the
   ✦60/✦20 price is now high-margin — pending owner decision on whether to lower.
+
+## 2026-07-18 — Website Builder: metered billing + send button (no flat fee)
+
+Owner: make it a send button; credits drawn automatically from the REAL cost now
+that we have the Gemini key. Done:
+- **UI**: "Build it ✦60" → "Build it ↑" (send button, no price). Workspace
+  composer ✦20/✦60 chip removed (the ↑ send stays). Hint now: "Credits are based
+  on what each build actually uses — and refunded if it fails." Success message
+  shows the actual charge, e.g. "(✦13 used)".
+- **Billing (worker /api/site)**: metered on real Gemini tokens. Pricing pinned
+  from Google's page — gemini-3.1-pro-preview: $2/M in · $12/M out (≤200k-token
+  prompts; $4/$18 above), output billed INCLUDING thinking tokens. 1 credit =
+  $0.008. Flow: reserve the MAX this call could cost (known input chars/4 + the
+  24576 output cap) via use_credits so work is never unpaid → run → refund down
+  to the measured usage (usageMetadata: promptTokenCount + candidatesTokenCount +
+  thoughtsTokenCount). Full reserve refunded on failure. Response carries the
+  actual `cost` + net `balance`; token+credit line is console-logged per call.
+- Net effect: a typical build (~8k output) now costs ~13 credits instead of the
+  old flat 60 — users usually pay LESS, and always exactly what it cost.
