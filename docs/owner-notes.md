@@ -2704,3 +2704,23 @@ API" — it did NOT transmit the password though). Owner's call: build the REAL 
 - **Note**: accounts work on the PUBLISHED site (real slug), not the in-builder preview —
   same as forms. Member-page gating is client-side (standard for static sites); the accounts/
   passwords/sessions themselves are fully real + server-side. Deployed 4ef7096.
+
+## 2026-07-18 — Preview parity: real identity on BUILD (not just publish)
+Owner asked why auth only worked on the public URL (Lovable's preview works). Answer:
+our preview is an isolated blob iframe with no site identity until publish. Fix: give
+every site a real identity the moment it's built.
+- **Worker /api/site build**: after the pages are built it mints (or reuses by site_id)
+  a slug and inserts a DRAFT published_sites row (pages stay off R2 — a draft isn't
+  publicly served, publish still does that), returns {slug}. The row existing is what
+  /api/site/auth + /api/site/form validate against, so accounts/forms work in preview.
+- **SITE_RULES**: generated sites now define siteSlug() (reads window.__SITE_SLUG__ first,
+  else the /s/<slug> path) + a throw-safe `store` helper (try/catch localStorage → in-mem
+  fallback, so it never crashes in the sandboxed preview). Forms + auth use them.
+- **Client**: build sends siteId + stores the returned draft slug; sitePreviewSrc injects
+  window.__SITE_SLUG__ into the blob preview (runs before the site's JS); 📥 Inbox + 👥
+  Members now show as soon as the site has a slug (draft), not only after publish.
+- **Note/limit**: signup/login/forms/maps now work in the preview (real backend calls,
+  real accounts — visible in Members). Full logged-in navigation ACROSS member pages still
+  needs the live URL (the sandbox can't persist a session across blob page-swaps); on the
+  published /s/<slug> it all works. True in-preview session nav would need a separate preview
+  origin (ties to the deferred custom-domain work).

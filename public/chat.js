@@ -9190,12 +9190,21 @@ function siteActivePage(site) {
 // the app CSP, which blocks the generated site's own inline scripts. One live
 // URL at a time; the previous one is revoked so long sessions don't leak.
 let sitePrevUrl = null;
-function sitePreviewSrc(html) {
+function sitePreviewSrc(html, slug) {
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
   // Intercept internal "/path" link clicks in the preview and hand them to the
   // parent so the picker switches pages (a blob preview can't route by itself).
   const shim = '<script>(function(){document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a");if(!a)return;var h=a.getAttribute("href")||"";if(h.charAt(0)==="/"&&h.indexOf("//")!==0){e.preventDefault();try{parent.postMessage({__siteNav:h.split("#")[0].split("?")[0]||"/"},"*");}catch(x){}}},true);})();<\/script>';
-  const withShim = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, shim + '</body>') : (html + shim);
+  // Draft identity: the blob preview has no /s/<slug> URL, so hand the site its
+  // slug directly (runs BEFORE the site's own JS) — forms/accounts/maps resolve
+  // it exactly like they will on the live URL. Published pages read it from the
+  // path instead, so this injection is preview-only.
+  let out = String(html || '');
+  if (slug) {
+    const tag = '<script>window.__SITE_SLUG__=' + JSON.stringify(String(slug)) + ';<\/script>';
+    out = /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (m) => m + tag) : (tag + out);
+  }
+  const withShim = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, shim + '</body>') : (out + shim);
   sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
   return sitePrevUrl;
 }
@@ -9311,8 +9320,8 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">▯</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
           '</div>' +
-          (site.published ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">📥</button>' : '') +
-          (site.published ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">👥</button>' : '') +
+          (site.slug ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">📥</button>' : '') +
+          (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">👥</button>' : '') +
           '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>⤓</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
@@ -9353,11 +9362,11 @@ function renderSiteWorkspace(view, site) {
     });
   }
   const fr = document.getElementById('stFrame');
-  if (fr && curHtml) fr.src = sitePreviewSrc(curHtml);
+  if (fr && curHtml) fr.src = sitePreviewSrc(curHtml, site.slug);
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
-  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) f.src = sitePreviewSrc(curHtml); };
+  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) f.src = sitePreviewSrc(curHtml, site.slug); };
   // Page picker: toggle the menu; clicking a page switches the active page.
   const pageBtn = document.getElementById('stPageBtn');
   const pageMenu = document.getElementById('stPageMenu');
@@ -9442,8 +9451,8 @@ function siteSend(text) {
     if (siteOpenId === origin) renderSites();
   };
   const body = isBuild
-    ? { step: 'build', brief: t }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '' };
+    ? { step: 'build', brief: t, siteId: site.id }
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '', siteId: site.id };
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -9456,6 +9465,7 @@ function siteSend(text) {
         s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
         s.design = typeof d.design === 'string' ? d.design : '';
         s.active = (s.pages[0] || {}).path || '/';
+        if (d.slug) s.slug = d.slug; // draft identity — accounts/forms/maps work in preview now
         delete s.html;
       }
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
