@@ -1836,6 +1836,26 @@ function logSiteHit(env, ctx, slug, path, request) {
   if (ctx && ctx.waitUntil) ctx.waitUntil(p);
 }
 
+// ── Secrets vault: AES-GCM encrypt at rest, key derived from a server-only secret.
+let _siteSecretKeyPromise = null;
+function siteSecretKey(env) {
+  if (!_siteSecretKeyPromise) {
+    _siteSecretKeyPromise = (async () => {
+      const material = new TextEncoder().encode((env.SUPABASE_SERVICE_KEY || env.FAL_KEY || "isibi") + "|site-secrets-v1");
+      const digest = await crypto.subtle.digest("SHA-256", material);
+      return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    })();
+  }
+  return _siteSecretKeyPromise;
+}
+async function encryptSecret(env, plaintext) {
+  const key = await siteSecretKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(String(plaintext))));
+  const packed = new Uint8Array(iv.length + ct.length); packed.set(iv, 0); packed.set(ct, iv.length);
+  return b64urlFromBytes(packed);
+}
+
 // ── Website Builder: server-side image generation ──
 // The design pass emits <img data-gen="<photo prompt>" data-ar="16:9"> placeholders;
 // we generate each with Nano Banana Pro (fal sync endpoint), host it in the user's
@@ -4079,6 +4099,65 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ records: Array.isArray(rows) ? rows : [] }, { headers: cors });
       } catch { return Response.json({ records: [] }, { headers: cors }); }
     }
+    // ── Secrets vault (owner only). Values are encrypted before storage and are
+    // NEVER returned — the list is names + timestamps only; rotate = re-POST.
+    if (url.pathname === "/api/site/secrets" && request.method === "POST") {
+      const sUser = await authUser(request);
+      if (!sUser) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ error: "secrets unavailable" }, { status: 501 });
+      let sb2; try { sb2 = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof sb2.slug === "string" ? sb2.slug.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90) : "";
+      const name = typeof sb2.name === "string" ? sb2.name.trim().replace(/[^A-Za-z0-9_]/g, "").slice(0, 64) : "";
+      const value = typeof sb2.value === "string" ? sb2.value : "";
+      if (!slug || !name) return Response.json({ ok: false, error: "Give the secret a name (letters, numbers, underscore)." });
+      if (!value) return Response.json({ ok: false, error: "The secret value can’t be empty." });
+      if (value.length > 8000) return Response.json({ ok: false, error: "That value is too long." });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const svcU = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, "Content-Type": "application/json" };
+      let site = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: svcU, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []); site = Array.isArray(rows) ? rows[0] : null;
+      } catch {}
+      if (!site) return Response.json({ ok: false, error: "Publish the site first." });
+      const enc = await encryptSecret(env, value);
+      const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?on_conflict=owner_id,slug,name`, {
+          method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({ published_site_id: site.id, owner_id: sUser.id, slug, name, value_encrypted: enc, updated_at: new Date().toISOString() }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch { return Response.json({ ok: false, error: "Couldn’t save the secret." }); }
+      return Response.json({ ok: true, name });
+    }
+    if (url.pathname === "/api/site/secrets" && request.method === "GET") {
+      const sUser = await authUser(request);
+      if (!sUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const base = `${SUPABASE_URL}/rest/v1/site_secrets?select=name,created_at,updated_at${slug ? "&slug=eq." + encodeURIComponent(slug) : ""}&order=created_at.desc&limit=100`;
+      try {
+        const r = await fetch(base, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt }, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        return Response.json({ secrets: Array.isArray(rows) ? rows : [] });
+      } catch { return Response.json({ secrets: [] }); }
+    }
+    if (url.pathname === "/api/site/secrets" && request.method === "DELETE") {
+      const sUser = await authUser(request);
+      if (!sUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const name = (url.searchParams.get("name") || "").replace(/[^A-Za-z0-9_]/g, "").slice(0, 64);
+      if (!slug || !name) return Response.json({ ok: false });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?slug=eq.${encodeURIComponent(slug)}&name=eq.${encodeURIComponent(name)}`, {
+          method: "DELETE", headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, Prefer: "return=minimal" }, signal: AbortSignal.timeout(10000),
+        });
+      } catch {}
+      return Response.json({ ok: true });
+    }
+
     // Owner lists their site's collection records (RLS-scoped).
     if (url.pathname === "/api/site/collections" && request.method === "GET") {
       const cUser = await authUser(request);

@@ -9418,7 +9418,7 @@ function moreCloud(site) {
     ['inbox', 'Submissions', 'Form entries land in your Inbox', true, 'inbox'],
     ['database', 'Database', site.slug ? 'Store + show dynamic content (reviews, menu…)' : 'Publish to enable collections', true, 'database'],
     ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
-    ['key', 'Secrets', 'Securely store API keys', false, ''],
+    ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
     ['zap', 'Edge functions', 'Server-side logic', false, ''],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
@@ -9635,6 +9635,7 @@ function renderSiteWorkspace(view, site) {
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
     if (b.dataset.cloud === 'members') siteMembers(site);
     else if (b.dataset.cloud === 'database') siteDatabase(site);
+    else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else siteInbox(site);
   });
   // Deep security scan (Opus).
@@ -9911,6 +9912,55 @@ async function siteDatabase(site) {
       }).join('');
     }).join('');
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load collections just now — try again.</div>'; }
+}
+
+// Secrets — encrypted per-site vault. Values are never shown back (rotate = re-add,
+// or delete). Owner-only, RLS-scoped.
+async function siteSecrets(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then you can add secrets.'); return; }
+  let box = document.getElementById('siteSecModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteSecModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Secrets</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body"><p class="sp-intro">Store API keys and tokens encrypted. Values are never shown again — rotate by re-adding, or delete.</p>' +
+    '<div class="sk-add"><input class="st-in" id="skName" placeholder="NAME (e.g. STRIPE_KEY)" autocomplete="off"><input class="st-in" id="skVal" type="password" placeholder="Value" autocomplete="off"><button type="button" class="st-publish" id="skAdd">Add</button></div>' +
+    '<div class="si-count" id="skErr" style="display:none"></div>' +
+    '<div id="skList">Loading…</div></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const listEl = box.querySelector('#skList');
+  const errEl = box.querySelector('#skErr');
+  const fmt = (t) => { try { return new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (e) { return ''; } };
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/secrets?slug=' + encodeURIComponent(slug));
+      const d = await r.json().catch(() => ({ secrets: [] }));
+      const secs = Array.isArray(d.secrets) ? d.secrets : [];
+      if (!secs.length) { listEl.innerHTML = '<div class="si-empty">No secrets yet.</div>'; return; }
+      listEl.innerHTML = secs.map((s) => '<div class="sk-item"><span class="sk-name">' + esc(s.name) + '</span><span class="sk-when">' + esc(fmt(s.created_at)) + '</span><button type="button" class="sk-del" data-del="' + esc(s.name) + '" title="Delete">×</button></div>').join('');
+      listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+        await apiFetch('/api/site/secrets?slug=' + encodeURIComponent(slug) + '&name=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
+        load();
+      });
+    } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load secrets — try again.</div>'; }
+  };
+  box.querySelector('#skAdd').onclick = async () => {
+    const name = box.querySelector('#skName').value.trim();
+    const val = box.querySelector('#skVal').value;
+    errEl.style.display = 'none';
+    if (!name || !val) { errEl.textContent = 'Enter a name and a value.'; errEl.style.display = ''; return; }
+    try {
+      const r = await apiFetch('/api/site/secrets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, name, value: val }) });
+      const d = await r.json().catch(() => ({}));
+      if (d && d.ok) { box.querySelector('#skName').value = ''; box.querySelector('#skVal').value = ''; load(); }
+      else { errEl.textContent = (d && d.error) || 'Couldn’t save the secret.'; errEl.style.display = ''; }
+    } catch (e) { errEl.textContent = 'Couldn’t save the secret.'; errEl.style.display = ''; }
+  };
+  load();
 }
 
 // ── Gallery view: every generation across all (synced) chats ──
