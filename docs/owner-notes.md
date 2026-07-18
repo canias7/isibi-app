@@ -2742,3 +2742,20 @@ Reskinned the workspace to mirror Lovable (owner reference), then wired two for 
   skipped, RPC returned the right totals, ownership guard rejects non-owned slugs.
 - Still visual-only (full features, not quick wires): Cloud Database/Emails/Secrets/Edge,
   Security scan, SEO→head-tag injection, Unpublish.
+
+## 2026-07-18 — Wired: Unpublish, live Cloud cards, Opus security scan
+- **Unpublish** (real): POST /api/site/unpublish deletes the site's R2 objects
+  (live pages 404) but KEEPS the published_sites row + slug, so Republish (reuses
+  slug by site_id) restores the SAME URL and members/submissions survive. Wired to
+  the Publish panel's Unpublish button. Live-tested: 200 → 404 → republish same slug 200.
+- **Cloud cards**: Members / Submissions cards clickable → open the real Members /
+  Inbox panels (when the site has a slug).
+- **Security scan (REAL — Opus 4.8)**: POST /api/site/scan sends the generated code
+  to claude-opus-4-8 with a report_findings tool; returns structured findings
+  {severity, title, detail, page}; charged 8 credits ONLY on success (402 if short).
+  Panel: "Deep security scan · Run scan" → severity-coloured issue cards, or
+  "No issues found". Live-tested on a planted-vuln page: found all 4 (critical
+  hardcoded key, high XSS via location.hash, high http:// mixed content, low
+  target=_blank tabnabbing) with correct severities; charged 8 credits.
+- Still genuine backend PRODUCTS (not wires), left "Soon": Cloud Database / Emails /
+  Secrets / Edge functions, and SEO→head-tag injection (owner said skip SEO for now).
