@@ -239,11 +239,12 @@ and fixed, and add a preference line whenever the owner signals one.
   ✓; HTML-masquerade data URL → 415 ✓; bogus slug (no site) → "not live yet" ✓.
   (One 70-byte test PNG remains in R2 — wrangler isn't authed in the session to
   delete it; immaterial.)
-- **v1.1 gap (real):** uploads have NO delete path — an owner can't remove an
-  uploaded file and orphans accumulate as visitors upload. Add an owner
-  upload-delete (and maybe a Cloud → Files browser) + count uploads toward a cap.
-  Also would let us purge test files. Not blocking, but worth doing before this
-  gets heavy use.
+- **v1.1 gap — CLOSED 2026-07-18:** built FILE MANAGEMENT (Cloud → Files).
+  `GET/DELETE /api/site/files` (owner auth; ownership proven by reading the site's
+  owner-only published_sites row under the caller's JWT) list R2 objects under
+  `uploads/<slug>/` and delete one. `siteFiles()` grid modal — image thumbnails /
+  PDF chip, size, delete. Live-tested end-to-end (upload → owner lists it → delete
+  → gone → unauth = 401), throwaway user + the R2 object both cleaned up.
 
 ### Website builder — QUERYABLE DATABASE (2026-07-18)
 - **Status:** ✅ shipped to main + deployed + live-tested. (Earlier I'd said the
