@@ -2639,3 +2639,22 @@ Our sites looked great but were static — dead buttons, inert forms. Fixed:
 - CAUGHT A SELF-INFLICTED BUG mid-edit: a stray backslash made the SITE_RULES string
   close as \"; (escaped) → it was swallowing following code. Fixed; verified the runtime
   value (2034 chars, clean close).
+
+## 2026-07-18 — HOSTING milestone 1: Publish live to R2 (isibi.ai/s/<slug>)
+Owner set up the Cloudflare side: R2 bucket `isibi-sites` created; the isibi-app
+build token already had Workers R2 Storage:Edit + SSL&Certificates:Edit (so custom
+domains are covered later too).
+- **wrangler.jsonc**: R2 binding SITES_BUCKET → isibi-sites.
+- **DB** (Supabase): published_sites (owner, slug, pages[{path,key}], RLS own-row) +
+  site_domains (for custom domains next). Applied via MCP.
+- **Worker**: POST /api/site/publish — writes each page to R2 (sites/<slug>/<page>.html),
+  rewrites internal <a> nav links to the /s/<slug>/ prefix (so multi-page nav works
+  live), upserts the published_sites row under the caller's JWT; republish reuses the
+  slug. Serve route: GET /s/<slug>/<page> streams the HTML from R2 (60s cache).
+  harden() gives /s/ a PERMISSIVE website CSP (own inline style/script + Google Fonts +
+  Supabase images; still no external scripts) instead of the strict app policy.
+- **Client**: Publish button → sitePublish() posts the pages, drops the live URL in the
+  thread (linkified) + a toast; button flips to "Republish"; Share copies the live link.
+  site.liveUrl/published persisted.
+NEXT: custom domains (Cloudflare for SaaS) — needs the for-SaaS enablement + fallback
+origin in the dashboard, then /api/site/domain to create custom_hostnames + serve by Host.

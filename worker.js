@@ -575,14 +575,34 @@ function harden(res, request) {
   // These are fixed, self-authored files with no user-input reflection, so
   // 'unsafe-inline' here carries no injection risk. The app + auth + API keep
   // the strict policy (DENY / frame-ancestors 'none' / no inline scripts).
-  let sameOriginFrame = false;
-  try { sameOriginFrame = new URL(request.url).pathname.startsWith("/mkt/demo"); } catch {}
-  const demoCSP = CSP
-    .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
-    .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'");
-  h.set("Content-Security-Policy", sameOriginFrame ? demoCSP : CSP);
+  let pathname = "";
+  try { pathname = new URL(request.url).pathname; } catch {}
+  const sameOriginFrame = pathname.startsWith("/mkt/demo");
+  // A published Website-Builder site (isibi.ai/s/<slug>) is a real end-user
+  // website — it needs its OWN inline <style>/<script>, Google Fonts, and the
+  // Supabase-hosted images, so it gets a permissive website CSP, not the strict
+  // app policy. Still same-origin-only for scripts/connect (no external code).
+  const publishedSite = pathname.startsWith("/s/");
   h.set("X-Content-Type-Options", "nosniff");
-  h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
+  if (publishedSite) {
+    h.set("Content-Security-Policy", [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com",
+      "img-src 'self' data: blob: https://*.supabase.co",
+      "connect-src 'self'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+    ].join("; "));
+    h.set("X-Frame-Options", "SAMEORIGIN");
+  } else {
+    const demoCSP = CSP
+      .replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+      .replace("script-src 'self' 'wasm-unsafe-eval'", "script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'");
+    h.set("Content-Security-Policy", sameOriginFrame ? demoCSP : CSP);
+    h.set("X-Frame-Options", sameOriginFrame ? "SAMEORIGIN" : "DENY");
+  }
   h.set("Referrer-Policy", "strict-origin-when-cross-origin");
   h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
@@ -1796,6 +1816,21 @@ async function injectSiteImages(html, request, env, uid, budget) {
   return { html: out, charged };
 }
 
+// A published multi-page site lives at isibi.ai/s/<slug>/…, so its internal nav
+// links (href="/menu") must be prefixed to /s/<slug>/menu. Only rewrites <a>
+// hrefs that exactly match one of the site's own page paths (anchors, external
+// links, and images are untouched). On a custom domain the prefix is "" (root).
+function rewriteSiteLinks(html, prefix, paths) {
+  let out = String(html || "");
+  for (const p of paths) {
+    const target = prefix + (p === "/" ? "/" : p);
+    if (target === p) continue;
+    const esc = p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp('(<a\\b[^>]*\\shref=)(["\'])' + esc + '\\2', "gi"), "$1$2" + target + "$2");
+  }
+  return out;
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -1807,6 +1842,26 @@ async function handleRequest(request, env, ctx) {
     // /demo-hero*; the marketing /mkt/demo* cascade is a different path, stays live.
     if (/^\/demo-hero(-\d+)?(\/|$)/i.test(url.pathname)) {
       return new Response("Not found", { status: 404 });
+    }
+
+    // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
+    // '' or a trailing slash → the home page; each page is one HTML object.
+    {
+      const sm = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
+      if (sm && env.SITES_BUCKET) {
+        const slug = sm[1].toLowerCase();
+        const rest = (sm[2] || "").replace(/\/+$/, "");
+        const pageKey = rest === "" ? "index" : rest.replace(/[^a-z0-9/_-]/gi, "-");
+        const obj = await env.SITES_BUCKET.get("sites/" + slug + "/" + pageKey + ".html");
+        if (!obj) return new Response("Not found", { status: 404 });
+        return new Response(obj.body, {
+          headers: {
+            "content-type": "text/html; charset=utf-8",
+            "cache-control": "public, max-age=60",
+          },
+        });
+      }
+      if (sm) return new Response("Not found", { status: 404 });
     }
 
     const genKind =
@@ -3604,6 +3659,69 @@ async function handleRequest(request, env, ctx) {
         // for an empty response) for debugging — never names the engine.
         return Response.json({ error: "build failed", code: (e && e.status != null ? e.status : -1) }, { status: 502 });
       }
+    }
+
+    // Publish a built site to R2 → live at isibi.ai/s/<slug>. Each page becomes
+    // one HTML object; internal nav links are prefixed to the /s/<slug>/ path.
+    // The published_sites row (owner + slug + routing) is upserted under the
+    // caller's JWT (RLS owner-only). Republishing reuses the same slug/URL.
+    if (url.pathname === "/api/site/publish" && request.method === "POST") {
+      const pubUser = await authUser(request);
+      if (!pubUser) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ error: "hosting not configured" }, { status: 501 });
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const siteId = typeof body.siteId === "string" ? body.siteId.slice(0, 80) : "";
+      const name = (typeof body.name === "string" ? body.name : "site").slice(0, 80);
+      const pages = Array.isArray(body.pages)
+        ? body.pages.filter((p) => p && typeof p.html === "string" && typeof p.path === "string").slice(0, 8)
+        : [];
+      if (!pages.length) return Response.json({ error: "no pages" }, { status: 400 });
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const sbHeaders = { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt };
+      // Reuse the slug on republish (look up this user's own row for this site).
+      let slug = "";
+      try {
+        const ex = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?site_id=eq.${encodeURIComponent(siteId)}&select=slug&limit=1`, { headers: sbHeaders, signal: AbortSignal.timeout(10000) });
+        const rows = await ex.json().catch(() => []);
+        if (Array.isArray(rows) && rows[0] && rows[0].slug) slug = rows[0].slug;
+      } catch {}
+      if (!slug) {
+        const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "site";
+        slug = base + "-" + crypto.randomUUID().slice(0, 6);
+      }
+      const paths = pages.map((p) => p.path);
+      const prefix = "/s/" + slug;
+      const outPages = [];
+      try {
+        for (const p of pages) {
+          const pageKey = p.path === "/" ? "index" : p.path.replace(/^\//, "").replace(/[^a-z0-9/_-]/gi, "-");
+          const html = rewriteSiteLinks(p.html, prefix, paths);
+          await env.SITES_BUCKET.put("sites/" + slug + "/" + pageKey + ".html", html, { httpMetadata: { contentType: "text/html; charset=utf-8" } });
+          outPages.push({ path: p.path, key: "sites/" + slug + "/" + pageKey + ".html" });
+        }
+      } catch (e) {
+        console.error("publish r2 failed:", e && e.message);
+        return Response.json({ error: "publish failed" }, { status: 502 });
+      }
+      // Upsert the ownership/routing row (update by slug if it exists, else insert).
+      const now = new Date().toISOString();
+      try {
+        const upd = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}`, {
+          method: "PATCH", headers: { ...sbHeaders, Prefer: "return=representation" },
+          body: JSON.stringify({ site_id: siteId, title: name, pages: outPages, updated_at: now, published_at: now }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const updRows = await upd.json().catch(() => []);
+        if (!Array.isArray(updRows) || !updRows.length) {
+          await fetch(`${SUPABASE_URL}/rest/v1/published_sites`, {
+            method: "POST", headers: { ...sbHeaders, Prefer: "return=minimal" },
+            body: JSON.stringify({ user_id: pubUser.id, site_id: siteId, slug, title: name, pages: outPages, updated_at: now, published_at: now }),
+            signal: AbortSignal.timeout(10000),
+          });
+        }
+      } catch (e) { console.error("publish db failed:", e && e.message); }
+      return Response.json({ url: `https://isibi.ai/s/${slug}`, slug, pages: outPages.length });
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

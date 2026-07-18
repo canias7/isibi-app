@@ -14,6 +14,11 @@
     { "pattern": "isibi.ai", "custom_domain": true },
     { "pattern": "www.isibi.ai", "custom_domain": true }
   ],
+  // Published Website-Builder sites are stored here (one HTML object per page)
+  // and served from the Worker at isibi.ai/s/<slug>/… (and later custom domains).
+  "r2_buckets": [
+    { "binding": "SITES_BUCKET", "bucket_name": "isibi-sites" }
+  ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
   "triggers": { "crons": ["*/2 * * * *"] }

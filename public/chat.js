@@ -9339,9 +9339,10 @@ function renderSiteWorkspace(view, site) {
   bindSiteNav();
   const thread = document.getElementById('stThread');
   if (thread) {
+    const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + esc(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + linkify(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy ? '<div class="st-msg a st-busy">Building</div>' : '');
     thread.scrollTop = thread.scrollHeight;
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
@@ -9387,10 +9388,18 @@ function renderSiteWorkspace(view, site) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(u), 5000);
   };
-  // Share/Publish are visual for now — hosting arrives with the engine.
-  const soon = () => { if (typeof sbToast === 'function') sbToast('Publishing arrives with the build engine — nothing goes live yet.'); };
-  const sh = document.getElementById('stShare'); if (sh) sh.onclick = soon;
-  const pb = document.getElementById('stPub'); if (pb) pb.onclick = () => { if (!pb.disabled) soon(); };
+  // Share: copy the live URL once published; otherwise nudge to publish first.
+  const sh = document.getElementById('stShare');
+  if (sh) sh.onclick = () => {
+    if (site.liveUrl) { try { navigator.clipboard.writeText(site.liveUrl); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + site.liveUrl); }
+    else if (typeof sbToast === 'function') sbToast('Publish it first, then you can share the live link.');
+  };
+  // Publish: push the site live to isibi.ai/s/<slug> (or Republish to update).
+  const pb = document.getElementById('stPub');
+  if (pb) {
+    if (site.liveUrl) pb.textContent = 'Republish';
+    pb.onclick = () => { if (!pb.disabled) sitePublish(site); };
+  }
   const sendBtn = document.getElementById('stSend');
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
@@ -9465,6 +9474,42 @@ function siteSend(text) {
     if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
   }).catch(() => {
     finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
+  });
+}
+
+// Publish the site live: every page → R2, served at isibi.ai/s/<slug>. Republish
+// reuses the same URL. The live link lands in the thread + a toast.
+function sitePublish(site) {
+  const pages = sitePages(site);
+  if (!pages.length || siteBusy) return;
+  const origin = site.id;
+  siteBusy = true;
+  site.msgs.push({ r: 'a', t: '🚀 Publishing your site…' });
+  sitesSave();
+  renderSites();
+  apiFetch('/api/site/publish', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ siteId: site.id, name: site.name, pages: pages.map((p) => ({ path: p.path, html: p.html })) }),
+  }).then(async (r) => {
+    const d = await r.json().catch(() => ({}));
+    siteBusy = false;
+    const s = siteById(origin);
+    if (!s) return;
+    if (r.ok && d.url) {
+      s.liveUrl = d.url; s.published = true;
+      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change.' });
+    } else if (r.status === 501) {
+      s.msgs.push({ r: 'a', t: '⚠️ Hosting isn’t switched on yet — hang tight.' });
+    } else {
+      s.msgs.push({ r: 'a', t: '⚠️ Couldn’t publish just now — try again in a moment.' });
+    }
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+    if (r.ok && d.url && typeof sbToast === 'function') sbToast('Published live → ' + d.url);
+  }).catch(() => {
+    siteBusy = false;
+    const s = siteById(origin);
+    if (s) { s.msgs.push({ r: 'a', t: '⚠️ Lost the connection while publishing — try again.' }); sitesSave(); if (siteOpenId === origin) renderSites(); }
   });
 }
 
