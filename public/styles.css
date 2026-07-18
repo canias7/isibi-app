@@ -1436,7 +1436,36 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 }
 .st-sendc:hover { box-shadow: 0 0 24px -6px rgba(255, 121, 198, .65); }
 /* Preview — the dominant rounded card. */
-.st-stage { flex: 1; min-width: 0; display: flex; align-items: stretch; justify-content: center; overflow: hidden; }
+.st-stage { flex: 1; min-width: 0; display: flex; align-items: stretch; justify-content: center; overflow: hidden; position: relative; }
+/* ── History rail ── */
+.st-hist { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+.st-hist-tabs { display: flex; gap: 4px; padding: .7rem .7rem 0; }
+.st-htab { flex: 1; font: inherit; font-size: .82rem; font-weight: 600; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: .5rem; cursor: pointer; }
+.st-htab.on { background: var(--panel-2); color: var(--text); border-color: var(--line-2); }
+.st-htab:disabled { opacity: .5; cursor: default; }
+.st-hist-list { flex: 1; overflow-y: auto; padding: .7rem; display: flex; flex-direction: column; gap: .5rem; }
+.st-hitem { display: flex; gap: .6rem; align-items: flex-start; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); padding: .6rem .7rem; }
+.st-hi-ic { color: var(--muted); font-size: .85rem; }
+.st-hi-tx { min-width: 0; }
+.st-hi-tx b { display: block; font-size: .84rem; font-weight: 500; line-height: 1.35; }
+.st-hi-tx span { font-size: .7rem; color: var(--muted); }
+.st-hi-empty { color: var(--muted); font-size: .85rem; padding: 1.4rem .4rem; text-align: center; }
+/* ── "Try to fix" error card ── */
+.st-errcard { position: absolute; right: 22px; bottom: 22px; width: 340px; max-width: calc(100% - 44px); background: rgba(16, 13, 20, .92); backdrop-filter: blur(14px); border: 1px solid var(--line-2); border-radius: 14px; padding: 1rem 1.1rem; box-shadow: 0 24px 60px rgba(0, 0, 0, .55); z-index: 5; }
+.st-err-h { display: flex; align-items: center; gap: .5rem; font-weight: 700; font-size: .95rem; }
+.st-err-ic { color: var(--neon); }
+.st-err-b { color: var(--muted); font-size: .84rem; margin: .4rem 0 .9rem; line-height: 1.45; }
+.st-err-row { display: flex; gap: .6rem; justify-content: flex-end; }
+.st-err-logs { font: inherit; font-size: .82rem; color: var(--muted); background: var(--panel); border: 1px solid var(--line-2); border-radius: 9px; padding: .45rem .8rem; cursor: pointer; }
+.st-err-fix { font: inherit; font-size: .82rem; font-weight: 700; color: #0a0a0b; background: var(--split); border: none; border-radius: 9px; padding: .45rem .9rem; cursor: pointer; }
+/* ── Publish panel ── */
+.sp-intro { color: var(--muted); font-size: .88rem; line-height: 1.5; margin-bottom: 1rem; }
+.sp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 0; border-bottom: 1px solid var(--line); }
+.sp-k { font-size: .82rem; color: var(--muted); }
+.sp-v { font-size: .86rem; }
+.sp-url { font-size: .86rem; color: var(--neon); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-url:hover { text-decoration: underline; }
+.sp-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.1rem; }
 /* Browser frame around the live preview — just a URL chip, no window dots. */
 .st-frame { display: flex; flex-direction: column; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: #0c0b10; box-shadow: 0 18px 44px -22px rgba(0, 0, 0, .8); }
 .st-frame-bar { display: flex; align-items: center; padding: .5rem .7rem; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }

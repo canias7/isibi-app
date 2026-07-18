@@ -9158,6 +9158,8 @@ let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
+let siteRail = 'chat';      // left rail: chat | history
+let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
 function sitesLoad() {
   if (sitesCache) return sitesCache;
   try { const raw = JSON.parse(localStorage.getItem(SITES_KEY) || '[]'); sitesCache = Array.isArray(raw) ? raw : []; }
@@ -9349,6 +9351,42 @@ function moreSeo(site) {
     '<div class="st-field"><label>Social image</label><div class="st-social"><div class="st-social-ph">1200 × 630</div><div class="st-social-btns"><button type="button" class="st-gen2" disabled>Upload · soon</button><button type="button" class="st-gen2" disabled>Generate · soon</button></div></div></div>' +
   '</div>';
 }
+// Edit history — the rail flips from chat to a list of every change you asked for.
+function siteHistoryRail(site) {
+  const edits = (site.msgs || []).filter((m) => m.r === 'u').slice().reverse();
+  const list = edits.length
+    ? edits.map((m, i) => '<div class="st-hitem"><span class="st-hi-ic">⟲</span><div class="st-hi-tx"><b>' + esc(String(m.t).slice(0, 80)) + '</b><span>' + (i === 0 ? 'Latest change' : 'Change') + '</span></div></div>').join('')
+    : '<div class="st-hi-empty">No edits yet. Every change you make shows up here.</div>';
+  return '<div class="st-hist">' +
+    '<div class="st-hist-tabs"><button type="button" class="st-htab on">⟲ History</button><button type="button" class="st-htab" disabled>🔖 Bookmarks</button></div>' +
+    '<div class="st-hist-list">' + list + '</div>' +
+  '</div>';
+}
+// Publish panel (mirrors Lovable's popover): the live link, visibility, visitors,
+// republish/copy. Unpublish + edit-settings are visual placeholders for now.
+function sitePublishPanel(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  const url = site.liveUrl || (slug ? 'https://isibi.ai/s/' + slug : '');
+  const published = !!site.published;
+  let box = document.getElementById('sitePubModal'); if (box) box.remove();
+  box = document.createElement('div'); box.id = 'sitePubModal'; box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + (published ? 'Published' : 'Publish') + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">' +
+    (published
+      ? '<div class="sp-row"><span class="sp-k">Live URL</span><a class="sp-url" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url.replace(/^https?:\/\//, '')) + '</a></div>' +
+        '<div class="sp-row"><span class="sp-k">Visibility</span><span class="sp-v">🌐 Public · anyone with the link</span></div>' +
+        '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
+        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share" disabled>Unpublish · soon</button></div>'
+      : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
+        (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">isibi.ai/s/' + esc(slug) + '</span></div>' : '') +
+        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Publish now</button></div>') +
+  '</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const up = box.querySelector('#spUpdate'); if (up) up.onclick = () => { close(); sitePublish(site); };
+  const cp = box.querySelector('#spCopy'); if (cp) cp.onclick = () => { try { navigator.clipboard.writeText(url); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + url); };
+}
 // The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
 // bar (project name + view tabs · devices, Share, Publish), a slim chat rail,
 // and the stage (Preview / Code / More). Skinned in isibi's own dark + pink→amber.
@@ -9376,6 +9414,7 @@ function renderSiteWorkspace(view, site) {
             '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
             '<span class="st-ws-sub">' + (hasSite ? (pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version') : 'New project') + '</span>' +
           '</div>' +
+          '<button type="button" class="st-icon' + (siteRail === 'history' ? ' on' : '') + '" id="stHist" title="Edit history" aria-label="Edit history">⟲</button>' +
         '</div>' +
         '<div class="st-tb-mid">' +
           '<div class="st-vtabs">' +
@@ -9400,16 +9439,18 @@ function renderSiteWorkspace(view, site) {
       '</div>' +
       '<div class="st-body">' +
         '<div class="st-rail">' +
-          '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
-          '<div class="st-thread" id="stThread"></div>' +
-          '<div class="st-comp">' +
-            '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
-            '<div class="st-comp-row">' +
-              '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
-              '<span class="st-buildsel">Build ▾</span>' +
-              '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
-            '</div>' +
-          '</div>' +
+          (siteRail === 'history'
+            ? siteHistoryRail(site)
+            : '<div class="st-date">' + esc(stStamp(site.updatedAt || site.createdAt)) + '</div>' +
+              '<div class="st-thread" id="stThread"></div>' +
+              '<div class="st-comp">' +
+                '<textarea id="stRevise" class="st-comp-in" rows="2" placeholder="Ask isibi…"></textarea>' +
+                '<div class="st-comp-row">' +
+                  '<button type="button" class="st-plus" title="Attach (coming soon)" aria-label="Attach">+</button>' +
+                  '<span class="st-buildsel">Build ▾</span>' +
+                  '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
+                '</div>' +
+              '</div>') +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (!hasSite
@@ -9419,6 +9460,10 @@ function renderSiteWorkspace(view, site) {
               : siteView === 'more'
                 ? siteMoreView(site)
                 : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
+          ((siteErr && siteErr.chatId === site.id)
+            ? '<div class="st-errcard"><div class="st-err-h"><span class="st-err-ic">⚠</span> Error</div><div class="st-err-b">That change didn’t go through — you weren’t charged.</div>' +
+              '<div class="st-err-row"><button type="button" class="st-err-logs" id="stErrLogs">Dismiss</button><button type="button" class="st-err-fix" id="stErrFix">Try to fix ⏎</button></div></div>'
+            : '') +
         '</div>' +
       '</div>' +
     '</div>';
@@ -9452,6 +9497,14 @@ function renderSiteWorkspace(view, site) {
   };
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
+  // History rail toggle.
+  const hist = document.getElementById('stHist');
+  if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
+  // "Try to fix" error card.
+  const errFix = document.getElementById('stErrFix');
+  if (errFix) errFix.onclick = () => { siteErr = null; siteSend('There was an error on this page — please find and fix it.'); };
+  const errLogs = document.getElementById('stErrLogs');
+  if (errLogs) errLogs.onclick = () => { siteErr = null; renderSites(); };
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
@@ -9498,7 +9551,7 @@ function renderSiteWorkspace(view, site) {
   const pb = document.getElementById('stPub');
   if (pb) {
     if (site.liveUrl) pb.textContent = 'Republish';
-    pb.onclick = () => { if (!pb.disabled) sitePublish(site); };
+    pb.onclick = () => { if (!pb.disabled) sitePublishPanel(site); };
   }
   const ib = document.getElementById('stInbox');
   if (ib) ib.onclick = () => siteInbox(site);
@@ -9557,6 +9610,7 @@ function siteSend(text) {
         if (d.slug) s.slug = d.slug; // draft identity — accounts/forms/maps work in preview now
         delete s.html;
       }
+      siteErr = null;
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
     } else if (r.ok && !isBuild && d.html) {
       const s = siteById(origin);
@@ -9566,6 +9620,7 @@ function siteSend(text) {
         if (tgt) tgt.html = d.html;
         delete s.html;
       }
+      siteErr = null;
       finish('✅ Updated — check the preview.' + used);
     } else if (r.status === 402) {
       finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
@@ -9574,10 +9629,12 @@ function siteSend(text) {
     } else if (r.status === 501) {
       finish('⚠️ The build engine isn’t switched on yet — check back soon.');
     } else {
+      siteErr = { chatId: origin };
       finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
     }
     if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
   }).catch(() => {
+    siteErr = { chatId: origin };
     finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
   });
 }
