@@ -9311,6 +9311,7 @@ function renderSiteWorkspace(view, site) {
             '<button type="button" class="st-dev' + (siteDevice === 'tablet' ? ' on' : '') + '" data-dev="tablet" title="Tablet">▯</button>' +
             '<button type="button" class="st-dev' + (siteDevice === 'phone' ? ' on' : '') + '" data-dev="phone" title="Phone">▮</button>' +
           '</div>' +
+          (site.published ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">📥</button>' : '') +
           '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>⤓</button>' +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
           '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
@@ -9400,6 +9401,8 @@ function renderSiteWorkspace(view, site) {
     if (site.liveUrl) pb.textContent = 'Republish';
     pb.onclick = () => { if (!pb.disabled) sitePublish(site); };
   }
+  const ib = document.getElementById('stInbox');
+  if (ib) ib.onclick = () => siteInbox(site);
   const sendBtn = document.getElementById('stSend');
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
@@ -9496,8 +9499,8 @@ function sitePublish(site) {
     const s = siteById(origin);
     if (!s) return;
     if (r.ok && d.url) {
-      s.liveUrl = d.url; s.published = true;
-      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change.' });
+      s.liveUrl = d.url; s.published = true; s.slug = d.slug || s.slug;
+      s.msgs.push({ r: 'a', t: '✅ Live at ' + d.url + ' — it’s a real website now. Share the link, or hit Republish after any change. Form submissions land in your Inbox (📥, top bar).' });
     } else if (r.status === 501) {
       s.msgs.push({ r: 'a', t: '⚠️ Hosting isn’t switched on yet — hang tight.' });
     } else {
@@ -9511,6 +9514,35 @@ function sitePublish(site) {
     const s = siteById(origin);
     if (s) { s.msgs.push({ r: 'a', t: '⚠️ Lost the connection while publishing — try again.' }); sitesSave(); if (siteOpenId === origin) renderSites(); }
   });
+}
+
+// Inbox: the site owner's form submissions (waitlist/contact/etc.), newest first.
+async function siteInbox(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then submissions show up here.'); return; }
+  let box = document.getElementById('siteInboxModal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'siteInboxModal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>Form submissions</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  const bodyEl = box.querySelector('.si-body');
+  try {
+    const r = await apiFetch('/api/site/submissions?slug=' + encodeURIComponent(slug));
+    const d = await r.json().catch(() => ({ submissions: [] }));
+    const subs = Array.isArray(d.submissions) ? d.submissions : [];
+    if (!subs.length) { bodyEl.innerHTML = '<div class="si-empty">No submissions yet. When someone fills out a form on your live site, it lands here.</div>'; return; }
+    bodyEl.innerHTML = '<div class="si-count">' + subs.length + ' submission' + (subs.length === 1 ? '' : 's') + '</div>' + subs.map((s) => {
+      const fields = (s.data && typeof s.data === 'object') ? Object.keys(s.data).filter((k) => k !== '_hp' && k !== 'hp') : [];
+      const when = (() => { try { return new Date(s.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } })();
+      return '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(s.form || 'form') + '</span><span class="si-when">' + esc(when) + '</span></div>' +
+        fields.map((k) => '<div class="si-row"><span class="si-k">' + esc(k) + '</span><span class="si-v">' + esc(String(s.data[k])) + '</span></div>').join('') + '</div>';
+    }).join('');
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load submissions just now — try again.</div>'; }
 }
 
 // ── Gallery view: every generation across all (synced) chats ──

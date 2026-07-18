@@ -2658,3 +2658,18 @@ domains are covered later too).
   site.liveUrl/published persisted.
 NEXT: custom domains (Cloudflare for SaaS) — needs the for-SaaS enablement + fallback
 origin in the dashboard, then /api/site/domain to create custom_hostnames + serve by Host.
+
+## 2026-07-18 — HOSTING milestone 2: real forms backend
+Generated-site forms now actually save, and the owner reads them.
+- **DB**: site_form_submissions (published_site_id, user_id, slug, form, data jsonb).
+  RLS: owner-only SELECT; NO insert policy — only the service-role Worker inserts.
+- **Worker**: POST /api/site/form (PUBLIC, anonymous) — caps payload (≤30 fields,
+  values ≤2k), honeypot (_hp) drops bots, validates the slug against published_sites,
+  inserts via the service key. Fails SOFT (always ok:true) + CORS (*) + OPTIONS preflight
+  so it works from a live site (and later custom domains). GET /api/site/submissions
+  (authed) returns the owner's submissions via their JWT (RLS-scoped).
+- **Engine**: SITE_RULES forms now fire-and-forget POST to /api/site/form with
+  {slug:(from /s/<slug> in the URL), form, data} + a hidden _hp honeypot, then show the
+  success state. In the preview (no /s/ slug) it just no-ops → shows success, stores nothing.
+- **Client**: published sites get a 📥 Inbox button in the workspace top bar → siteInbox()
+  modal lists submissions (form name, fields, timestamp), newest first. site.slug stored on publish.

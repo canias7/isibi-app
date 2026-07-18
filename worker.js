@@ -3492,7 +3492,7 @@ async function handleRequest(request, env, ctx) {
       const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
-      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. FORMS: preventDefault on submit and show an inline success state right there (e.g. swap the form for a \"You're on the list ✓\" confirmation) — there is no backend yet, so NEVER leave a form that does nothing and never real-submit. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible.";
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'', form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible.";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
       if (!env.GEMINI_API_KEY) {
@@ -3722,6 +3722,63 @@ async function handleRequest(request, env, ctx) {
         }
       } catch (e) { console.error("publish db failed:", e && e.message); }
       return Response.json({ url: `https://isibi.ai/s/${slug}`, slug, pages: outPages.length });
+    }
+
+    // Public form submissions from published sites (waitlist/contact). Anonymous
+    // visitors POST here; we validate the slug and insert with the service key
+    // (there is no client-writable policy). Fails SOFT (always ok:true) so a
+    // visitor never sees an error, and only stores for a real published slug.
+    if (url.pathname === "/api/site/form" && request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" } });
+    }
+    if (url.pathname === "/api/site/form" && request.method === "POST") {
+      const cors = { "Access-Control-Allow-Origin": "*" };
+      const ok = () => Response.json({ ok: true }, { headers: cors });
+      const tlF = tooLargeBody(request, 16000); if (tlF) return ok();
+      let body;
+      try { body = await request.json(); } catch { return ok(); }
+      const slug = typeof body.slug === "string" ? body.slug.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90) : "";
+      const form = typeof body.form === "string" ? body.form.slice(0, 60) : "form";
+      const raw = body.data && typeof body.data === "object" && !Array.isArray(body.data) ? body.data : {};
+      // Cap: ≤30 fields, keys ≤80, values ≤2k chars.
+      const data = {}; let n = 0;
+      for (const k of Object.keys(raw)) {
+        if (n++ >= 30) break;
+        const v = raw[k];
+        data[String(k).slice(0, 80)] = typeof v === "string" ? v.slice(0, 2000) : (typeof v === "number" || typeof v === "boolean" ? v : String(v).slice(0, 2000));
+      }
+      if (data._hp || data.hp) return ok();                 // honeypot filled → bot, drop
+      if (!slug || !env.SUPABASE_SERVICE_KEY) return ok();  // preview / no slug → don't store
+      const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
+      let site = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id,user_id&limit=1`, { headers: svc, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        site = Array.isArray(rows) ? rows[0] : null;
+      } catch {}
+      if (!site) return ok();
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/site_form_submissions`, {
+          method: "POST", headers: { ...svc, Prefer: "return=minimal" },
+          body: JSON.stringify({ published_site_id: site.id, user_id: site.user_id, slug, form, data }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch {}
+      return ok();
+    }
+
+    // Owner reads their published site's form submissions (RLS scopes to them).
+    if (url.pathname === "/api/site/submissions" && request.method === "GET") {
+      const subUser = await authUser(request);
+      if (!subUser) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 90);
+      const jwt = (request.headers.get("Authorization") || "").slice(7);
+      const base = `${SUPABASE_URL}/rest/v1/site_form_submissions?select=form,data,created_at${slug ? ",slug&slug=eq." + encodeURIComponent(slug) : ",slug"}&order=created_at.desc&limit=200`;
+      try {
+        const r = await fetch(base, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt }, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        return Response.json({ submissions: Array.isArray(rows) ? rows : [] });
+      } catch { return Response.json({ submissions: [] }); }
     }
 
     // Sonnet 5 director: chats, reads intent (rerun/revise/new), writes prompts.

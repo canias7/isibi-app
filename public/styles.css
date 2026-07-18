@@ -1359,6 +1359,23 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-pageitem.on { background: linear-gradient(rgba(40, 30, 50, .6), rgba(40, 30, 50, .6)) padding-box, var(--split) border-box; border: 1px solid transparent; }
 .st-pi-name { font-weight: 600; font-size: .85rem; }
 .st-pi-path { font-size: .72rem; color: var(--muted); font-family: ui-monospace, monospace; }
+/* Form-submissions inbox modal */
+.si-modal { position: fixed; inset: 0; z-index: 200; background: rgba(6, 5, 10, .66); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+.si-card { width: min(560px, 96vw); max-height: 82vh; display: flex; flex-direction: column; background: var(--panel, #131019); border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 70px -20px rgba(0, 0, 0, .8); }
+.si-head { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.1rem; border-bottom: 1px solid var(--line); }
+.si-head b { font-size: 1rem; }
+.si-x { background: transparent; border: 0; color: var(--muted); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.si-x:hover { color: var(--text); }
+.si-body { padding: .9rem 1.1rem 1.2rem; overflow-y: auto; }
+.si-empty { color: var(--muted); font-size: .9rem; padding: 1.4rem .2rem; text-align: center; }
+.si-count { font-size: .78rem; color: var(--dim, var(--muted)); margin-bottom: .7rem; letter-spacing: .02em; }
+.si-item { border: 1px solid var(--line); border-radius: 11px; padding: .7rem .85rem; margin-bottom: .6rem; }
+.si-item-top { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; margin-bottom: .5rem; }
+.si-form { font-weight: 700; font-size: .82rem; text-transform: capitalize; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.si-when { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.si-row { display: flex; gap: .8rem; padding: .2rem 0; font-size: .86rem; }
+.si-k { min-width: 96px; color: var(--muted); font-size: .78rem; text-transform: capitalize; }
+.si-v { color: var(--text); word-break: break-word; }
 .st-icon { font: inherit; font-size: .95rem; width: 32px; height: 32px; border-radius: 9px; border: 1px solid var(--line-2); background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
 .st-icon:hover:not([disabled]) { color: var(--text); border-color: rgba(255, 170, 110, .45); }
 .st-icon[disabled] { opacity: .4; cursor: default; }
