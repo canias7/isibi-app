@@ -9295,6 +9295,10 @@ function renderSiteWorkspace(view, site) {
   const active = siteActivePage(site);
   const curHtml = active ? active.html : '';
   const hasSite = !!curHtml;
+  // Browser-frame URL chip: the live path once published (drafts have a slug too).
+  const previewUrl = site.slug
+    ? 'isibi.ai/s/' + site.slug + (active && active.path && active.path !== '/' ? active.path : '')
+    : 'Draft preview — publish to get a live link';
   const picker = pages.length > 1
     ? '<div class="st-pagepick"><button type="button" class="st-pagebtn" id="stPageBtn">' + esc(active ? active.name : 'Home') + ' <span class="st-cv">▾</span></button>' +
         '<div class="st-pagemenu" id="stPageMenu" hidden>' + pages.map((p) =>
@@ -9344,7 +9348,7 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (hasSite
-            ? '<iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe>'
+            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>'
             : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>') +
         '</div>' +
       '</div>' +
