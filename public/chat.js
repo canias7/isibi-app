@@ -3774,9 +3774,15 @@ const AVATAR_JOB_ID = '__avatar__';
 const SAVES_KEY = 'zephyr_pending_saves_v1';
 
 function jobsLoad() { try { return JSON.parse(localStorage.getItem(JOBS_KEY) || '[]'); } catch { return []; } }
-function jobsWrite(list) { try { localStorage.setItem(JOBS_KEY, JSON.stringify(list.slice(-8))); } catch {} }
+// Cap kept generous (24) so the oldest in-flight record is never silently
+// evicted in practice — routing an evicted record through finishDeadJob would
+// wrongly cancel a still-live render, so a bigger buffer is the safe mitigation.
+function jobsWrite(list) { try { localStorage.setItem(JOBS_KEY, JSON.stringify(list.slice(-24))); } catch {} }
 function jobRecord(chatId, rec) { jobsWrite([...jobsLoad().filter((j) => j.chatId !== chatId), { chatId, ...rec }]); }
 function jobClear(chatId) { jobsWrite(jobsLoad().filter((j) => j.chatId !== chatId)); }
+// Drop ONE record by its idem — used when cancelling a specific submit so a new
+// run started in the same chat (different idem) keeps its refresh protection.
+function jobClearByIdem(idem) { if (!idem) return; jobsWrite(jobsLoad().filter((j) => j.idem !== idem)); }
 // Count a failed-to-complete resume so a permanently-dead job is eventually
 // abandoned instead of re-polled every boot forever.
 function jobBumpTries(chatId) { jobsWrite(jobsLoad().map((j) => j.chatId === chatId ? { ...j, tries: (j.tries || 0) + 1 } : j)); }
@@ -4122,6 +4128,15 @@ async function finishDeadJob(j) {
           }
         }
       } catch (e) {}
+    }
+    // A provisional record (idem, no statusUrl — its submit reply was lost) that
+    // reached the dead state: try an idem recovery before giving up. The worker
+    // returns the stored job if a charge exists (recover + deliver) and confirms
+    // nothing was charged otherwise. If recovery takes over the chat's gen loop,
+    // we're done; else fall through to the refund/apology (2026-07-18).
+    if (!j.statusUrl && j.idem && !activeGens.has(j.chatId)) {
+      await recoverJob(j);
+      if (activeGens.has(j.chatId)) return;
     }
     // Not recoverable: cancel (in case it's wedged IN_QUEUE — otherwise the
     // refund can't credit a non-terminal job) then refund; the server
@@ -4959,7 +4974,7 @@ async function generateMedia(text, opts = {}) {
     }
     const job = await res.json().catch(() => ({})); // a non-JSON error body must not throw past the status checks
     if (!alive()) {
-      jobClear(origin); // cancelled mid-submit — drop the provisional so it isn't "recovered" later
+      jobClearByIdem(idem); // cancelled mid-submit — drop ONLY this provisional (a new run started in the same chat keeps its record)
       // Cancelled while we were still submitting. If fal accepted the job the
       // Worker has already charged us (charge-after-fal-accepts) and the
       // status_url only reaches us now — so cancel the job and reclaim the

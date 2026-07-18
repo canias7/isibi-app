@@ -2460,3 +2460,41 @@ Still OPEN, deliberately deferred (see the audit report):
   wrong-method → 404 not 405 (cosmetic).
 - **Media Agent** comment-reply route (missing quota + raw error string) — LEFT
   per owner's "skip Media Agent".
+
+## 2026-07-18 — Audit buckets 2 & 3 (resume-edges + infra), and what's deferred
+
+Bucket 2 — resume/refund edges:
+- **Cancel-mid-submit now clears ONLY its own record** (jobClearByIdem) instead
+  of the whole chat — a new run started in the same chat after a cancel keeps
+  its refresh protection.
+- **finishDeadJob now attempts an idem recovery** for provisional (idem-only,
+  no statusUrl) records before the refund/apology — a charged render whose submit
+  reply was lost can be recovered + delivered instead of only apologized for.
+- **jobs cap raised 8→24**: routing an evicted record through finishDeadJob would
+  wrongly CANCEL a still-live render, so a bigger buffer is the safe mitigation
+  for the (already rare) silent-eviction edge.
+
+Bucket 3 — infra:
+- **Unmatched /api/* now returns JSON 404** instead of falling through to the
+  static asset handler (which served the app's HTML shell to API callers).
+
+Bucket 1 — dead code (done in the prior commit): removed ~320 lines of dead
+landing/preset/CRT JS. renderPublish left (Media Agent, standing rule).
+
+DELIBERATELY DEFERRED (with reasons — these are NOT clear wins):
+- **Dead CSS** (sidebar-nav / addon / crt-knob / mkt-hero blocks): 100% inert
+  unused selectors, but they're scattered and interleaved with LIVE rules
+  (.mkt-cell/.mkt-c*/.lp-panel used by the live CRT landing via string-concat
+  class names). Excising them risks the live landing for zero user benefit. Do
+  as a dedicated, screenshot-verified cleanup if ever wanted.
+- **/api/cancel + /api/video/poll ownership check**: a strict gen_charges
+  ownership gate would RACE the charge-after-accept write (the row often doesn't
+  exist yet when a mid-submit cancel fires) and 403 legitimate cancels; the op
+  is already gated by an unguessable fal request-id (very low exposure). Not
+  worth breaking real cancels + a DB round-trip on the hot poll path.
+- **SSRF DNS-rebinding in safeFetch**: no clean Cloudflare Workers fix (no DNS
+  primitive; would need a DoH pre-resolve adding latency to every import). Impact
+  is also lower on Workers (no cloud-metadata service to reach) and the literal-IP
+  guard covers the common case. Behind auth + quota. Left as documented residual.
+- **Media Agent comment-reply route** (missing quota + raw error string): left
+  per owner's "skip Media Agent".

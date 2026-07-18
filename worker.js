@@ -4844,5 +4844,13 @@ Return just the line to be voiced — keep it to what should actually come out o
       }
     }
 
+    // An /api/* request that matched no route above is a real API miss (unknown
+    // endpoint or wrong method) — return a JSON 404 instead of falling through to
+    // the static asset handler, which would hand back the app's HTML shell and
+    // read as a confusing 200/asset-404 to any API caller (2026-07-18).
+    if (url.pathname.startsWith("/api/")) {
+      return Response.json({ error: "not found" }, { status: 404 });
+    }
+
     return env.ASSETS.fetch(request);
 }
