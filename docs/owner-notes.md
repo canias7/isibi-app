@@ -150,6 +150,31 @@ and fixed, and add a preference line whenever the owner signals one.
   `site_hits` + the R2 site files. R2 can't be reached from Postgres, so it needs
   a Worker/client purge on delete. The site_* owner tables ARE now wiped.
 
+### Website builder — DETECT & FIX errors (2026-07-18)
+- **Status:** ✅ shipped to main + deployed. The Lovable feature the owner
+  singled out (image 9: "app detects errors, click fix, it fixes").
+- **What:** the live preview now watches the built site for REAL runtime bugs —
+  uncaught JS errors + unhandled promise rejections — via an error shim injected
+  into the preview blob (`sitePreviewSrc`, preview-ONLY; published pages never
+  carry it). The shim `postMessage`s each error to the workspace, which shows a
+  red "N issues detected · Fix with AI · ×" chip at the bottom-left of the
+  preview. One click sends the exact error messages through the normal revise
+  flow ("find the root cause and fix it, changing as little else as possible"),
+  so it snapshots history + swaps the page like any edit. Errors reset on every
+  page (re)load; the badge repaints in place (never re-renders the iframe, which
+  would re-trigger). Charge = a normal revise.
+- **Where:** `public/chat.js` (`sitePreviewErrs`/`collectPreviewErr`/
+  `paintPreviewErrBadge`, the errShim in `sitePreviewSrc`, the message listener,
+  the `#stFixBar` markup + handlers), `public/styles.css` (`.st-fixbar`).
+- **Low false-positive by design:** generated sites load no external scripts
+  (SITE_RULES bans CDN JS) and maps are nested iframes (their errors don't bubble
+  to the preview's onerror), so essentially every caught error is a real bug in
+  the site's own inline JS. Verified end-to-end headless: a page calling an
+  undefined function on load → error caught through the sandboxed cross-origin
+  iframe → badge appears "1 issue detected".
+- **Distinct from `siteErr`:** that card is for a GENERATION failure (the build
+  call itself broke). This chip is for a successfully-built page that misbehaves.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
