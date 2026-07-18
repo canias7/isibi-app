@@ -222,6 +222,29 @@ and fixed, and add a preference line whenever the owner signals one.
   sites (<100 records); only build server-side query if a collection outgrows
   the 100-record fetch cap.
 
+### Website builder — FILE UPLOADS (2026-07-18)
+- **Status:** ✅ shipped to main + deployed + live-tested. Owner's 2nd pick.
+- **What:** published sites can accept visitor uploads (listing photo, avatar,
+  resume). `POST /api/site/upload` (public, fail-soft) takes a base64 data URL →
+  mime-allowlisted to images (PNG/JPG/WebP/GIF) + PDF (NO svg/html, so no
+  stored-XSS), ≤6 MB, per-slug count cap (300), only for a real site → stored in
+  R2 under `uploads/<slug>/` → returns a permanent URL served from
+  `/u/<slug>/<file>` (nosniff, content-disposition inline, immutable cache).
+  The site saves that URL into a collection to keep it. SITE_RULES has the upload
+  protocol (file input → FileReader data URL → POST → persist res.url).
+- **Where:** worker.js (`/api/site/upload` POST+OPTIONS, the `/u/<slug>/<file>`
+  R2 serve route, SITE_RULES FILE UPLOADS paragraph). No new table (R2 only).
+- **Live test (throwaway site, DB row cleaned):** upload a 1×1 PNG → permanent
+  URL ✓; served back = 70 bytes, `content-type: image/png`, nosniff, valid PNG
+  ✓; HTML-masquerade data URL → 415 ✓; bogus slug (no site) → "not live yet" ✓.
+  (One 70-byte test PNG remains in R2 — wrangler isn't authed in the session to
+  delete it; immaterial.)
+- **v1.1 gap (real):** uploads have NO delete path — an owner can't remove an
+  uploaded file and orphans accumulate as visitors upload. Add an owner
+  upload-delete (and maybe a Cloud → Files browser) + count uploads toward a cap.
+  Also would let us purge test files. Not blocking, but worth doing before this
+  gets heavy use.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
