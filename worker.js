@@ -1658,6 +1658,70 @@ export default {
   },
 };
 
+// ── Free-tier media proxy ──
+// Free/over-cap users can't save to the gallery, so their render is delivered
+// on the temporary provider link. Putting that raw link straight into a
+// <video>/<audio> src exposes the provider host (right-click "copy address",
+// devtools) — which the platform never reveals. Instead the provider URL is
+// AES-GCM-sealed into an opaque token the client puts in the src, and
+// /api/m/<token> decrypts it server-side and STREAMS the bytes same-origin
+// (Range forwarded), so the host is never client-visible. The seal key is
+// derived from an existing server secret (no new secret to provision) and the
+// token carries an expiry so it can't be replayed forever.
+let _mediaKeyPromise = null;
+function mediaSealKey(env) {
+  if (!_mediaKeyPromise) {
+    _mediaKeyPromise = (async () => {
+      const material = new TextEncoder().encode((env.FAL_KEY || "isibi") + "|media-proxy-v1");
+      const digest = await crypto.subtle.digest("SHA-256", material);
+      return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+    })();
+  }
+  return _mediaKeyPromise;
+}
+function b64urlFromBytes(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function bytesFromB64url(str) {
+  const s = str.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+// Only genuine provider media URLs are ever sealed/unsealed.
+const PROVIDER_MEDIA_RE = /^https:\/\/([a-z0-9-]+\.)?fal\.media\//i;
+async function sealMediaUrl(env, mediaUrl, ttlMs = 7 * 24 * 3600 * 1000) {
+  if (!PROVIDER_MEDIA_RE.test(mediaUrl)) return null;
+  const key = await mediaSealKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = new TextEncoder().encode(JSON.stringify({ u: mediaUrl, e: Date.now() + ttlMs }));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plain));
+  const packed = new Uint8Array(iv.length + ct.length);
+  packed.set(iv, 0);
+  packed.set(ct, iv.length);
+  return b64urlFromBytes(packed);
+}
+async function openMediaToken(env, token) {
+  try {
+    const packed = bytesFromB64url(token);
+    if (packed.length < 29) return null; // 12 iv + 16 tag minimum
+    const iv = packed.slice(0, 12);
+    const ct = packed.slice(12);
+    const key = await mediaSealKey(env);
+    const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+    const obj = JSON.parse(new TextDecoder().decode(plainBuf));
+    if (!obj || typeof obj.u !== "string") return null;
+    if (obj.e && Date.now() > obj.e) return null;
+    if (!PROVIDER_MEDIA_RE.test(obj.u)) return null;
+    return obj.u;
+  } catch {
+    return null;
+  }
+}
+
 async function handleRequest(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -4704,6 +4768,50 @@ Return just the line to be voiced — keep it to what should actually come out o
       if (ctx && ctx.waitUntil) ctx.waitUntil(storageRelease(request, reservationId)); else await storageRelease(request, reservationId);
       if (!up.ok) return Response.json({ error: "store failed" }, { status: 502 });
       return Response.json({ url: `${SUPABASE_URL}/storage/v1/object/public/media/${path}` });
+    }
+
+    // Mint an opaque stream token for a temporary provider media URL (free/
+    // over-cap renders that can't be saved). Auth'd, provider-host-only — the
+    // sealed token is what the client puts in the <video>/<audio> src.
+    if (url.pathname === "/api/media-token" && request.method === "POST") {
+      if (!(await authUser(request))) return UNAUTHED();
+      let body;
+      try { body = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const src = typeof body.url === "string" ? body.url : "";
+      const token = await sealMediaUrl(env, src);
+      if (!token) return Response.json({ error: "invalid url" }, { status: 400 });
+      return Response.json({ token });
+    }
+
+    // Stream a sealed provider media URL same-origin. NO auth — a media element
+    // request carries no Authorization header, so the encrypted token IS the
+    // capability (only URLs the server itself sealed decrypt). Range is
+    // forwarded for seeking; only a safe header allowlist is passed back so no
+    // provider-identifying header leaks.
+    if (url.pathname.startsWith("/api/m/") && (request.method === "GET" || request.method === "HEAD")) {
+      const raw = url.pathname.slice("/api/m/".length);
+      let token = raw;
+      try { token = decodeURIComponent(raw); } catch {}
+      const target = await openMediaToken(env, token);
+      if (!target) return new Response("Not found", { status: 404 });
+      const upstreamHeaders = {};
+      const range = request.headers.get("range");
+      if (range) upstreamHeaders["range"] = range;
+      let up;
+      try {
+        up = await fetch(target, { method: request.method, headers: upstreamHeaders, signal: AbortSignal.timeout(30000) });
+      } catch {
+        return new Response("Upstream error", { status: 502 });
+      }
+      const h = new Headers();
+      for (const k of ["content-type", "content-length", "content-range", "accept-ranges", "last-modified", "etag"]) {
+        const v = up.headers.get(k);
+        if (v) h.set(k, v);
+      }
+      if (!h.has("accept-ranges")) h.set("accept-ranges", "bytes");
+      h.set("cache-control", "private, max-age=3600");
+      h.set("x-content-type-options", "nosniff");
+      return new Response(request.method === "HEAD" ? null : up.body, { status: up.status, headers: h });
     }
 
     // Proxies fal queue status/result URLs so the key stays server-side.

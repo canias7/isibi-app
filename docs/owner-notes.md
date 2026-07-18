@@ -2340,14 +2340,50 @@ finishDeadJob cancel-before-refund, all green.
   image the subsequent /api/save would 402 on anyway. Fails open (ledger
   unreachable → proceed) so a real member is never wrongly blocked. Fixes HIGH.
 
-FLAGGED FOR OWNER DECISION (not fixed — has a cost tradeoff):
-- **Free-tier videos are delivered on the raw fal.media URL as the <video>
-  src** (chat.js ~5330 blocked-save path). Provider leak: right-click "copy
-  video address" / devtools shows fal.media, violating the never-show-provider
-  rule. Free images are rescued client-side (watermark → data: URL), but a
-  video can't be. The ONLY full hide is a worker reverse-proxy that STREAMS the
-  bytes same-origin (a 302 redirect still resolves to fal.media in devtools) —
-  which adds Worker EGRESS bandwidth for every free-tier video play. Options:
-  (a) build the streaming proxy (accept the bandwidth), (b) block free-tier
-  video playback entirely (deliver a "upgrade to view" card — but they paid
-  credits for it), (c) accept the minor right-click leak. Needs owner's call.
+## 2026-07-18 — demo-hero clones: deleted 1 & 3, kept 2 + closed the serve gap
+
+- Owner reviewed all three demo-hero* clones (screenshots) and chose:
+  **delete demo-hero (archived landing) + demo-hero-3 (CRT landing), keep
+  demo-hero-2** (the full current-app clone — auth.js/chat.js/index.html/
+  styles.css) as the design reference.
+- **Caught a bug in the prior route guard**: the `448a211` block used
+  `/^\/demo-hero(\/|$)/i`, which only matched the bare `/demo-hero` — the
+  numbered dirs `/demo-hero-2/` and `/demo-hero-3/` slipped through and were
+  STILL BEING SERVED LIVE. demo-hero-2 is the pre-scrub clone (207 "fal"
+  mentions in its chat.js), so the leaky one was exactly the one still exposed.
+  Widened to `/^\/demo-hero(-\d+)?(\/|$)/i` so every numbered variant 404s.
+  demo-hero-2 now stays in the repo as reference but is never served.
+
+## 2026-07-18 — Free-tier video/audio leak CLOSED: same-origin stream proxy (owner picked "a")
+
+- Owner chose option (a): build the streaming proxy, accept the bandwidth.
+- **Worker**: two new routes.
+  - `POST /api/media-token` (auth'd) — AES-GCM-seals a provider media URL into
+    an opaque token. Key is SHA-256(FAL_KEY + "|media-proxy-v1") — no new secret
+    to provision. Token = base64url(iv‖ciphertext) of `{u,e}` (url + 7-day
+    expiry). Only provider-host URLs seal (regex-gated); returns 400 otherwise.
+  - `GET /api/m/<token>` (NO auth — a <video> src carries no Authorization
+    header, so the encrypted token IS the capability; only URLs the server
+    itself sealed will decrypt). Forwards Range for seeking; streams `up.body`
+    same-origin; passes back ONLY a safe header allowlist (content-type/length/
+    range, accept-ranges, last-modified, etag) so no provider-identifying header
+    leaks. Tampered/expired/wrong-host tokens → 404.
+- **Client**: `proxyMediaUrl(u)` mints the token and returns `/api/m/<token>`;
+  wired into BOTH temp-link paths in buildMedia — the free/full `block` path and
+  the transient `saveFailed` path (video/audio only; images already ride a
+  data: URL via the client watermark). Retries the mint 2× (same-origin+authed,
+  so effectively always succeeds); only a total failure falls back to the raw
+  link (playback beats a broken card). Pending-save records now carry `disp`
+  (the shown proxy src) alongside the raw url, so the eventual permanent-URL
+  swap + expiry warning still find the right message. downloadMedia now accepts
+  same-origin `/api/m/` paths.
+- Net: a free-tier / over-cap video or audio render is delivered on a same-
+  origin src — right-click "copy address" and devtools both show isibi.ai, never
+  the provider. Cost: Worker egress for every free-tier temp-link play (accepted).
+
+REMAINING MINOR LEAK (not yet fixed — flag):
+- **EXR sidecar link** (chat.js ~5341) is delivered as a raw provider URL inside
+  a plain-text "download it soon" chat line (pro HDR frame data). It's a text
+  download link, not a player src, but it still spells out the provider host.
+  Lower priority (niche pro feature) but violates the same rule — proxy or drop
+  it in a later pass.

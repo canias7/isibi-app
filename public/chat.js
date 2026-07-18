@@ -3702,8 +3702,10 @@ const mediaSrcOk = (u) => /^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(
 const openExternal = (u) => { if (/^https?:\/\//i.test(u || '')) window.open(u, '_blank', 'noopener'); };
 async function downloadMedia(url, kind) {
   // Only ever fetch/open a real media URL — never let a stored value smuggle a
-  // javascript:/data:text/html URL into fetch's catch → window.open.
-  if (!/^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(url || '')) return;
+  // javascript:/data:text/html URL into fetch's catch → window.open. Same-origin
+  // proxy paths (/api/m/<token>, used to hide the source host on temp links) are
+  // allowed — fetch resolves them relative to our origin.
+  if (!/^(https?:|blob:|data:(?:image|video|audio)\/)/i.test(url || '') && !/^\/api\/m\//.test(url || '')) return;
   const known = url.split('?')[0].match(/\.(png|jpe?g|webp|gif|mp4|webm|mov|mp3|wav|ogg|m4a)$/i);
   const ext = known ? known[1].toLowerCase() : (kind === 'image' ? 'png' : kind === 'audio' ? 'mp3' : 'mp4');
   const name = 'zephyr-' + Date.now() + '.' + ext;
@@ -3948,7 +3950,10 @@ function jobBumpTries(chatId) { jobsWrite(jobsLoad().map((j) => j.chatId === cha
 
 function savesLoad() { try { return JSON.parse(localStorage.getItem(SAVES_KEY) || '[]'); } catch { return []; } }
 function savesWrite(list) { try { localStorage.setItem(SAVES_KEY, JSON.stringify(list.slice(-20))); } catch {} }
-function queuePendingSave(url, kind) { savesWrite([...savesLoad().filter((p) => p.url !== url), { url, kind, at: Date.now() }]); }
+// `url` is the raw provider link to actually save; `disp` is what's shown in
+// the thread (a same-origin proxy src when the source host must stay hidden) so
+// the eventual permanent-URL swap can find the right message.
+function queuePendingSave(url, kind, disp) { savesWrite([...savesLoad().filter((p) => p.url !== url), { url, kind, disp: disp || url, at: Date.now() }]); }
 
 // Cross-tab delivery claim: two tabs of the same account can each resume the
 // same job record and both poll it. The first to reach COMPLETED claims the
@@ -4023,6 +4028,33 @@ async function trySave(url, kind, attempts, payload) {
 // never runs — burnImageWatermark() below covers that case client-side.
 async function saveOutput(u, kind) {
   return trySave(u, kind, 3);
+}
+
+// When a render can't be saved (free tier / gallery full) it's delivered on a
+// temporary link. That link must NEVER ride a <video>/<audio> src directly —
+// swap it for an opaque same-origin stream token so the source host is never
+// client-visible (right-click, devtools). Retries the tiny same-origin mint a
+// couple of times; only a total failure falls back to the raw link (playback
+// beats a broken card, and this endpoint is same-origin + authed so it
+// effectively always succeeds).
+async function proxyMediaUrl(u) {
+  if (typeof u !== 'string' || !/^https?:\/\//i.test(u)) return u; // local/data/blob already safe
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await apiFetch('/api/media-token', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: u }),
+      });
+      if (r.ok) {
+        const d = await r.json().catch(() => ({}));
+        if (d && d.token) return '/api/m/' + d.token;
+        return u; // server declined to seal (not a proxyable host) — nothing to hide
+      }
+      if (r.status === 400) return u; // not a sealable URL; no point retrying
+    } catch {}
+    if (i < 2) await new Promise((res) => setTimeout(res, 600 * (i + 1)));
+  }
+  return u;
 }
 
 // ── Product-URL ads: QR burn ──
@@ -4191,13 +4223,13 @@ async function retryPendingSaves() {
       // that holds it, instead of dropping the promised save silently
       // (2026-07-17). "It'll land there on its own" must not quietly break.
       if (Date.now() - (p.at || 0) > 6 * 24 * 3600e3) {
-        const c = chatStore.chats.find((ch) => (ch.msgs || []).some((m) => m.t === 'media' && m.url === p.url));
+        const c = chatStore.chats.find((ch) => (ch.msgs || []).some((m) => m.t === 'media' && (m.url === (p.disp || p.url) || m.url === p.url)));
         if (c) deliverAgent(c.id, '⚠️ Couldn’t save one of your earlier ' + (p.kind || 'media') + ' generations to the gallery in time — its temporary link has expired. Re-generate it to keep a permanent copy.');
         continue;
       }
       // saveOutput just posts the URL; the server watermarks free-account images.
       const { url: perm, block } = await saveOutput(p.url, p.kind);
-      if (perm) replaceMediaUrl(p.url, perm);
+      if (perm) { replaceMediaUrl(p.disp || p.url, perm); if (p.disp && p.disp !== p.url) replaceMediaUrl(p.url, perm); }
       else if (block) { /* paid gate (free/full) — already told at gen time; drop it */ }
       else keep.push(p);
     }
@@ -5371,9 +5403,12 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
           // Free tier can't save, so the server-side image watermark never ran —
           // burn it in client-side and deliver the marked copy on the temp link.
           const marked = (block === 'free' && kind === 'image') ? await burnImageWatermark(u) : null;
-          finals.push(marked || u); blocked = block;
+          // Video/audio temp links go through the same-origin stream proxy so the
+          // source host never appears in the player src (images ride a data: URL).
+          const deliverUrl = marked || (kind === 'image' ? u : await proxyMediaUrl(u));
+          finals.push(deliverUrl); blocked = block;
         }
-        else { finals.push(u); saveFailed = true; queuePendingSave(u, kind); }
+        else { const disp = kind === 'image' ? u : await proxyMediaUrl(u); finals.push(disp); saveFailed = true; queuePendingSave(u, kind, disp); }
       }
       if (!alive()) return;
       endGen(origin);
