@@ -2131,3 +2131,7 @@ blocks it in the EU, UK and Switzerland — pick a Kling o3 model for clip
 edits instead" plus the refund note, instead of a raw validation shrug.
 Verified headless: fires on the schema's exact wording; content-filter and
 validation branches unaffected; no provider named.
+
+Follow-up: owner — no model suggestion in the regional error. Both messages
+now state only the cause ("the model maker blocks it in the EU, UK and
+Switzerland") + the refund note; the "pick Kling o3 instead" line is gone.

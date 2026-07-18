@@ -4930,7 +4930,7 @@ function friendlyFail(job) {
   if (/exhausted balance|user is locked/i.test(raw)) return '⚠️ Our generation servers are temporarily down — we\'re working on it. Check back soon; you were not charged.';
   // Regional restriction (Gemini's edit endpoint blocks the EEA/UK/Switzerland
   // per its schema) — say what's wrong and point at a model that works.
-  if (/European Economic Area|\bEEA\b|not available (?:for users )?in (?:your|the) (?:region|country)/i.test(raw)) return '⚠️ This model doesn’t offer video editing in your region — the model maker blocks it in the EU, UK and Switzerland. Pick a Kling o3 model for clip edits instead; it works everywhere.';
+  if (/European Economic Area|\bEEA\b|not available (?:for users )?in (?:your|the) (?:region|country)/i.test(raw)) return '⚠️ This model doesn’t offer video editing in your region — the model maker blocks it in the EU, UK and Switzerland.';
   if (/content|safety|nsfw|moderation/i.test(raw)) return withExact('⚠️ That prompt was blocked by the model’s content filter — rephrase it and try again.');
   if (/validation|invalid|must be|unprocessable/i.test(raw)) return withExact('⚠️ Those settings didn’t work for this model — tweak duration, ratio or quality and try again.');
   if (job && job.error === 'unknown model') return '⚠️ That model isn’t available right now — pick another from the menu.';
@@ -5245,7 +5245,7 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
         // Regional restriction (Gemini's edit endpoint is blocked in the
         // EEA/UK/Switzerland per its schema) — name the real cause + a fix.
         if (/European Economic Area|\bEEA\b|not available (?:for users )?in (?:your|the) (?:region|country)/i.test(JSON.stringify(errBody))) {
-          deliverAgent(origin, '⚠️ Video editing with this model isn’t available in your region — the model maker blocks it in the EU, UK and Switzerland. Pick a Kling o3 model for clip edits instead; it works everywhere. Nothing was produced.' + refundNote);
+          deliverAgent(origin, '⚠️ Video editing with this model isn’t available in your region — the model maker blocks it in the EU, UK and Switzerland. Nothing was produced.' + refundNote);
           return;
         }
         deliverAgent(origin, '⚠️ The model rejected this render (' + rr.status + ')'
