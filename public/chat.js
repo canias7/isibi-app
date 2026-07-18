@@ -10042,14 +10042,22 @@ async function siteFunctions(site) {
       const d = await r.json().catch(() => ({ functions: [] }));
       const fns = Array.isArray(d.functions) ? d.functions : [];
       if (!fns.length) { listEl.innerHTML = '<div class="si-empty">No functions yet. In the builder, describe the server logic you want (e.g. “when someone signs up, post it to my Slack webhook”) and it’ll appear here.</div>'; return; }
+      const schLabel = (m) => (m === 60 ? 'Hourly' : m === 1440 ? 'Daily' : 'Every ' + m + 'm');
       listEl.innerHTML = fns.map((f) => {
         const steps = (f.spec && Array.isArray(f.spec.steps)) ? f.spec.steps : [];
         const chips = steps.map((s) => '<span class="fn-step">' + stepLabel(s) + '</span>').join('<span class="fn-arrow">→</span>');
-        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('zap', 15) + '</span><b class="fn-name">' + esc(f.name) + '</b><span class="fn-trig">HTTP</span>' + (f.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">Live</span>') + '<button type="button" class="sk-del" data-del="' + esc(f.name) + '" title="Delete">×</button></div><div class="fn-flow">' + (chips || '<span class="fn-step">no steps</span>') + '</div></div>';
+        const sm = parseInt(f.schedule_minutes, 10);
+        const schBadge = sm > 0 ? '<span class="fn-sch">' + ic('history', 12) + ' ' + esc(schLabel(sm)) + '</span>' : '';
+        const hookUrl = 'https://isibi.ai/api/site/hook/' + slug + '/' + f.name;
+        return '<div class="fn-item"><div class="fn-top"><span class="fn-ic">' + ic('zap', 15) + '</span><b class="fn-name">' + esc(f.name) + '</b><span class="fn-trig">HTTP</span>' + schBadge + (f.enabled === false ? '<span class="st-badge-soon">Paused</span>' : '<span class="st-badge-live">Live</span>') + '<button type="button" class="sk-del" data-del="' + esc(f.name) + '" title="Delete">×</button></div><div class="fn-flow">' + (chips || '<span class="fn-step">no steps</span>') + '</div><div class="fn-hook"><span class="fn-hook-label">Webhook</span><code class="fn-hook-url">' + esc(hookUrl.replace(/^https:\/\//, '')) + '</code><button type="button" class="fn-hook-copy" data-hook="' + esc(hookUrl) + '">Copy</button></div></div>';
       }).join('');
       listEl.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
         await apiFetch('/api/site/functions?slug=' + encodeURIComponent(slug) + '&name=' + encodeURIComponent(b.dataset.del), { method: 'DELETE' });
         load();
+      });
+      listEl.querySelectorAll('[data-hook]').forEach((b) => b.onclick = () => {
+        try { navigator.clipboard.writeText(b.dataset.hook); } catch (e) {}
+        if (typeof sbToast === 'function') sbToast('Webhook URL copied — paste it into Stripe, Zapier, etc.');
       });
     } catch (e) { listEl.innerHTML = '<div class="si-empty">Couldn’t load functions — try again.</div>'; }
   };
