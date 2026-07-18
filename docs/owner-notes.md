@@ -2557,3 +2557,13 @@ medium; thinkingConfig.thinkingLevel is the right field — validated because th
 3.1 call reached 429, i.e. passed request validation, not 400). Everything else
 (reserve→refund metering, send button, refunds) unchanged. A typical build now
 lands around ~9 credits.
+
+## TODO (owner-flagged 2026-07-18) — Website Builder refund is off
+- Owner noticed the credit REFUND in the Website Builder came back wrong (net
+  balance didn't fully restore on a failed/refunded build — e.g. reserve ✦37
+  but balance dropped ~✦17). Suspect: the metered reserve→refund model leans on
+  credit_back, which is designed for SMALL (≤10/call) orchestrator reversals and
+  may cap/guard total reversal — so a big reserve refund is partial. Revisit the
+  billing model: likely switch from "reserve max + credit_back the overage" to
+  charging the ACTUAL cost once (use_credits after the call, with a balance
+  pre-check) so no large reversal is ever needed. Deferred per owner — fix later.
