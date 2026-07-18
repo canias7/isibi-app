@@ -3363,7 +3363,7 @@ async function handleRequest(request, env, ctx) {
       const GEMINI_MODEL = "gemini-3.5-flash";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
-      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> only when the design needs it (menus, tabs, smooth scroll). ZERO external resources: no CDNs, no external fonts, images, or scripts — use system font stacks, CSS gradients, and inline SVG for all visuals. Fully responsive down to 360px. Semantic landmarks (<header> <nav> <main> <section> <footer>), alt text on every img/svg role, <meta name=viewport>, a real <title> and <meta name=description>. Any <form> uses action=\"#\" (no real endpoint yet).";
+      const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource allowed: NO CDN scripts/frameworks/icon-fonts, and NO external images (build all imagery from CSS gradients/meshes, CSS shapes, and hand-written inline SVG — decorative art, logos, icons, patterns). Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. Any <form> uses action=\"#\" (no real endpoint yet).";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
       if (!env.GEMINI_API_KEY) {
@@ -3388,7 +3388,7 @@ async function handleRequest(request, env, ctx) {
       // output includes thinking tokens); 1 credit = $0.008. We reserve the MAX
       // this call could cost (the known input size + the 32768 output cap) so the
       // work is never unpaid, run it, then refund down to the real measured usage.
-      const CREDIT_USD = 0.008, MAX_OUT_TOK = 32768;
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000;
       const stRate = () => ({ i: 1.5e-6, o: 9e-6 });
       const toCredits = (inTok, outTok) => {
         const rt = stRate(inTok);
@@ -3410,17 +3410,17 @@ async function handleRequest(request, env, ctx) {
       const giveBack = async (n) => { for (let left = n; left > 0; left -= 10) await creditBack(env, stUser.id, Math.min(10, left)); };
       const refundSite = () => giveBack(maxCredits); // full reversal on failure
       let usedInTok = 0, usedOutTok = 0;
-      const geminiCall = async (system, user) => {
+      const geminiCall = async (system, user, thinking = "low") => {
         const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: system }] },
             contents: [{ role: "user", parts: [{ text: user }] }],
-            // Thinking draws from the output budget and is billed as output, so
-            // keep it LOW (3.5-flash defaults to "medium") — leaves room for the
-            // HTML and keeps builds cheap. Big output headroom too.
-            generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: "low" } },
+            // Thinking draws from the output budget and is billed as output. A
+            // fresh BUILD gets "high" (design reasoning is where quality comes
+            // from); a surgical REVISE stays "low". Big output headroom either way.
+            generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: thinking } },
           }),
           signal: AbortSignal.timeout(160000),
         });
@@ -3448,12 +3448,21 @@ async function handleRequest(request, env, ctx) {
       try {
         let html = "";
         if (step === "build") {
-          // One Gemini pass both designs AND engineers the site — the hardening
-          // requirements (semantics, responsive breakpoints, a11y, robust JS)
-          // are baked into the prompt now that the Opus pass is gone.
+          // One Gemini pass designs AND engineers the site. The system prompt is
+          // a real design director — the anti-"AI-slop" bar is what lifts quality.
           const out = await geminiCall(
-            "You are isibi Websites — a world-class web designer AND front-end engineer in one. From the user's brief you produce a COMPLETE, stunning, production-quality single-page website: a distinctive visual identity (palette, type scale, spacing rhythm) that fits the brand's world — never a generic template. Write real copy from the brief (headlines, feature text, CTAs), never lorem ipsum. Include the sections the brief implies (hero, and e.g. features/gallery/testimonials/pricing/contact as fits) plus a matching nav and footer. Engineer it properly too: correct semantic structure, responsive at 360/768/1200px, accessible (labels, visible focus states, contrast-safe text, alt text), clean SEO meta, and any small JS made robust (guards, no leaking globals). " + SITE_RULES,
-            "Design and build the complete website for this brief:\n\n" + brief
+            "You are the lead designer at a world-class studio — the kind of work that wins awards, not a website template. Your job: from the brief, design and build ONE stunning single-page site whose craft makes people stop.\n\n" +
+            "FIRST, commit to a DISTINCTIVE ART DIRECTION rooted in this specific brand's world (its materials, mood, references) — a real point of view, not a safe default. Then execute it with precision:\n" +
+            "• TYPOGRAPHY is the identity: pull real fonts from Google Fonts — a characterful DISPLAY face paired with a clean, readable body face (and a mono/label face if it fits). Big confident headings with a clear type scale (clamp()), tight display leading, roomy body. Type carries the design; never leave it on a system default.\n" +
+            "• COLOR: a considered palette — pick NEUTRALS with a slight hue bias (never pure #888 grey), one confident accent used with restraint, and grounds (near-black or a chosen off-white) that suit the brand. No default purple→blue gradients.\n" +
+            "• LAYOUT: editorial and intentional — asymmetry, deliberate overlap, and generous negative space where they serve the design; a strong grid; NOT everything centered, NOT a cookie-cutter equal card grid. The HERO is a thesis: the single most characteristic thing about this brand, not a stock headline+two-buttons.\n" +
+            "• DEPTH & MOTION: build real atmosphere with CSS — layered gradients/mesh, grain or subtle texture, fine 1px borders, considered shadows; add tasteful scroll-reveal and hover microinteractions (guarded by prefers-reduced-motion). All imagery is CSS art or hand-written inline SVG (no external images).\n" +
+            "• COPY: real, specific, on-brand voice — headlines with a hook, feature copy that says something, CTAs with personality. Never lorem, never 'Welcome to X' filler, never fake 'John D.' testimonials with placeholder faces (design testimonials as typographic quotes instead).\n" +
+            "• Include the sections the brief implies plus a matching nav and footer, each designed — not stacked identical blocks.\n\n" +
+            "AVOID these AI-slop tells at all costs: everything centered; emoji as section icons; the same rounded-corner card repeated; a generic hero→3 features→pricing→footer with no personality; Inter/system-ui as the whole type identity; washed-out purple gradients; uniform spacing with no rhythm. Take ONE real aesthetic risk that fits the brand.\n\n" +
+            "You are also the engineer: correct semantic structure, responsive to 360px, accessible (focus states, contrast, aria), clean SEO meta, robust guarded JS. " + SITE_RULES,
+            "Design and build the complete website for this brief. Make it genuinely beautiful:\n\n" + brief,
+            "high"
           );
           html = extractHTML(out);
           if (!html) throw new Error("build returned no document");

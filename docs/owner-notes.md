@@ -2567,3 +2567,19 @@ lands around ~9 credits.
   billing model: likely switch from "reserve max + credit_back the overage" to
   charging the ACTUAL cost once (use_credits after the call, with a balance
   pre-check) so no large reversal is ever needed. Deferred per owner — fix later.
+
+## 2026-07-18 — Website Builder QUALITY jump (owner: "looks like AI slop")
+Three levers, all in /api/site:
+- **Real fonts**: SITE_RULES now ALLOWS Google Fonts (<link> to fonts.googleapis.com)
+  — the ONLY external resource permitted (still no CDN scripts/frameworks, no
+  external images: CSS art + inline SVG only). System-font-only was a big part of
+  the generic look. Loads fine in the blob-URL preview (opaque origin, no CSP) and
+  in the exported site.
+- **Design-director prompt**: build system prompt rewritten as an award-studio
+  lead designer with an explicit anti-AI-slop rulebook (distinctive art direction,
+  typography as identity, chosen neutrals + restrained accent, editorial/asymmetric
+  layout, CSS depth+motion, real on-brand copy) + a list of slop tells to avoid.
+- **Thinking**: build now runs at thinkingLevel "high" (design reasoning is where
+  quality comes from); revise stays "low" (surgical, cheap). MAX_OUT_TOK 32768→60000
+  for room. A high-thinking build now runs ~30-35 credits (metered, still refunded
+  to actual); revisions stay cheap.
