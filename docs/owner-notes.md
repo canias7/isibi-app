@@ -80,7 +80,58 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
-_(empty)_
+### Website builder — real EDGE FUNCTIONS (Path A, 2026-07-18)
+- **Status:** 🟡 built on branch `claude/chat-session-xsvtz5`, NOT merged to main
+  (owner reviewing before it goes to production). Backend logic + secret
+  isolation verified locally (16/16); full end-to-end curl test needs a deploy.
+- **The decision (why Path A):** the owner wanted the model to build "edge
+  functions" like Lovable (describe backend logic in chat → model builds it →
+  appears in the Cloud panel → runs live). Walked the owner through the real
+  fork: the moment the model writes *arbitrary code*, something has to RUN it,
+  and it can't be our Worker (would run with our service key + all-user data).
+  Three paths — **A: declared function-specs on the shared backend we already
+  own** (≈$0, no per-site infra, nothing to sandbox); **B: a Supabase project
+  per site** (true Lovable parity but a compute cost *per published site*, worst
+  shape for a product with lots of free sites); **C: Cloudflare Workers for
+  Platforms** (multi-tenant, cheap-at-rest, but a ~$25/mo enterprise add-on).
+  Owner picked **A** ("do the shared") — and it's not throwaway: the spec layer
+  + Cloud UI are exactly what B/C would sit behind later, so a single site can
+  graduate to its own house when a paying customer actually needs arbitrary code.
+  Scoping brief artifact: https://claude.ai/code/artifact/cf61e9f8-ffdc-4a9e-96f1-0fb1e0db02b9
+- **How it works:** the model emits a bounded **function SPEC** (a trigger→steps
+  recipe), never code. The generator declares one as
+  `<script type="application/isibi-fn" data-name="X">{"steps":[…]}</script>` in
+  <head> and calls it from the site JS via `POST /api/site/fn {slug,fn,input}`.
+  The Worker interprets the spec against primitives we already own. Actions:
+  **read** (a public collection), **save** (to a collection), **fetch** (an
+  external HTTPS API, SSRF-guarded via the existing `safeFetch`), **respond**
+  (JSON back to the browser). Templating: `{{input.x}}`, `{{steps.<as>.<path>}}`,
+  and `{{secret.NAME}}`. **Secret isolation is the safety core:** `{{secret.*}}`
+  resolves ONLY inside a fetch request (server-side) — in respond/save it
+  collapses to "", so a plaintext key can never be echoed to a visitor or written
+  to a public collection (verified with a hostile-respond test). Hard bounds:
+  ≤8 steps, ≤2 fetch/run, 8s per network op, 32 KB response reads, plus a
+  per-slug in-isolate rate limit. No credit charge (bounded, like /api/site/form).
+- **Where:**
+  - `worker.js`: `decryptSecret`, the interpreter (`runSiteFunction` +
+    `normalizeFnSpec`/`extractSiteFunctions`/`resolveStr`/`loadSiteSecrets`/
+    `persistSiteFunctions`/`fnRateOk`), endpoints `POST /api/site/fn` (public
+    runtime) + `GET/DELETE /api/site/functions` (owner). Build/revise extract +
+    persist declared blocks and STRIP them from the hosted HTML (spec never
+    ships publicly). SITE_RULES gained the EDGE FUNCTIONS protocol (+never-fake).
+  - `public/chat.js` + `styles.css`: Cloud → **Edge functions** card is live;
+    `siteFunctions()` modal lists each function's trigger + step-flow, with delete.
+  - Supabase: `site_functions` table (owner-scoped RLS, mirrors `site_secrets`).
+    **Also patched `delete_account()`** to clear every `site_*` owner table
+    (secrets/collections/functions/submissions/domains/visitor accounts) — those
+    were ALL orphaning on account deletion before (pre-existing gap; CLAUDE.md
+    says deletion is a full wipe). `published_sites` + `site_hits` + the R2 site
+    files are still NOT wiped on deletion — separate follow-up (R2 can't be
+    reached from Postgres; needs a Worker/client purge).
+- **Next (after owner OK):** merge to main, then live curl test end-to-end
+  (respond/save/read/fetch + SSRF block + secret-at-rest) with a throwaway site,
+  clean up test data. Possible v1.1: a pause/enable toggle in the panel; an
+  `email` action once we decide the abuse posture.
 
 ## Shipped
 
