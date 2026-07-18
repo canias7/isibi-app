@@ -174,6 +174,21 @@ and fixed, and add a preference line whenever the owner signals one.
   iframe → badge appears "1 issue detected".
 - **Distinct from `siteErr`:** that card is for a GENERATION failure (the build
   call itself broke). This chip is for a successfully-built page that misbehaves.
+- **Blank-preview follow-up (2026-07-18, owner hit it live):** owner built a
+  real-estate site; the **thumbnail rendered fine but the workspace preview was
+  black**. Root cause: the card thumbnail uses `srcdoc sandbox=""` (scripts OFF)
+  so it shows the raw HTML; the main preview runs scripts, and the site's own JS
+  hid all content on load (scroll-reveal) then broke → black. Two fixes shipped:
+  (1) **generator never-blank rule** in SITE_RULES — content MUST render with CSS
+  alone, JS enhancement only, animations degrade to visible, try/catch around
+  risky JS (fixes NEW builds). (2) **blank-detection in the preview shim** — after
+  load it checks whether anything is actually visible in the viewport (via
+  `Element.checkVisibility({opacityProperty})`, which sees through ancestor
+  opacity); if the DOM has content but nothing shows, it reports a synthetic
+  "page renders blank" so the Fix chip appears even when no error was thrown.
+  Verified headless: fires on wrapper-hidden pages + throws; no false positives
+  on healthy or dark-hero designs. Existing sites built before this need a
+  refresh + Fix chip (or a revise) since the rule only governs new builds.
 
 ## Shipped
 
