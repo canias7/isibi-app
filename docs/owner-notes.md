@@ -245,6 +245,34 @@ and fixed, and add a preference line whenever the owner signals one.
   Also would let us purge test files. Not blocking, but worth doing before this
   gets heavy use.
 
+### Website builder — QUERYABLE DATABASE (2026-07-18)
+- **Status:** ✅ shipped to main + deployed + live-tested. (Earlier I'd said the
+  model could do client-side filtering; owner asked to build the server side, so
+  now both are possible — server query is better for real datasets + paging.)
+- **What:** `GET /api/site/data` now filters/sorts/searches/paginates. Done
+  SAFELY in the Worker: when any query param is present it pulls the whole
+  collection (≤500 storage cap) and queries in-memory — no raw query is ever
+  exposed to a visitor, so there's no injection surface. Params:
+  `where=<field>:<op>:<value>` (REPEATABLE; op eq|ne|lt|lte|gt|gte|contains|in;
+  numeric ops compare as numbers), `q=<free text>` (across string fields),
+  `sort=<field>&order=asc|desc`, `limit`(≤100)+`offset`. Response gains `{total}`
+  (matched count) beside `{records}`. Plain "latest N" (no params) stays on the
+  original cheap path, and the wrapped `{data,created_at}` row shape is
+  unchanged, so existing sites keep working. SITE_RULES tells the generator to
+  query on the server for anything beyond a short list (build filter UIs that
+  re-fetch with params, not fetch-all-then-filter).
+- **Where:** worker.js (`applySiteQuery` helper + the `/api/site/data` GET branch
+  + SITE_RULES QUERY paragraph). No schema change.
+- **Tested:** 12/12 unit tests (multi-clause filter, numeric range, in/contains,
+  free-text, sort asc/desc incl. string, pagination, injection-ish value → safe
+  no-match). Live on real listings: Miami under $2M → 1 result; beds≥3 sorted by
+  price; search "villa"; price desc; page (limit2/offset2) with total. Throwaway
+  records cleaned up. (Note: right after each deploy, Cloudflare edge nodes update
+  unevenly for ~30-60s, so a query can briefly hit old code — settles quickly.)
+- **Ceiling:** in-Worker query covers up to the 500-record collection cap. Past
+  that we'd move to real SQL-side filtering; not needed until a collection is
+  genuinely that large.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
