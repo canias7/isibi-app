@@ -332,6 +332,31 @@ and fixed, and add a preference line whenever the owner signals one.
 - **Not yet:** a live end-to-end paid checkout (needs a real Stripe test key). A
   Cloud → Payments card that guides the Stripe setup would help discovery (v1.1).
 
+### Website builder — EMAIL (owner's own provider) (2026-07-18)
+- **Status:** ✅ shipped to main + deployed. Guard live-tested; a real send needs
+  the owner's provider key. Owner asked for this ("so user can bring their email")
+  — same bring-your-own-key model as payments.
+- **What:** new `email` function action sends through the SITE OWNER's OWN email
+  provider — **Resend** (default), **SendGrid**, or **Postmark** — using their key
+  from the vault (e.g. RESEND_KEY). Correct per-provider request shape (Resend
+  {from,to,subject,html}; SendGrid personalizations/content; Postmark
+  From/To/Subject/HtmlBody). Key + recipients go ONLY to the provider; only
+  {ok,status} is captured. Guards cleanly when unconfigured (no key/from/to →
+  error, no send). from/to/subject/html support {{templates}}.
+- **Where:** worker.js (`email` action in runSiteFunction + normalizeFnSpec +
+  FN_ACTIONS, SITE_RULES EMAIL paragraph — welcome/notify/receipt patterns, and
+  "wire a contact form to a FUNCTION to email the owner"). chat.js/styles.css:
+  the **Emails** Cloud card flipped from Soon → live, opens `siteEmails()` — a
+  2-step setup guide (add provider key in Secrets → ask the builder).
+- **Tested:** unconfigured email step → "email not configured" error, no send ✓
+  (live, throwaway function cleaned up). Provider payload shapes match each API's
+  docs. A real send is one provider key away.
+- **Note:** this is the SITE's transactional email (owner's provider). It's
+  SEPARATE from isibi's own auth emails (Go Farther via the send-email Edge
+  Function) — those are unchanged. Visitor-auth password-reset/verify emails are
+  NOT wired yet (would need the auth backend to send codes via the owner's
+  provider) — a possible future add.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
