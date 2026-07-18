@@ -2290,3 +2290,21 @@ no auto-retry — revisit with idempotency keys if it ever bites.
 NOTE: the delete→cancel Stripe path is logic/syntax-verified + fail-safe by
 construction; a real-Stripe smoke test (delete a test account that has a live
 sub, confirm the sub ends) is worth doing once with a throwaway account.
+
+## 2026-07-18 — Audit round-2 fixes: DATA-LOSS batch
+
+- **Transient media error no longer deletes the message** (buildMedia
+  el.onerror): a media element error fires on offline / Supabase 5xx / flaky
+  connection too — the old code spliced the message AND synced the deletion,
+  permanent loss for a blip. Now it collapses to a "hiccup" note and only
+  self-heals (drop + sync) when a Range-GET probe returns a real 404/410;
+  offline or any other status keeps the message. Verified headless.
+- **zephyr_assets_at_v1 wiped on sign-out AND account-switch** + the in-memory
+  `assetsAt` reset to 0 in both paths. Was surviving → the next account's
+  pullAssets bailed (remoteAt <= stale clock) and a first edit clobbered their
+  server avatars. Fixes the (3 duplicate) HIGH findings.
+- **Mid-session re-auth account switch** (finishAuth): a 401 pops the gate via
+  showAuthGate() directly (authEntry stays 'stay') → routed to the landing,
+  skipping enterApp's account-switch wipe → previous account's chats/avatars
+  shown and synced under the NEW account. finishAuth now forces enterApp()
+  (full reset) whenever the authed uid != stored owner. Fixes the HIGH.

@@ -3617,12 +3617,25 @@ function buildMedia(kind, url, prompt) {
   // dead link collapses into a small note instead of dead air.
   el.onerror = () => {
     if (isSavedMedia(url)) {
-      div.remove();
-      const chat = activeChat();
-      if (chat) {
-        const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
-        if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
-      }
+      // A media element error fires on TRANSIENT failures too — offline, a
+      // Supabase 5xx, a flaky connection. Deleting the message (and SYNCING
+      // the deletion) on those is permanent data loss for a temporary blip.
+      // Only self-heal (drop the message) when the file is CONFIRMED gone —
+      // an actual 404/410 from storage. Anything else collapses to a note and
+      // leaves the message intact so it reloads next time.
+      div.innerHTML = '<span class="media-gone">Couldn’t load this media — it’ll reappear if it was just a hiccup.</span>';
+      if (!navigator.onLine) return; // offline → definitely transient
+      fetch(url, { method: 'GET', headers: { Range: 'bytes=0-0' } })
+        .then((res) => {
+          if (res.status !== 404 && res.status !== 410) return; // still there / transient error → keep the message
+          div.remove();
+          const chat = activeChat();
+          if (chat) {
+            const i = chat.msgs.findIndex((m) => m.t === 'media' && m.url === url);
+            if (i >= 0) { chat.msgs.splice(i, 1); persistStore(); touchSync(chat.id); }
+          }
+        })
+        .catch(() => {}); // network error confirming → assume transient, keep the message
     } else {
       div.innerHTML = '<span class="media-gone">This media is no longer available.</span>';
     }
@@ -6264,7 +6277,18 @@ function openAuthFrom(mode, entry) {
 }
 // After a successful sign in / sign up, route by that entry point.
 function finishAuth() {
-  if (authEntry === 'app') enterApp();
+  // A mid-session 401 pops the gate via showAuthGate() directly, so authEntry
+  // is still 'stay' — but if a DIFFERENT account just signed in, routing to the
+  // landing skips the account-switch wipe (only enterApp does it), leaving the
+  // previous account's in-memory chats/avatars to be shown AND synced under the
+  // new account. Force the full-reset path whenever the owner changed.
+  let switched = false;
+  try {
+    const uid = Auth.userId ? Auth.userId() : '';
+    const prev = localStorage.getItem('zephyr_owner_v1');
+    switched = !!(uid && prev && prev !== uid);
+  } catch {}
+  if (authEntry === 'app' || switched) enterApp();
   else enterLandingAuthed();
 }
 
@@ -6473,12 +6497,16 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       stagedDbClear(); // staged attachments belong to the outgoing account too
       chatStore = { active: null, chats: [] };
       memoryState = { items: [], enabled: true, updatedAt: 0 };
+      // The avatar-sync clock lives in memory too — reset it, else the new
+      // account's pullAssets bails (remoteAt <= stale assetsAt) and their first
+      // edit clobbers the server row with this device's empty avatars.
+      assetsAt = 0;
       syncDirty.clear(); syncDeleted.clear();
       loadStore();
       renderChatList(); renderThread();
@@ -6550,9 +6578,10 @@ async function doSignOut(everywhere) {
     await Promise.all(pending.map((j) => requestRefund(j.statusUrl).catch(() => {})));
   } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
+  assetsAt = 0; // reset the in-memory avatar-sync clock too (see account-switch note)
   if (typeof sbMediaClear === 'function') { try { await sbMediaClear(); } catch {} } // drop stored imports
   try { await stagedDbClear(); } catch {} // staged attachments (IndexedDB) go too
   if (everywhere) await Auth.signOutEverywhere();
