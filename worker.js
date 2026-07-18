@@ -3785,6 +3785,38 @@ async function handleRequest(request, env, ctx) {
     // one HTML object; internal nav links are prefixed to the /s/<slug>/ path.
     // The published_sites row (owner + slug + routing) is upserted under the
     // caller's JWT (RLS owner-only). Republishing reuses the same slug/URL.
+    // Take a published site offline: delete its R2 objects (pages 404) but keep
+    // the ownership row + slug so re-publishing restores the same URL, and member
+    // accounts / submissions survive.
+    if (url.pathname === "/api/site/unpublish" && request.method === "POST") {
+      const uUser = await authUser(request);
+      if (!uUser) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ error: "hosting not configured" }, { status: 501 });
+      let ub; try { ub = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const uSiteId = typeof ub.siteId === "string" ? ub.siteId.slice(0, 80) : "";
+      if (!uSiteId) return Response.json({ error: "no site" }, { status: 400 });
+      const ujwt = (request.headers.get("Authorization") || "").slice(7);
+      const usb = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + ujwt, "Content-Type": "application/json" };
+      let urow = null;
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?site_id=eq.${encodeURIComponent(uSiteId)}&select=slug,pages&limit=1`, { headers: usb, signal: AbortSignal.timeout(10000) });
+        const rows = await r.json().catch(() => []);
+        urow = Array.isArray(rows) ? rows[0] : null;
+      } catch {}
+      if (!urow) return Response.json({ ok: true }); // nothing live to take down
+      try {
+        const keys = Array.isArray(urow.pages) ? urow.pages.map((p) => p && p.key).filter(Boolean) : [];
+        for (const k of keys) { try { await env.SITES_BUCKET.delete(k); } catch {} }
+      } catch {}
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/published_sites?site_id=eq.${encodeURIComponent(uSiteId)}`, {
+          method: "PATCH", headers: { ...usb, Prefer: "return=minimal" },
+          body: JSON.stringify({ pages: [], updated_at: new Date().toISOString() }),
+          signal: AbortSignal.timeout(10000),
+        });
+      } catch {}
+      return Response.json({ ok: true });
+    }
     if (url.pathname === "/api/site/publish" && request.method === "POST") {
       const pubUser = await authUser(request);
       if (!pubUser) return UNAUTHED();
@@ -3925,6 +3957,57 @@ async function handleRequest(request, env, ctx) {
         const rows = await r.json().catch(() => []);
         return Response.json({ members: Array.isArray(rows) ? rows : [] });
       } catch { return Response.json({ members: [] }); }
+    }
+
+    // Deep security scan — Opus reviews the generated site's real code and
+    // reports concrete findings. Metered through the credit ledger (charge only
+    // on a successful scan, so a failed call costs nothing).
+    if (url.pathname === "/api/site/scan" && request.method === "POST") {
+      const scUser = await authUser(request);
+      if (!scUser) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ error: "scan not configured" }, { status: 501 });
+      const tlSc = tooLargeBody(request, 2_000_000); if (tlSc) return tlSc;
+      let scb; try { scb = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const scPages = Array.isArray(scb.pages) ? scb.pages.filter((p) => p && typeof p.html === "string").slice(0, 6) : [];
+      if (!scPages.length) return Response.json({ ok: true, findings: [] });
+      const SCAN_CREDITS = 8; // ~$0.064; bounds Opus cost with the input cap below.
+      const scAuth = request.headers.get("Authorization") || "";
+      let scBal; try { scBal = await readCredits(scAuth); } catch { return Response.json({ error: "scan unavailable" }, { status: 503 }); }
+      if (!(scBal >= SCAN_CREDITS)) return Response.json({ error: "not enough credits", need: "credits" }, { status: 402 });
+      let corpus = "";
+      for (const p of scPages) {
+        corpus += "\n\n===== PAGE " + (p.name || p.path || "/") + " (" + (p.path || "/") + ") =====\n" + String(p.html).slice(0, 40000);
+        if (corpus.length > 140000) break;
+      }
+      const scanTool = {
+        name: "report_findings",
+        description: "Report security findings for the reviewed website code.",
+        input_schema: { type: "object", properties: { findings: { type: "array", items: { type: "object", properties: {
+          severity: { type: "string", enum: ["critical", "high", "medium", "low"] },
+          title: { type: "string", description: "Short issue title" },
+          detail: { type: "string", description: "What the issue is and how to fix it, in one or two sentences" },
+          page: { type: "string", description: "Which page the issue is on" },
+        }, required: ["severity", "title", "detail"] } } }, required: ["findings"] },
+      };
+      const scSystem = "You are a senior application-security engineer reviewing a single-file static website (HTML/CSS/JS) that will be hosted publicly on a shared domain. Report only REAL, concrete security issues actually present in the provided code — no style/UX/SEO advice, no hypotheticals, no false positives. Look for: DOM XSS (unescaped innerHTML/document.write/insertAdjacentHTML of dynamic or URL-derived data), forms that send data to an EXTERNAL endpoint (anything other than the same-origin /api/site/* endpoints), hardcoded secrets / API keys / tokens / passwords, insecure http:// resources (mixed content), dangerous eval()/new Function(), links with target=_blank missing rel=noopener (tabnabbing), open redirects from location = untrusted input, and any password field that posts to a non-auth endpoint. If the code is clean, return an empty findings array. Order findings by severity, most severe first.";
+      let sr;
+      try {
+        sr = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: "claude-opus-4-8", max_tokens: 3000, system: scSystem, tools: [scanTool], tool_choice: { type: "tool", name: "report_findings" }, messages: [{ role: "user", content: "Review this website for security issues:\n" + corpus }] }),
+          signal: AbortSignal.timeout(150000),
+        });
+      } catch { return Response.json({ error: "scan failed" }, { status: 502 }); }
+      if (!sr.ok) return Response.json({ error: "scan failed" }, { status: 502 });
+      const sd = await sr.json().catch(() => ({}));
+      let findings = [];
+      try {
+        const block = (sd.content || []).find((c) => c.type === "tool_use");
+        if (block && block.input && Array.isArray(block.input.findings)) findings = block.input.findings.slice(0, 40);
+      } catch {}
+      let scAfter = scBal; try { const b = await useCredits(scAuth, SCAN_CREDITS); if (b >= 0) scAfter = b; } catch {}
+      return Response.json({ ok: true, findings, cost: SCAN_CREDITS, balance: scAfter });
     }
 
     // Owner reads their published site's analytics (RPC verifies ownership).

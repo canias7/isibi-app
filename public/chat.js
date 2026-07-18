@@ -9370,7 +9370,7 @@ function moreStat(label, val) { return '<div class="st-stat"><span class="st-sta
 function siteMoreView(site) {
   const items = [['analytics', 'chart', 'Analytics'], ['cloud', 'cloud', 'Cloud'], ['security', 'shield', 'Security'], ['seo', 'search', 'SEO & AI search']];
   const nav = items.map((it) => '<button type="button" class="st-mnav' + (siteMoreTab === it[0] ? ' on' : '') + '" data-more="' + it[0] + '"><span class="st-mnav-ic">' + ic(it[1], 17) + '</span>' + it[2] + '</button>').join('');
-  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity() : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics(site);
+  const body = siteMoreTab === 'cloud' ? moreCloud(site) : siteMoreTab === 'security' ? moreSecurity(site) : siteMoreTab === 'seo' ? moreSeo(site) : moreAnalytics(site);
   return '<div class="st-more"><div class="st-mnav-col">' + nav + '</div><div class="st-more-body">' + body + '</div></div>';
 }
 function moreAnalytics(site) {
@@ -9414,24 +9414,49 @@ async function loadSiteAnalytics(site) {
 }
 function moreCloud(site) {
   const cards = [
-    ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true],
-    ['inbox', 'Submissions', 'Form entries land in your Inbox', true],
-    ['database', 'Database', 'View tables and data', false],
-    ['mail', 'Emails', 'Send branded emails from your domain', false],
-    ['key', 'Secrets', 'Securely store API keys', false],
-    ['zap', 'Edge functions', 'Server-side logic', false],
+    ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true, 'members'],
+    ['inbox', 'Submissions', 'Form entries land in your Inbox', true, 'inbox'],
+    ['database', 'Database', 'View tables and data', false, ''],
+    ['mail', 'Emails', 'Send branded emails from your domain', false, ''],
+    ['key', 'Secrets', 'Securely store API keys', false, ''],
+    ['zap', 'Edge functions', 'Server-side logic', false, ''],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
-    '<div class="st-cards">' + cards.map((c) =>
-      '<div class="st-cloudcard' + (c[3] ? ' live' : '') + '"><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>').join('') +
+    '<div class="st-cards">' + cards.map((c) => {
+      const clickable = c[3] && c[4] && site.slug;
+      return '<div class="st-cloudcard' + (c[3] ? ' live' : '') + (clickable ? ' st-clickable' : '') + '"' + (clickable ? ' role="button" tabindex="0" data-cloud="' + c[4] + '"' : '') + '><span class="st-cc-ic">' + ic(c[0], 20) + '</span><div class="st-cc-tx"><b>' + c[1] + (c[3] ? '<span class="st-badge-live">Live</span>' : '<span class="st-badge-soon">Soon</span>') + '</b><span>' + c[2] + '</span></div></div>';
+    }).join('') +
     '</div></div>';
 }
-function moreSecurity() {
+function moreSecurity(site) {
+  const can = (sitePages(site) || []).length > 0;
   return '<div class="st-panel"><div class="st-panel-head"><h3>Security</h3></div>' +
-    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Run a security scan</b><span>Surface risky configuration before you publish.</span></div><button type="button" class="st-gen2" disabled>Scan · soon</button></div>' +
+    '<div class="st-sec-hero"><span class="st-sec-ic">' + ic('shield', 22) + '</span><div class="st-cc-tx"><b>Deep security scan</b><span>Opus reviews your site’s actual code for real vulnerabilities. ~8 credits.</span></div><button type="button" class="st-publish" id="secScan"' + (can ? '' : ' disabled') + '>Run scan</button></div>' +
     '<div class="st-panel-sub">Detected issues</div>' +
-    '<div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div>' +
+    '<div id="secResults"><div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No scan has run yet</b><span>Run a scan to surface issues.</span></div></div>' +
   '</div>';
+}
+// Deep scan — send the site's code to Opus (/api/site/scan) and render findings.
+function siteSecurityScan(site) {
+  const box = document.getElementById('secResults'); if (!box) return;
+  const btn = document.getElementById('secScan'); if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  box.innerHTML = '<div class="st-sec-empty"><b>Opus is reviewing your code…</b><span>This takes a few seconds.</span></div>';
+  apiFetch('/api/site/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pages: (sitePages(site) || []).map((p) => ({ path: p.path, name: p.name, html: p.html })) }) })
+    .then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; }
+      if (r.status === 402) { box.innerHTML = '<div class="st-sec-empty"><b>Not enough credits</b><span>A deep scan needs ~8 credits. Tap your ✦ balance up top.</span></div>'; return; }
+      if (!r.ok || !d.ok) { box.innerHTML = '<div class="st-sec-empty"><b>Scan didn’t run</b><span>Try again in a moment.</span></div>'; return; }
+      const f = Array.isArray(d.findings) ? d.findings : [];
+      if (!f.length) { box.innerHTML = '<div class="st-sec-empty"><span class="st-sec-ok">' + ic('shield', 30) + '</span><b>No issues found</b><span>Opus reviewed your code and it looks clean.</span></div>'; }
+      else {
+        const order = { critical: 0, high: 1, medium: 2, low: 3 };
+        f.sort((a, b) => (order[a.severity] == null ? 9 : order[a.severity]) - (order[b.severity] == null ? 9 : order[b.severity]));
+        box.innerHTML = '<div class="st-sec-count">' + f.length + ' issue' + (f.length === 1 ? '' : 's') + ' found</div><div class="st-sec-issues">' + f.map((i) =>
+          '<div class="st-issue st-sev-' + esc(i.severity || 'low') + '"><div class="st-issue-top"><span class="st-issue-sev">' + esc(i.severity || 'low') + '</span><b>' + esc(i.title || 'Issue') + '</b>' + (i.page ? '<span class="st-issue-pg">' + esc(i.page) + '</span>' : '') + '</div><p>' + esc(i.detail || '') + '</p></div>').join('') + '</div>';
+      }
+      if (typeof fetchCredits === 'function') fetchCredits();
+    }).catch(() => { if (btn) { btn.disabled = false; btn.textContent = 'Run scan'; } box.innerHTML = '<div class="st-sec-empty"><b>Lost the connection</b><span>Try again.</span></div>'; });
 }
 function moreSeo(site) {
   return '<div class="st-panel"><div class="st-panel-head"><h3>SEO &amp; social</h3></div>' +
@@ -9464,7 +9489,7 @@ function sitePublishPanel(site) {
       ? '<div class="sp-row"><span class="sp-k">Live URL</span><a class="sp-url" href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url.replace(/^https?:\/\//, '')) + '</a></div>' +
         '<div class="sp-row"><span class="sp-k">Visibility</span><span class="sp-v sp-vis">' + ic('globe', 14) + ' Public · anyone with the link</span></div>' +
         '<div class="sp-row"><span class="sp-k">Visitors</span><span class="sp-v">0</span></div>' +
-        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share" disabled>Unpublish · soon</button></div>'
+        '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Republish</button><button type="button" class="st-share" id="spCopy">Copy link</button><button type="button" class="st-share sp-unpub" id="spUnpub">Unpublish</button></div>'
       : '<p class="sp-intro">Publish to put your site live on the web at a real link.</p>' +
         (slug ? '<div class="sp-row"><span class="sp-k">Your link</span><span class="sp-v">isibi.ai/s/' + esc(slug) + '</span></div>' : '') +
         '<div class="sp-actions"><button type="button" class="st-publish" id="spUpdate">Publish now</button></div>') +
@@ -9475,6 +9500,25 @@ function sitePublishPanel(site) {
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const up = box.querySelector('#spUpdate'); if (up) up.onclick = () => { close(); sitePublish(site); };
   const cp = box.querySelector('#spCopy'); if (cp) cp.onclick = () => { try { navigator.clipboard.writeText(url); } catch (e) {} if (typeof sbToast === 'function') sbToast('Live link copied — ' + url); };
+  const un = box.querySelector('#spUnpub'); if (un) un.onclick = () => { close(); siteUnpublish(site); };
+}
+// Take the live site offline (deletes the hosted files; keeps the identity so
+// re-publishing restores the same URL, and members/submissions survive).
+function siteUnpublish(site) {
+  const origin = site.id;
+  apiFetch('/api/site/unpublish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteId: site.id }) })
+    .then(async (r) => {
+      const d = await r.json().catch(() => ({}));
+      const s = siteById(origin); if (!s) return;
+      if (r.ok && d.ok) {
+        s.published = false; delete s.liveUrl; // keep s.slug (identity) so Republish restores the same URL
+        s.msgs.push({ r: 'a', t: '⏹ Taken offline — the live link now returns Not Found. Hit Publish to put it back up at the same URL.' });
+        if (typeof sbToast === 'function') sbToast('Site taken offline.');
+      } else {
+        s.msgs.push({ r: 'a', t: '⚠️ Couldn’t take it offline just now — try again.' });
+      }
+      sitesSave(); if (siteOpenId === origin) renderSites();
+    }).catch(() => { if (typeof sbToast === 'function') sbToast('Couldn’t take it offline — try again.'); });
 }
 // The workspace mirrors Lovable's anatomy (owner reference 2026-07-18): a top
 // bar (project name + view tabs · devices, Share, Publish), a slim chat rail,
@@ -9587,6 +9631,11 @@ function renderSiteWorkspace(view, site) {
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
+  // Cloud cards that are live open their real panels.
+  view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => { if (b.dataset.cloud === 'members') siteMembers(site); else siteInbox(site); });
+  // Deep security scan (Opus).
+  const secBtn = document.getElementById('secScan');
+  if (secBtn) secBtn.onclick = () => siteSecurityScan(site);
   // History rail toggle + restore.
   const hist = document.getElementById('stHist');
   if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
