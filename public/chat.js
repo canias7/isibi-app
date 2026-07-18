@@ -5367,11 +5367,6 @@ async function pollAndDeliver(origin, kind, statusUrl, responseUrl, text, label,
       // charged render for an hour with no message (bug 2026-07-17).
       jobBumpTries(origin); pauseGen(origin, true); return;
     }
-    // HDR + EXR runs return a pro sidecar file alongside the video — hand the
-    // link over in chat (it's a pro-pipeline file; fal links expire in days).
-    if (out.exr_file && out.exr_file.url) {
-      deliverAgent(origin, '🎞 EXR sidecar ready (pro HDR frame data): ' + out.exr_file.url + ' — download it soon, the link expires in a few days.');
-    }
     if (urls.length) {
       // Copy to permanent storage — fal URLs expire after a few days.
       setGenText(origin, urls.length > 1 ? 'Saving ' + urls.length + ' images…' : 'Saving to your gallery…');

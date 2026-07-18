@@ -2386,4 +2386,5 @@ REMAINING MINOR LEAK (not yet fixed — flag):
   a plain-text "download it soon" chat line (pro HDR frame data). It's a text
   download link, not a player src, but it still spells out the provider host.
   Lower priority (niche pro feature) but violates the same rule — proxy or drop
-  it in a later pass.
+  it in a later pass. → DONE 2026-07-18: dropped the EXR block entirely (dead
+  code since the Ray/HDR pipeline was excised — no model returns exr_file).
