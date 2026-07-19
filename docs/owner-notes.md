@@ -3108,3 +3108,22 @@ Owner-managed secrets vault — same contract as Lovable's Secrets page.
   fine a second later.)
 - Remaining Cloud "Soon": Emails, Edge functions (Edge functions = the consumer that
   reads these secrets server-side).
+
+## 2026-07-19 — Bugfix: Website-Builder site photos leaking into the Gallery
+- **Owner reported:** the Gallery showed ~6 photos they never generated (real-estate
+  houses/interiors). Investigated: NOT a leak — they were in the owner's own
+  aniascristian bucket under `media/<uid>/site/`. Root cause: the Website Builder
+  generates real photos for a site (`storeSiteImage`, Nano Banana Pro, worker.js
+  ~2241) and saves them to `media/<uid>/site/…` with the user's JWT, so they landed
+  in the same bucket the Gallery lists → surfaced as gallery cards.
+- **Owner's rule:** only media generated in the chat image/video/audio generator
+  belongs in the Gallery. Builder site images do not.
+- **Fix:** `/api/gallery` already skipped the `<uid>/chat/` subfolder; extended that
+  filter to also skip `<uid>/site/` (one predicate, worker.js ~3573). Covers every
+  consumer of the list (Gallery view + attach-from-gallery picker) since it's the
+  single source. Verified the filter against the real filenames (drops site/+chat/,
+  keeps bare `<uid>/<file>` chat generations).
+- **Left intact on purpose:** the site images stay in storage (the published site
+  references them by direct public URL — deleting them would break the live site),
+  and they still count toward the storage cap (they do occupy space). Only the
+  Gallery *display* changed. Owner just refreshes the Gallery and the 6 are gone.
