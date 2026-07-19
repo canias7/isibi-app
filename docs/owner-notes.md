@@ -358,9 +358,42 @@ and fixed, and add a preference line whenever the owner signals one.
   docs. A real send is one provider key away.
 - **Note:** this is the SITE's transactional email (owner's provider). It's
   SEPARATE from isibi's own auth emails (Go Farther via the send-email Edge
-  Function) — those are unchanged. Visitor-auth password-reset/verify emails are
-  NOT wired yet (would need the auth backend to send codes via the owner's
-  provider) — a possible future add.
+  Function) — those are unchanged. (Visitor-auth password reset now DOES ride on
+  this same owner-provider email — see the next section.)
+
+### Website builder — VISITOR PASSWORD RESET (2026-07-19)
+- **Status:** ✅ shipped to main + deployed. Owner asked for "Visitor password
+  reset." Builds on the visitor-auth backend (site_users) + the owner-provider
+  email above — a site's visitors can now reset a forgotten password by email.
+- **What:** two new backend endpoints (bring-your-own-email; no platform sender):
+  - `POST /api/site/auth/reset-request` `{slug,email}` — **ALWAYS returns
+    `{ok:true}`** (no account-enumeration: a caller can't tell if the email
+    exists). If it does, it mints a **single-use, 45-min HMAC token** bound to the
+    current password hash (`pv = sha256(password_hash).slice(0,16)`, `purpose:
+    "reset"`) and emails a link `https://isibi.ai/s/<slug>/reset?token=…` through
+    the **site owner's own** provider (`sendSiteEmailByConvention` → EMAIL_FROM +
+    RESEND/SENDGRID/POSTMARK key from the vault). Sent via `ctx.waitUntil` so the
+    response is instant. No email configured → request still succeeds silently,
+    nothing sent (bring-your-own, no fallback). Honeypot + body-size guarded.
+  - `POST /api/site/auth/reset` `{token,password}` — verifies the token
+    (purpose+expiry+signature), re-reads the user, and checks the token's `pv`
+    still equals the CURRENT hash → **single-use** (a used or superseded link is
+    dead). Sets the new hash (PBKDF2, min 8 chars) and returns a **fresh session
+    token** so the visitor lands logged-in.
+- **Email helper refactor:** pulled provider-send out of the `email` function
+  action into a shared `postProviderEmail(provider,key,from,to,subject,html)` →
+  `{ok,status}`; the action and reset both call it. `sendSiteEmailByConvention`
+  picks the provider from whichever key is in the vault.
+- **SITE_RULES:** new PASSWORD RESET paragraph teaches the generator to build (1) a
+  forgot-password form → `/api/site/auth/reset-request`, always showing the SAME
+  neutral "if that email has an account we sent a link" (no user-exists leak), and
+  (2) a real page at path **`/reset`** that reads `?token=` and POSTs to
+  `/api/site/auth/reset`, storing the returned session on success. Tells the user
+  they MUST set EMAIL_FROM + a provider key in Secrets or no link is sent.
+- **Serving:** `/s/<slug>/reset` resolves to the generated `reset.html` in R2;
+  the `?token=` query survives (pathname-only routing) and is read client-side.
+- **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
+  the Emails/Secrets cards already cover the one setup step (add email creds).
 
 ## Shipped
 
