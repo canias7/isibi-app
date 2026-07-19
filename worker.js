@@ -3568,9 +3568,12 @@ async function handleRequest(request, env, ctx) {
           return "image"; // jpg/jpeg/png/webp/gif
         };
         const items = (Array.isArray(rows) ? rows : [])
-          // Files under <uid>/chat/ were deleted from the gallery but kept for
-          // the chat message(s) that still show them — not gallery cards.
-          .filter((o) => String(o.name || "").split("/")[1] !== "chat")
+          // Skip the internal subfolders. <uid>/chat/ = files unlisted from the
+          // gallery but kept for the chat message(s) that still show them.
+          // <uid>/site/ = photos the Website Builder generated for a published
+          // site — they live in the user's bucket but are NOT their own creative
+          // generations, so they never belong in the Gallery.
+          .filter((o) => { const seg = String(o.name || "").split("/")[1]; return seg !== "chat" && seg !== "site"; })
           .map((o) => {
             const name = String(o.name || "");
             // Filenames are `<ms>-<hash>.<ext>`; the leading ms is the creation
