@@ -9160,8 +9160,9 @@ let siteAbort = null;       // AbortController for the in-flight build/revise (S
 let siteBuildMsg = '';      // live streamed build step ("Designing 3 pages…") shown while busy
 let siteBuild = null;       // { phase, pages[], done[], tick } — running build activity log
 let siteTicker = null;      // setInterval handle rotating the active "live" line
-let siteView = 'preview';   // workspace stage: preview | code | more
+let siteView = 'preview';   // workspace stage: preview | code | more | data
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
+let siteDataTable = '';     // Data panel: which table is open
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
@@ -9609,6 +9610,42 @@ async function loadSiteAnalytics(site) {
     const chart = document.getElementById('anChart'); if (chart) chart.innerHTML = '<div class="st-chart-empty">Couldn’t load analytics just now.</div>';
   }
 }
+// Phase E — the Data / Users panel: shows the rows in the site's OWN database
+// (visitor submissions, displayed content, per-user data, and the visitor accounts).
+async function loadSiteData(site) {
+  const host = document.getElementById('stData'); if (!host) return;
+  let tables = [];
+  try {
+    const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || ''));
+    const d = await r.json().catch(() => ({}));
+    if (d && d.ok && Array.isArray(d.tables)) tables = d.tables;
+  } catch (e) {}
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, label: t.name })).concat([{ name: '_users', access: 'user', label: 'Users' }]);
+  let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
+  siteDataTable = sel;
+  let rows = [], err = false;
+  if (sel) {
+    try {
+      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel));
+      const d = await r.json().catch(() => ({}));
+      if (d && d.ok && Array.isArray(d.rows)) rows = d.rows; else err = true;
+    } catch (e) { err = true; }
+  }
+  const accLabel = { collect: 'submissions', display: 'content', user: 'per-user' };
+  const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + (t.name === '_users' ? '<span class="st-data-acc">accounts</span>' : '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>') + '</button>').join('') + '</div>';
+  let main;
+  if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
+  else if (err) main = '<div class="st-empty">Nothing here yet — this fills up as people use your site.</div>';
+  else if (!rows.length) main = '<div class="st-empty">Nothing here yet. When visitors ' + (sel === '_users' ? 'sign up' : 'submit') + ', it shows up here.</div>';
+  else {
+    const cols = Object.keys(rows[0]);
+    main = '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + cols.map((c) => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
+      rows.map((row) => '<tr>' + cols.map((c) => '<td>' + esc(String(row[c] == null ? '' : row[c])).slice(0, 240) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+  }
+  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span><button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + main + '</div></div>';
+  host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; loadSiteData(site); });
+  const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
+}
 function moreCloud(site) {
   const cards = [
     ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true, 'members'],
@@ -9754,6 +9791,7 @@ function renderSiteWorkspace(view, site) {
           '<div class="st-vtabs">' +
             '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">' + ic('globe', 14) + ' Preview</button>' +
             (isReact ? '' : '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>') +
+            ((isReact && site.backend) ? '<button type="button" class="st-vtab' + (siteView === 'data' ? ' on' : '') + '" data-view="data">' + ic('grid', 14) + ' Data</button>' : '') +
             '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
           (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button>' : '') +
@@ -9803,9 +9841,11 @@ function renderSiteWorkspace(view, site) {
                   : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
               : (!isReact && siteView === 'code')
                 ? siteCodeView(site, active, pages)
-                : siteView === 'more'
-                  ? siteMoreView(site)
-                  : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
+                : (isReact && site.backend && siteView === 'data')
+                  ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
+                  : siteView === 'more'
+                    ? siteMoreView(site)
+                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
           ((hasSite && siteView === 'preview')
             ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
             : '') +
@@ -9875,6 +9915,7 @@ function renderSiteWorkspace(view, site) {
   // More sub-nav (Analytics / Cloud / Security / SEO).
   view.querySelectorAll('[data-more]').forEach((b) => b.onclick = () => { siteMoreTab = b.dataset.more; renderSites(); });
   if (siteView === 'more' && siteMoreTab === 'analytics' && site.slug) loadSiteAnalytics(site);
+  if (isReact && site.backend && siteView === 'data') loadSiteData(site);
   // Cloud cards that are live open their real panels.
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
     if (b.dataset.cloud === 'members') siteMembers(site);
@@ -10087,6 +10128,7 @@ function reactSend(site, t, origin, mode, imgs, finish) {
       const s = siteById(origin);
       if (s) {
         s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
+        if (d.backend) s.backend = true; // this site now has its own database
         if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
         if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'App', html: '' }];
         s.active = '/'; delete s.html;
