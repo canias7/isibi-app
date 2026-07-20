@@ -9159,6 +9159,7 @@ let siteBusy = false;       // a build/revision is "running" (sample: brief dela
 let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
+let siteRailHidden = false; // collapse the chat rail to give the preview full width
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
@@ -9709,10 +9710,11 @@ function renderSiteWorkspace(view, site) {
         '</div></div>'
     : '<span class="st-tb-page">Homepage</span>';
   view.innerHTML =
-    '<div class="st-ws st-lv">' +
+    '<div class="st-ws st-lv' + (siteRailHidden ? ' st-rail-hidden' : '') + '">' +
       '<div class="st-topbar">' +
         '<div class="st-tb-left">' +
           '<button type="button" class="st-icon" id="stBack" title="Your sites" aria-label="Back to your sites">' + ic('back', 18) + '</button>' +
+          '<button type="button" class="st-icon' + (siteRailHidden ? '' : ' on') + '" id="stRailToggle" title="' + (siteRailHidden ? 'Show chat' : 'Hide chat') + '" aria-label="Hide or show the chat panel"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="9" y1="4" x2="9" y2="20"/></svg></button>' +
           '<div class="st-tb-names">' +
             '<span class="st-ws-name" title="' + esc(site.name) + '">' + esc(site.name) + '</span>' +
             '<span class="st-ws-sub">' + (hasSite ? (pages.length > 1 ? pages.length + ' pages' : 'Previewing last saved version') : 'New project') + '</span>' +
@@ -9837,6 +9839,16 @@ function renderSiteWorkspace(view, site) {
   // History rail toggle + restore.
   const hist = document.getElementById('stHist');
   if (hist) hist.onclick = () => { siteRail = siteRail === 'history' ? 'chat' : 'history'; renderSites(); };
+  // Collapse/expand the chat rail WITHOUT re-rendering — so the preview iframe
+  // never reloads and any half-typed message survives.
+  const railTog = document.getElementById('stRailToggle');
+  if (railTog) railTog.onclick = () => {
+    siteRailHidden = !siteRailHidden;
+    const ws = view.querySelector('.st-ws');
+    if (ws) ws.classList.toggle('st-rail-hidden', siteRailHidden);
+    railTog.classList.toggle('on', !siteRailHidden);
+    railTog.title = siteRailHidden ? 'Show chat' : 'Hide chat';
+  };
   view.querySelectorAll('[data-restore]').forEach((b) => b.onclick = () => siteRestore(siteOpenId, +b.dataset.restore));
   // "Try to fix" error card.
   const errFix = document.getElementById('stErrFix');
