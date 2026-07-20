@@ -317,8 +317,28 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   sites (no D1) get their R2 cleaned. Called in the delete-account flow BEFORE the
   account is removed (best-effort, never blocks the delete).
 
-Bugs found by testing so far this session: normalizeSchema (shape drift) + the
-feed gap. Both fixed + live-verified. Test accounts/sites all deleted.
+- **Cross-user isolation audit (2026-07-20) — data was safe, responses lied.**
+  Hammered `feed` + `user` modes with two site-visitors (Alice/Bob). Every read
+  and write is correctly scoped `WHERE id=? AND owner_id=?`, so Bob could never
+  read/edit/delete Alice's rows — **no leak, no breach.** BUT a wrong-owner (or
+  already-gone) PATCH/DELETE still returned `{ok:true}`/200 because the SQL
+  succeeded with 0 rows changed. A generated app checks `res.ok` to update its UI,
+  so it would show "Saved"/"Deleted" falsely. **FIXED:** new `cfD1Exec` reads D1's
+  rows-changed count; scoped writes now 404 `{ok:false,"not found"}` on 0 changes,
+  and a `user` GET-by-id that matches nothing 404s instead of `{ok:true,row:null}`.
+  Re-verified: 20/20 cross-user checks pass. (PR #467)
+- **Schema-merge bug (2026-07-20) — a revise could break existing tables.**
+  `applySiteSchema` wrote the current call's tables as the WHOLE `_meta.schema`.
+  A revise that re-emits a schema with only the new/changed table would overwrite
+  it, stripping pre-existing tables from the data API's allow-list — their data
+  still existed (`CREATE TABLE IF NOT EXISTS` never drops it) but the API 404'd
+  them as "unknown table", silently breaking a live app's existing forms/feeds.
+  **FIXED:** applied tables now MERGE into the persisted schema (re-declared wins,
+  untouched preserved); a revise can't strip a table's access. (PR #468)
+
+Bugs found by testing this session: normalizeSchema (shape drift), the feed gap,
+the misleading scoped-write response (#467), and the schema-overwrite-on-revise
+(#468). All fixed + live-verified. Test accounts/sites all deleted.
 
 ---
 
