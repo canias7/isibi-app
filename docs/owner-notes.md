@@ -122,6 +122,37 @@ sites (little-squeeze/ember/el-fuego) from throwaways — harmless, unlinked.
 
 ---
 
+## 2026-07-20 — Per-site backends: the two-layer decision + Phase A (D1 plumbing)
+
+Owner's direction for giving built sites their own backend (like Lovable):
+- **Layer 1 = isibi's OWN login** (people who log in to build sites) → **stays on
+  Supabase, no Clerk.** Untouched. (Clerk was considered + priced — good for L1
+  someday, but a bad fit for L2: it'd mix all sites' visitors into one pool or cost
+  per-visitor across every built site. Rejected for L2.)
+- **Layer 2 = each BUILT site's own backend** (its visitors' logins + its data) →
+  **its own Cloudflare D1 database per site.** No Clerk; we build the site auth on
+  standard primitives (WebCrypto).
+
+**Why D1, confirmed from CF docs:** included in the $5 Workers Paid plan we already
+have — 25B row reads / 50M writes / 5GB storage per MONTH included, then pennies.
+**No per-database fee**; **50,000 databases/account** on Paid (raisable), 10GB each.
+So "one DB per site" is ~$0 until real scale. KEY point the owner needed: it's **one
+Cloudflare account + one Worker + many databases** — NOT a separate CF project per
+site. Separate *databases* already give hard isolation (site A's queries can't reach
+site B's DB); you don't need separate projects for that.
+
+**Phase A shipped (plumbing):** `site_backends` table (slug→D1 uuid, RLS own-read,
+cascades on account delete) + Worker `cfD1Create`/`cfD1Query`(by uuid)/
+`ensureSiteBackend` + test endpoint `POST /api/site/backend/ensure`. Two new Worker
+secrets wired in deploy.yml: `CF_ACCOUNT_ID` (reuses `CLOUDFLARE_ACCOUNT_ID`) +
+`CF_D1_API_TOKEN` (owner created a Custom token, Account·D1·Edit, 2026-07-20).
+
+**Build order (each testable):** A plumbing ✅ · B schema (AI declares tables) ·
+C built-site auth (signup/login/me, users in the site's own DB) · D data read/write
+(access-controlled) · E builder UI (Data/Users panel). All D1, $0 until scale.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
