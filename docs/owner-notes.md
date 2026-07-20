@@ -3490,3 +3490,15 @@ whole token budget → finishReason MAX_TOKENS with no visible text).
   the code shown to the owner.
 - Net effect: transient empties/rate-blips now self-heal; a genuine failure shows
   an honest code. Regression E2E 15/15.
+
+## 2026-07-20 — Builder: model fallback when gemini-3.5-flash is overloaded (503)
+The honest error codes (prev fix) revealed the real failure: **code 503** —
+Google's `gemini-3.5-flash` was overloaded/unavailable on their side (not quota,
+not our bug), and it persisted through the in-model retries.
+- **Fix:** geminiCall now keeps a stable fallback (`GEMINI_FALLBACK =
+  gemini-2.5-flash`). On a 503/500 from the primary, it switches to the fallback
+  model for the remaining retry attempts — so a capacity blip on one model no
+  longer kills the build. 429 (rate) still just retries on the primary.
+- Both are cheap Flash models; the credit metering padding covers the small
+  price difference on the rare fallback path.
+- Regression E2E 15/15.
