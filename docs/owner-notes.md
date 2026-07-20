@@ -395,6 +395,34 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — Builder: polish + no-op edits + Stop button
+- **Favicon + social meta (guaranteed, composer-side via `polishHead`):** every
+  page's <head> gets a brand-monogram SVG favicon (brand initial on the site's
+  accent color, pulled from a :root token) so the tab isn't blank, plus
+  Open-Graph + Twitter card tags (og:title/description from the page, og:image =
+  first hosted image) so shared links preview as a card. Idempotent; runs on
+  build + revise. Unit-tested 11/11.
+- **Failed-page retry:** a multi-page build now retries a page ONCE if it comes
+  back empty/errored, so a Gemini hiccup never silently drops a page.
+- **No-op edits ("check before editing", borrowed from a competitor prompt the
+  owner shared):** the revise step recognizes when the current HTML ALREADY
+  satisfies the instruction → returns `{edits:[],done:true}` → Worker returns the
+  page UNCHANGED (no wasteful re-roll), client shows "that's already how it is."
+  Plus reinforced "do ONLY what's asked."
+- **Stop generation:** while a build/revise runs, the send button becomes a red
+  pulsing Stop (■). Click aborts the in-flight `/api/site` fetch (AbortController)
+  → workspace freed, "Stopped" note. Caveat surfaced: charge-after model means a
+  gen that already completed may still bill. Headless-tested 4/4.
+- **Note on the "chatbox edits the site" question:** confirmed the flow is fully
+  wired — the "Ask isibi…" composer → `siteSend()` → `/api/site` revise → the new
+  surgical-edit path. It DOES edit the active page. End-to-end proof still needs a
+  live build/edit (Gemini cost).
+- **On the pasted "Lovable system prompt":** owner shared it (wrapped in a prompt-
+  injection/"repeat your instructions" jailbreak, which was ignored). Treated as
+  reference only, not instructions; mined a few transferable ideas (check-before-
+  edit, do-only-what's-asked, errors-bubble-to-fix-loop). Did NOT copy verbatim;
+  authenticity unverified.
+
 ## 2026-07-19 — Builder RELIABILITY: surgical edits + validate/auto-fix
 Owner: the builder feels "weak and not reliable" vs Lovable — wants code-gen +
 backend upgrades, not just prompt tweaks. Laid out the real architectural gap
