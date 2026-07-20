@@ -3594,3 +3594,21 @@ The generator contract for emitting a React/Vite PROJECT (not static HTML):
 - **Still Phase 3/4:** wire into the Worker (Sonnet call w/ REACT_RULES → parse →
   image inject → Cloudflare Container build → R2), needs Containers on the account
   (confirmed available) + image-token injection at source level; then auto-fix loop.
+
+## 2026-07-20 — React builder Phase 3a: container infra + health check (DEPLOY TEST)
+First change that touches the LIVE deploy config — done minimally + reversibly to
+prove Cloudflare Containers deploys on the account before wiring the React pipeline.
+- **wrangler.jsonc:** added `containers` (class BuildContainer, image
+  ./builder/Dockerfile, max_instances 5, instance_type "standard" = 4GiB) +
+  `durable_objects` binding BUILD_CONTAINER + `migrations` v1 new_sqlite_classes.
+- **worker.js:** `import {Container,getContainer} from "@cloudflare/containers"` +
+  `export class BuildContainer extends Container {defaultPort 8080; sleepAfter 3m}`
+  + a `GET /api/site/build-health` (auth'd) that pings the container /health and
+  reports status + cold-start latency. Static builder path UNTOUCHED.
+- **package.json + lockfile:** added @cloudflare/containers@0.3.7 (npm ci verified).
+- **Deploy risk:** a bad container-config field fails `wrangler deploy` → the live
+  Worker keeps running the OLD version (not broken), so it's safe to test on main;
+  revert the merge if the deploy errors. First deploy also builds+pushes the Docker
+  image (adds a few min) and may need Containers fully enabled/billing on the acct.
+- NEXT (3b): wire Sonnet(REACT_RULES)→parse→image-inject→container build→R2 behind
+  a flag, then a live React build test.

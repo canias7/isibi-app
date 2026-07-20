@@ -2,6 +2,16 @@
 // instantiates the wasm synchronously on import, so the functions are ready to
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
+import { Container, getContainer } from "@cloudflare/containers";
+
+// React-builder build-service container (Phase 3). Runs the build-server.mjs
+// image (Node + Vite + pinned deps); the Worker POSTs generated project files to
+// its /build and gets back the compiled static dist. Sleeps after idle to scale
+// to zero. Configured in wrangler.jsonc (containers + BUILD_CONTAINER binding).
+export class BuildContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "3m";
+}
 
 const VIDEO_MODELS = new Set([
   "bytedance/seedance-2.0/text-to-video",
@@ -4153,6 +4163,24 @@ async function handleRequest(request, env, ctx) {
     // requirements are folded into the Gemini prompts.) Charged up front through
     // use_credits exactly like /api/direct; every terminal failure refunds the
     // full fee via credit_back (looped — that RPC caps 10 credits per call).
+    // Phase-3 smoke test: prove the build-service container deploys + responds on
+    // this account before wiring the full React pipeline onto it. Auth'd; hits the
+    // container's /health and reports status + cold-start latency. Safe: touches
+    // nothing in the live static builder.
+    if (url.pathname === "/api/site/build-health" && request.method === "GET") {
+      const bhUser = await authUser(request);
+      if (!bhUser) return UNAUTHED();
+      if (!env.BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
+      const t0 = Date.now();
+      try {
+        const c = getContainer(env.BUILD_CONTAINER);
+        const r = await c.fetch(new Request("http://build/health", { method: "GET" }));
+        const body = await r.text();
+        return Response.json({ ok: r.ok, status: r.status, body: body.slice(0, 100), ms: Date.now() - t0 });
+      } catch (e) {
+        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
     if (url.pathname === "/api/site" && request.method === "POST") {
       // Builder engine = Claude Sonnet 5 (owner's call 2026-07-20, replacing
       // Gemini Flash): the same model class Lovable runs on — much stronger design
