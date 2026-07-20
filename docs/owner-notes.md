@@ -414,10 +414,24 @@ of truth) and started on the two highest-leverage fixes.
   the fix's tokens are billed + the fixed page is what ships). Wired into build
   (per page, validPaths from the plan) + revise (paths sent by the client).
   Clean pages skip it → no extra cost. Validator unit-tested 7/7.
-- **Still on the reliability roadmap (not built yet):** #3 shared chrome as ONE
-  source of truth (nav/footer/tokens composed at publish, not re-described per
-  page); #4 stronger model / two-pass (engine is Gemini Flash); #5 typed per-site
-  DB tables. #1+#2 fit the current single-file architecture with no rewrite.
+- **#3 Shared chrome (one source of truth) — SHIPPED:** the plan now emits the
+  shared HEAD (fonts + :root tokens + all shared CSS), NAV, and FOOTER once as
+  real code. In COMPOSED mode each page generates only its `<main>`; the Worker
+  assembles head+nav+main+footer, so header/footer/palette/fonts are
+  BYTE-IDENTICAL on every page (consistency by construction, like a shared
+  `<Header>` component) and pages are cheaper (no re-emitting chrome). Active nav
+  link marked per-page via `aria-current="page"` so the nav markup never varies.
+  `stripToMain()` defends against a page returning a stray full doc. Falls back to
+  full-page generation if the plan doesn't yield a usable kit. DESIGN_BAR split
+  into DESIGN_DIRECTOR (aesthetics) + SITE_RULES so composed pages skip the
+  single-document mandate. Composition unit-tested 9/9 (head/footer identical,
+  nav identical minus active marker, fragment + stray-full-doc extraction).
+- **Still on the roadmap:** #4 stronger model / two-pass (engine is Gemini Flash);
+  #5 typed per-site DB tables.
+- **All three (surgical + validate + shared-chrome) are DEPLOYED but the
+  AI-dependent behavior is NOT yet observed on a live build** — deterministic
+  logic is unit-tested; a real build/edit (Gemini + fal cost) is needed to confirm
+  the model produces a good kit + main fragments + edit patches end-to-end.
 - **Verification pending:** end-to-end needs a real build/revise (Gemini + fal =
   real API cost). Deterministic logic is unit-tested; a live rebuild will confirm
   the whole new pipeline (brand pin + surgical + validate + image rules).
