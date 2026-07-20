@@ -2029,6 +2029,21 @@ async function sendSiteEmailByConvention(env, ownerId, slug, to, subject, html) 
   if (!provider || !key) return false;
   return (await postProviderEmail(provider, key, from, to, subject, html)).ok;
 }
+// Send a PLATFORM email (from isibi itself) through Go Farther — used by features
+// that aren't the site owner's own provider, e.g. built-app password resets.
+// No-ops (returns false) if GO_FARTHER_API_KEY isn't configured on the Worker.
+async function sendPlatformEmail(env, to, subject, html) {
+  if (!env.GO_FARTHER_API_KEY) return false;
+  try {
+    const r = await fetch("https://lkpfeqrelvziltfwpuxi.supabase.co/functions/v1/mailer", {
+      method: "POST",
+      headers: { Authorization: "Bearer " + env.GO_FARTHER_API_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send", from: env.EMAIL_FROM || "isibi <login@isibi.ai>", to, subject, html }),
+      signal: AbortSignal.timeout(10000),
+    });
+    return r.ok;
+  } catch { return false; }
+}
 // Run one declared function against the live primitives. Every path is bounded
 // (≤8 steps, ≤2 fetches already enforced in the spec, 8s per network op, 32KB
 // response reads) and external fetches go through safeFetch (SSRF-guarded).
@@ -2769,6 +2784,59 @@ async function handleRequest(request, env, ctx) {
     // /demo-hero*; the marketing /mkt/demo* cascade is a different path, stays live.
     if (/^\/demo-hero(-\d+)?(\/|$)/i.test(url.pathname)) {
       return new Response("Not found", { status: 404 });
+    }
+
+    // Platform-hosted password-reset page for built-site visitors. The reset email
+    // links here (?slug=&token=); the built React app never needs its own /reset
+    // route. Self-contained, no external resources; posts to the reset endpoint.
+    if (url.pathname === "/reset" && request.method === "GET") {
+      const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Reset your password</title><style>
+        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
+        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem}
+        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
+        h1{font-size:1.35rem;margin-bottom:.4rem}p.sub{color:var(--muted);font-size:.9rem;margin-bottom:1.4rem;line-height:1.5}
+        label{display:block;font-size:.78rem;color:var(--muted);margin:.9rem 0 .35rem}
+        input{width:100%;background:#0a0910;border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem;color:var(--text);font-size:.95rem}
+        input:focus{outline:none;border-color:#ff79c6}
+        button{width:100%;margin-top:1.3rem;padding:.8rem;border:0;border-radius:10px;background:var(--split);color:#0b0a10;font-weight:700;font-size:.95rem;cursor:pointer}
+        button:disabled{opacity:.6;cursor:default}
+        .msg{margin-top:1rem;font-size:.86rem;line-height:1.5;display:none}.msg.err{color:#ff8a8a;display:block}.msg.ok{color:#8fe6b0;display:block}
+        a.back{color:#ffb84d;text-decoration:none}
+      </style></head><body><div class="card">
+        <h1>Reset your password</h1>
+        <p class="sub" id="sub">Choose a new password for your account.</p>
+        <form id="f" autocomplete="off">
+          <label for="p1">New password</label><input id="p1" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters">
+          <label for="p2">Confirm password</label><input id="p2" type="password" minlength="8" required autocomplete="new-password" placeholder="Type it again">
+          <button id="btn" type="submit">Set new password</button>
+        </form>
+        <div class="msg" id="msg"></div>
+      </div><script>
+        (function(){
+          var q=new URLSearchParams(location.search), slug=(q.get('slug')||'').replace(/[^a-z0-9-]/gi,''), token=q.get('token')||'';
+          var f=document.getElementById('f'), msg=document.getElementById('msg'), btn=document.getElementById('btn'), sub=document.getElementById('sub');
+          function show(t,cls){msg.textContent=t;msg.className='msg '+cls;}
+          if(!slug||!token){f.style.display='none';sub.style.display='none';show('This reset link is invalid. Please request a new one from the app.','err');return;}
+          f.addEventListener('submit',function(e){
+            e.preventDefault();
+            var p1=document.getElementById('p1').value, p2=document.getElementById('p2').value;
+            if(p1.length<8){show('Password must be at least 8 characters.','err');return;}
+            if(p1!==p2){show('Those passwords don\\u2019t match.','err');return;}
+            btn.disabled=true;show('','');
+            fetch('/api/db/'+slug+'/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:token,password:p1})})
+              .then(function(r){return r.json().catch(function(){return {ok:false,error:'Something went wrong.'};});})
+              .then(function(d){
+                if(d&&d.ok){
+                  try{localStorage.setItem('zephyr_site_auth_'+slug,d.token);}catch(_){}
+                  f.style.display='none';
+                  show('Your password has been reset. You can now sign in.  ','ok');
+                  var a=document.createElement('a');a.className='back';a.href='/s/'+slug+'/';a.textContent='Go to the app \\u2192';msg.appendChild(a);
+                }else{btn.disabled=false;show((d&&d.error)||'This reset link is invalid or has expired.','err');}
+              }).catch(function(){btn.disabled=false;show('Couldn\\u2019t reach the server. Try again.','err');});
+          });
+        })();
+      </script></body></html>`;
+      return new Response(page, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
     }
 
     // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
@@ -4740,6 +4808,77 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
+        }
+      }
+    }
+    // Built-site password reset — step 1: request a link. ALWAYS returns ok (never
+    // reveals whether the email has an account). Emails a single-use, 45-min link
+    // through the platform sender (Go Farther); no-ops silently if email isn't
+    // configured. The token is bound to the current password hash → once used (or
+    // the password changes) it's dead.
+    {
+      const rm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/reset-request$/i);
+      if (rm && request.method === "POST") {
+        const okResp = () => Response.json({ ok: true });
+        const slug = rm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return okResp();
+        let body; try { body = await request.json(); } catch { return okResp(); }
+        if (body && (body._hp || body.hp)) return okResp(); // honeypot
+        const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return okResp();
+        try {
+          const uuid = await siteBackendBySlug(env, slug);
+          if (!uuid) return okResp();
+          const secret = await initSiteAuth(env, uuid);
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_hash FROM _users WHERE email=?", [email]);
+          const u = rows[0];
+          if (u) {
+            const now = Math.floor(Date.now() / 1000);
+            const pv = (await sha256hex(u.pass_hash || "")).slice(0, 16); // single-use binding
+            const token = await signSiteUserToken(secret, { sub: u.id, slug, email, purpose: "reset", pv, iat: now, exp: now + 45 * 60 });
+            const link = "https://isibi.ai/reset?slug=" + encodeURIComponent(slug) + "&token=" + encodeURIComponent(token);
+            const html = "<p>We got a request to reset your password. Click below to choose a new one — this link expires in 45 minutes:</p>" +
+              "<p><a href=\"" + link + "\">Reset your password</a></p>" +
+              "<p>If you didn't request this, you can safely ignore this email.</p>";
+            const send = sendPlatformEmail(env, email, "Reset your password", html);
+            if (ctx && ctx.waitUntil) ctx.waitUntil(send); else { try { await send; } catch {} }
+          }
+        } catch (e) { console.error("site reset-request failed:", e && e.message); }
+        return okResp();
+      }
+    }
+    // Built-site password reset — step 2: set a new password with the token.
+    {
+      const rm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/reset$/i);
+      if (rm && request.method === "POST") {
+        const slug = rm[1].toLowerCase();
+        const fail = (error, code) => Response.json({ ok: false, error }, { status: code || 400 });
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return fail("Reset is unavailable right now.", 503);
+        let body; try { body = await request.json(); } catch { return fail("Bad request."); }
+        const token = typeof body.token === "string" ? body.token : "";
+        const password = String(body.password || "");
+        if (password.length < 8) return fail("Password must be at least 8 characters.");
+        if (password.length > 200) return fail("Password is too long.");
+        try {
+          const uuid = await siteBackendBySlug(env, slug);
+          if (!uuid) return fail("This reset link is invalid or has expired. Request a new one.");
+          const secret = await initSiteAuth(env, uuid);
+          const p = await verifySiteUserToken(secret, token);
+          if (!p || p.purpose !== "reset" || p.slug !== slug || !p.sub) return fail("This reset link is invalid or has expired. Request a new one.");
+          const rows = await cfD1Query(env, uuid, "SELECT id,email,pass_hash FROM _users WHERE id=?", [p.sub]);
+          const u = rows[0];
+          if (!u) return fail("This reset link is invalid or has expired. Request a new one.");
+          // Single-use: the token's pv must still match the CURRENT hash.
+          const pv = (await sha256hex(u.pass_hash || "")).slice(0, 16);
+          if (pv !== p.pv) return fail("This reset link has already been used. Request a new one.");
+          const { salt, hash } = await hashPassword(password);
+          await cfD1Query(env, uuid, "UPDATE _users SET pass_salt=?, pass_hash=?, failed=0, locked_until=NULL WHERE id=?", [salt, hash, u.id]);
+          const now = Math.floor(Date.now() / 1000);
+          const session = await signSiteUserToken(secret, { sub: u.id, slug, email: u.email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+          return Response.json({ ok: true, token: session, user: { id: u.id, email: u.email } });
+        } catch (e) {
+          console.error("site reset failed:", e && e.message, e && e.detail);
+          return fail("Couldn't reset your password. Please try again.", 502);
         }
       }
     }
