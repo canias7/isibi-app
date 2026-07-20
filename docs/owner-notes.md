@@ -3127,3 +3127,37 @@ Owner-managed secrets vault — same contract as Lovable's Secrets page.
   references them by direct public URL — deleting them would break the live site),
   and they still count toward the storage cap (they do occupy space). Only the
   Gallery *display* changed. Owner just refreshes the Gallery and the 6 are gone.
+
+## 2026-07-19 — Full Website-Builder test sweep (backend + frontend)
+Owner asked to "run tests on the website builder, front end and backend." Ran a
+live integration sweep against isibi.ai + a headless frontend smoke test.
+- **Backend 48/48** (throwaway isibi user + published site + 2 seeded fns, all
+  torn down): serving (`/s/<slug>`, `/reset`, `?token` survives, 404); visitor
+  auth (signup/dup-block/login/wrong-pw/`/me`/bad-token 401); password reset
+  (always-ok/no-enum, garbage+short-pw rejected); forms (stored, honeypot dropped,
+  owner inbox); database (save+read, honeypot dropped, **query engine**
+  where/sort/limit/total/free-text all correct); edge functions (`/fn` runs +
+  save-step persists, unknown 404, **webhook runs**, **stripe-verify w/o signature
+  → 400**); uploads (PNG stored+serves, SVG→415, no-slug→400, owner list); secrets
+  (store/list-names-only/**plaintext never returned**); owner reads
+  (members/analytics/gallery); **auth guards** (all owner endpoints 401 w/o JWT).
+  Also incidentally verified unpublish (site → 404) during teardown.
+- **Frontend 12/12** (headless, session injected, served locally): boots with
+  **zero uncaught JS errors**; all 8 Cloud fns defined+wired
+  (siteFunctions/Files/Emails/Payments/Secrets/Members + showView/renderGallery);
+  Payments + Emails guide modals render correctly (screenshotted). Modals guard
+  correctly when no site is open (sbToast, no throw).
+- **No product bugs found.** Red marks during the run were all test-harness bugs
+  (wrong field name, doubled data on re-runs, modal called without its `site` arg).
+- **Round 2 — security/guard sweep, 12/12** (public endpoints, seeded site torn
+  down): **SSRF guard verified live** — edge-function `fetch` to cloud-metadata
+  `169.254.169.254` and to `127.0.0.1` both BLOCKED (safeFetch → null → step
+  status 0, target never hit); public HTTPS host reachable. Checkout w/o STRIPE_KEY
+  refuses (no stripe url, error surfaced); email w/o RESEND_KEY doesn't send. **All
+  query operators** correct: `in` (comma-separated), `ne`, `contains`, range
+  (`gte`+`lte`), `sort`, `limit`+`offset` paging, `total`. Unknown fn → 404,
+  malformed numeric filter doesn't crash. Rate limiter (120/min/slug) is
+  per-isolate best-effort — not trippable reliably from outside (CF spreads the
+  burst); code verified in review.
+- **Not run (costs money, pending owner OK):** the 3 paid AI paths — site
+  generation (Gemini), security scan (Opus), builder image-gen (fal).
