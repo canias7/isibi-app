@@ -407,9 +407,27 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
 - **PLATFORM STACK — building out the layers every app needs (2026-07-20).** Model:
   the platform provides each backend layer as a ready primitive; the AI declares/
   wires it and the platform provisions+serves it (same as the DB does). Status:
-  DB ✅ · Auth+reset ✅ · **Files ✅ (NEW #484)** · Server functions/secrets ❌ ·
-  Email(app-level) ❌ · Payments ❌ — the last three exist for OLD static sites but
-  aren't ported to React yet (like the Cloud panel was).
+  DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
+  → this also delivers Payments + Email for React apps** (via a checkout/email
+  function step + a secret). Custom domains + realtime still open.
+  · **Functions + Secrets (#486) — the big one, VERIFIED live end-to-end.** The
+    runtime (`/api/site/fn`), webhook, scheduler, step interpreter, secrets vault +
+    encryption already existed for static sites, and the runtime resolves via
+    `site_functions` by slug (no published_sites coupling) → already React-ready.
+    Added: secrets POST accepts React sites (ownership via sitesrc uid, stored
+    published_site_id=null); build-time provisioning (`parseFunctionSpecs` pulls
+    `isibi.functions.json`, `persistSiteFunctions` writes it — done event reports
+    `functions:N`); a functions+secrets BACKEND_RULES section (fetch/email/checkout/
+    respond steps, `{{secret.NAME}}` server-side); Secrets + Edge-functions Cloud
+    cards go Live for React; delete wipes site_secrets + site_functions.
+    **Proof:** Haiku-built "Northwind contact → Slack via webhook" app declared a
+    real `send-slack-message` fn (fetch `{{secret.SLACK_WEBHOOK}}` + templated
+    input), provisioned `functions:1`, published_site_id=null. Live: owner added the
+    secret (listed by name only, value never returned) → fn ran {ok:true}. Then a
+    deterministic echo fn PROVED server-side secret injection — a known secret value
+    appeared in the outbound request to httpbin, never in the browser. Delete cleaned
+    up fns+secrets (0 left). So React apps can now do 3rd-party integrations,
+    payments (Stripe checkout step), and email — keys stay server-side.
   · **Files (#484):** the upload primitive (endpoint + R2 + `/u/<slug>/<file>`
     serving + owner file mgmt + delete-on-wipe) already existed for static sites;
     only blocker was `/api/site/upload` requiring a `published_sites` row React
