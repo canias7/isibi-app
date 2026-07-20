@@ -44,7 +44,6 @@ jobs:
             COMPOSIO_API_KEY
             CF_ACCOUNT_ID
             CF_D1_API_TOKEN
-            GO_FARTHER_API_KEY
         env:
           FAL_KEY: ${{ secrets.FAL_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -60,6 +59,9 @@ jobs:
           # account secret; CF_D1_API_TOKEN is a dedicated token scoped to D1:Edit.
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_D1_API_TOKEN: ${{ secrets.CF_D1_API_TOKEN }}
-          # Platform email sender (Go Farther) — used for built-app visitor password
-          # resets. Same key already used by the Supabase send-email Edge Function.
-          GO_FARTHER_API_KEY: ${{ secrets.GO_FARTHER_API_KEY }}
+          # PENDING: built-app visitor password-reset emails send through Go Farther.
+          # To enable, add a GitHub Actions secret GO_FARTHER_API_KEY (the same
+          # gf_live_… key used by the Supabase send-email function), then add
+          # `GO_FARTHER_API_KEY` back to the `secrets:` list above AND uncomment the
+          # env line below. Until then the reset endpoints work but no email is sent.
+          # GO_FARTHER_API_KEY: ${{ secrets.GO_FARTHER_API_KEY }}
