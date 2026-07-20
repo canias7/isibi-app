@@ -9163,6 +9163,7 @@ let siteTicker = null;      // setInterval handle rotating the active "live" lin
 let siteView = 'preview';   // workspace stage: preview | code | more | data
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteDataTable = '';     // Data panel: which table is open
+let siteDataForm = null;    // Data panel: the add/edit row form ({editId, values}) when open
 let siteRail = 'chat';      // left rail: chat | history
 let siteRailHidden = false; // collapse the chat rail to give the preview full width
 let siteErr = null;         // { chatId } → show the "Try to fix" card over the preview
@@ -9628,9 +9629,12 @@ async function loadSiteData(site) {
     const d = await r.json().catch(() => ({}));
     if (d && d.ok && Array.isArray(d.tables)) tables = d.tables;
   } catch (e) {}
-  const tabs = tables.map((t) => ({ name: t.name, access: t.access, label: t.name })).concat([{ name: '_users', access: 'user', label: 'Users' }]);
+  const tabs = tables.map((t) => ({ name: t.name, access: t.access, columns: t.columns || [], label: t.name })).concat([{ name: '_users', access: 'user', columns: [], label: 'Users' }]);
   let sel = (siteDataTable && tabs.some((t) => t.name === siteDataTable)) ? siteDataTable : (tabs[0] && tabs[0].name);
   siteDataTable = sel;
+  const selTab = tabs.find((t) => t.name === sel) || { columns: [] };
+  const editable = !!sel && sel !== '_users'; // owner can manage declared tables, not visitor accounts
+  const cols = (selTab.columns || []).map((c) => (typeof c === 'string' ? c : c && c.name)).filter(Boolean);
   let rows = [], err = false;
   if (sel) {
     try {
@@ -9641,18 +9645,40 @@ async function loadSiteData(site) {
   }
   const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed' };
   const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + (t.name === '_users' ? '<span class="st-data-acc">accounts</span>' : '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>') + '</button>').join('') + '</div>';
+  // Add / edit form (owner content editor) — a field per declared column.
+  let formHtml = '';
+  if (editable && siteDataForm) {
+    const v = siteDataForm.values || {};
+    formHtml = '<div class="st-data-form"><div class="st-data-form-fields">' + cols.map((c) => '<label class="st-data-field"><span>' + esc(c) + '</span><input class="st-data-in" data-col="' + esc(c) + '" value="' + esc(v[c] == null ? '' : String(v[c])) + '"></label>').join('') + '</div>' +
+      '<div class="st-data-form-actions"><button type="button" class="st-data-save" id="stDataSave">' + (siteDataForm.editId ? 'Save changes' : 'Add row') + '</button><button type="button" class="st-data-cancel" id="stDataCancel">Cancel</button></div></div>';
+  }
   let main;
   if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
-  else if (err) main = '<div class="st-empty">Nothing here yet — this fills up as people use your site.</div>';
-  else if (!rows.length) main = '<div class="st-empty">Nothing here yet. When visitors ' + (sel === '_users' ? 'sign up' : 'submit') + ', it shows up here.</div>';
+  else if (err) main = '<div class="st-empty">Couldn’t load this table just now.</div>';
+  else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (editable ? ' Use “+ Add” to put in your first row.' : ' When visitors ' + (sel === '_users' ? 'sign up' : 'submit') + ', it shows up here.') + '</div>';
   else {
-    const cols = Object.keys(rows[0]);
-    main = '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + cols.map((c) => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
-      rows.map((row) => '<tr>' + cols.map((c) => '<td>' + esc(String(row[c] == null ? '' : row[c])).slice(0, 240) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+    const displayCols = rows.length ? Object.keys(rows[0]) : cols;
+    main = (rows.length ? '<div class="st-data-tablewrap"><table class="st-data-grid"><thead><tr>' + displayCols.map((c) => '<th>' + esc(c) + '</th>').join('') + (editable ? '<th></th>' : '') + '</tr></thead><tbody>' +
+      rows.map((row) => '<tr>' + displayCols.map((c) => '<td>' + esc(String(row[c] == null ? '' : row[c])).slice(0, 240) + '</td>').join('') + (editable ? '<td class="st-data-rowact"><button type="button" class="st-data-editbtn" data-edit="' + esc(String(row.id)) + '">Edit</button><button type="button" class="st-data-rmrow" data-rm="' + esc(String(row.id)) + '" title="Delete">×</button></td>' : '') + '</tr>').join('') +
+      '</tbody></table></div>' : '');
   }
-  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span><button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + main + '</div></div>';
-  host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; loadSiteData(site); });
+  const addBtn = (editable && !siteDataForm) ? '<button type="button" class="st-data-add" id="stDataAdd">+ Add</button>' : '';
+  host.innerHTML = '<div class="st-data-head"><span class="st-data-title">Data</span><span class="st-data-count">' + (rows.length ? rows.length + ' row' + (rows.length > 1 ? 's' : '') : '') + '</span>' + addBtn + '<button type="button" class="st-icon" id="stDataReload" title="Refresh">' + ic('reload', 15) + '</button></div><div class="st-data-body">' + side + '<div class="st-data-main">' + formHtml + main + '</div></div>';
+  host.querySelectorAll('[data-dtable]').forEach((b) => b.onclick = () => { siteDataTable = b.dataset.dtable; siteDataForm = null; loadSiteData(site); });
   const rl = document.getElementById('stDataReload'); if (rl) rl.onclick = () => loadSiteData(site);
+  const add = document.getElementById('stDataAdd'); if (add) add.onclick = () => { siteDataForm = { editId: null, values: {} }; loadSiteData(site); };
+  const cancel = document.getElementById('stDataCancel'); if (cancel) cancel.onclick = () => { siteDataForm = null; loadSiteData(site); };
+  const save = document.getElementById('stDataSave'); if (save) save.onclick = async () => {
+    const values = {}; host.querySelectorAll('.st-data-in').forEach((i) => values[i.dataset.col] = i.value);
+    const body = { slug: site.slug, table: sel, values };
+    try {
+      if (siteDataForm && siteDataForm.editId) { body.id = siteDataForm.editId; await apiFetch('/api/site/backend/row', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); }
+      else await apiFetch('/api/site/backend/row', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } catch (e) {}
+    siteDataForm = null; loadSiteData(site);
+  };
+  host.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => { const row = rows.find((r) => String(r.id) === b.dataset.edit); siteDataForm = { editId: b.dataset.edit, values: row ? Object.assign({}, row) : {} }; loadSiteData(site); });
+  host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this row?')) return; try { await apiFetch('/api/site/backend/row?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel) + '&id=' + encodeURIComponent(b.dataset.rm), { method: 'DELETE' }); } catch (e) {} siteDataForm = null; loadSiteData(site); });
 }
 function moreCloud(site) {
   const cards = [
