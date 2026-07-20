@@ -2420,7 +2420,7 @@ function normalizeSchema(spec) {
   };
   const coerceTable = (name, def) => {
     if (!name || !def || typeof def !== "object") return;
-    const access = ["collect", "display", "user"].includes(def.access) ? def.access : "collect";
+    const access = ["collect", "display", "user", "feed"].includes(def.access) ? def.access : "collect";
     const src = def.columns || def.fields || def.cols || def.schema;
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
@@ -2443,7 +2443,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   collect  — anyone can INSERT; nobody reads publicly (owner reads in-app)
     //   display  — anyone can READ; no public writes (owner-managed content)
     //   user     — requires the site's own login; each visitor sees only THEIR rows
-    const access = ["collect", "display", "user"].includes(t.access) ? t.access : "collect";
+    const access = ["collect", "display", "user", "feed"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false, hasCreated = false, hasOwner = false;
     const colNames = [];
     for (const c of (Array.isArray(t.columns) ? t.columns.slice(0, 48) : [])) {
@@ -2460,7 +2460,7 @@ async function applySiteSchema(env, uuid, spec) {
       cols.push(def); colNames.push(c.name);
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
-    if (access === "user" && !hasOwner) { cols.push('"owner_id" INTEGER'); } // scopes rows to the logged-in visitor
+    if ((access === "user" || access === "feed") && !hasOwner) { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (!hasCreated) cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     made.push(t.name);
@@ -4651,6 +4651,34 @@ async function handleRequest(request, env, ctx) {
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
             return Response.json({ ok: true });
+          }
+          if (access === "feed") {
+            // Public READ (a shared feed/board/comments); a LOGGED-IN visitor may
+            // post, and may edit/delete only their OWN rows (stamped owner_id).
+            if (method === "GET") {
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+              const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+              const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " ORDER BY id DESC LIMIT ?", [lim]);
+              return Response.json({ ok: true, rows: r });
+            }
+            if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
+            if (method === "POST") {
+              const body = await readBody(); const use = pickCols(body);
+              const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
+              await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
+              return Response.json({ ok: true });
+            }
+            if (method === "PATCH" && rowId != null) {
+              const body = await readBody(); const use = pickCols(body);
+              if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+              return Response.json({ ok: true });
+            }
+            if (method === "DELETE" && rowId != null) {
+              await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+              return Response.json({ ok: true });
+            }
+            return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
           }
           // access === "user": requires login; every row scoped to owner_id.
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
