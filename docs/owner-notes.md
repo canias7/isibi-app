@@ -3422,3 +3422,17 @@ returning one JSON blob:
   applies (2 pages, slug, ✦cost, success msg, busy cleared, page picker appears);
   a mid-stream `{ev:"error"}` surfaces the failure card + "(code 502)" and applies
   no pages; zero uncaught JS errors. Screenshotted the built result (renders).
+
+## 2026-07-20 — Builder: site + URL named after the AI brand, not the raw prompt
+Owner: the project cards / URL shouldn't be the raw first message ("hey", "make
+me a website") — the builder should name the site itself. It already picks a
+BRAND in the plan pass (e.g. "HEY STUDIO"); now that brand becomes the identity:
+- **Worker:** the build `{ev:"done"}` payload now includes `brand`; the draft
+  slug is derived from the brand (→ `hey-studio-ab12cd`) instead of the brief,
+  and the `published_sites.title` is the brand too.
+- **Client:** on a successful build, the project card is renamed from the raw
+  prompt to `d.brand` (capped 40 chars). Applies to NEW builds; existing cards
+  keep their old names (no retroactive rename). The URL slug is brand-derived
+  server-side, so publish/preview links read as the brand.
+- **Tested:** E2E 13/13 — card renames to "Brew Coffee Co", slug carried from the
+  stream, all prior streaming/routing assertions still green.

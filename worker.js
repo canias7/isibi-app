@@ -4431,11 +4431,13 @@ async function handleRequest(request, env, ctx) {
               const rows = await ex.json().catch(() => []);
               if (Array.isArray(rows) && rows[0] && rows[0].slug) draftSlug = rows[0].slug;
               if (!draftSlug) {
-                const base = (brief.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32)) || "site";
+                // Slug from the AI-chosen BRAND (e.g. "Veridian Estates" → veridian-
+                // estates-ab12cd), not the raw first prompt ("make me a website").
+                const base = ((brand || (planned[0] && planned[0].name) || brief).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32)) || "site";
                 draftSlug = base + "-" + crypto.randomUUID().slice(0, 6);
                 await fetch(`${SUPABASE_URL}/rest/v1/published_sites`, {
                   method: "POST", headers: { ...sbH, Prefer: "return=minimal" },
-                  body: JSON.stringify({ user_id: stUser.id, site_id: buildSiteId, slug: draftSlug, title: (planned[0] && planned[0].name) || "site" }),
+                  body: JSON.stringify({ user_id: stUser.id, site_id: buildSiteId, slug: draftSlug, title: brand || (planned[0] && planned[0].name) || "site" }),
                   signal: AbortSignal.timeout(8000),
                 });
               }
@@ -4444,7 +4446,7 @@ async function handleRequest(request, env, ctx) {
           // Extract any declared edge functions from every page (strip the spec
           // blocks so they never ship publicly), then persist them for this site.
           { const byName = {}; for (const pg of built) { const ex = extractSiteFunctions(pg.html); pg.html = ex.clean; for (const f of ex.fns) byName[f.name] = f; } const fnList = Object.values(byName); if (draftSlug && fnList.length) await persistSiteFunctions(env, stUser.id, draftSlug, fnList); }
-          await emit({ ev: "done", pages: built, design, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
+          await emit({ ev: "done", pages: built, design, brand, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
            } catch (e) {
              console.error("site build stream failed:", e && e.message, "|", e && e.detail);
              try { await emit({ ev: "error", code: (e && e.status != null ? e.status : -1) }); } catch {}
