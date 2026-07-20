@@ -395,6 +395,35 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — LIVE VERIFICATION of the new builder pipeline ✅
+Owner OK'd the spend. Ran a real build + edit on a throwaway account (800 credits
+set, fully deleted after via delete_account — which also re-verified that wipe).
+- **Build:** "modern real estate agency like Zillow" → 4 pages (Home, Properties,
+  Sell Your Home, Find an Agent), **209 credits, ~3 min**. Results:
+  - **Brand consistent:** "Veridian Estates" on all 4 pages, ZERO "isibi" leak.
+  - **Composed chrome CONFIRMED:** header + footer BYTE-IDENTICAL across all 4
+    pages (string-diff), same wordmark, nav links all resolve to the 4 real paths.
+    Verified visually too — Home + Listings share the exact same header.
+  - **Favicon + OG meta** present on all 4 pages.
+  - **On-subject images CONFIRMED:** downloaded a generated image → a stunning
+    on-brief luxury concrete-glass ocean-view home (NOT an astronaut). The image
+    fix works. Listings grid = static cards; past the image budget they degrade to
+    tasteful gradients (safe fallback), not broken/reused images.
+  - Design quality is genuinely upscale (editorial serif hero "Where Space Becomes
+    Art", real copy, filter bars) — not AI-slop.
+- **Surgical edit CONFIRMED:** "change hero to 'Find Your Forever Home' + make the
+  Browse Portfolio button forest green" → **5 credits, 6.8 sec** (vs 209/3min for a
+  build). Char-diff showed EXACTLY 2 changed regions: the headline text and the
+  button's `background-color:#22543d`. Everything else byte-identical. Rendered:
+  new headline + green button, all else intact. This is the reliability headline.
+- **Known tradeoff surfaced:** SITE_MAX_IMAGES is small relative to a listings-heavy
+  site (Properties grid got 2 real photos + 7 gradient fallbacks). Consistent + safe,
+  but image-light. Owner may want to raise the image budget (costs more) for
+  gallery/listing sites.
+- Net: surgical edits, validate/auto-fix, composed shared-chrome, brand pin,
+  on-subject images, favicon/OG, retry, no-op — all confirmed working on a real
+  build. The pipeline is no longer just unit-tested; it's observed end-to-end.
+
 ## 2026-07-19 — Builder: polish + no-op edits + Stop button
 - **Favicon + social meta (guaranteed, composer-side via `polishHead`):** every
   page's <head> gets a brand-monogram SVG favicon (brand initial on the site's
