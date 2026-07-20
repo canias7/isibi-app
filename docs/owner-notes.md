@@ -78,6 +78,37 @@ and fixed, and add a preference line whenever the owner signals one.
   in VIDEO_USD) — PROVISIONAL, verify on the fal sweep. Not-in-roster editors
   still available if wanted: Happy Horse 1.0, Kling o1, VOID (object removal).
 
+## 2026-07-20 — React builder: the "code -1 / code 400" wall = Anthropic account out of API credits (NOT a code bug)
+
+The first live React build (`/api/site/react-build`) kept failing in ~2s with a
+generic 400. Surfaced the real upstream `detail` via a temporary version marker:
+
+> "Your credit balance is too low to access the Anthropic API. Please go to
+> Plans & Billing to upgrade or purchase credits." (request_id req_011CdD…)
+
+**Root cause:** the Anthropic account behind the app's `ANTHROPIC_API_KEY` is out
+of API credits. Nothing wrong with the request shape (model `claude-sonnet-5`,
+max_tokens 16000, system+messages — all valid; 128K output cap, no beta header
+needed). This is an **account-billing** blocker, not code.
+
+**Impact:** every Claude-Sonnet-5 feature on the same key is down until topped up
+— the React builder, the classic Sonnet builder (`/api/site`), the AI Orchestrator
+(`/api/direct`), and the security scan. (Generation of images/video via fal is on a
+separate provider/balance and is unaffected.)
+
+**Owner action needed:** top up API credits at console.anthropic.com → Plans &
+Billing (this is the *Anthropic API* balance, separate from any Claude.ai
+subscription). Once funded, the React build test can complete immediately.
+
+**Code cleanup shipped (PRs #436→#437):** the react-build gen-error path now logs
+the real upstream reason server-side (`console.error`) and returns a generic
+"builder is busy — try again" to the client (no provider/billing text leaked).
+
+Test hygiene: throwaway account (166c40d9…, rb-…@example.com, 500 test credits via
+SQL — never touched the real ✦ balance) fully deleted after the diagnosis.
+
+---
+
 ## In progress — awaiting owner sign-off (NOT merged to main)
 
 ### Website builder — real EDGE FUNCTIONS (Path A, 2026-07-18)
