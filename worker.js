@@ -2616,13 +2616,13 @@ function parseFunctionSpecs(files) {
   }
   return out;
 }
-// Build a filtered/sorted/paginated SELECT for a data-API list read from the query
-// string: `where=<col>:<op>:<val>` (repeatable; op eq|ne|lt|lte|gt|gte|contains),
-// `q=<text>` (free-text across the declared columns), `sort=<col>&order=asc|desc`,
-// `limit`(≤200)+`offset`. Columns are validated against the table's own columns and
-// double-quoted; every value is parameterized. `base` scopes the read (owner_id for
-// a `user` table). Returns the row query + a matching COUNT for {total}.
-function buildD1List(url, tn, allowCols, base) {
+// Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
+// (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
+// across the declared columns). Columns are validated against the table's own columns
+// and double-quoted; every value is parameterized. `base` prepends a scope clause
+// (owner_id for a `user` table). Returns the WHERE fragment + its params + the set of
+// columns that are legal to reference (for sort/group validation upstream).
+function buildD1Filter(url, allowCols, base) {
   const filterable = new Set(allowCols.concat(["id", "created_at"]).map((c) => String(c).toLowerCase()));
   const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE" };
   const where = [], params = [];
@@ -2640,18 +2640,63 @@ function buildD1List(url, tn, allowCols, base) {
     where.push("(" + allowCols.map((c) => sqlIdent(c) + " LIKE ?").join(" OR ") + ")");
     for (let i = 0; i < allowCols.length; i++) params.push("%" + q + "%");
   }
-  const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
+  return { filterable, whereSql: where.length ? " WHERE " + where.join(" AND ") : "", params };
+}
+// Build a filtered/sorted/paginated SELECT for a data-API list read: the filter above
+// plus `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`. Returns the row query + a
+// matching COUNT for {total}.
+function buildD1List(url, tn, allowCols, base) {
+  const f = buildD1Filter(url, allowCols, base);
   let sortCol = (url.searchParams.get("sort") || "").toLowerCase();
-  if (!filterable.has(sortCol)) sortCol = "id";
+  if (!f.filterable.has(sortCol)) sortCol = "id";
   const order = /^asc$/i.test(url.searchParams.get("order") || "") ? "ASC" : "DESC";
   const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
   const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
   return {
-    sql: "SELECT * FROM " + tn + whereSql + " ORDER BY " + sqlIdent(sortCol) + " " + order + " LIMIT ? OFFSET ?",
-    params: params.concat([lim, off]),
-    countSql: "SELECT COUNT(*) AS n FROM " + tn + whereSql,
-    countParams: params.slice(),
+    sql: "SELECT * FROM " + tn + f.whereSql + " ORDER BY " + sqlIdent(sortCol) + " " + order + " LIMIT ? OFFSET ?",
+    params: f.params.concat([lim, off]),
+    countSql: "SELECT COUNT(*) AS n FROM " + tn + f.whereSql,
+    countParams: f.params.slice(),
   };
+}
+// Build an aggregate SELECT for the /stats read: always COUNT(*), plus any requested
+// sum/avg/min/max over a declared column, optionally grouped by one declared column.
+// Reuses the filter above (so stats respect where/q). Aggregate + group columns are
+// validated against the table's own columns; everything is parameterized. Returns the
+// SQL, params, the requested aggregates, and the resolved group column.
+function buildD1Stats(url, tn, allowCols, base) {
+  const f = buildD1Filter(url, allowCols, base);
+  const wanted = { sum: [], avg: [], min: [], max: [] };
+  for (const k of ["sum", "avg", "min", "max"]) {
+    for (const raw of url.searchParams.getAll(k)) {
+      for (const c of String(raw).split(",")) {
+        const col = c.trim().toLowerCase();
+        if (col && f.filterable.has(col) && !wanted[k].includes(col)) wanted[k].push(col);
+      }
+    }
+  }
+  const selects = ["COUNT(*) AS _count"];
+  for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + sqlIdent(col) + ") AS " + k + "__" + col);
+  let groupCol = (url.searchParams.get("group") || "").toLowerCase();
+  if (groupCol && !f.filterable.has(groupCol)) groupCol = "";
+  let sql;
+  if (groupCol) {
+    sql = "SELECT " + sqlIdent(groupCol) + " AS _group, " + selects.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY " + sqlIdent(groupCol) + " ORDER BY _count DESC LIMIT 200";
+  } else {
+    sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql;
+  }
+  return { sql, params: f.params.slice(), wanted, groupCol };
+}
+// Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
+// requested aggregate families are present).
+function shapeD1Stats(row, wanted) {
+  const out = { count: Number((row && row._count) || 0) };
+  for (const k of ["sum", "avg", "min", "max"]) {
+    if (!wanted[k].length) continue;
+    out[k] = {};
+    for (const col of wanted[k]) out[k][col] = row ? row[k + "__" + col] : null;
+  }
+  return out;
 }
 
 // ---- Phase C: built-site auth (each site's OWN visitor login) -----------------
@@ -4995,9 +5040,11 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+))?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats))?$/i);
       if (dm) {
-        const slug = dm[1].toLowerCase(), table = dm[2], rowId = dm[3] ? parseInt(dm[3], 10) : null, method = request.method;
+        const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
+        const isStats = dm[3] === "stats";
+        const rowId = dm[3] && dm[3] !== "stats" ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -5015,6 +5062,24 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
+
+          // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
+          // dashboards and analytics. Follows the same read visibility as the table:
+          // display/feed aggregate publicly over ALL rows; `user` aggregates only the
+          // caller's own rows (login required); `collect` (write-only) exposes nothing.
+          if (isStats) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
+            let base = null;
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
+            const b = buildD1Stats(url, tn, allow, base);
+            const r = await cfD1Query(env, uuid, b.sql, b.params);
+            if (b.groupCol) {
+              const groups = r.map((row) => Object.assign({ value: row._group }, shapeD1Stats(row, b.wanted)));
+              return Response.json({ ok: true, group: b.groupCol, groups });
+            }
+            return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted)));
+          }
 
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
