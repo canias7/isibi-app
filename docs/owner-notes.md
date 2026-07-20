@@ -404,6 +404,28 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     model 400 "unknown model" BEFORE any fal call/charge; error bodies never say "fal".
   All test users/data deleted.
 
+- **🔴 BIG ONE — real end-to-end build bug (2026-07-20, #481), found by actually
+  building.** Built "a task manager with login" via `/api/site/react-build`. The
+  model generated a complete compiling app that calls `/api/db/<slug>/auth/*` +
+  `/rows/tasks`, BUT never emitted `isibi.schema.json` → `backend=false`, no D1
+  provisioned → the shipped app's login AND tasks both 404 "this site has no backend
+  yet". Site loads 200 but its whole purpose is silently broken. Models omit the
+  schema often enough that a prompt tweak alone isn't safe. **FIXED with a safety
+  net:** after generation, if any file calls the backend API (`/auth/signup|login`
+  or `/rows/<table>`) but no schema was declared, a targeted repair (`SCHEMA_REPAIR_
+  RULES`) asks the model to emit JUST the schema — inferred from its own code — then
+  provisions it before publish. Only fires when schema missing AND backend used
+  (normal builds cost nothing extra). Also strengthened BACKEND_RULES (CRITICAL note).
+  **Re-verified live end-to-end:** rebuilt same prompt → `backend=true`, phase order
+  now ends `…publishing → database`; on the LIVE site signup works, task create+read
+  works, and a second visitor sees an empty list (user-mode isolation intact).
+  Two transient notes: (1) the FIRST attempt errored "generated project came out
+  incomplete" (flaky/truncated gen — the "try again" message is correct; retry
+  succeeded) — worth watching if it recurs often. (2) Auto-fix loop ran (fixing×1-2)
+  and recovered both times. **FOLLOW-UP:** apply the same schema safety-net to
+  `/api/site/react-revise` (a revise that adds login/data to an informational site),
+  gated on "no backend exists yet" — not in #481.
+
 - **Cloud panel was reading the OLD static-site store for React sites (2026-07-20).**
   A React site's More▸Cloud cards (Members/Submissions/Database/Secrets/Functions/
   Files) called the legacy Supabase endpoints, which resolve via a `published_sites`
