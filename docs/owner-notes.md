@@ -3399,3 +3399,26 @@ This note covers #1-3 (chat-routed page ops). #4 streaming is the next step.
   edge fns, per op). Metered like every builder call (charge-after).
 - **Tested:** 29/29 pure-helper unit tests (extract/compose/replaceNav/nav-strip/
   global-anchor/regen/stripToMain) green before deploy. Live sweep pending deploy.
+
+## 2026-07-20 — Builder #4: live streaming build progress
+Owner wanted the build to feel alive instead of one static "Building…" for a
+minute+. The build step (`/api/site`, step=build) now STREAMS NDJSON instead of
+returning one JSON blob:
+- **Worker:** wraps the build in a `TransformStream`; `emit()` writes one JSON
+  line per event — `{ev:"status",msg}` at each phase (Planning → Designing N
+  pages → Adding photos), `{ev:"page",name}` as EACH page finishes generating
+  (fires from inside the parallel map), and a terminal `{ev:"done", …same
+  payload the JSON build returned}` or `{ev:"error",code}`. `ctx.waitUntil(run())`
+  keeps the async writer alive after the handler returns the open stream. Billing
+  unchanged (charge-after, inside the run). Revise stays plain JSON (it's fast).
+- **Client:** `readSiteStream()` reads the NDJSON, calls `siteBuildStatus()` to
+  update the live step line IN PLACE (`.st-busy` in the thread / `.st-empty` on
+  the stage) with NO full re-render (which would reload the preview iframe
+  mid-build). The terminal event is reduced to the same object shape the old code
+  handled, so the existing result branches are untouched. Detected via
+  `Content-Type: application/x-ndjson`; Stop (AbortController) still cancels it.
+- **Tested:** real chunked-NDJSON Node server + Playwright, 12/12 — live line
+  transitions through Planning → "Designing 2 pages…" → "Home ✓/About ✓", final
+  applies (2 pages, slug, ✦cost, success msg, busy cleared, page picker appears);
+  a mid-stream `{ev:"error"}` surfaces the failure card + "(code 502)" and applies
+  no pages; zero uncaught JS errors. Screenshotted the built result (renders).

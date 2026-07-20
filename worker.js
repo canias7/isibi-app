@@ -4323,6 +4323,18 @@ async function handleRequest(request, env, ctx) {
           }
         }
         if (step === "build") {
+          // #4 — stream the build as NDJSON so the chat shows live progress
+          // (planning → each page → photos) instead of one static "Building…".
+          // The final {ev:"done"} line carries the exact payload the JSON build
+          // returned; {ev:"error"} replaces the 502. ctx.waitUntil keeps the async
+          // writer alive after the handler returns the (still-open) stream.
+          const enc = new TextEncoder();
+          const { readable, writable } = new TransformStream();
+          const writer = writable.getWriter();
+          const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+          const run = async () => {
+           try {
+            await emit({ ev: "status", msg: "Planning your site…" });
           // Phase 1 — plan the sitemap + a shared design system so all pages match.
           const planRaw = await geminiCall(
             "You are the creative director + information architect for a client's new website (the platform you run on is called isibi, but that is NEVER the client's brand — do not name the site 'isibi'). From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Pick ONE exact brand/company NAME for the site (invent a fitting, specific one if the brief doesn't give one) — this same name is the logo/wordmark on every page. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"brand\":\"<the site's exact brand/company name — NOT 'isibi'>\",\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the voice/tone, and 2-3 signature visual motifs — concrete enough that every page matches. State the PHOTOGRAPHY subject/style for this specific industry (e.g. a real-estate site shows homes/interiors — never off-topic stock).>\",\"head\":\"<the COMPLETE shared <head> INNER html the WHOLE site reuses verbatim: the Google Fonts <link>, then a <style> with :root{ exact --color and --font tokens } + a CSS reset + base typography + the HEADER/NAV styles + FOOTER styles + button/link styles + container & layout utilities + shared component classes — thorough enough that each page adds only a little page-specific CSS. Style the ACTIVE nav link with an aria-current=page attribute selector. Do NOT put <title> or <meta name=description> here (added per page).>\",\"nav\":\"<the exact shared <header>...</header> markup reused verbatim on every page: the brand wordmark (the brand name above) and nav links to EVERY page by path (href=/ , href=/listings , ...), using the classes defined in head>\",\"footer\":\"<the exact shared <footer>...</footer> markup reused verbatim on every page, using the classes defined in head>\"}. Every page will REUSE your head + nav + footer verbatim and only add its own <main>, so make those three complete, valid, and self-consistent. Max 5 pages. Home is always first with path \"/\"." + assetLine,
@@ -4351,6 +4363,7 @@ async function handleRequest(request, env, ctx) {
           const estPageMax = toCredits(Math.ceil((design.length + brief.length + 2000) / 4), MAX_OUT_TOK);
           const pagesToBuild = planned.slice(0, Math.max(1, Math.min(planned.length, Math.floor(stBalance / estPageMax))));
           const navList = pagesToBuild.map((p) => p.name + " (" + p.path + ")").join(", ");
+          await emit({ ev: "status", msg: "Designing " + pagesToBuild.length + (pagesToBuild.length > 1 ? " pages" : " page") + "…" });
           // Phase 2 — generate every page in parallel. COMPOSED: each page returns
           // only its <main>, assembled onto the shared shell (byte-identical chrome).
           // FALLBACK: each page returns a full document matching the design paragraph.
@@ -4373,12 +4386,13 @@ async function handleRequest(request, env, ctx) {
           // empty/errored — so a single Gemini hiccup never silently drops a page.
           const built = (await Promise.all(pagesToBuild.map(async (pg) => {
             for (let attempt = 0; attempt < 2; attempt++) {
-              try { const r = await buildOnePage(pg); if (r) return r; }
+              try { const r = await buildOnePage(pg); if (r) { emit({ ev: "page", name: pg.name }); return r; } }
               catch (e) { console.log("site page failed", pg.path, "attempt", attempt, e && e.message); }
             }
             return null;
           }))).filter(Boolean);
           if (!built.length) throw new Error("build returned no pages");
+          await emit({ ev: "status", msg: "Adding photos + finishing touches…" });
           // Validate → auto-fix each page BEFORE charging (so the fix's tokens are
           // billed and the fixed page is what we image + ship). One pass, only for
           // real defects — clean pages skip it and cost nothing extra.
@@ -4430,7 +4444,15 @@ async function handleRequest(request, env, ctx) {
           // Extract any declared edge functions from every page (strip the spec
           // blocks so they never ship publicly), then persist them for this site.
           { const byName = {}; for (const pg of built) { const ex = extractSiteFunctions(pg.html); pg.html = ex.clean; for (const f of ex.fns) byName[f.name] = f; } const fnList = Object.values(byName); if (draftSlug && fnList.length) await persistSiteFunctions(env, stUser.id, draftSlug, fnList); }
-          return Response.json({ pages: built, design, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
+          await emit({ ev: "done", pages: built, design, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
+           } catch (e) {
+             console.error("site build stream failed:", e && e.message, "|", e && e.detail);
+             try { await emit({ ev: "error", code: (e && e.status != null ? e.status : -1) }); } catch {}
+           }
+           try { await writer.close(); } catch {}
+          };
+          ctx.waitUntil(run());
+          return new Response(readable, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
         } else {
           // Revise ONE page. SURGICAL by default: the model returns the SMALLEST
           // find/replace edits, which we splice into the existing HTML — so every
