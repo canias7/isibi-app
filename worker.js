@@ -2337,6 +2337,56 @@ async function injectReactImages(files, request, env, uid, budget, onImage) {
   }
   return { files: out, charged };
 }
+
+// ---- Layer-2: per-site backend on Cloudflare D1 --------------------------------
+// Each built site that needs data/auth gets its OWN D1 database, created on demand
+// via the Cloudflare REST API and addressed by its UUID — a query for site A can
+// only ever reach site A's database (hard isolation, one Worker, many DBs). The
+// slug→UUID map lives in Supabase (site_backends, service-key writes). Requires two
+// Worker secrets: CF_ACCOUNT_ID + CF_D1_API_TOKEN (token scoped to D1:Edit).
+function d1Configured(env) { return !!(env.CF_ACCOUNT_ID && env.CF_D1_API_TOKEN); }
+async function cfD1Create(env, name) {
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.result || !d.result.uuid) { const e = new Error("d1 create failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 300); throw e; }
+  return d.result.uuid;
+}
+// Run SQL against ONE site's D1 database (by UUID). Returns the first statement's
+// result rows. Always parameterize — never string-concat user input into `sql`.
+async function cfD1Query(env, uuid, sql, params) {
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ sql, params: params || [] }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) { const e = new Error("d1 query failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
+  const first = Array.isArray(d.result) ? d.result[0] : d.result;
+  return (first && first.results) || [];
+}
+// Look up (or lazily create) the D1 backend for a site slug → its database UUID.
+// Ownership is enforced: a caller can only reach a backend whose row.uid is theirs.
+async function ensureSiteBackend(env, slug, uid) {
+  const hdr = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` };
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid,uid`, { headers: hdr });
+  const rows = await g.json().catch(() => []);
+  if (Array.isArray(rows) && rows[0] && rows[0].d1_uuid) {
+    if (uid && rows[0].uid && rows[0].uid !== uid) throw Object.assign(new Error("not owner"), { forbidden: true });
+    return rows[0].d1_uuid;
+  }
+  const name = ("site_" + slug).replace(/[^a-z0-9_-]/gi, "_").slice(0, 60);
+  const uuid = await cfD1Create(env, name);
+  await fetch(`${SUPABASE_URL}/rest/v1/site_backends`, {
+    method: "POST",
+    headers: { ...hdr, "content-type": "application/json", Prefer: "resolution=ignore-duplicates" },
+    body: JSON.stringify({ slug, uid, d1_uuid: uuid, d1_name: name }),
+  });
+  return uuid;
+}
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 
@@ -4236,6 +4286,28 @@ async function handleRequest(request, env, ctx) {
     // builder (Sonnet tokens + each generated image). Returns the compile error
     // (no charge for the build itself) when the generated project doesn't compile
     // — the Phase-4 auto-fix loop will consume that.
+    // Layer-2 Phase A plumbing test: provision (or reuse) a site's own D1 database,
+    // then create a table + write + read INSIDE that database — proving per-site
+    // isolation end to end. Auth-gated; owner-scoped via ensureSiteBackend.
+    if (url.pathname === "/api/site/backend/ensure" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+      if (!d1Configured(env)) return Response.json({ ok: false, error: "per-site backend not configured yet", need: "cf_token" }, { status: 501 });
+      let bb; try { bb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof bb.slug === "string" ? bb.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await ensureSiteBackend(env, slug, u.id);
+        await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ping (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT)");
+        await cfD1Query(env, uuid, "INSERT INTO _ping (at) VALUES (?)", [new Date().toISOString()]);
+        const rows = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _ping");
+        return Response.json({ ok: true, slug, d1: String(uuid).slice(0, 8) + "…", pings: (rows[0] || {}).n });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("site backend ensure failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "backend provisioning failed", detail: (e && e.detail) || null }, { status: 502 });
+      }
+    }
     if (url.pathname === "/api/site/react-build" && request.method === "POST") {
       const rbUser = await authUser(request);
       if (!rbUser) return UNAUTHED();
