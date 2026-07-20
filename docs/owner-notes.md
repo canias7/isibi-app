@@ -364,9 +364,32 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   /api/site/{publish,preview,unpublish,analytics,auth/*,members,secrets,collections,
   data,functions,fn,upload,files,form,submissions} + /api/site/build-health.
 
+- **Schema dedupe bug (2026-07-20, #474).** A schema with DUPLICATE column names,
+  or one where the model declared id/created_at/owner_id itself (rules say not to,
+  but models don't always comply), made `applySiteSchema` emit a CREATE TABLE with
+  two same-named columns → D1 error 7500 → backend provision 502'd. react-build
+  swallows that, so the site would ship with a silently-broken backend. **FIXED:**
+  managed columns from the model are skipped (we always add our own) and duplicate
+  names de-duped. Re-verified 7/7 (dup+managed OK, 2MB value OK, dup table names OK,
+  30-table schema capped to 24).
+- **Deep security audit (2026-07-20) — all AIRTIGHT:** the public data API cannot
+  reach the internal tables — `/api/db/<slug>/rows/_meta` (holds the auth signing
+  secret) / `_users` (password hashes) / `_ping` all 404 with NO leak, even with
+  case tricks (`_USERS`, `_Meta`). Reserved SQL-keyword identifiers (a table named
+  `order`, columns `select`/`group`/`default`/`where`) create/insert/read fine.
+  Slug-squat blocked (owner B can't ensure/reschema owner A's slug). Token tampering
+  (flipped payload OR signature) rejected; original still valid.
+- **TWO OPEN DESIGN GAPS (flagged, not yet decided):** (1) **No per-user cap on
+  `/api/site/backend/ensure`** — an authed user could loop it and provision unlimited
+  D1 databases (account cap 50k) → resource-exhaustion vector. Needs a cap or rate
+  limit (what number is the owner's call). (2) **D1 visitor auth has NO password
+  reset** — `/api/db/<slug>/auth/` is signup/login/me only; a visitor who forgets
+  their password on a built app is locked out forever. Any app with logins needs it.
+
 Bugs found by testing this session: normalizeSchema (shape drift), the feed gap,
 the misleading scoped-write response (#467), the schema-overwrite-on-revise (#468),
-boolean columns not round-tripping (#470), and the Cloud panel reading the wrong
+boolean columns not round-tripping (#470), the schema-dedupe crash (#474), and the
+Cloud panel reading the wrong
 store for React sites (#472). All fixed + live-verified. The backend's access
 control (cross-user, cross-owner, cross-site, collect-read, injection) held up
 clean. Test accounts/sites all deleted.
