@@ -186,6 +186,37 @@ deletion).**
 
 ---
 
+## 2026-07-20 — Per-site backend Phase D + WIRING: LIVE end-to-end (Lovable-style) ✅
+
+**Phase D — data API:** schema now records each table's access mode + column
+allow-list in the site's own `_meta.schema`. Public API `/api/db/<slug>/rows/<table>
+[/<id>]`: **collect** = public insert only, **display** = public read only, **user**
+= login required + rows scoped to `owner_id`. Owner read `/api/site/backend/rows`
+(isibi-authed) for the builder panel + collect submissions (`_users` never exposes
+hashes). Verified: all three modes enforced; two visitors' `user` rows isolated.
+
+**Generation WIRING (the capstone):** REACT_RULES + REACT_REVISE_RULES gained a
+BACKEND protocol — the model emits `isibi.schema.json` (tables + access) and wires
+forms to `/api/db/<slug>/…` (slug from `location.pathname.split('/')[2]`) ONLY when
+the site needs data/auth. react-build/revise `parseSchemaSpec` (never shipped) →
+after publish, `ensureSiteBackend` + `applySiteSchema` auto-provision (non-fatal on
+error). New `{ev:phase 'database'}` + `{ev:done backend:true}`; live view shows a
+"Setting up the database" step. (NOTE: `BACKEND_RULES` must be declared BEFORE
+REACT_RULES in react-gen.mjs — const TDZ, not hoisted.)
+
+**LIVE END-TO-END PROOF:** built "FocusFlow" from one sentence ("a waitlist page
+where emails are actually saved") → model declared `waitlist_signups` (collect),
+backend auto-provisioned, a visitor POSTed an email (public) → saved, owner read it
+back. Full Lovable-style "describe an app with data → it works" is LIVE. Screenshot
+sent.
+
+**So the per-site backend (A→D + wiring) is COMPLETE and live.** Remaining polish:
+Phase E — a builder **Data/Users panel** (front-end) so the owner sees rows in-app
+(today they're reachable via `/api/site/backend/rows`); plus a D1 **delete path** on
+account deletion / site delete (orphan test DBs still accumulate).
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
