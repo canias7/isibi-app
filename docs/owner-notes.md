@@ -3502,3 +3502,26 @@ not our bug), and it persisted through the in-model retries.
 - Both are cheap Flash models; the credit metering padding covers the small
   price difference on the rare fallback path.
 - Regression E2E 15/15.
+
+## 2026-07-20 — Builder engine switched: Gemini Flash → Claude Sonnet 5 (owner's call)
+After the Gemini 503/429 saga, owner chose to move the website-builder engine to
+**Claude Sonnet 5** — the same model class Lovable runs on (much stronger design +
+code), on the owner's Anthropic key (far higher limits than Gemini's Tier-1 quota).
+- **`geminiCall` now calls the Anthropic Messages API** (`claude-sonnet-5`), same
+  `(system, user, thinking, imgParts)` signature so every build/revise call site is
+  unchanged. Kept the name `geminiCall` to avoid churn (it's just the internal
+  helper). `thinking` "high" → max_tokens `MAX_OUT_TOK` (20000), "low" → 8000. No
+  extended thinking (keeps it fast, like Lovable). Retries 429/500/503/**529
+  (overloaded)** + empty/truncated with backoff; errors carry the true status.
+- **Guard** switched `GEMINI_API_KEY` → `ANTHROPIC_API_KEY` (already a Worker
+  secret, used by the director + scan). Gemini model/fallback consts removed.
+- **Image attachments** now sent in Anthropic format
+  (`{type:image, source:{type:base64,media_type,data}}`).
+- **Billing repriced** to Sonnet 5 rates: `toCredits = ceil((in*3e-6 +
+  out*15e-6)/0.008)` (was Gemini's 1.5e-6/9e-6). A typical build now costs the
+  user meaningfully more credits, matching the ~$0.5–0.9 real API spend — so the
+  owner isn't eating the difference. `MAX_OUT_TOK` 60000→20000 (Anthropic output
+  cap; thinking no longer shares the budget).
+- Image GENERATION (site photos) is unaffected — that's a separate path, not the
+  text engine.
+- Client unchanged; E2E 15/15. Live build test pending owner.
