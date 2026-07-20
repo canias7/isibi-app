@@ -4259,6 +4259,24 @@ async function handleRequest(request, env, ctx) {
       const MAIN_RULES = "OUTPUT ONLY this page's MAIN CONTENT: the <main>…</main> element, plus — only if this page needs them — ONE page-scoped <style> and ONE page-scoped <script> placed AFTER </main>. Do NOT output <!doctype>, <html>, <head>, <body>, the site header/nav, or the footer; those are added automatically from the shared shell. Therefore any instruction below to 'output ONE complete single-file HTML document' or to put all CSS in <head> is OVERRIDDEN — output only this page's content fragment, reusing the shared head's classes + :root tokens so it matches every other page exactly. " + SITE_RULES;
       const slug = (s) => "/" + String(s || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
       try {
+        // Conversational gate (Lovable-style): a greeting, a question, thanks, or a
+        // message too vague to act on gets a CHAT reply — not a credit-heavy
+        // build/edit. Biased hard toward acting, so any real brief/change passes.
+        {
+          const clsRaw = await geminiCall(
+            "You are isibi, a warm, friendly AI website builder. Classify the user's chat message. " +
+            (step === "build" ? "They have NO site yet (new project)." : "They already have a site open; a normal request would EDIT the current page.") +
+            " Return ONLY minified JSON: {\"act\":true|false,\"reply\":\"\"}. act=true = the message is an ACTIONABLE request to build or change the site (it names a site, a business/purpose, or a concrete change) → reply empty. act=false ONLY for a pure greeting (\"hey\"), thanks, small talk, or a question/too-vague message with nothing to act on → reply = a short warm 1-2 sentence answer: for a new project, invite them to describe the site with a concrete example (e.g. \"a landing page for my coffee shop with the menu and hours\"); for a question, answer briefly then nudge toward what to build or change. When unsure, prefer act=true.",
+            "User message: " + (step === "build" ? brief : instruction), "low"
+          );
+          let cls = null;
+          try { const j = clsRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); cls = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); } catch {}
+          if (cls && cls.act === false && typeof cls.reply === "string" && cls.reply.trim()) {
+            const gc = toCredits(usedInTok, usedOutTok);
+            let ba = stBalance; try { const b = await useCredits(auth, gc); if (b >= 0) ba = b; } catch {}
+            return Response.json({ chat: cls.reply.trim().slice(0, 600), cost: gc, balance: ba });
+          }
+        }
         if (step === "build") {
           // Phase 1 — plan the sitemap + a shared design system so all pages match.
           const planRaw = await geminiCall(

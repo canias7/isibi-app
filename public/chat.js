@@ -9961,7 +9961,11 @@ function siteSend(text) {
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
-    if (r.ok && isBuild && Array.isArray(d.pages) && d.pages.length) {
+    if (r.ok && d.chat) {
+      // Conversational reply — a greeting/question/vague message, not a build.
+      siteErr = null;
+      finish(d.chat);
+    } else if (r.ok && isBuild && Array.isArray(d.pages) && d.pages.length) {
       const s = siteById(origin);
       if (s) {
         s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
