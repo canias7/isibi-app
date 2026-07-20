@@ -3525,3 +3525,19 @@ code), on the owner's Anthropic key (far higher limits than Gemini's Tier-1 quot
 - Image GENERATION (site photos) is unaffected — that's a separate path, not the
   text engine.
 - Client unchanged; E2E 15/15. Live build test pending owner.
+
+## 2026-07-20 — Builder: kill the black flash when switching pages
+Owner: switching pages showed a <1s black screen (Lovable doesn't). Cause: the
+page picker called renderSites() → full workspace re-render → the iframe element
+was DESTROYED and recreated (a fresh iframe paints blank until its src loads), and
+only THEN did loadSitePreview POST for the new URL — so there was a guaranteed
+blank window, on a near-black iframe bg.
+- **Fix:** new `switchSitePage(path)` swaps the page IN PLACE (preview view only):
+  keeps the SAME iframe (browser holds the current page visible until the new one
+  commits → seamless), and just updates the picker label, the "on" state, the URL
+  chip, and reloads the iframe's content. Wired the picker items + the in-preview
+  link nav (postMessage shim) to it; Code/More views still full-render.
+- Iframe bg `#0c0b10` → `#fff` so any residual sub-frame gap reads as a normal
+  white page load, not a black void.
+- **Tested:** headless 9/9 — iframe element identity survives two switches (proves
+  no recreate), picker/URL/active update correctly, white bg, zero JS errors.
