@@ -409,8 +409,31 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   wires it and the platform provisions+serves it (same as the DB does). Status:
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
-  function step + a secret) · **Search/Query ✅ (#490)**. Custom domains + realtime
-  still open.
+  function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
+  (#491)**. Custom domains + realtime still open.
+  · **Why we hand-build these (owner asked 2026-07-20):** Supabase (which powers
+    ISIBI's OWN backend) ships auth + a query API + storage pre-assembled — but a
+    Supabase project is heavy + costs per-project, so it can't be "one backend per
+    built app × thousands." The built sites run on Cloudflare (D1 + R2 + Worker),
+    which is built for database-per-tenant (cheap, instant, ~unlimited) but gives
+    RAW primitives — no batteries. So we build the convenience layer ONCE on CF and
+    every built app inherits it. Batteries-included-but-heavy (Supabase, our app) vs
+    raw-but-infinitely-cheap-to-multiply (Cloudflare, the built apps).
+  · **Stats/Aggregations (#491) — dashboards computed server-side, VERIFIED live.**
+    `GET /api/db/<slug>/rows/<table>/stats` → `{count}` + optional `sum`/`avg`/`min`/
+    `max=<col>` (declared numeric cols, repeatable) + optional `group=<col>` for a
+    per-value breakdown (`{groups:[{value:'paid',count:3,sum:{amount:600}},…]}`,
+    sorted count-desc). Reuses the query layer's `where`/`q` (shared `buildD1Filter`)
+    so you can stat a filtered slice. Read visibility mirrors the table: display/feed
+    over ALL rows, `user` over the caller's OWN rows (login req'd), `collect` (write-
+    only) exposes nothing. Agg + group cols validated against the table's schema;
+    everything parameterized. BACKEND_RULES tells the builder to use it for dashboard
+    cards/charts instead of pulling rows and reducing in JS. **Proof (zero AI/fal —
+    seeded an `orders` display table directly): 16/16** — count=6, sum=875, min50/
+    max300, avg≈145.83; group=status→paid(3,600)/pending(2,200)/refunded(1,75) sorted
+    desc; `where=paid`→(3,600) and `where=amount>=150`→(3,650); safety: a bogus agg
+    col is ignored (count still returned), a bad group col falls back to plain count,
+    and a `);DROP TABLE` value left the table intact. Throwaway backend deleted.
   · **Search/Query (#490) — server-side filter/sort/paginate on the data API,
     VERIFIED live.** Before this, a list read returned newest-N and the built app
     had to fetch everything and filter in the browser — fine for a demo, useless for
