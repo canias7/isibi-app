@@ -404,6 +404,28 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     model 400 "unknown model" BEFORE any fal call/charge; error bodies never say "fal".
   All test users/data deleted.
 
+- **PLATFORM STACK — building out the layers every app needs (2026-07-20).** Model:
+  the platform provides each backend layer as a ready primitive; the AI declares/
+  wires it and the platform provisions+serves it (same as the DB does). Status:
+  DB ✅ · Auth+reset ✅ · **Files ✅ (NEW #484)** · Server functions/secrets ❌ ·
+  Email(app-level) ❌ · Payments ❌ — the last three exist for OLD static sites but
+  aren't ported to React yet (like the Cloud panel was).
+  · **Files (#484):** the upload primitive (endpoint + R2 + `/u/<slug>/<file>`
+    serving + owner file mgmt + delete-on-wipe) already existed for static sites;
+    only blocker was `/api/site/upload` requiring a `published_sites` row React
+    builds never create. Now it accepts an R2-published React build too. Added a
+    FILES section to the React BACKEND_RULES (wire `<input type=file>` → upload →
+    persist the returned URL in a row). VERIFIED live end-to-end (see Haiku note).
+- **HAIKU builds are viable (2026-07-20, #483 added `{model:'haiku'}` to react-build).**
+  Built "Rosterly — team directory w/ login + photo upload" on Haiku 4.5: compiled
+  **first try** (no fix loop, `fixed:0`), phases generating→images→compiling→
+  publishing→database, wired BOTH the D1 backend AND the new /api/site/upload, and
+  `backend:true`. **Cost 7 credits vs ~31 on Sonnet — ~¼ the price.** Full live
+  chain worked: signup → upload a PNG (served back 200 image/png) → create a
+  `team_members` (user-mode: name/role/photo) row with the photo URL → read back,
+  per-user isolated. So Haiku is a real option for a cheaper/faster "draft" build
+  tier (default stays Sonnet). Metering is per-model (Haiku rates). Test data wiped.
+
 - **🔴 BIG ONE — real end-to-end build bug (2026-07-20, #481), found by actually
   building.** Built "a task manager with login" via `/api/site/react-build`. The
   model generated a complete compiling app that calls `/api/db/<slug>/auth/*` +
