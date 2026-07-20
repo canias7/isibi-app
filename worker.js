@@ -2397,28 +2397,58 @@ const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 async function applySiteSchema(env, uuid, spec) {
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
-  const made = [];
+  const made = [], norm = [];
   for (const t of tables) {
     if (!t || !t.name) continue;
     const tn = sqlIdent(t.name);
-    const cols = []; let hasPk = false, hasCreated = false;
+    // access = who can read/write via the public data API:
+    //   collect  — anyone can INSERT; nobody reads publicly (owner reads in-app)
+    //   display  — anyone can READ; no public writes (owner-managed content)
+    //   user     — requires the site's own login; each visitor sees only THEIR rows
+    const access = ["collect", "display", "user"].includes(t.access) ? t.access : "collect";
+    const cols = []; let hasPk = false, hasCreated = false, hasOwner = false;
+    const colNames = [];
     for (const c of (Array.isArray(t.columns) ? t.columns.slice(0, 48) : [])) {
       if (!c || !c.name) continue;
-      if (String(c.name).toLowerCase() === "created_at") hasCreated = true;
+      const low = String(c.name).toLowerCase();
+      if (low === "created_at") hasCreated = true;
+      if (low === "owner_id") hasOwner = true;
       const cn = sqlIdent(c.name);
       const ty = D1_TYPES[String(c.type || "text").toLowerCase()] || "TEXT";
       let def = cn + " " + ty;
       if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " AUTOINCREMENT"; hasPk = true; }
       if (c.notnull || c.required) def += " NOT NULL";
       if (c.unique) def += " UNIQUE";
-      cols.push(def);
+      cols.push(def); colNames.push(c.name);
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    if (access === "user" && !hasOwner) { cols.push('"owner_id" INTEGER'); } // scopes rows to the logged-in visitor
     if (!hasCreated) cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     made.push(t.name);
+    norm.push({ name: t.name, access, columns: colNames });
   }
+  // Persist the normalized access rules + column allow-list in the site's own DB so
+  // the data API can enforce them per request.
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify({ tables: norm })]);
   return made;
+}
+// Load the persisted access rules for a site's tables (from its own _meta.schema).
+async function loadSiteSchema(env, uuid) {
+  try { const rows = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='schema'"); if (rows[0] && rows[0].v) return JSON.parse(rows[0].v); } catch {}
+  return { tables: [] };
+}
+function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
+// Read-only lookup of a site's D1 for its OWNER (isibi user) — never creates.
+async function siteBackendForOwner(env, slug, uid) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid,uid`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await g.json().catch(() => []);
+  if (!rows[0]) return null;
+  if (rows[0].uid && rows[0].uid !== uid) throw Object.assign(new Error("not owner"), { forbidden: true });
+  return rows[0].d1_uuid;
 }
 // Pull an `isibi.schema.json` declaration out of the generated project (and remove
 // it so it never ships as a static asset). Returns the parsed spec or null.
@@ -4437,6 +4467,29 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "schema apply failed", detail: (e && e.detail) || null }, { status: 502 });
       }
     }
+    // Owner-side data read (isibi-authed): the site OWNER sees any table's rows —
+    // powers the builder Data/Users panel and reading 'collect' submissions.
+    if (url.pathname === "/api/site/backend/rows" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const table = (url.searchParams.get("table") || "").replace(/[^a-z0-9_]/gi, "").slice(0, 41);
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access })) });
+        if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+        const cols = table === "_users" ? "id,email,created_at" : "*"; // never expose password hashes
+        const r = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 500");
+        return Response.json({ ok: true, rows: r });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner rows failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
     // Phase C — built-site visitor auth: /api/db/<slug>/auth/{signup,login,me}.
     // PUBLIC (the site's own visitors), scoped strictly to that site's D1.
     {
@@ -4490,6 +4543,76 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
+        }
+      }
+    }
+    // Phase D — public data API: /api/db/<slug>/rows/<table>[/<id>], access enforced
+    // by the table's declared mode (collect / display / user). Only declared tables +
+    // columns are reachable; identifiers are validated; every value is parameterized.
+    {
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+))?$/i);
+      if (dm) {
+        const slug = dm[1].toLowerCase(), table = dm[2], rowId = dm[3] ? parseInt(dm[3], 10) : null, method = request.method;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        try {
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          const access = def.access || "collect";
+          const managed = new Set(["id", "created_at", "owner_id"]);
+          const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+          const tn = sqlIdent(table);
+          // Identify the logged-in visitor (site-user token), if any.
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          const readBody = async () => { try { return await request.json(); } catch { return {}; } };
+          const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
+
+          if (access === "display") {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " ORDER BY id DESC LIMIT ?", [lim]);
+            return Response.json({ ok: true, rows: r });
+          }
+          if (access === "collect") {
+            if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
+            const body = await readBody(); const use = pickCols(body);
+            if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
+            return Response.json({ ok: true });
+          }
+          // access === "user": requires login; every row scoped to owner_id.
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          if (method === "GET") {
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); return Response.json({ ok: true, row: r[0] || null }); }
+            const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE owner_id=? ORDER BY id DESC LIMIT 200", [userId]);
+            return Response.json({ ok: true, rows: r });
+          }
+          if (method === "POST") {
+            const body = await readBody(); const use = pickCols(body);
+            const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
+            await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
+            return Response.json({ ok: true });
+          }
+          if (method === "PATCH" && rowId != null) {
+            const body = await readBody(); const use = pickCols(body);
+            if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+            await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+            return Response.json({ ok: true });
+          }
+          if (method === "DELETE" && rowId != null) {
+            await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+            return Response.json({ ok: true });
+          }
+          return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+        } catch (e) {
+          if (e && e.bad) return Response.json({ ok: false, error: "invalid request" }, { status: 400 });
+          console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
       }
     }
