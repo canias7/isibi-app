@@ -2052,20 +2052,49 @@ async function runSiteFunction(env, row, input, slug) {
   const data = { input: input && typeof input === "object" && !Array.isArray(input) ? input : {}, steps: {} };
   const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
   let secrets = null, response = null;
+  // React sites have their OWN D1 database — a function's read/save should target
+  // the app's real tables (record a Stripe order, read app data for a digest), not
+  // the legacy collections store. Looked up once, lazily; sites with no D1 fall back
+  // to site_collections (unchanged). D1 read/save only touch DECLARED tables.
+  let d1uuid = undefined, d1schema = null; // undefined=not looked up yet, null=no D1
+  const getD1 = async () => {
+    if (d1uuid === undefined) {
+      d1uuid = null;
+      if (d1Configured(env)) { try { const u = await siteBackendBySlug(env, slug); if (u) { d1uuid = u; d1schema = await loadSiteSchema(env, u); } } catch {} }
+    }
+    return d1uuid;
+  };
+  const d1Cols = (def) => { const managed = new Set(["id", "created_at", "owner_id"]); return (Array.isArray(def.columns) ? def.columns : []).map((c) => (typeof c === "string" ? c : c && c.name)).filter((n) => n && !managed.has(String(n).toLowerCase())); };
   for (const st of steps) {
     try {
       if (st.do === "read") {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=data,created_at&order=created_at.desc&limit=${st.limit || 20}`, { headers: svc, signal: AbortSignal.timeout(8000) });
-        const rows = await r.json().catch(() => []);
-        const records = Array.isArray(rows) ? rows.map((x) => x.data) : [];
-        data.steps[st.as] = { records, count: records.length };
+        const uuid = await getD1();
+        const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
+        if (uuid && def) {
+          const lim = Math.min(200, Math.max(1, parseInt(st.limit || 20, 10) || 20));
+          const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(def.name) + " ORDER BY id DESC LIMIT ?", [lim]);
+          data.steps[st.as] = { records: rows, count: rows.length };
+        } else {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=data,created_at&order=created_at.desc&limit=${st.limit || 20}`, { headers: svc, signal: AbortSignal.timeout(8000) });
+          const rows = await r.json().catch(() => []);
+          const records = Array.isArray(rows) ? rows.map((x) => x.data) : [];
+          data.steps[st.as] = { records, count: records.length };
+        }
       } else if (st.do === "save") {
-        const rec = resolveTempl(st.data, data, null); // secrets never saved to a public collection
-        // Bound abuse: same ≤500-per-(slug,collection) cap as /api/site/data.
-        let total = 0;
-        try { const c = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=id`, { headers: { ...svc, Prefer: "count=exact", Range: "0-0" }, signal: AbortSignal.timeout(8000) }); total = parseInt(((c.headers.get("content-range") || "").split("/")[1] || "0"), 10) || 0; } catch {}
-        if (total < 500) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_collections`, { method: "POST", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ published_site_id: row.published_site_id || null, owner_id: row.owner_id, slug, collection: st.collection, data: rec && typeof rec === "object" ? rec : {} }), signal: AbortSignal.timeout(8000) }); } catch {} }
-        data.steps[st.as || "saved"] = { ok: true };
+        const rec = resolveTempl(st.data, data, null); // secrets never saved to a public store
+        const uuid = await getD1();
+        const def = uuid ? tableDef(d1schema, String(st.collection || "")) : null;
+        if (uuid && def) {
+          const use = d1Cols(def).filter((c) => rec && rec[c] !== undefined);
+          if (use.length) { await cfD1Query(env, uuid, "INSERT INTO " + sqlIdent(def.name) + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => rec[c])); }
+          data.steps[st.as || "saved"] = { ok: true };
+        } else {
+          // Legacy collections. Bound abuse: same ≤500-per-(slug,collection) cap as /api/site/data.
+          let total = 0;
+          try { const c = await fetch(`${SUPABASE_URL}/rest/v1/site_collections?slug=eq.${encodeURIComponent(slug)}&collection=eq.${encodeURIComponent(st.collection)}&select=id`, { headers: { ...svc, Prefer: "count=exact", Range: "0-0" }, signal: AbortSignal.timeout(8000) }); total = parseInt(((c.headers.get("content-range") || "").split("/")[1] || "0"), 10) || 0; } catch {}
+          if (total < 500) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_collections`, { method: "POST", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ published_site_id: row.published_site_id || null, owner_id: row.owner_id, slug, collection: st.collection, data: rec && typeof rec === "object" ? rec : {} }), signal: AbortSignal.timeout(8000) }); } catch {} }
+          data.steps[st.as || "saved"] = { ok: true };
+        }
       } else if (st.do === "fetch") {
         if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
         const url = resolveStr(st.url, data, secrets);
