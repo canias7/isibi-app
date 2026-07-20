@@ -1571,7 +1571,7 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-frame { display: flex; flex-direction: column; width: 100%; height: 100%; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; background: #0c0b10; box-shadow: 0 18px 44px -22px rgba(0, 0, 0, .8); }
 .st-frame-bar { display: flex; align-items: center; padding: .5rem .7rem; border-bottom: 1px solid var(--line); background: var(--panel); flex: none; }
 .st-frame-url { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: .32rem .7rem; font-family: 'Inter', system-ui, sans-serif; font-size: .72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-.st-frame iframe { flex: 1; width: 100%; border: 0; background: #0c0b10; }
+.st-frame iframe { flex: 1; width: 100%; border: 0; background: #fff; }
 .st-stage[data-dev="desktop"] .st-frame { width: 100%; }
 .st-stage[data-dev="tablet"] .st-frame { width: 860px; max-width: 100%; }
 .st-stage[data-dev="phone"] .st-frame { width: 412px; max-width: 100%; }

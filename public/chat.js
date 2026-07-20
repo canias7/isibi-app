@@ -9417,8 +9417,31 @@ function bindSiteNav() {
     if (!nav) return;
     const s = siteById(siteOpenId); if (!s) return;
     const target = sitePages(s).find((p) => p.path === nav);
-    if (target && s.active !== target.path) { s.active = target.path; sitesSave(); renderSites(); }
+    if (target && s.active !== target.path) switchSitePage(target.path);
   });
+}
+// Switch the previewed page WITHOUT a full re-render. Rebuilding the workspace
+// destroys the iframe (a fresh iframe paints blank/black until its src loads —
+// that was the flash). Instead we keep the SAME iframe: the browser holds the
+// current page visible until the new one commits, so the swap is seamless
+// (Lovable-style). Only the picker label, the URL chip, and the iframe content
+// update. In Code/More views there's no live iframe, so fall back to a render.
+function switchSitePage(path) {
+  const s = siteById(siteOpenId); if (!s) return;
+  const target = sitePages(s).find((p) => p.path === path);
+  if (!target || s.active === path) return;
+  s.active = path; sitesSave();
+  if (siteView !== 'preview') { renderSites(); return; }
+  const btn = document.getElementById('stPageBtn');
+  if (btn) btn.innerHTML = esc(target.name) + ' <span class="st-cv">▾</span>';
+  const menu = document.getElementById('stPageMenu');
+  if (menu) { menu.hidden = true; menu.querySelectorAll('[data-path]').forEach((b) => b.classList.toggle('on', b.dataset.path === path)); }
+  const chip = document.querySelector('.st-frame-url');
+  if (chip) chip.textContent = s.slug ? ('isibi.ai/s/' + s.slug + (path !== '/' ? path : '')) : 'Draft preview — publish to get a live link';
+  const f = document.getElementById('stFrame');
+  sitePreviewErrs[s.id + '|' + path] = []; // fresh page → clear stale errors
+  if (f && target.html) loadSitePreview(f, target.html, s.slug);
+  if (typeof paintPreviewErrBadge === 'function') paintPreviewErrBadge();
 }
 function renderSites() {
   const view = document.getElementById('viewSites');
@@ -9880,10 +9903,7 @@ function renderSiteWorkspace(view, site) {
       if (pageMenu.hidden) { pageMenu.hidden = false; setTimeout(() => document.addEventListener('click', onOutside), 0); }
       else { pageMenu.hidden = true; document.removeEventListener('click', onOutside); }
     };
-    pageMenu.querySelectorAll('[data-path]').forEach((b) => b.onclick = () => {
-      const s = siteById(siteOpenId); if (!s) return;
-      s.active = b.dataset.path; sitesSave(); renderSites();
-    });
+    pageMenu.querySelectorAll('[data-path]').forEach((b) => b.onclick = () => switchSitePage(b.dataset.path));
   }
   view.querySelectorAll('.st-dev').forEach((b) => b.onclick = () => {
     siteDevice = b.dataset.dev;
