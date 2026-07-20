@@ -1423,6 +1423,17 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .st-act:hover { color: var(--text); }
 .st-msg.st-busy { color: var(--muted); }
 .st-msg.st-busy::after { content: '…'; animation: sbpulse .9s ease-in-out infinite alternate; }
+.st-msg.st-busy:has(.st-livelog) { padding: 0; background: none; border: none; }
+.st-msg.st-busy:has(.st-livelog)::after { content: none; }
+/* Live build activity log (Claude-Code-style running steps). Finished steps stay
+   dim with a ✓; the active line pulses with a rotating dot. */
+.st-livelog { display: flex; flex-direction: column; gap: .28rem; }
+.st-livelog.st-livelog-stage { align-items: flex-start; gap: .4rem; max-width: 340px; margin: 0 auto; }
+.st-ll { display: flex; align-items: center; gap: .5rem; font-size: .86rem; line-height: 1.3; }
+.st-ll.done { color: var(--muted); }
+.st-ll.done::before { content: '✓'; color: var(--acc, #ff79c6); font-weight: 700; font-size: .82rem; }
+.st-ll.active { color: var(--text); }
+.st-ll-dot { width: 7px; height: 7px; border-radius: 50%; background: linear-gradient(120deg, #ff79c6, #ffb84d); flex: none; animation: sbpulse .9s ease-in-out infinite alternate; box-shadow: 0 0 8px rgba(255,121,198,.6); }
 /* Composer — "Ask isibi…" card with a Build selector + round send. */
 .st-comp { margin: .4rem .7rem .7rem; border: 1px solid var(--line-2); border-radius: 16px; background: rgba(255, 255, 255, .03); padding: .6rem .7rem .55rem; }
 .st-comp-in { width: 100%; font: inherit; font-size: .9rem; color: var(--text); background: none; border: none; resize: none; }

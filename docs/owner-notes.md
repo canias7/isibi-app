@@ -3436,3 +3436,25 @@ BRAND in the plan pass (e.g. "HEY STUDIO"); now that brand becomes the identity:
   server-side, so publish/preview links read as the brand.
 - **Tested:** E2E 13/13 — card renames to "Brew Coffee Co", slug carried from the
   stream, all prior streaming/routing assertions still green.
+
+## 2026-07-20 — Builder: live "activity log" during a build (Claude-Code style)
+Owner: the streamed steps worked but felt slow/sparse — long silent gaps between
+the server's checkpoints (plan → each page → photos). Wanted it to look
+continuously live, like Claude Code narrating its process in a running sub-thread.
+- **Client ticker:** a `setInterval` (1.5s) rotates an ACTIVE line through
+  phase-appropriate phrases (plan: "Planning the pages / Choosing a design
+  direction / Picking fonts…"; design: "Designing {page} / Writing the copy for
+  {page} / Styling components…"; photos: "Art-directing the photos / Generating
+  imagery…"), so words keep moving even during a single long Gemini call. Starts
+  the instant Send is hit → zero dead air before the first server event.
+- **Running log:** finished checkpoints accumulate as dim `✓` lines
+  ("✓ Planned the pages", "✓ Home", "✓ Listings"); the current step is the
+  bright pulsing line. Rendered in BOTH the chat rail and the empty stage during
+  the first build. Painted in place (no re-render → preview iframe doesn't flash).
+- **Server:** status events now carry `phase` (plan/design/photos) + the real
+  page-name list, so the ticker can weave in the actual pages and the active line
+  prefers pages not yet ✓.
+- Revise (fast) keeps a simple "Working" pulse. `st-livelog`/`st-ll` CSS added.
+- **Tested:** E2E 15/15 (ticker shows plan+design words, "Planned the pages ✓"
+  checkpoint, real page names, ≥3 moving frames, final build applies, brand
+  rename, streamed-error path); screenshotted the mid-build log (rail + stage).

@@ -9158,6 +9158,8 @@ let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
 let siteBuildMsg = '';      // live streamed build step ("Designing 3 pages…") shown while busy
+let siteBuild = null;       // { phase, pages[], done[], tick } — running build activity log
+let siteTicker = null;      // setInterval handle rotating the active "live" line
 let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
@@ -9764,7 +9766,9 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (!hasSite
-            ? '<div class="st-empty">' + (siteBusy ? esc(siteBuildMsg || 'Building your site — this takes a minute or two…') : 'Describe your site on the left to build the first draft.') + '</div>'
+            ? (siteBusy && siteBuild
+                ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
+                : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
             : siteView === 'code'
               ? siteCodeView(site, active, pages)
               : siteView === 'more'
@@ -9787,7 +9791,10 @@ function renderSiteWorkspace(view, site) {
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
       : '<div class="st-msg a">' + linkify(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
-    ).join('') + (siteBusy ? '<div class="st-msg a st-busy">' + esc(siteBuildMsg || 'Building') + '</div>' : '');
+    ).join('') + (siteBusy
+      ? (siteBuild ? '<div class="st-msg a st-busy"><div class="st-livelog"></div></div>' : '<div class="st-msg a st-busy">Working</div>')
+      : '');
+    if (siteBusy && siteBuild) paintBuildLog();
     thread.scrollTop = thread.scrollHeight;
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
@@ -9924,20 +9931,69 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
 }
-// #4 — live build progress. Update the streamed step line ("Designing 3 pages…",
-// "Home ✓") in place, WITHOUT a full re-render (that would reload the preview
-// iframe mid-build). Falls back to a render only if the busy node isn't in the DOM.
-function siteBuildStatus(origin, msg) {
-  siteBuildMsg = msg || '';
-  if (siteOpenId !== origin) return;
-  const busy = document.querySelector('.st-thread .st-busy');
-  if (busy) busy.textContent = siteBuildMsg;
-  const empty = document.querySelector('.st-stage .st-empty');
-  if (empty) empty.textContent = siteBuildMsg;
+// #4 — LIVE build activity (Claude-Code-style running log). The server only
+// speaks at a few checkpoints (plan done, each page done, photos), which leaves
+// long silent gaps during the actual Gemini calls. So the CLIENT runs a ticker
+// that keeps the words moving the whole time — a rotating "current step" line
+// over an accumulating list of finished steps (✓). It starts the instant Send is
+// hit (before any server event) so there's zero dead air.
+const ST_TICK = {
+  plan: ['Reading your brief', 'Planning the pages', 'Choosing a design direction', 'Picking fonts & colors', 'Setting the brand voice', 'Sketching the layout'],
+  design: ['Designing {p}', 'Laying out {p}', 'Writing the copy for {p}', 'Styling the components', 'Building the sections', 'Refining the spacing', 'Wiring the buttons & links'],
+  photos: ['Art-directing the photos', 'Generating the imagery', 'Placing the hero shot', 'Optimizing the images', 'Polishing the details'],
+  finish: ['Reviewing the code', 'Final touches', 'Wrapping up'],
+};
+function siteBuildStart() {
+  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0 };
+  if (siteTicker) clearInterval(siteTicker);
+  siteTicker = setInterval(() => { if (!siteBuild) return; siteBuild.tick++; paintBuildLog(); }, 1500);
 }
-// Read the NDJSON build stream: surface each {ev:"status"|"page"} step live, and
-// return the terminal {ev:"done"|"error"} payload shaped like the old JSON body
-// (so the existing result-handling branches below need no change).
+function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
+function buildActiveText() {
+  if (!siteBuild) return 'Working';
+  const set = ST_TICK[siteBuild.phase] || ST_TICK.finish;
+  let s = set[siteBuild.tick % set.length];
+  if (s.indexOf('{p}') >= 0) {
+    // Prefer pages still in progress (not yet ticked ✓), so the active line reads
+    // as what it's actually working on.
+    const pending = siteBuild.pages.filter((p) => !siteBuild.done.includes(p));
+    const pool = pending.length ? pending : (siteBuild.pages.length ? siteBuild.pages : ['the page']);
+    s = s.replace('{p}', pool[siteBuild.tick % pool.length]);
+  }
+  return s;
+}
+// Paint the running log in place — no full re-render (that would reload the
+// preview iframe mid-build). Finished steps stay (dim, ✓); the active line
+// pulses and rotates.
+function paintBuildLog() {
+  const active = buildActiveText();
+  siteBuildMsg = active;
+  const done = siteBuild ? siteBuild.done : [];
+  const html = done.map((d) => '<div class="st-ll done">' + esc(d) + '</div>').join('') +
+    '<div class="st-ll active"><span class="st-ll-dot"></span>' + esc(active) + '…</div>';
+  const host = document.querySelector('.st-thread .st-livelog');
+  if (host) { host.innerHTML = html; const th = document.querySelector('.st-thread'); if (th) th.scrollTop = th.scrollHeight; }
+  const stageHost = document.querySelector('.st-stage .st-livelog');
+  if (stageHost) stageHost.innerHTML = html;
+  const empty = document.querySelector('.st-stage .st-empty'); if (empty && !stageHost) empty.textContent = active + '…';
+}
+// Fold a streamed checkpoint into the running log (advances the phase, appends
+// finished steps). Called from readSiteStream with the raw event object.
+function siteBuildStatus(origin, ev) {
+  if (siteOpenId !== origin || !siteBuild) return;
+  if (ev.ev === 'status') {
+    if (ev.phase === 'design') { if (!siteBuild.done.includes('Planned the pages')) siteBuild.done.push('Planned the pages'); siteBuild.phase = 'design'; if (Array.isArray(ev.pages)) siteBuild.pages = ev.pages.slice(0, 8); }
+    else if (ev.phase === 'photos') { siteBuild.phase = 'photos'; }
+    else if (ev.phase === 'plan') { siteBuild.phase = 'plan'; }
+    siteBuild.tick = 0;
+  } else if (ev.ev === 'page') {
+    if (ev.name && !siteBuild.done.includes(ev.name)) siteBuild.done.push(ev.name);
+  }
+  paintBuildLog();
+}
+// Read the NDJSON build stream: fold each {ev:"status"|"page"} into the live log,
+// and return the terminal {ev:"done"|"error"} payload shaped like the old JSON
+// body (so the existing result-handling branches below need no change).
 async function readSiteStream(r, origin) {
   const reader = r.body.getReader();
   const dec = new TextDecoder();
@@ -9951,8 +10007,7 @@ async function readSiteStream(r, origin) {
       const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
       if (!line) continue;
       let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
-      if (ev.ev === 'status') siteBuildStatus(origin, ev.msg || '');
-      else if (ev.ev === 'page') siteBuildStatus(origin, (ev.name || 'Page') + ' ✓');
+      if (ev.ev === 'status' || ev.ev === 'page') siteBuildStatus(origin, ev);
       else if (ev.ev === 'done') final = ev;
       else if (ev.ev === 'error') final = { error: true, code: ev.code };
     }
@@ -9975,12 +10030,14 @@ function siteSend(text) {
   const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });
   siteBusy = true;
+  if (isBuild) siteBuildStart(); else siteBuildStop(); // live activity log for builds only
   sitesSave();
   renderSites();
   const origin = siteOpenId;
   const finish = (reply) => {
     siteBusy = false;
     siteBuildMsg = '';
+    siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push({ r: 'a', t: reply });
