@@ -284,6 +284,29 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
 
 ---
 
+## 2026-07-20 — Test round 2 (feed + display): 1 fixed, 1 known-limit noted
+
+- **Community feed (Campfire, "post publicly, everyone reads"):** was **BROKEN** —
+  the model picked `display` (public read, no write) so logged-in posting 403'd.
+  **FIXED: added a 4th access mode `feed`** = public GET, logged-in POST/PATCH/
+  DELETE scoped to the author (owner_id). Verified: 2 users post → public read
+  sees BOTH; logged-out post → 401. Rules now steer the model to `feed` for
+  boards/comments/reviews/public-guestbooks (vs collect which hides, display
+  which blocks). The four modes: **collect · display · user · feed.**
+- **Shop (Clayware, "products from a database"):** the model **hardcoded** the 4
+  mugs (`backend=False`) instead of a `display` table — correct, because `display`
+  tables start EMPTY and there's no owner content-editor yet. Not broken (the shop
+  works), just not DB-editable. Rules now tell the model to hardcode small fixed
+  catalogs. **KNOWN LIMIT / next feature if wanted:** owner content-management —
+  add an owner WRITE path (add/edit/delete rows) in the Data panel so `display`
+  tables (products, blog posts, menus) become editable. Until then, `display` is
+  best avoided in favor of hardcoding.
+
+Bugs found by testing so far this session: normalizeSchema (shape drift) + the
+feed gap. Both fixed + live-verified. Test accounts/sites all deleted.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
