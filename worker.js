@@ -4154,21 +4154,18 @@ async function handleRequest(request, env, ctx) {
     // use_credits exactly like /api/direct; every terminal failure refunds the
     // full fee via credit_back (looped — that RPC caps 10 credits per call).
     if (url.pathname === "/api/site" && request.method === "POST") {
-      // gemini-3.5-flash — the current GA flagship (the 3.1-pro-PREVIEW model
-      // 429s at Paid Tier 1: preview models get near-zero quota until a higher
-      // tier). 3.5-flash is generally available so it has full Tier-1 quota, and
-      // it's the latest model. 2026-07-18.
-      const GEMINI_MODEL = "gemini-3.5-flash";
-      // Stable sibling used ONLY as an automatic fallback when the primary is
-      // overloaded (repeated 503/500) — so a Google-side capacity blip on one model
-      // doesn't kill the build. 2.5-flash is broadly available on Tier 1.
-      const GEMINI_FALLBACK = "gemini-2.5-flash";
+      // Builder engine = Claude Sonnet 5 (owner's call 2026-07-20, replacing
+      // Gemini Flash): the same model class Lovable runs on — much stronger design
+      // + code quality, and on the owner's Anthropic key (far higher limits than
+      // the Gemini free/Tier-1 quota that was throwing 429/503). The internal
+      // helper is still named geminiCall to avoid churn across all its call sites.
+      const CLAUDE_MODEL = "claude-sonnet-5";
       // The single-file contract both models must obey. Forms stay inert
       // (action="#") until the hosting/backend phase wires real endpoints.
       const SITE_RULES = "HARD OUTPUT RULES: Output exactly ONE complete single-file HTML document (<!doctype html> … </html>) and NOTHING else — no markdown fences, no commentary before or after. All CSS lives in one <style> block in <head>; small vanilla JS in one <script> block before </body> when the design needs it (nav, reveals-on-scroll, tabs, a testimonial slider, smooth scroll). TYPOGRAPHY: you MAY (and should) load real fonts from Google Fonts via a <link> to fonts.googleapis.com in <head> — pick fonts with real character, never leave it on the system default. That link is the ONLY external resource you load directly: NO CDN scripts/frameworks/icon-fonts. For PHOTOGRAPHY, use the data-gen <img> placeholder protocol (the platform generates and hosts each image, then fills its src) — never hotlink an external image URL yourself. For everything else (textures, icons, logos, decorative shapes, patterns) use CSS gradients/meshes, CSS shapes, and hand-written inline SVG. Fully responsive down to 360px (fluid clamp() type, no fixed widths that overflow). Semantic landmarks (<header> <nav> <main> <section> <footer>), alt/aria on meaningful svg, visible focus states, <meta name=viewport>, a real <title> and <meta name=description>. Respect prefers-reduced-motion. NEVER-BLANK RULE (CRITICAL — a page that is empty on load is a total failure): ALL content MUST be visible with CSS alone — JavaScript is ENHANCEMENT ONLY. NEVER start sections/hero/text at opacity:0, visibility:hidden, transform, or display:none and rely on JS (scroll-reveal / IntersectionObserver) to reveal them — if that JS is slow, deferred, or throws, the page stays BLANK forever. For entrance or scroll animations do ONE of: (a) a pure-CSS animation/transition that plays on load (no JS gate), OR (b) gate the hidden state on a class you add to the <html> element in the VERY FIRST inline <script> in <head> (document.documentElement.className+=' js') and scope every hidden/pre-animation rule under that class (e.g. .js .reveal{opacity:0;transform:translateY(20px)} .reveal{opacity:1}) so that with no-JS or broken-JS the content is fully visible. Wrap any non-trivial JS in try/catch so a single error can never blank the page. Verify mentally: with JavaScript disabled, is every headline, section, and image still visible? It MUST be. INTERACTIONS MUST ACTUALLY WORK (critical — a dead button reads as broken): wire EVERY interactive element with vanilla JS in the single <script>. Give sections ids; every in-page nav link and CTA button uses href=\"#id\" and smooth-scrolls to its target. The mobile/hamburger menu and any tabs, accordions, FAQ, or sliders must genuinely open/switch. SITE CONTEXT — define ONCE at the very top of your single <script> and use everywhere: function siteSlug(){return (window.__SITE_SLUG__)||(location.pathname.match(/^\\/s\\/([^\\/]+)/)||[])[1]||'';} and a storage helper that never throws (so accounts work in the sandboxed live-preview too): var store={_m:{},get:function(k){try{return localStorage.getItem(k)}catch(e){return this._m[k]||null}},set:function(k,v){try{localStorage.setItem(k,v)}catch(e){this._m[k]=v}},del:function(k){try{localStorage.removeItem(k)}catch(e){delete this._m[k]}}}; — use siteSlug() wherever a slug is needed and store for the session token. FORMS: on submit, preventDefault, collect the fields into an object, and fire-and-forget POST them as JSON to /api/site/form with body {slug:siteSlug(), form:'<a short name for this form e.g. waitlist/contact>', data:{field:value,…}} (ignore the response) — this saves the submission for the site owner on the live site. Then ALWAYS show the inline success state (e.g. swap the form for a \"You're on the list ✓\" confirmation). Add a visually-hidden honeypot input named \"_hp\" (aria-hidden, off-screen) — if it's filled, skip the POST. Never real-submit to an external URL, never leave a dead form. Buttons that imply an action either scroll to the relevant section or trigger a small JS affordance. NO dead buttons, NO placeholder '#' links that go nowhere. Every hover/focus state is visible. ACCOUNTS / LOGIN (REAL — this platform provides a real auth backend, so NEVER fake it): if the site needs sign-up / log-in / a members-only area, wire it to the REAL endpoints — do NOT build a pretend login or an ungated 'dashboard'. Use the shared token key K='zephyr_site_auth_'+siteSlug(). SIGN-UP form → fetch('/api/site/auth/signup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),email,password})}); LOG-IN form → POST /api/site/auth/login with the same body. Parse the JSON: on {ok:true} do store.set(K,json.token) then redirect to the member area (e.g. location.href='/dashboard'); on {ok:false} show json.error inline by the form. Require the password field minlength 8 and include the hidden _hp honeypot on these forms too. Every MEMBER-ONLY / dashboard / account page MUST guard on load: var t=store.get(K); if(!t){location.replace('/login')} else fetch('/api/site/auth/me',{headers:{Authorization:'Bearer '+t}}).then(r=>r.json()).then(d=>{if(!d.ok)throw 0; /* reveal page + show d.email */}).catch(()=>{store.del(K);location.replace('/login')}); — NEVER render member content without this real check. A LOG-OUT control does store.del(K) then goes home. Show the member's REAL email from /api/site/auth/me — never invent fake names, fake stats, or fake 'logged in as' data. NEVER put a password field in a form that POSTs to /api/site/form. (Accounts only work on the PUBLISHED site; in preview SLUG is '' and the endpoint replies that it isn't live yet — surface that message, don't fake success.) PASSWORD RESET (REAL — forgot-password by email; only works if the owner has wired email, see below): if the login area needs a 'Forgot password?' flow, build TWO pieces. (1) A FORGOT-PASSWORD form (email field + hidden _hp honeypot) that POSTs to /api/site/auth/reset-request: fetch('/api/site/auth/reset-request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),email})}); it ALWAYS resolves ok (never reveals whether the account exists), so on ANY response show the SAME neutral confirmation — 'If that email has an account, we've sent a reset link.' — never a 'no such user' error. (2) A RESET page at path '/reset' that on load reads the token from the URL (var token=new URLSearchParams(location.search).get('token')) — if there's no token show 'This link is invalid.', otherwise show a new-password form (password minlength 8 + confirm) that POSTs to /api/site/auth/reset: fetch('/api/site/auth/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password})}).then(r=>r.json()).then(d=>{if(d.ok){store.set('zephyr_site_auth_'+siteSlug(),d.token);location.href='/dashboard'}else{/* show d.error inline, e.g. link expired/used */}}); on success the returned d.token is a fresh session — store it under the same K key and send them into the member area. The reset link the visitor receives points to https://<this-site>/s/<slug>/reset?token=… so the '/reset' page MUST exist. IMPORTANT — email is REQUIRED for this to work: the reset email is sent through the SITE OWNER's OWN provider, so TELL the user they must add EMAIL_FROM (a from-address on a domain they've verified) plus a provider key (RESEND_KEY, or SENDGRID_KEY / POSTMARK_KEY) in Cloud → Secrets — with no email configured the request still succeeds silently but no link is ever sent. LIVE MAP (REAL): for a location / 'find us' / directions section with a real address, embed a REAL interactive map with an <iframe> — this iframe is the ONE allowed exception to the no-embeds rule. Use OpenStreetMap (no API key): <iframe title=\"Map\" loading=\"lazy\" style=\"border:0;width:100%;height:380px\" src=\"https://www.openstreetmap.org/export/embed.html?bbox=LON1,LAT1,LON2,LAT2&layer=mapnik&marker=LAT,LON\"></iframe> where the marker is the address's approximate lat/lon and the bbox spans ~0.004° around it, plus a 'View larger map' link to openstreetmap.org. NEVER fake a map with a static image or an empty box when a real address is given. DATABASE / COLLECTIONS (REAL — public, displayable data the site both SAVES and SHOWS: testimonials/reviews walls, menus, guestbooks, listings, anything a visitor submits AND everyone sees; NOT for private/sensitive captures — those go to /api/site/form). To SAVE a record: fetch('/api/site/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),collection:'<name, e.g. reviews>',data:{field:value,…}})}) (fire-and-forget; include the hidden _hp honeypot; then show the inline success state). To DISPLAY records: fetch('/api/site/data?slug='+encodeURIComponent(siteSlug())+'&collection=<name>').then(r=>r.json()).then(d=>{(d.records||[]).forEach(function(rec){ /* render rec.data — escape text before inserting */ });}); run it on page load to populate the list. Records are PUBLIC and newest-first (cap 100). QUERY on the SERVER for anything beyond a short latest-N list (filtering/sorting/searching/paging a real dataset like listings): add params to the GET — where=<field>:<op>:<value> (REPEATABLE; op = eq|ne|lt|lte|gt|gte|contains|in; numeric ops compare as numbers, so where=price:lte:2000000&where=beds:gte:3&where=city:eq:Miami), q=<text> (free-text across all string fields), sort=<field>&order=asc|desc, and limit(≤100)+offset for paging. The response then also carries {total} (the matched count, for \"X results\" / pagination) alongside {records}. Example: fetch('/api/site/data?slug='+encodeURIComponent(siteSlug())+'&collection=listings&where=beds:gte:3&where=price:lte:2000000&sort=price&order=asc&limit=12'). Build filter UIs (dropdowns, price sliders, a search box) that re-fetch with these params rather than fetching everything and filtering in the browser. Use collections for content the visitor both adds and sees; keep anything private in /api/site/form. EDGE FUNCTIONS / SERVER LOGIC (REAL — for custom backend behavior the primitives above don't cover: calling a THIRD-PARTY API with a saved key (Slack/Discord webhook, Stripe, an LLM API, a mailing service), computing/aggregating collection data, or a multi-step 'on submit do A then B'). Do NOT fake server logic in front-end JS, and NEVER hardcode an API key in the page — DECLARE a function instead. Put a spec block in <head>: <script type=\"application/isibi-fn\" data-name=\"notify-signup\">{\"steps\":[ … ]}</script> (data-name is a unique short id, letters/numbers/dash). Each step is exactly ONE of: {\"do\":\"read\",\"collection\":\"reviews\",\"limit\":20,\"as\":\"list\"} → reads public collection records, then {{steps.list.records}} / {{steps.list.count}} are available; {\"do\":\"save\",\"collection\":\"signups\",\"data\":{\"email\":\"{{input.email}}\"}} → saves a record; {\"do\":\"fetch\",\"url\":\"https://api.example.com/x\",\"method\":\"POST\",\"headers\":{\"Authorization\":\"Bearer {{secret.API_KEY}}\",\"Content-Type\":\"application/json\"},\"body\":{\"text\":\"{{input.msg}}\"},\"as\":\"api\"} → calls an external HTTPS API, then {{steps.api.status}} / {{steps.api.body}} are available; {\"do\":\"respond\",\"data\":{\"ok\":true}} → the JSON the browser receives back. TEMPLATES: {{input.x}} = the caller's input; {{steps.<as>.<path>}} = an earlier step's output; {{secret.NAME}} = a saved secret, resolved SERVER-SIDE and injected ONLY into fetch (url/headers/body) — it is NEVER sent to the browser, so every real API key goes in {{secret.NAME}} (the owner adds the value in Cloud → Secrets), never inline. Limits: ≤8 steps, ≤2 fetch per function. CALL a function from your page JS: fetch('/api/site/fn',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),fn:'notify-signup',input:{email:val}})}).then(function(r){return r.json()}).then(function(d){ /* d is your respond data */ }). TRIGGERS (beyond your page calling it): (1) SCHEDULE — add \"schedule\":{\"everyMinutes\":60} at the top level of the spec (sibling of \"steps\"; min 5, 60=hourly, 1440=daily) and the function runs on a timer with input {scheduled:true} — perfect for a daily digest, a cleanup, or a periodic fetch, no page needed; (2) WEBHOOK — an outside service (Stripe, Zapier, a form/webhook tool) can POST its own JSON to https://<this-site>/api/site/hook/<slug>/<function-name> and the ENTIRE POST body becomes the function's input; the owner copies that URL from Cloud → Edge functions and pastes it into the other service. PAYMENTS (REAL — sell a product/booking with Stripe Checkout using the SITE OWNER's OWN Stripe account): a BUY button calls a function with steps [{\"do\":\"checkout\",\"secret\":\"STRIPE_KEY\",\"amount\":<price in the smallest unit — cents, so 2999 = $29.99>,\"currency\":\"usd\",\"name\":\"<product name>\",\"quantity\":1,\"success_url\":\"https://<this-site>/thanks\",\"cancel_url\":\"https://<this-site>/\",\"as\":\"s\"},{\"do\":\"respond\",\"data\":{\"url\":\"{{steps.s.url}}\"}}]; the button's JS calls it via /api/site/fn then redirects location.href=res.url. amount may be dynamic ({{input.amount}}); for a subscription set \"mode\":\"subscription\" and \"interval\":\"month\". The owner adds their Stripe SECRET key as the secret named STRIPE_KEY in Cloud → Secrets — TELL the user to do this (never hardcode a key). TO RECORD PAID ORDERS, also declare a WEBHOOK function with \"verify\":\"stripe\" at the top of the spec plus a step {\"do\":\"save\",\"collection\":\"orders\",\"data\":{\"email\":\"{{input.data.object.customer_details.email}}\",\"amount\":\"{{input.data.object.amount_total}}\",\"session\":\"{{input.data.object.id}}\"}}; the owner pastes that function's webhook URL into Stripe (Dashboard → Developers → Webhooks) sending ONLY the checkout.session.completed event and adds their Stripe webhook signing secret as the secret STRIPE_WEBHOOK_SECRET — isibi verifies Stripe's signature so a forged call can never record a fake order. EMAIL (REAL — send email from the SITE OWNER's OWN email provider: a welcome email on signup, a 'new submission' alert to the owner, an order receipt): use an email step {\"do\":\"email\",\"provider\":\"resend\",\"secret\":\"RESEND_KEY\",\"from\":\"you@yourdomain.com\",\"to\":\"{{input.email}}\",\"subject\":\"Welcome!\",\"html\":\"<h1>Thanks for joining</h1>\",\"as\":\"m\"}. provider is resend | sendgrid | postmark (default resend); the owner adds THEIR provider API key in Cloud → Secrets under the name you reference (e.g. RESEND_KEY) and 'from' must be an address on a domain they've verified in that provider — TELL the user both. from/to/subject/html support {{templates}}. To EMAIL THE OWNER when a contact form is submitted, wire that form to a FUNCTION (save the message to a collection, then email the owner's address) instead of /api/site/form. Never hardcode an email key in the page. Use a function ONLY when the primitives above don't fit — for plain public save+show use collections, for a private capture use /api/site/form. FILE UPLOADS (REAL — let a visitor upload an image or PDF: a listing photo, an avatar, a resume): give an <input type=\"file\" accept=\"image/*,application/pdf\">; on change, read the file as a data URL and POST it — var rd=new FileReader();rd.onload=function(){fetch('/api/site/upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slug:siteSlug(),name:f.name,data:rd.result})}).then(function(r){return r.json()}).then(function(res){if(res.url){/* show it: img.src=res.url — AND to KEEP it, save res.url into a collection via /api/site/data, e.g. a listing record {photo:res.url,…} */}else{/* show res.error inline */}})};rd.readAsDataURL(f); — the response {url} is a PERMANENT public link to the file. Images (PNG/JPG/WebP/GIF) and PDF only, ≤6MB. NEVER upload to an external service. An uploaded file the site never references is orphaned, so ALWAYS persist res.url into a collection (or a form/profile) to keep it. Uploads need the site to have a slug (live or preview-draft); if siteSlug() is empty, tell the user it isn't ready instead of faking success. GENERAL HONESTY: never ship UI that pretends to do something it can't — if a capability truly isn't supported, degrade honestly (a clear 'coming soon' or a real waitlist via /api/site/form) instead of faking it.";
       const stUser = await authUser(request);
       if (!stUser) return UNAUTHED();
-      if (!env.GEMINI_API_KEY) {
+      if (!env.ANTHROPIC_API_KEY) {
         return Response.json({ error: "site engine not configured" }, { status: 501 });
       }
       const tlS = tooLargeBody(request, 1_000_000); if (tlS) return tlS;
@@ -4198,10 +4195,12 @@ async function handleRequest(request, env, ctx) {
       // out (flat; output incl. thinking); each Nano Banana Pro image = $0.15;
       // 1 credit = $0.008. We pre-check the balance covers a worst-case build,
       // run it, then debit the measured Gemini cost + each generated image.
-      const CREDIT_USD = 0.008, MAX_OUT_TOK = 60000, SITE_MAX_IMAGES = 6; // site-wide image cap (across all pages)
+      const CREDIT_USD = 0.008, MAX_OUT_TOK = 20000, SITE_MAX_IMAGES = 6; // site-wide image cap (across all pages)
       const IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const auth = request.headers.get("Authorization") || "";
-      const toCredits = (inTok, outTok) => Math.max(1, Math.ceil((inTok * 1.5e-6 + outTok * 9e-6) / CREDIT_USD));
+      // Metered at Claude Sonnet 5 rates ($3/M input, $15/M output) so the builder
+      // charge covers the real API spend (was Gemini Flash rates).
+      const toCredits = (inTok, outTok) => Math.max(1, Math.ceil((inTok * 3e-6 + outTok * 15e-6) / CREDIT_USD));
       // Upper bound: the payload we already hold (~4 chars/token) + the output cap.
       const estInTok = Math.ceil((((step === "build" ? brief : instruction + curHtml) || "").length + 1800) / 4);
       const estGemMax = toCredits(estInTok, MAX_OUT_TOK);
@@ -4230,7 +4229,7 @@ async function handleRequest(request, env, ctx) {
           const mime = m[1].toLowerCase(), ext = A_MIME[mime]; if (!ext) continue;
           let bytes; try { const bin = atob(m[2]); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { continue; }
           if (bytes.length > 5_000_000) continue;
-          imageParts.push({ inlineData: { mimeType: mime, data: m[2] } });
+          imageParts.push({ type: "image", source: { type: "base64", media_type: mime, data: m[2] } });
           if (env.SITES_BUCKET && assetSiteId) {
             const id = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
             const key = "assets/" + assetSiteId + "/" + id + "." + ext;
@@ -4242,61 +4241,47 @@ async function handleRequest(request, env, ctx) {
         ? " ATTACHED IMAGES: the user attached " + imageParts.length + " image(s)" + (assetUrls.length ? ", hosted at these EXACT urls: " + assetUrls.join(", ") : "") + " — and you can SEE them below. If an image is a LOGO or a product/photo the user wants ON the site, EMBED it with a real <img src=\"<that exact hosted url>\" alt=\"...\"> (logo in the header/footer, product in a hero, etc.). If it's a DESIGN/STYLE reference (a screenshot, a mood board), MATCH its palette, layout and vibe but do NOT embed it. Use the brief/instruction to decide which. Never invent any other external image URL."
         : "";
       let usedInTok = 0, usedOutTok = 0;
+      // Builder engine call → Claude Sonnet 5 (Anthropic Messages API). Keeps the
+      // (system, user, thinking, imgParts) signature so every build/revise call
+      // site is unchanged; `thinking` now just nudges the output ceiling (build
+      // "high" gets more room than a surgical "low" edit). Resilient: retries
+      // transient 429/500/503/529 (overloaded) AND empty/truncated responses with
+      // backoff, and always throws an error carrying the TRUE status so the
+      // build's "no pages" error reports the real cause instead of a bare -1.
       const geminiCall = async (system, user, thinking = "low", imgParts = []) => {
-        // Resilient call: retry transient rate-limits/overloads (429/500/503) AND
-        // empty responses (a blip, or thinking ate the whole token budget →
-        // finishReason MAX_TOKENS with no visible text). On MAX_TOKENS we drop the
-        // thinking level so the retry leaves room for real output. The error thrown
-        // on final failure carries the TRUE status (429 / 0-empty / http) so the
-        // build's "no pages" error can report the real cause instead of a bare -1.
         const BACKOFF = [1200, 3000, 6000]; // ms before attempts 2, 3, 4
         const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-        let curThinking = thinking, lastErr = null, model = GEMINI_MODEL;
+        const maxTok = thinking === "high" ? MAX_OUT_TOK : Math.min(MAX_OUT_TOK, 8000);
+        const content = [{ type: "text", text: user }, ...(Array.isArray(imgParts) ? imgParts : [])];
+        let lastErr = null;
         for (let attempt = 0; attempt < 4; attempt++) {
           let r;
           try {
-            r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+            r = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
-              headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-              body: JSON.stringify({
-                systemInstruction: { parts: [{ text: system }] },
-                contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
-                // Thinking draws from the output budget and is billed as output. A
-                // fresh BUILD gets "high" (design reasoning is where quality comes
-                // from); a surgical REVISE stays "low". Big output headroom either way.
-                generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: curThinking } },
-              }),
-              signal: AbortSignal.timeout(160000),
+              headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+              body: JSON.stringify({ model: CLAUDE_MODEL, max_tokens: maxTok, system, messages: [{ role: "user", content }] }),
+              signal: AbortSignal.timeout(180000),
             });
           } catch (netErr) { lastErr = netErr; if (attempt < 3) { await sleep(BACKOFF[attempt]); continue; } throw netErr; }
-          // Retryable HTTP (rate-limit / transient overload).
-          if (!r.ok && (r.status === 429 || r.status === 500 || r.status === 503) && attempt < 3) {
+          // Retryable HTTP (rate-limit / transient overload — 529 = Anthropic "overloaded").
+          if (!r.ok && (r.status === 429 || r.status === 500 || r.status === 503 || r.status === 529) && attempt < 3) {
             lastErr = Object.assign(new Error("gen " + r.status), { status: r.status });
             try { await r.body?.cancel(); } catch {}
-            // Primary model overloaded (503/500) → switch to the stable fallback
-            // for the remaining attempts so a capacity blip doesn't sink the build.
-            if ((r.status === 503 || r.status === 500) && model === GEMINI_MODEL) model = GEMINI_FALLBACK;
             await sleep(BACKOFF[attempt]); continue;
           }
           const d = await r.json().catch(() => ({}));
           if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 300); throw e; }
-          const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
-          const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
-          const finish = (d.candidates && d.candidates[0] && d.candidates[0].finishReason) || "none";
+          const text = Array.isArray(d.content) ? d.content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("") : "";
           if (!text) {
-            lastErr = Object.assign(new Error("empty"), { status: 0, detail: "finish:" + finish });
-            if (attempt < 3) {
-              // thinking blew the token budget → give the retry room for output.
-              if (finish === "MAX_TOKENS" && curThinking !== "low") curThinking = "low";
-              await sleep(BACKOFF[attempt]); continue;
-            }
+            lastErr = Object.assign(new Error("empty"), { status: 0, detail: "stop:" + (d.stop_reason || "none") });
+            if (attempt < 3) { await sleep(BACKOFF[attempt]); continue; }
             throw lastErr;
           }
-          // Success — real usage for metered billing (output billed INCLUDING
-          // thinking tokens). ACCUMULATE across calls (a build runs several).
-          const um = d.usageMetadata || {};
-          usedInTok += um.promptTokenCount || 0;
-          usedOutTok += (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
+          // Success — real usage for metered billing. ACCUMULATE across calls.
+          const um = d.usage || {};
+          usedInTok += um.input_tokens || 0;
+          usedOutTok += um.output_tokens || Math.ceil(text.length / 4);
           console.log("site tokens (cum):", usedInTok, "in /", usedOutTok, "out");
           return text;
         }
