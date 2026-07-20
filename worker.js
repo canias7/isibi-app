@@ -2292,6 +2292,45 @@ async function injectSiteImages(html, request, env, uid, budget) {
   return { html: out, charged };
 }
 
+// Cheap, high-precision defect scan on a generated page — no JS execution, so it
+// only flags things we're SURE are wrong: a truncated document, leftover lorem,
+// nav links to pages that don't exist, and hotlinked external images (which the
+// published-site CSP will block). Returns a list of plain-English problems; an
+// empty list means "ship it, no fix pass" (so clean generations cost nothing extra).
+function validateSiteHtml(html, knownPaths) {
+  const issues = [];
+  const h = String(html || "");
+  if (!/<html[\s>]/i.test(h) || !/<\/html>/i.test(h) || !/<body[\s>]/i.test(h) || !/<\/body>/i.test(h)) {
+    issues.push("The document is incomplete/truncated — it must be a full <!doctype html><html>…</html> with a complete <body>…</body>.");
+  }
+  if (/lorem ipsum/i.test(h)) issues.push("Remove ALL 'lorem ipsum' placeholder text and write real, specific, on-brand copy.");
+  const badImgs = [];
+  h.replace(/<img\b[^>]*?\bsrc\s*=\s*"([^"]+)"[^>]*>/gi, (m, src) => {
+    if (/^https?:\/\//i.test(src) && !/^https:\/\/([a-z0-9-]+\.)?supabase\.co\//i.test(src) && !/^https:\/\/isibi\.ai\//i.test(src)) badImgs.push(src.slice(0, 90));
+    return m;
+  });
+  if (badImgs.length) issues.push("These <img> tags hotlink external image URLs, which are BLOCKED on the live site — replace each with a data-gen placeholder <img data-gen=\"<on-subject art-directed prompt>\" data-ar=\"...\" alt=\"...\"> (NO src): " + badImgs.slice(0, 4).join(" | "));
+  if (Array.isArray(knownPaths) && knownPaths.length) {
+    const dead = new Set();
+    h.replace(/<a\b[^>]*?\bhref\s*=\s*"(\/[^"#?]*)"/gi, (m, href) => {
+      const p = (href.replace(/\/+$/, "") || "/");
+      if (!knownPaths.includes(p) && !knownPaths.includes(href)) dead.add(href);
+      return m;
+    });
+    if (dead.size) issues.push("These nav/link hrefs point to pages that DON'T exist — link only to the site's real pages (" + knownPaths.join(", ") + "), or change them to in-page anchors: " + [...dead].slice(0, 6).join(", "));
+  }
+  return issues;
+}
+// One targeted repair pass: fix ONLY the listed defects, return the full corrected
+// document, everything else identical. Used by build + revise after validation.
+async function autoFixSiteHtml(html, issues, geminiCall, assetLine, extractHTML) {
+  const fixed = extractHTML(await geminiCall(
+    "You are fixing specific defects in ONE finished HTML page. Return the COMPLETE corrected single-file HTML document (<!doctype html>…</html>) — same design, layout, copy, and structure, changing ONLY what is needed to fix these problems, nothing else:\n- " + issues.join("\n- ") + "\nKeep the brand name/logo, fonts, palette, nav and footer exactly as they are. " + (assetLine || ""),
+    "Current HTML:\n\n" + html, "low"
+  ));
+  return fixed || html;
+}
+
 // A published multi-page site lives at isibi.ai/s/<slug>/…, so its internal nav
 // links (href="/menu") must be prefixed to /s/<slug>/menu. Only rewrites <a>
 // hrefs that exactly match one of the site's own page paths (anchors, external
@@ -4177,6 +4216,16 @@ async function handleRequest(request, env, ctx) {
             } catch (e) { console.log("site page failed", pg.path, e && e.message); return null; }
           }))).filter(Boolean);
           if (!built.length) throw new Error("build returned no pages");
+          // Validate → auto-fix each page BEFORE charging (so the fix's tokens are
+          // billed and the fixed page is what we image + ship). One pass, only for
+          // real defects — clean pages skip it and cost nothing extra.
+          const validPaths = pagesToBuild.map((p) => p.path);
+          await Promise.all(built.map(async (pg) => {
+            const issues = validateSiteHtml(pg.html, validPaths);
+            if (!issues.length) return;
+            try { const fx = await autoFixSiteHtml(pg.html, issues, geminiCall, assetLine, extractHTML); if (fx) pg.html = fx; }
+            catch (e) { console.log("site autofix failed", pg.path, e && e.message); }
+          }));
           // Charge measured Gemini cost (plan + all pages), then generate images
           // across the WHOLE site within a site-wide budget capped to the balance.
           const gemCredits = toCredits(usedInTok, usedOutTok);
@@ -4220,14 +4269,41 @@ async function handleRequest(request, env, ctx) {
           { const byName = {}; for (const pg of built) { const ex = extractSiteFunctions(pg.html); pg.html = ex.clean; for (const f of ex.fns) byName[f.name] = f; } const fnList = Object.values(byName); if (draftSlug && fnList.length) await persistSiteFunctions(env, stUser.id, draftSlug, fnList); }
           return Response.json({ pages: built, design, cost: gemCredits + imgCredits, balance: balAfter, slug: draftSlug });
         } else {
-          // Revise ONE page (the active one) against the shared design system.
+          // Revise ONE page. SURGICAL by default: the model returns the SMALLEST
+          // find/replace edits, which we splice into the existing HTML — so every
+          // untouched byte stays identical (no drift, faster, cheaper). Falls back
+          // to a full-document rebuild only if not one edit applies.
           const design0 = typeof body.design === "string" ? body.design.slice(0, 4000) : "";
-          let html = extractHTML(await geminiCall(
-            "You are a designer and front-end engineer in one, editing ONE page of a client's multi-page website. Apply the user's instruction: make EXACTLY the change asked and keep everything else — design, copy, sections, structure, and the site nav/footer — intact unless told otherwise. Keep the brand name/logo EXACTLY as it already appears (never rename it, never use \"isibi\" — that's the builder platform). Stay consistent with the shared design system" + (design0 ? ":\n" + design0 + "\n" : " (fonts, palette, nav, footer). ") +
-            " Keep semantic, accessible, responsive. IMAGES: keep every existing <img src=\"...\"> as-is unless told to change it; if asked for MORE/NEW photos, add them with the data-gen <img> protocol (art-directed prompt in data-gen, data-ar for shape, NO src) — never hotlink; one data-gen img per new photo. " + assetLine + " " + SITE_RULES,
+          const editRaw = await geminiCall(
+            "You are a front-end engineer editing ONE page of a client's website. Apply the user's instruction with the SMALLEST possible change. Return ONLY minified JSON (no prose, no fences): {\"edits\":[{\"find\":\"<a substring copied VERBATIM from the current HTML — long + specific enough to occur EXACTLY ONCE>\",\"replace\":\"<the new HTML for exactly that region>\"}]}. Each find must be an exact character-for-character slice of the current HTML (same whitespace, same quotes). Change ONLY what the instruction requires; keep all other copy, sections, design, nav, footer, and the brand name/logo untouched (never rename the brand, never use \"isibi\"). Keep it consistent with the shared design system" + (design0 ? ":\n" + design0 : ".") + " New photos use the data-gen <img> protocol (art-directed prompt, data-ar, NO src). If — and ONLY if — the instruction is a full redesign, return ONE edit whose find is the entire \"<body …>…</body>\" and replace is the new body. " + assetLine,
             "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low", imageParts
-          ));
+          );
+          let edits = [];
+          try { const j = editRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); const o = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); if (o && Array.isArray(o.edits)) edits = o.edits; } catch {}
+          let html = curHtml, applied = 0;
+          for (const e of edits) {
+            if (!e || typeof e.find !== "string" || typeof e.replace !== "string" || !e.find) continue;
+            const i = html.indexOf(e.find);
+            if (i < 0) continue; // couldn't anchor this edit → skip it
+            html = html.slice(0, i) + e.replace + html.slice(i + e.find.length);
+            applied++;
+          }
+          // Fallback: no edit anchored (model didn't copy exact bytes) → full-document
+          // rebuild, the previous behavior, so the change still lands.
+          if (!applied) {
+            html = extractHTML(await geminiCall(
+              "You are a designer and front-end engineer editing ONE page of a client's multi-page website. Apply the user's instruction: make EXACTLY the change asked and keep everything else — design, copy, sections, structure, and the site nav/footer — intact unless told otherwise. Keep the brand name/logo EXACTLY as it already appears (never rename it, never use \"isibi\"). Stay consistent with the shared design system" + (design0 ? ":\n" + design0 + "\n" : " (fonts, palette, nav, footer). ") +
+              " Keep semantic, accessible, responsive. IMAGES: keep every existing <img src=\"...\"> as-is unless told to change it; if asked for MORE/NEW photos, add them with the data-gen <img> protocol (NO src) — never hotlink. " + assetLine + " " + SITE_RULES,
+              "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low", imageParts
+            ));
+          }
           if (!html) throw new Error("revision returned no document");
+          // Validate → auto-fix the edited page BEFORE charging (dead links checked
+          // only when the client sent the site's real page paths).
+          {
+            const issues = validateSiteHtml(html, Array.isArray(body.paths) ? body.paths.filter((p) => typeof p === "string").slice(0, 12) : null);
+            if (issues.length) { try { const fx = await autoFixSiteHtml(html, issues, geminiCall, assetLine, extractHTML); if (fx) html = fx; } catch (e) { console.log("revise autofix failed:", e && e.message); } }
+          }
           const gemCredits = toCredits(usedInTok, usedOutTok);
           let balAfter = stBalance;
           try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}

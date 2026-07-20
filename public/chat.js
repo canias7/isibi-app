@@ -9948,7 +9948,7 @@ function siteSend(text) {
   const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', design: site.design || '', siteId: site.id, images: imgs };
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), design: site.design || '', siteId: site.id, images: imgs };
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
