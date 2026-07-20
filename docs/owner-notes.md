@@ -409,7 +409,27 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   wires it and the platform provisions+serves it (same as the DB does). Status:
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
-  function step + a secret). Custom domains + realtime still open.
+  function step + a secret) · **Search/Query ✅ (#490)**. Custom domains + realtime
+  still open.
+  · **Search/Query (#490) — server-side filter/sort/paginate on the data API,
+    VERIFIED live.** Before this, a list read returned newest-N and the built app
+    had to fetch everything and filter in the browser — fine for a demo, useless for
+    a real listings/directory/feed page. Now the `display`/`feed`/`user` list GETs
+    (`/api/db/<slug>/rows/<table>`) accept: `where=<col>:<op>:<value>` (REPEATABLE,
+    AND-ed; op = eq|ne|lt|lte|gt|gte|contains), `q=<text>` (free-text LIKE across the
+    table's declared columns), `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`,
+    and the response now also carries `{total}` (matched count, for pagination /
+    "X results"). Columns are validated against the table's OWN schema and every
+    value is parameterized (`buildD1List` helper) — no injection surface; `user`
+    mode stays scoped to `owner_id`. BACKEND_RULES tells the builder to wire filter
+    UIs (dropdowns, a search box, sliders) to re-fetch with these params.
+    **Proof (zero AI/fal spend — provisioned a display table directly and hit the
+    endpoint):** seeded 6 listings across 3 cities; 17/17 checks passed —
+    `where=beds:gte:3`→3 rows, repeatable AND (`beds>=3 & price<=3M`)→2, `q=miami`→3,
+    `sort=price asc`→ascending, `limit=2&offset=2`→clean pagination with `total:6`,
+    and safety: a bad sort col falls back to `id` (no crash) and a `'; DROP TABLE'`
+    value matched 0 rows with the table intact (parameterized). Throwaway backend
+    deleted (0 left).
   · **Functions + Secrets (#486) — the big one, VERIFIED live end-to-end.** The
     runtime (`/api/site/fn`), webhook, scheduler, step interpreter, secrets vault +
     encryption already existed for static sites, and the runtime resolves via
