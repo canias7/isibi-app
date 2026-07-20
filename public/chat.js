@@ -9163,12 +9163,101 @@ let siteErr = null;         // { chatId } → show the "Try to fix" card over th
 // Images the owner attached for the next build/revise (logo / reference). Sent to
 // the builder, which hosts them + shows them to the generator's vision.
 let siteAttach = [];
+// Attach button → ask the source first: a device file, or one of the user's own
+// gallery creations (saved image generations).
 function siteAttachOpen() {
+  if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  let box = document.getElementById('stAttachChoose');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'stAttachChoose';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card" style="width:min(420px,96vw)"><div class="si-head"><b>Add an image</b><button type="button" class="si-x" aria-label="Close">×</button></div>' +
+    '<div class="si-body"><div class="stac-opts">' +
+      '<button type="button" class="stac-opt" id="stacDevice">' + ic('image', 24) + '<span><b>From device</b><small>Upload a file from this computer</small></span></button>' +
+      '<button type="button" class="stac-opt" id="stacGallery">' + ic('grid', 24) + '<span><b>From your gallery</b><small>Pick one of your saved creations</small></span></button>' +
+    '</div></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  box.querySelector('#stacDevice').onclick = () => { close(); siteAttachDevice(); };
+  box.querySelector('#stacGallery').onclick = () => { close(); siteAttachGallery(); };
+}
+function siteAttachDevice() {
   if (siteAttach.length >= 3) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
   const inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp,image/gif'; inp.multiple = true;
   inp.onchange = () => { siteAttachFiles(inp.files); };
   inp.click();
+}
+// Fetch a gallery image (hosted URL) → data URL for the builder. Fetches as a
+// blob (Supabase public bucket is CORS-open) so the canvas is never tainted;
+// only downscales when the file would blow the 5 MB attach cap.
+async function galleryUrlToData(url, edge = 1600, cap = 4500000) {
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) return '';
+    const blob = await resp.blob();
+    const toData = (b) => new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(''); r.readAsDataURL(b); });
+    if (blob.size <= cap) return await toData(blob);
+    const objUrl = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = objUrl; });
+      const scale = Math.min(1, edge / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.max(1, Math.round(img.width * scale));
+      cv.height = Math.max(1, Math.round(img.height * scale));
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return cv.toDataURL('image/jpeg', 0.85);
+    } finally { URL.revokeObjectURL(objUrl); }
+  } catch { return ''; }
+}
+async function siteAttachGallery() {
+  const remaining = 3 - siteAttach.length;
+  if (remaining <= 0) { if (typeof sbToast === 'function') sbToast('Up to 3 images.'); return; }
+  let box = document.getElementById('stAttachGal');
+  if (box) box.remove();
+  box = document.createElement('div');
+  box.id = 'stAttachGal';
+  box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card" style="width:min(720px,96vw)"><div class="si-head"><b>Your gallery</b><button type="button" class="si-x" aria-label="Close">×</button></div>' +
+    '<div class="si-body"><div id="stgGrid" class="stg-grid"><div class="stg-empty">Loading…</div></div></div>' +
+    '<div class="stg-foot"><span class="stg-hint">Pick up to ' + remaining + '</span><span style="flex:1"></span><button type="button" class="st-attbtn" id="stgCancel">Cancel</button><button type="button" class="stg-add" id="stgAdd" disabled>Add</button></div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.querySelector('#stgCancel').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  if (!Array.isArray(serverGallery)) { try { await loadServerGallery(); } catch (e) {} }
+  const imgs = (typeof galleryItems === 'function' ? galleryItems() : []).filter((i) => i.kind === 'image');
+  const grid = box.querySelector('#stgGrid');
+  const addBtn = box.querySelector('#stgAdd');
+  if (!imgs.length) { grid.innerHTML = '<div class="stg-empty">No images in your gallery yet. Generate some in the image generator, then they show up here.</div>'; return; }
+  const sel = new Set();
+  grid.innerHTML = imgs.map((it, i) => '<button type="button" class="stg-cell" data-i="' + i + '"><img src="' + it.url + '" alt="" loading="lazy"><span class="stg-check">✓</span></button>').join('');
+  const sync = () => { addBtn.disabled = sel.size === 0; addBtn.textContent = sel.size ? ('Add ' + sel.size) : 'Add'; };
+  grid.querySelectorAll('.stg-cell').forEach((c) => {
+    c.onclick = () => {
+      const i = +c.dataset.i;
+      if (sel.has(i)) { sel.delete(i); c.classList.remove('sel'); }
+      else { if (sel.size >= remaining) { if (typeof sbToast === 'function') sbToast('You can add ' + remaining + ' more.'); return; } sel.add(i); c.classList.add('sel'); }
+      sync();
+    };
+  });
+  sync();
+  addBtn.onclick = async () => {
+    addBtn.disabled = true; addBtn.textContent = 'Adding…';
+    for (const i of sel) {
+      if (siteAttach.length >= 3) break;
+      const data = await galleryUrlToData(imgs[i].url);
+      if (data) siteAttach.push({ data, name: 'gallery.jpg' });
+      else if (typeof sbToast === 'function') sbToast('Couldn’t load one of the images.');
+    }
+    paintAttachStrip();
+    close();
+  };
 }
 function siteAttachFiles(fileList) {
   const files = Array.from(fileList || []).filter((f) => /^image\/(png|jpe?g|webp|gif)$/.test(f.type)).slice(0, 3 - siteAttach.length);

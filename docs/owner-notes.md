@@ -3161,3 +3161,25 @@ live integration sweep against isibi.ai + a headless frontend smoke test.
   burst); code verified in review.
 - **Not run (costs money, pending owner OK):** the 3 paid AI paths — site
   generation (Gemini), security scan (Opus), builder image-gen (fal).
+
+## 2026-07-19 — Builder Attach: choose device vs. gallery
+Owner: the builder's **Attach** button should ask *where from* — a device file
+or one of the user's own isibi gallery creations — instead of jumping straight
+to the file picker.
+- **What:** `siteAttachOpen()` now opens a small "Add an image" chooser (si-modal)
+  with two options: **From device** (the old file-input flow, moved to
+  `siteAttachDevice()`) and **From your gallery** (`siteAttachGallery()`).
+- **Gallery picker:** grid of the user's IMAGE gallery items (reuses
+  `galleryItems()` → filtered to `kind==='image'`, so it honors the earlier
+  site-image exclusion — only real chat generations show). Multi-select up to the
+  remaining slots (3 total), amber border + gradient check on selected, a
+  gradient **Add N** button. On Add, each pick is fetched as a blob and turned
+  into a data URL via `galleryUrlToData()` (Supabase public bucket is CORS-open,
+  so the canvas is never tainted); only downscales (≤1600px JPEG) when a file
+  would blow the 5 MB attach cap. Same `{data,name}` shape the device path +
+  worker (`images[].data` → Gemini inlineData) already expect — no backend change.
+- **CSS:** `.stac-opts/.stac-opt` (chooser rows) + `.stg-grid/.stg-cell/.stg-check/
+  .stg-foot/.stg-add` (picker) in styles.css.
+- **Tested:** headless 6/6 — chooser shows both options; picker renders cells,
+  Add disabled until selection, "Add 2" after picking two, selection capped at 3,
+  zero JS errors. Screenshotted both (chooser + picker), on-brand.
