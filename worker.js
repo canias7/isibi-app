@@ -3,6 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
+import { parseGeneratedFiles, REACT_RULES } from "./builder/react-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -2301,6 +2302,43 @@ async function injectSiteImages(html, request, env, uid, budget) {
   for (const tag of overflow) out = out.replace(tag, swap(tag, siteImgFallback()));
   return { html: out, charged };
 }
+// React variant of the image pass (Phase 3): the generated project's SOURCE files
+// carry `@@IMG:<prompt>@@` tokens (a nearby data-ar gives the aspect). Generate +
+// host a real image for each UNIQUE token within budget, then substitute the URL
+// into every file BEFORE the container build. Over-budget / failed → gradient
+// fallback. Returns the rewritten files + how many images were actually charged.
+async function injectReactImages(files, request, env, uid, budget) {
+  const tokens = new Map(); // token → { prompt, ar }
+  for (const src of Object.values(files)) {
+    const rr = /@@IMG:([\s\S]*?)@@/g; let m;
+    while ((m = rr.exec(src))) {
+      if (tokens.has(m[0])) continue;
+      const near = src.slice(m.index, m.index + m[0].length + 90);
+      const ar = (near.match(/data-ar=["']?(\d{1,2}:\d{1,2})/) || [])[1] || "16:9";
+      tokens.set(m[0], { prompt: m[1].trim().slice(0, 1500), ar });
+    }
+  }
+  const list = [...tokens.entries()];
+  const affordable = list.slice(0, Math.max(0, budget));
+  const overflow = list.slice(Math.max(0, budget));
+  const urlByToken = {};
+  let charged = 0;
+  (await Promise.all(affordable.map(async ([tok, info]) => {
+    try { const f = await genOneSiteImage(env, info.prompt, info.ar); return [tok, await storeSiteImage(request, uid, f), true]; }
+    catch (e) { console.log("react image failed:", e && e.message); return [tok, siteImgFallback(), false]; }
+  }))).forEach(([tok, url, ok]) => { urlByToken[tok] = url; if (ok) charged++; });
+  for (const [tok] of overflow) urlByToken[tok] = siteImgFallback();
+  const out = {};
+  for (const [path, src] of Object.entries(files)) {
+    let s = src;
+    for (const [tok, url] of Object.entries(urlByToken)) s = s.split(tok).join(url);
+    s = s.replace(/@@IMG:[\s\S]*?@@/g, () => siteImgFallback()); // any stray tokens
+    out[path] = s;
+  }
+  return { files: out, charged };
+}
+// Content-type for a served R2 object by its extension (React dist assets + pages).
+const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 
 // Cheap, high-precision defect scan on a generated page — no JS execution, so it
 // only flags things we're SURE are wrong: a truncated document, leftover lorem,
@@ -2467,20 +2505,30 @@ async function handleRequest(request, env, ctx) {
     }
 
     // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
-    // '' or a trailing slash → the home page; each page is one HTML object.
+    // STATIC sites: each page is one HTML object (rest with no extension → .html).
+    // REACT sites: the compiled dist — root/no-extension → index.html (HashRouter
+    // handles the client routes), and a path WITH an extension (assets/x.js|css,
+    // images, fonts) serves that exact object with its real content-type. Both
+    // shapes coexist under sites/<slug>/… ; only the key/content-type differ.
     {
       const sm = url.pathname.match(/^\/s\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
       if (sm && env.SITES_BUCKET) {
         const slug = sm[1].toLowerCase();
         const rest = (sm[2] || "").replace(/\/+$/, "");
-        const pageKey = rest === "" ? "index" : rest.replace(/[^a-z0-9/_-]/gi, "-");
-        const obj = await env.SITES_BUCKET.get("sites/" + slug + "/" + pageKey + ".html");
+        const last = rest.split("/").pop() || "";
+        const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
+        let key, ctype, immutable = false;
+        if (rest === "") { key = "sites/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
+        else if (ext) { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/._-]/gi, "-"); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
+        else { key = "sites/" + slug + "/" + rest.replace(/[^a-z0-9/_-]/gi, "-") + ".html"; ctype = "text/html; charset=utf-8"; }
+        const obj = await env.SITES_BUCKET.get(key);
         if (!obj) return new Response("Not found", { status: 404 });
-        if (request.method === "GET") logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views
+        if (request.method === "GET" && ctype.startsWith("text/html")) logSiteHit(env, ctx, slug, "/" + rest, request); // count real page views (not assets)
         return new Response(obj.body, {
           headers: {
-            "content-type": "text/html; charset=utf-8",
-            "cache-control": "public, max-age=60",
+            "content-type": ctype,
+            "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
+            "x-content-type-options": "nosniff",
           },
         });
       }
@@ -4179,6 +4227,88 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: r.ok, status: r.status, body: body.slice(0, 100), ms: Date.now() - t0 });
       } catch (e) {
         return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
+    // Phase 3b — the REACT build pipeline (behind its own endpoint; the static
+    // /api/site path is untouched). Sonnet(REACT_RULES) → parseGeneratedFiles →
+    // inject real images into the SOURCE → container `vite build` → dist → R2 at
+    // sites/<slug>/… → served by the /s/<slug>/ route. Metered like the static
+    // builder (Sonnet tokens + each generated image). Returns the compile error
+    // (no charge for the build itself) when the generated project doesn't compile
+    // — the Phase-4 auto-fix loop will consume that.
+    if (url.pathname === "/api/site/react-build" && request.method === "POST") {
+      const rbUser = await authUser(request);
+      if (!rbUser) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "engine not configured" }, { status: 501 });
+      if (!env.BUILD_CONTAINER || !env.SITES_BUCKET) return Response.json({ ok: false, error: "build service not configured" }, { status: 501 });
+      const tlR = tooLargeBody(request, 1_000_000); if (tlR) return tlR;
+      let rb; try { rb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
+      if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+      const auth = request.headers.get("Authorization") || "";
+      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
+      const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
+      const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD)); // Sonnet 5 rates
+      let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
+      if (!(bal0 >= rbCredits(2500, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+      try {
+        // 1) Generate the whole React project.
+        let usedIn = 0, usedOut = 0, genText = "";
+        {
+          const r = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+            body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, system: REACT_RULES, messages: [{ role: "user", content: "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief }] }),
+            signal: AbortSignal.timeout(180000),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) return Response.json({ ok: false, error: "generation failed", code: r.status }, { status: 502 });
+          genText = Array.isArray(d.content) ? d.content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("") : "";
+          const um = d.usage || {}; usedIn = um.input_tokens || 0; usedOut = um.output_tokens || Math.ceil(genText.length / 4);
+        }
+        let files = parseGeneratedFiles(genText);
+        if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) {
+          return Response.json({ ok: false, stage: "generate", error: "the generated project was incomplete", cost: 0 }, { status: 200 });
+        }
+        // Charge the generation now (it succeeded); images + build charge after.
+        const genCredits = rbCredits(usedIn, usedOut);
+        let balAfter = bal0; try { const b = await useCredits(auth, genCredits); if (b >= 0) balAfter = b; } catch {}
+        // 2) Real images into the SOURCE, budgeted to the remaining balance.
+        const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
+        const inj = await injectReactImages(files, request, env, rbUser.id, imgBudget);
+        files = inj.files;
+        let imgCredits = 0;
+        if (inj.charged > 0) { imgCredits = inj.charged * RB_IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
+        // 3) Compile in the container.
+        const c = getContainer(env.BUILD_CONTAINER);
+        const t0 = Date.now();
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }) }));
+        const buildMs = Date.now() - t0;
+        const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+        if (!bd.ok) {
+          // Compile failed → return the error for the (future) auto-fix loop. No
+          // build charge; the generation/images already landed and are billed.
+          return Response.json({ ok: false, stage: "build", error: String(bd.error || "compile failed").slice(0, 2000), cost: genCredits + imgCredits, balance: balAfter, buildMs }, { status: 200 });
+        }
+        const dist = bd.files || {};
+        if (!dist["index.html"]) return Response.json({ ok: false, stage: "build", error: "no index.html in output", cost: genCredits + imgCredits, balance: balAfter }, { status: 200 });
+        // 4) Store the dist to R2 under a slug → live at /s/<slug>/.
+        const base = (brief.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28)) || "app";
+        const slug = base + "-" + crypto.randomUUID().slice(0, 6);
+        for (const [rel, v] of Object.entries(dist)) {
+          const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+          const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+          const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+          let bodyOut;
+          if (v && typeof v.t === "string") bodyOut = v.t;
+          else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+          else continue;
+          await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+        }
+        return Response.json({ ok: true, url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, cost: genCredits + imgCredits, balance: balAfter });
+      } catch (e) {
+        console.error("react-build failed:", e && e.message);
+        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 502 });
       }
     }
     if (url.pathname === "/api/site" && request.method === "POST") {

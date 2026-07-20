@@ -3612,3 +3612,21 @@ prove Cloudflare Containers deploys on the account before wiring the React pipel
   image (adds a few min) and may need Containers fully enabled/billing on the acct.
 - NEXT (3b): wire Sonnet(REACT_RULES)→parse→image-inject→container build→R2 behind
   a flag, then a live React build test.
+
+## 2026-07-20 — React builder Phase 3b: live pipeline (Sonnet→container→R2)
+Wired the full React build path behind its own endpoint; the static builder is
+untouched.
+- **worker.js:** `import {parseGeneratedFiles,REACT_RULES} from "./builder/react-gen.mjs"`
+  (wrangler bundles it). New `injectReactImages()` (source-level @@IMG@@ → generated
+  hosted URLs, budgeted). `R2_MIME` map. **`/s/<slug>/` serve route extended** to
+  serve React dist: root/no-ext → index.html, a path WITH an extension → that exact
+  object w/ real content-type (assets/*.js|css). Static sites unchanged (no-ext →
+  .html) — unit-tested 7/7.
+- **`POST /api/site/react-build`** (auth): Sonnet(REACT_RULES, max 32k) →
+  parseGeneratedFiles → injectReactImages → container `/build` → store dist to
+  sites/<slug>/… → returns {url:/s/<slug>/, cost, files, buildMs}. Metered at
+  Sonnet rates + images (charge-after). A compile failure returns
+  {ok:false, stage:"build", error} (for the Phase-4 auto-fix loop), no build charge.
+  NOT wired into the client yet — tested by direct call.
+- Live paid test (one real React build ≈ Sonnet + up to 6 images ≈ ~$1) pending
+  owner go.
