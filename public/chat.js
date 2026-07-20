@@ -10116,6 +10116,11 @@ function siteSend(text) {
       finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.');
     } else if (r.status === 501) {
       finish('⚠️ The build engine isn’t switched on yet — check back soon.');
+    } else if ((d && d.code === 429) || r.status === 503) {
+      // The model rate-limited us (a burst of builds); transient, not a real
+      // failure — no scary error card, just tell them to retry shortly.
+      siteErr = null;
+      finish('⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)');
     } else {
       siteErr = { chatId: origin };
       finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
