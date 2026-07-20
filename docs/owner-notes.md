@@ -3358,3 +3358,67 @@ to the file picker.
 - **Tested:** headless 6/6 — chooser shows both options; picker renders cells,
   Add disabled until selection, "Add 2" after picking two, selection capped at 3,
   zero JS errors. Screenshotted both (chooser + picker), on-brand.
+
+## 2026-07-20 — Builder: chat-driven page management (add / remove / global edit / regenerate)
+Owner (from the "what else" list): do #4 (streaming) plus #1-3 — add a page,
+edit across all pages, regenerate a page — **all driven by CHAT, no UI:** "that
+gotta be for the chat, like user telling the ai to do it, i dont want ui for
+that." Also confirmed #5: yes, an edit/revise CAN add more images (revise runs
+`injectSiteImages`), so image budget stays conservative (SITE_MAX_IMAGES=6).
+This note covers #1-3 (chat-routed page ops). #4 streaming is the next step.
+
+- **How it routes:** the existing conversational-gate classify (the one call that
+  already runs on every revise to decide chat-vs-act) now ALSO returns, when a
+  site is open, a `kind` ∈ {edit, global, addpage, removepage, regenerate} + a
+  `page` name. No extra Gemini call — folded into the gate. Biased to `edit`
+  (the safe default) when unsure. The client sends the full page set
+  (`pages:[{path,name,html}]`) on every revise so site-wide ops have every page.
+- **global** — "make the footer say X on every page", "change the nav color
+  across the site": ONE surgical find/replace set computed from the open page,
+  then applied to EVERY page. Safe because the shared chrome/CSS is byte-identical
+  across pages (the #3 composition guarantee), so an anchor in one page anchors in
+  all. If nothing anchors, falls through to a normal single-page edit.
+- **addpage** — "add a contact page", "create a blog": generates the new page's
+  `<main>` + a COMPLETE new shared nav that includes a link to it; `replaceNav()`
+  swaps that nav into every existing page (marking each page's own active link via
+  `markActiveNav`), and the new page is composed onto the shared shell
+  (`extractSiteKit` recovers head/nav/footer from an existing page). New page
+  appended; client's page-picker shows it automatically.
+- **removepage** — "delete the about page": drops the page (never home) and strips
+  its nav link (incl. an enclosing `<li>`) from every remaining page.
+- **regenerate** — "redesign this page", "start the home page over": rebuilds ONE
+  page's `<main>` from scratch onto the UNCHANGED shared shell (chrome identical),
+  replacing just that page.
+- **Return shape:** all four return the full updated page set `{pages, active}`;
+  the client replaces `s.pages`, sets the active page, snapshots for history, and
+  re-renders (picker + preview update). Single-page `edit` is unchanged
+  (`{html, path}` + surgical/no-op/fallback).
+- **New helpers (worker.js):** `extractSiteKit(html)` (strips per-page title/
+  desc/og/twitter/favicon + aria-current → the neutral shared shell), `replaceNav`,
+  `shipPages` (charge tokens + image pass within budget + polishHead + persist
+  edge fns, per op). Metered like every builder call (charge-after).
+- **Tested:** 29/29 pure-helper unit tests (extract/compose/replaceNav/nav-strip/
+  global-anchor/regen/stripToMain) green before deploy. Live sweep pending deploy.
+
+## 2026-07-20 — Builder #4: live streaming build progress
+Owner wanted the build to feel alive instead of one static "Building…" for a
+minute+. The build step (`/api/site`, step=build) now STREAMS NDJSON instead of
+returning one JSON blob:
+- **Worker:** wraps the build in a `TransformStream`; `emit()` writes one JSON
+  line per event — `{ev:"status",msg}` at each phase (Planning → Designing N
+  pages → Adding photos), `{ev:"page",name}` as EACH page finishes generating
+  (fires from inside the parallel map), and a terminal `{ev:"done", …same
+  payload the JSON build returned}` or `{ev:"error",code}`. `ctx.waitUntil(run())`
+  keeps the async writer alive after the handler returns the open stream. Billing
+  unchanged (charge-after, inside the run). Revise stays plain JSON (it's fast).
+- **Client:** `readSiteStream()` reads the NDJSON, calls `siteBuildStatus()` to
+  update the live step line IN PLACE (`.st-busy` in the thread / `.st-empty` on
+  the stage) with NO full re-render (which would reload the preview iframe
+  mid-build). The terminal event is reduced to the same object shape the old code
+  handled, so the existing result branches are untouched. Detected via
+  `Content-Type: application/x-ndjson`; Stop (AbortController) still cancels it.
+- **Tested:** real chunked-NDJSON Node server + Playwright, 12/12 — live line
+  transitions through Planning → "Designing 2 pages…" → "Home ✓/About ✓", final
+  applies (2 pages, slug, ✦cost, success msg, busy cleared, page picker appears);
+  a mid-stream `{ev:"error"}` surfaces the failure card + "(code 502)" and applies
+  no pages; zero uncaught JS errors. Screenshotted the built result (renders).

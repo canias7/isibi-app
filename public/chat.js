@@ -9157,6 +9157,7 @@ let siteOpenId = null;      // project open in the workspace (null → project l
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
 let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
+let siteBuildMsg = '';      // live streamed build step ("Designing 3 pages…") shown while busy
 let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
@@ -9763,7 +9764,7 @@ function renderSiteWorkspace(view, site) {
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
           (!hasSite
-            ? '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>'
+            ? '<div class="st-empty">' + (siteBusy ? esc(siteBuildMsg || 'Building your site — this takes a minute or two…') : 'Describe your site on the left to build the first draft.') + '</div>'
             : siteView === 'code'
               ? siteCodeView(site, active, pages)
               : siteView === 'more'
@@ -9786,7 +9787,7 @@ function renderSiteWorkspace(view, site) {
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
       : '<div class="st-msg a">' + linkify(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
-    ).join('') + (siteBusy ? '<div class="st-msg a st-busy">Building</div>' : '');
+    ).join('') + (siteBusy ? '<div class="st-msg a st-busy">' + esc(siteBuildMsg || 'Building') + '</div>' : '');
     thread.scrollTop = thread.scrollHeight;
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
@@ -9923,12 +9924,48 @@ function renderSiteWorkspace(view, site) {
     ta.focus();
   }
 }
+// #4 — live build progress. Update the streamed step line ("Designing 3 pages…",
+// "Home ✓") in place, WITHOUT a full re-render (that would reload the preview
+// iframe mid-build). Falls back to a render only if the busy node isn't in the DOM.
+function siteBuildStatus(origin, msg) {
+  siteBuildMsg = msg || '';
+  if (siteOpenId !== origin) return;
+  const busy = document.querySelector('.st-thread .st-busy');
+  if (busy) busy.textContent = siteBuildMsg;
+  const empty = document.querySelector('.st-stage .st-empty');
+  if (empty) empty.textContent = siteBuildMsg;
+}
+// Read the NDJSON build stream: surface each {ev:"status"|"page"} step live, and
+// return the terminal {ev:"done"|"error"} payload shaped like the old JSON body
+// (so the existing result-handling branches below need no change).
+async function readSiteStream(r, origin) {
+  const reader = r.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '', final = null;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+      if (ev.ev === 'status') siteBuildStatus(origin, ev.msg || '');
+      else if (ev.ev === 'page') siteBuildStatus(origin, (ev.name || 'Page') + ' ✓');
+      else if (ev.ev === 'done') final = ev;
+      else if (ev.ev === 'error') final = { error: true, code: ev.code };
+    }
+  }
+  return final || { error: true };
+}
 // The REAL engine (2026-07-18, Gemini-only, multi-page): the FIRST message on a
 // project builds the whole site (a plan pass decides the pages + a shared design
 // system, then each page is generated to match); every later message revises the
 // ACTIVE page. Metered charge-after-success (no reserve/refund): the worker bills
 // the measured Gemini cost + each generated Nano Banana Pro image, only once each
-// step lands, so a failure costs nothing. Builds take a minute or two.
+// step lands, so a failure costs nothing. Builds take a minute or two, streamed
+// as NDJSON so the chat shows live steps.
 function siteSend(text) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
@@ -9943,6 +9980,7 @@ function siteSend(text) {
   const origin = siteOpenId;
   const finish = (reply) => {
     siteBusy = false;
+    siteBuildMsg = '';
     const s = siteById(origin);
     if (!s) return;
     s.msgs.push({ r: 'a', t: reply });
@@ -9953,13 +9991,17 @@ function siteSend(text) {
   const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), design: site.design || '', siteId: site.id, images: imgs };
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), pages: sitePages(site).map((p) => ({ path: p.path, name: p.name, html: p.html })), design: site.design || '', siteId: site.id, images: imgs };
   siteAbort = new AbortController();
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body), signal: siteAbort.signal,
   }).then(async (r) => {
-    const d = await r.json().catch(() => ({}));
+    // A build streams progress as NDJSON (Content-Type x-ndjson); read it live and
+    // reduce to the terminal payload. Everything else (chat reply, revise, errors)
+    // is a normal JSON body.
+    const ct = r.headers.get('content-type') || '';
+    const d = (r.ok && isBuild && ct.indexOf('ndjson') >= 0) ? await readSiteStream(r, origin) : await r.json().catch(() => ({}));
     const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
     if (r.ok && d.chat) {
       // Conversational reply — a greeting/question/vague message, not a build.
@@ -9977,6 +10019,21 @@ function siteSend(text) {
       }
       siteErr = null;
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
+    } else if (r.ok && !isBuild && Array.isArray(d.pages) && d.pages.length) {
+      // A site-wide op — add page / remove page / global edit / regenerate —
+      // returned the FULL updated page set (chat-driven, no UI).
+      let delta = 0;
+      const s = siteById(origin);
+      if (s) {
+        delta = d.pages.length - sitePages(s).length;
+        s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
+        if (d.active && s.pages.some((p) => p.path === d.active)) s.active = d.active;
+        else if (!s.pages.some((p) => p.path === s.active)) s.active = (s.pages[0] || {}).path || '/';
+        delete s.html;
+        siteSnap(s, t); // version-history restore point
+      }
+      siteErr = null;
+      finish((delta > 0 ? '✅ Added a new page — it’s in the preview.' : delta < 0 ? '✅ Removed that page.' : '✅ Updated across the site — check the preview.') + used);
     } else if (r.ok && !isBuild && d.noop) {
       // The page already satisfied the request — nothing changed, no re-roll.
       siteErr = null;
