@@ -10009,11 +10009,12 @@ function reactStepsHTML(b) {
   if (b.images && b.images.length) rows.push(stStepRow({ label: 'Generated images', meta: b.images.length + (b.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(b.images) }));
   rows.push(stStepRow({ label: 'Compiled React', meta: (b.buildMs ? (b.buildMs / 1000).toFixed(1) + 's' : ''), state: 'done' }));
   rows.push(stStepRow({ label: b.revised ? 'Rebuilt & published' : 'Published', meta: b.slug || '', state: 'done' }));
+  if (b.backend) rows.push(stStepRow({ label: 'Set up the database', meta: 'live', state: 'done' }));
   return '<div class="st-steps">' + rows.join('') + '</div>';
 }
 // Live steps while a React build/revise streams (reads siteBuild).
 function reactLiveStepsHTML() {
-  const sb = siteBuild || {}; const order = ['generating', 'images', 'compiling', 'fixing', 'publishing'];
+  const sb = siteBuild || {}; const order = ['generating', 'images', 'compiling', 'fixing', 'publishing', 'database'];
   const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
   const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
   const rows = [];
@@ -10021,7 +10022,8 @@ function reactLiveStepsHTML() {
   rows.push(stStepRow({ label: idx > 1 ? 'Generated images' : 'Generating images', meta: (sb.images && sb.images.length ? sb.images.length + ' photos' : ''), state: st('images'), body: (sb.images && sb.images.length) ? stImgsBody(sb.images) : '' }));
   if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
   else rows.push(stStepRow({ label: idx > 2 ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
-  if (idx >= 4) rows.push(stStepRow({ label: 'Publishing', state: st('publishing') }));
+  if (idx >= 4) rows.push(stStepRow({ label: idx > 4 ? 'Published' : 'Publishing', state: st('publishing') }));
+  if (sb.rphase === 'database') rows.push(stStepRow({ label: 'Setting up the database', state: 'run' }));
   return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>';
 }
 function paintReactLive() {
@@ -10032,7 +10034,7 @@ function paintReactLive() {
 }
 function reactStageLabel() {
   const p = (siteBuild && siteBuild.rphase) || 'generating';
-  return { generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…' }[p] || 'Building…';
+  return { generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…', database: 'Setting up the database…' }[p] || 'Building…';
 }
 // Read the React build/revise NDJSON stream: fold code/phase/image into the live
 // steps, return the terminal {done|error} payload.
@@ -10092,7 +10094,7 @@ function reactSend(site, t, origin, mode, imgs, finish) {
         siteSnap(s, t);
       }
       siteErr = null;
-      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise' };
+      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise', backend: !!d.backend };
       const name = (siteById(origin) || {}).name;
       siteFinishBuild(origin, (mode === 'revise' ? '✅ Updated — the preview’s refreshed.' : '✅ Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.') + used, build);
     } else if (r.status === 402 || (d && d.need === 'credits')) {

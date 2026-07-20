@@ -33,9 +33,20 @@ export const REACT_DEPS = [
   "react", "react-dom", "react-router-dom", "lucide-react", "clsx", "tailwind-merge",
 ];
 
+// Backend protocol — shared by build + revise. Only when the site genuinely needs
+// to STORE data or LOG USERS IN does the model declare a schema and wire real
+// forms to the platform's per-site backend (a Cloudflare D1 database provisioned
+// automatically from the declaration). Informational sites emit nothing here.
+export const BACKEND_RULES =
+  "BACKEND (ONLY when the site must save data or sign users in — a contact form/waitlist/order form that persists, a login, a personal dashboard, a simple store; a purely informational site emits NOTHING here): " +
+  "1) DECLARE it by emitting a file `===FILE: isibi.schema.json===` whose body is JSON `{\"tables\":[{\"name\":\"<snake_case>\",\"access\":\"collect|display|user\",\"columns\":[{\"name\":\"<snake_case>\",\"type\":\"text|integer|real|boolean\"}]}]}`. access modes: `collect` = visitors SUBMIT, only the owner reads (contact form, waitlist, orders, RSVPs); `display` = everyone READS, owner manages the content (products, posts, menu); `user` = each logged-in visitor has their OWN private rows (a personal dashboard, saved items, a to-do app). Every table auto-gets `id` + `created_at`, and `user` tables auto-get `owner_id` — NEVER declare id/created_at/owner_id yourself. " +
+  "2) USE it from the app. Compute the API base ONCE at runtime from the site's own URL: `const API = '/api/db/' + (location.pathname.split('/')[2] || '');`. " +
+  "AUTH (needed for any `user` table): `POST ${API}/auth/signup` and `POST ${API}/auth/login` with JSON body `{email,password}` → returns `{token,user}`; keep the token in localStorage; check the session with `GET ${API}/auth/me` sending header `Authorization: Bearer <token>`. " +
+  "DATA: `GET ${API}/rows/<table>` (list) · `POST ${API}/rows/<table>` (create, JSON body of ONLY your declared columns) · `GET/PATCH/DELETE ${API}/rows/<table>/<id>`. For a `user` table, send `Authorization: Bearer <token>` on every call. All requests/responses are JSON `{ok,...}`. " +
+  "Build REAL, working flows — a contact form that truly saves, a login that truly works, a dashboard that shows the signed-in visitor's own rows. Guard every fetch in try/catch and show a friendly error/success state. Do NOT invent other backend endpoints — these are the only ones. ";
+
 // System contract for emitting the project. Kept focused for the POC: structure,
-// deps, Tailwind, routing, real content, no dead interactions. (Backend
-// integrations — forms/auth/collections — get folded in during a later pass.)
+// deps, Tailwind, routing, real content, no dead interactions.
 export const REACT_RULES =
   "You are a world-class product designer + senior React engineer. Output a COMPLETE, COMPILABLE Vite + React + Tailwind project as a series of files. " +
   "OUTPUT FORMAT (STRICT): for every file, write a line `===FILE: <relative/path>===` on its OWN line, then the file's raw contents, then the next `===FILE:` marker. NO markdown fences, NO prose, NO commentary before/after — the response is ONLY file blocks. " +
@@ -44,7 +55,8 @@ export const REACT_RULES =
   "DEPENDENCIES: import ONLY from these installed packages — " + REACT_DEPS.join(", ") + ". Use `react-router-dom` (HashRouter, Link, Routes, Route, useParams, useLocation) for navigation. Use `lucide-react` for icons. NO other npm packages, NO CDN <script> tags, NO external CSS/UI libraries. " +
   "STYLING: Tailwind utility classes via className ONLY. Load real Google Fonts with a <link> in index.html and wire them through tailwind.config.js fontFamily. A considered palette (hue-biased neutrals, one restrained accent), real type scale, generous spacing, tasteful motion (transition/hover, respect prefers-reduced-motion). Award-winning, editorial — never a generic template. " +
   "ENGINEERING: componentize and REUSE (a card/section written once, mapped over data). Real, specific copy — never lorem, never 'Welcome to X'. Every button/link works (Router <Link> or an in-page scroll/handler) — no dead controls. Semantic, accessible (focus states, alt text, aria), responsive to 360px. Guard any risky JS in try/catch. " +
-  "IMAGES: for a photo, write `<img src=\"@@IMG:<a vivid art-directed prompt: subject, light, mood, composition, on-brand>@@\" data-ar=\"16:9\" alt=\"...\" className=\"...\"/>` — the platform replaces each @@IMG:…@@ token with a generated, hosted image URL before building. Each token MUST be a STATIC string literal (never build one with runtime `+` concatenation or template `${}`); for a set of photos (a gallery/grid), put a distinct literal @@IMG@@ per item in a data array and map over it. Size via className (object-cover). EVERY image depicts THIS site's real subject. Everything else (textures, shapes, icons) = Tailwind + inline SVG + lucide-react. ";
+  "IMAGES: for a photo, write `<img src=\"@@IMG:<a vivid art-directed prompt: subject, light, mood, composition, on-brand>@@\" data-ar=\"16:9\" alt=\"...\" className=\"...\"/>` — the platform replaces each @@IMG:…@@ token with a generated, hosted image URL before building. Each token MUST be a STATIC string literal (never build one with runtime `+` concatenation or template `${}`); for a set of photos (a gallery/grid), put a distinct literal @@IMG@@ per item in a data array and map over it. Size via className (object-cover). EVERY image depicts THIS site's real subject. Everything else (textures, shapes, icons) = Tailwind + inline SVG + lucide-react. " +
+  BACKEND_RULES;
 
 // Auto-fix contract — used when `vite build` fails. The model gets the exact
 // compiler/build error plus the current project files and must return ONLY the
@@ -66,4 +78,5 @@ export const REACT_REVISE_RULES =
   "Make EXACTLY the requested change (and only what's needed to make it work well), preserving everything else — the existing design system, palette, fonts, structure, copy, and routes stay intact unless the request is to change them. " +
   "Return ONLY the file blocks that CHANGE, each IN FULL, in the format `===FILE: <relative/path>===` on its own line then the file's raw contents. Omit files that don't change. To ADD a page: emit its new `src/pages/*.jsx` file AND the updated `src/App.jsx` (new <Route>) AND any nav component that lists pages. To REMOVE a page: emit the updated App.jsx + nav (you cannot delete files, so just stop routing/linking to it). " +
   "Stay inside the same rules: HashRouter, Tailwind classes only, import ONLY from " + REACT_DEPS.join(", ") + ", `@@IMG:<prompt>@@` STATIC-LITERAL tokens for any NEW photos (never build one at runtime), lucide-react for icons, no new npm packages, no CDN scripts, keep it accessible + responsive. " +
+  "If the change needs to store data or add logins, follow the same BACKEND protocol — emit/extend `isibi.schema.json` and wire the forms to `/api/db/<slug>/…` (slug from `location.pathname.split('/')[2]`). " +
   "Output ONLY file blocks — NO prose, NO commentary, NO markdown fences.";
