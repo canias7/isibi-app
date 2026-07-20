@@ -2307,7 +2307,7 @@ async function injectSiteImages(html, request, env, uid, budget) {
 // host a real image for each UNIQUE token within budget, then substitute the URL
 // into every file BEFORE the container build. Over-budget / failed → gradient
 // fallback. Returns the rewritten files + how many images were actually charged.
-async function injectReactImages(files, request, env, uid, budget) {
+async function injectReactImages(files, request, env, uid, budget, onImage) {
   const tokens = new Map(); // token → { prompt, ar }
   for (const src of Object.values(files)) {
     const rr = /@@IMG:([\s\S]*?)@@/g; let m;
@@ -2324,7 +2324,7 @@ async function injectReactImages(files, request, env, uid, budget) {
   const urlByToken = {};
   let charged = 0;
   (await Promise.all(affordable.map(async ([tok, info]) => {
-    try { const f = await genOneSiteImage(env, info.prompt, info.ar); return [tok, await storeSiteImage(request, uid, f), true]; }
+    try { const f = await genOneSiteImage(env, info.prompt, info.ar); const url = await storeSiteImage(request, uid, f); try { if (onImage) onImage({ prompt: info.prompt, url }); } catch {} return [tok, url, true]; }
     catch (e) { console.log("react image failed:", e && e.message); return [tok, siteImgFallback(), false]; }
   }))).forEach(([tok, url, ok]) => { urlByToken[tok] = url; if (ok) charged++; });
   for (const [tok] of overflow) urlByToken[tok] = siteImgFallback();
@@ -4318,7 +4318,7 @@ async function handleRequest(request, env, ctx) {
           emit({ ev: "phase", phase: "images" });
           {
             const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
-            const inj = await injectReactImages(files, request, env, rbUser.id, imgBudget);
+            const inj = await injectReactImages(files, request, env, rbUser.id, imgBudget, (im) => emit({ ev: "image", prompt: im.prompt, url: im.url }));
             files = inj.files;
             if (inj.charged > 0) { const c = inj.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
           }
@@ -4367,11 +4367,149 @@ async function handleRequest(request, env, ctx) {
             else continue;
             await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
           }
+          // Persist the GENERATED SOURCE (not the dist) so a later chat revise can
+          // load it, edit it, and rebuild. Stored under a private key, never served.
+          try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rbUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch (e) { console.error("react-build src persist failed:", e && e.message); }
           emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand });
         } catch (e) {
           if (e && e.status) console.error("react-build gen failed:", e.status, e.detail);
           else console.error("react-build failed:", e && e.message);
           emit({ ev: "error", msg: "the builder hit a problem — try again in a moment" });
+        } finally { try { await writer.close(); } catch {} }
+      };
+      ctx.waitUntil(run());
+      return new Response(readable, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
+    }
+    if (url.pathname === "/api/site/react-revise" && request.method === "POST") {
+      // Edit an already-built React site by chat: load the persisted source, hand
+      // it + the instruction to Sonnet (REACT_REVISE_RULES), graft the changed
+      // files, rebuild, and REPUBLISH to the SAME slug so the URL stays stable.
+      // Streams the same NDJSON events as the build path (live code + phases).
+      const rvUser = await authUser(request);
+      if (!rvUser) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "engine not configured" }, { status: 501 });
+      if (!env.BUILD_CONTAINER || !env.SITES_BUCKET) return Response.json({ ok: false, error: "build service not configured" }, { status: 501 });
+      const tlR = tooLargeBody(request, 100_000); if (tlR) return tlR;
+      let rv; try { rv = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof rv.slug === "string" ? rv.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
+      const instruction = typeof rv.instruction === "string" ? rv.instruction.trim().slice(0, 2000) : "";
+      if (!slug || !instruction) return Response.json({ ok: false, error: "missing slug or instruction" }, { status: 400 });
+      // Load the persisted source + verify ownership.
+      let srcObj = null;
+      try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
+      if (!srcObj || !srcObj.files) return Response.json({ ok: false, error: "this site can't be edited yet — rebuild it first", need: "rebuild" }, { status: 409 });
+      if (srcObj.uid && srcObj.uid !== rvUser.id) return UNAUTHED();
+      const auth = request.headers.get("Authorization") || "";
+      const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 4;
+      const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
+      const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD));
+      let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
+      if (!(bal0 >= rbCredits(4000, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+      const enc = new TextEncoder();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+      const streamGen = async (system, userContent, onDelta) => {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          signal: AbortSignal.timeout(180000),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
+        const reader = r.body.getReader(); const dec = new TextDecoder();
+        let buf = "", text = "", usedIn = 0, usedOut = 0;
+        for (;;) {
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(js); } catch { continue; }
+            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { text += ev.delta.text; if (onDelta) onDelta(ev.delta.text); }
+            else if (ev.type === "message_start" && ev.message && ev.message.usage) usedIn = ev.message.usage.input_tokens || 0;
+            else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
+          }
+        }
+        if (!usedOut) usedOut = Math.ceil(text.length / 4);
+        return { text, usedIn, usedOut };
+      };
+      const buildInContainer = async (files) => {
+        const c = getContainer(env.BUILD_CONTAINER);
+        const t0 = Date.now();
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }) }));
+        const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+        return { bd, buildMs: Date.now() - t0 };
+      };
+      let codeBuf = "";
+      const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 140)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
+      const onDelta = (d) => { codeBuf += d; flushCode(false); };
+      const run = async () => {
+        let balAfter = bal0, genCredits = 0, imgCredits = 0;
+        let files = srcObj.files;
+        try {
+          emit({ ev: "phase", phase: "generating" });
+          const filesDump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 120000);
+          const g = await streamGen(REACT_REVISE_RULES, "Current project files:\n\n" + filesDump + "\n\nCHANGE REQUEST:\n" + instruction + "\n\nReturn only the changed file blocks.", onDelta);
+          flushCode(true);
+          const changed = parseGeneratedFiles(g.text);
+          if (!Object.keys(changed).length) { emit({ ev: "error", stage: "generate", msg: "I couldn't apply that change — try rewording it" }); return; }
+          for (const [p, v] of Object.entries(changed)) files[p] = v;
+          genCredits += rbCredits(g.usedIn, g.usedOut);
+          try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
+          emit({ ev: "phase", phase: "images" });
+          {
+            const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
+            const inj = await injectReactImages(files, request, env, rvUser.id, imgBudget, (im) => emit({ ev: "image", prompt: im.prompt, url: im.url }));
+            files = inj.files;
+            if (inj.charged > 0) { const c = inj.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
+          }
+          emit({ ev: "phase", phase: "compiling" });
+          let { bd, buildMs } = await buildInContainer(files);
+          let attempt = 0;
+          while (!bd.ok && attempt < 2) {
+            attempt++;
+            emit({ ev: "phase", phase: "fixing", attempt });
+            const errText = String(bd.error || "compile failed").slice(0, 2000);
+            const dump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 90000);
+            let fg;
+            try { fg = await streamGen(REACT_FIX_RULES, "The Vite build FAILED with this error:\n\n" + errText + "\n\nCurrent project files:\n\n" + dump + "\n\nReturn the corrected file(s).", onDelta); } catch (e) { if (e && e.status) console.error("react-revise fix gen failed:", e.status, e.detail); break; }
+            flushCode(true);
+            const fixed = parseGeneratedFiles(fg.text);
+            if (!Object.keys(fixed).length) break;
+            for (const [p, v] of Object.entries(fixed)) files[p] = v;
+            const fc = rbCredits(fg.usedIn, fg.usedOut); genCredits += fc; try { const b = await useCredits(auth, fc); if (b >= 0) balAfter = b; } catch {}
+            const rem = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
+            const inj2 = await injectReactImages(files, request, env, rvUser.id, rem);
+            files = inj2.files;
+            if (inj2.charged > 0) { const c = inj2.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
+            ({ bd, buildMs } = await buildInContainer(files));
+          }
+          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: "that change broke the build — try rewording it", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          const dist = bd.files || {};
+          if (!dist["index.html"]) { emit({ ev: "error", stage: "build", msg: "the rebuild produced no page — try again", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          emit({ ev: "phase", phase: "publishing" });
+          // Republish to the SAME slug (overwrite dist). Clean out old hashed assets
+          // so stale bundles don't linger.
+          try { const old = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (old.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+          for (const [rel, v] of Object.entries(dist)) {
+            const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+            const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+            const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+            let bodyOut;
+            if (v && typeof v.t === "string") bodyOut = v.t;
+            else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+            else continue;
+            await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+          }
+          try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rvUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, revised: true });
+        } catch (e) {
+          if (e && e.status) console.error("react-revise gen failed:", e.status, e.detail);
+          else console.error("react-revise failed:", e && e.message);
+          emit({ ev: "error", msg: "the edit hit a problem — try again in a moment" });
         } finally { try { await writer.close(); } catch {} }
       };
       ctx.waitUntil(run());
