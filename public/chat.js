@@ -9639,7 +9639,7 @@ async function loadSiteData(site) {
       if (d && d.ok && Array.isArray(d.rows)) rows = d.rows; else err = true;
     } catch (e) { err = true; }
   }
-  const accLabel = { collect: 'submissions', display: 'content', user: 'per-user' };
+  const accLabel = { collect: 'submissions', display: 'content', user: 'per-user', feed: 'public feed' };
   const side = '<div class="st-data-side">' + tabs.map((t) => '<button type="button" class="st-data-tab' + (t.name === sel ? ' on' : '') + '" data-dtable="' + esc(t.name) + '"><span class="st-data-tn">' + esc(t.label) + '</span>' + (t.name === '_users' ? '<span class="st-data-acc">accounts</span>' : '<span class="st-data-acc">' + esc(accLabel[t.access] || '') + '</span>') + '</button>').join('') + '</div>';
   let main;
   if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
