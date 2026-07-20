@@ -9496,8 +9496,16 @@ function renderSites() {
     card.onclick = (e) => { if (e.target.closest('[data-del]')) return; siteOpenId = card.dataset.open; renderSites(); };
     card.onkeydown = (e) => { if (e.key === 'Enter') { siteOpenId = card.dataset.open; renderSites(); } };
   });
-  view.querySelectorAll('[data-del]').forEach((b) => b.onclick = () => {
-    sitesCache = sitesLoad().filter((s) => s.id !== b.dataset.del);
+  view.querySelectorAll('[data-del]').forEach((b) => b.onclick = async () => {
+    const id = b.dataset.del;
+    const s = siteById(id);
+    // A published/React site has a live page + (maybe) its own database — deleting
+    // it is permanent, so confirm, then wipe it server-side before removing locally.
+    if (s && s.slug) {
+      if (!confirm('Delete this site for good? Its live page' + (s.backend ? ' and any saved data' : '') + ' will be permanently removed.')) return;
+      try { await apiFetch('/api/site/backend/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug: s.slug }) }); } catch (e) {}
+    }
+    sitesCache = sitesLoad().filter((x) => x.id !== id);
     sitesSave(); renderSites();
   });
 }
