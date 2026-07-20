@@ -4692,6 +4692,7 @@ async function handleRequest(request, env, ctx) {
           flushCode(true);
           let files = parseGeneratedFiles(g.text);
           if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
+          const schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           genCredits += rbCredits(g.usedIn, g.usedOut);
           try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
           // 2) Real images into the SOURCE, budgeted to the remaining balance.
@@ -4750,7 +4751,15 @@ async function handleRequest(request, env, ctx) {
           // Persist the GENERATED SOURCE (not the dist) so a later chat revise can
           // load it, edit it, and rebuild. Stored under a private key, never served.
           try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rbUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch (e) { console.error("react-build src persist failed:", e && e.message); }
-          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand });
+          // If the site declared a backend, provision its own D1 + create the tables
+          // (non-fatal: the site still ships if this fails; data just won't work).
+          let backend = false;
+          if (schemaSpec && d1Configured(env)) {
+            emit({ ev: "phase", phase: "database" });
+            try { const dbid = await ensureSiteBackend(env, slug, rbUser.id); await applySiteSchema(env, dbid, schemaSpec); backend = true; }
+            catch (e) { console.error("react-build backend provision failed:", e && e.message, e && e.detail); }
+          }
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand, backend });
         } catch (e) {
           if (e && e.status) console.error("react-build gen failed:", e.status, e.detail);
           else console.error("react-build failed:", e && e.message);
@@ -4837,6 +4846,7 @@ async function handleRequest(request, env, ctx) {
           const changed = parseGeneratedFiles(g.text);
           if (!Object.keys(changed).length) { emit({ ev: "error", stage: "generate", msg: "I couldn't apply that change — try rewording it" }); return; }
           for (const [p, v] of Object.entries(changed)) files[p] = v;
+          const schemaSpec = parseSchemaSpec(files); // a revise can add/extend the backend
           genCredits += rbCredits(g.usedIn, g.usedOut);
           try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
           emit({ ev: "phase", phase: "images" });
@@ -4885,7 +4895,13 @@ async function handleRequest(request, env, ctx) {
             await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
           }
           try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rvUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
-          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, revised: true });
+          let backend = false;
+          if (schemaSpec && d1Configured(env)) {
+            emit({ ev: "phase", phase: "database" });
+            try { const dbid = await ensureSiteBackend(env, slug, rvUser.id); await applySiteSchema(env, dbid, schemaSpec); backend = true; }
+            catch (e) { console.error("react-revise backend provision failed:", e && e.message, e && e.detail); }
+          }
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, revised: true, backend });
         } catch (e) {
           if (e && e.status) console.error("react-revise gen failed:", e.status, e.detail);
           else console.error("react-revise failed:", e && e.message);
