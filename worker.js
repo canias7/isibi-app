@@ -4489,7 +4489,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, token: await mkToken(u.id), user: { id: u.id, email } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
-          return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
+          return Response.json({ ok: false, error: "auth error — try again", _d: (e && e.detail) || (e && e.message) || null }, { status: 502 });
         }
       }
     }
