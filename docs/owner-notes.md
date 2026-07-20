@@ -381,6 +381,28 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   `..%2f`, `....//`, 300-char) ALL 404 — safe by construction (R2 object keys are
   literal strings, so `..` never resolves like a filesystem; slug regex is `[a-z0-9-]`
   only). Site stayed functional after the whole fuzz. delete-all re-verified too.
+- **FULL-STACK security sweep (2026-07-20) — ALL AIRTIGHT, zero findings.** Went
+  beyond the D1 backend to the whole app, testing as real authed users (anon key +
+  JWT) against Supabase + the Worker:
+  · **Money RPCs** — a normal user CANNOT call `add_credits`/`set_plan` (404 PGRST202,
+    not exposed to `authenticated`) or `credit_back` (403); `use_credits(-100000)`
+    doesn't add; direct `UPDATE credits`/`INSERT user_plan`/`INSERT purchases` all
+    403 (42501 — authenticated role has NO write grant on money tables; only the
+    SECURITY DEFINER RPCs touch them, minting is service_role-only).
+  · **RLS** — user A reads 0 rows of B's credits/purchases/user_plan/chats/
+    user_memory/user_assets/usage_log/gen_charges; can't write into B's data.
+  · **SSRF** (`/api/import/fetch`) — every internal target blocked (127/10/172.16-31/
+    192.168/100.64 CGNAT/0.0.0.0/169.254 metadata/::1/fe80/fc00, plus decimal/hex/
+    octal-int and IPv4-mapped-IPv6 encodings, trailing-dot, `.internal`); file/gopher/
+    ftp schemes 400; no content leak; no credits spent.
+  · **Storage** (`media` bucket) — INSERT/DELETE/SELECT policies are path-scoped to
+    `media/<auth.uid()>/`; A uploading into B's folder = 403 RLS "new row violates
+    row-level security policy"; own folder works.
+  · **Stripe webhook** — unsigned AND forged-signature events both rejected 400 "bad
+    signature"; no credits minted.
+  · **Generation gates** (`/api/{image,video,audio}`) — unauthed 401; a non-allowlisted
+    model 400 "unknown model" BEFORE any fal call/charge; error bodies never say "fal".
+  All test users/data deleted.
 
 - **Cloud panel was reading the OLD static-site store for React sites (2026-07-20).**
   A React site's More▸Cloud cards (Members/Submissions/Database/Secrets/Functions/
