@@ -4261,8 +4261,8 @@ async function handleRequest(request, env, ctx) {
             body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, system: REACT_RULES, messages: [{ role: "user", content: "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief }] }),
             signal: AbortSignal.timeout(180000),
           });
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok) return Response.json({ ok: false, error: "generation failed", code: r.status, detail: JSON.stringify(d).slice(0, 400) }, { status: 502 });
+          const d = await r.json().catch(() => ({ _nojson: true }));
+          if (!r.ok) { console.error("react-build gen 400:", r.status, JSON.stringify(d).slice(0, 500)); return Response.json({ ok: false, error: "generation failed", code: r.status, detail: JSON.stringify(d).slice(0, 400), rb: "v4" }, { status: 502 }); }
           genText = Array.isArray(d.content) ? d.content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("") : "";
           const um = d.usage || {}; usedIn = um.input_tokens || 0; usedOut = um.output_tokens || Math.ceil(genText.length / 4);
         }
