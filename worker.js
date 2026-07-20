@@ -4239,20 +4239,31 @@ async function handleRequest(request, env, ctx) {
         : "";
       let usedInTok = 0, usedOutTok = 0;
       const geminiCall = async (system, user, thinking = "low", imgParts = []) => {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
-            // Thinking draws from the output budget and is billed as output. A
-            // fresh BUILD gets "high" (design reasoning is where quality comes
-            // from); a surgical REVISE stays "low". Big output headroom either way.
-            generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: thinking } },
-          }),
-          signal: AbortSignal.timeout(160000),
-        });
-        const d = await r.json().catch(() => ({}));
+        // Retry transient rate-limit / overload responses (429 too-many-requests,
+        // 500, 503 overloaded) with backoff — a burst of parallel page calls can
+        // trip the model's per-minute rate cap, and a short wait clears it. Other
+        // errors (and the final attempt) throw as before.
+        let r, d, lastStatus = 0;
+        const BACKOFF = [1500, 4000, 8000]; // ms before attempts 2, 3, 4
+        for (let attempt = 0; attempt < 4; attempt++) {
+          r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: system }] },
+              contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
+              // Thinking draws from the output budget and is billed as output. A
+              // fresh BUILD gets "high" (design reasoning is where quality comes
+              // from); a surgical REVISE stays "low". Big output headroom either way.
+              generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: thinking } },
+            }),
+            signal: AbortSignal.timeout(160000),
+          });
+          if (r.ok || (r.status !== 429 && r.status !== 500 && r.status !== 503)) break;
+          lastStatus = r.status;
+          if (attempt < 3) { try { await r.body?.cancel(); } catch {} await new Promise((res) => setTimeout(res, BACKOFF[attempt])); }
+        }
+        d = await r.json().catch(() => ({}));
         if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 300); throw e; }
         const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
         const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";

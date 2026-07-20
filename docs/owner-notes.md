@@ -3458,3 +3458,19 @@ continuously live, like Claude Code narrating its process in a running sub-threa
 - **Tested:** E2E 15/15 (ticker shows plan+design words, "Planned the pages ✓"
   checkpoint, real page names, ≥3 moving frames, final build applies, brand
   rename, streamed-error path); screenshotted the mid-build log (rail + stage).
+
+## 2026-07-20 — Builder: absorb model rate-limits (429) instead of failing
+Owner hit "That build didn't come together (code 429)" during rapid testing. 429
+= the Gemini API rate-limited the key (a burst of builds, each firing plan + all
+pages at once, tripped the per-minute cap). Not the daily build quota (that shows
+a different message) and nothing was charged.
+- **Worker (geminiCall):** now RETRIES transient 429/500/503 with backoff
+  (1.5s → 4s → 8s, up to 4 attempts) before throwing. A short wait clears a
+  per-minute rate cap, so most bursts now recover silently. Non-rate errors and
+  the final attempt still throw as before.
+- **Client:** a 429/503 that still gets through shows a friendly "⏳ The builder's
+  busy right now — give it a few seconds, then send again" (no scary error card,
+  no charge) instead of the generic "didn't come together (code N)".
+- **NOTE for owner:** if 429s persist even after the retries, the Gemini API key's
+  quota (per-minute or per-day) is genuinely exhausted and needs a higher tier on
+  the Google AI side — that's an account/billing change, not a code fix.
