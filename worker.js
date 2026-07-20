@@ -2371,6 +2371,35 @@ function composeSitePage(title, desc, headInner, nav, footer, main, path) {
     markActiveNav(nav, path) + "\n" + String(main || "") + "\n" + String(footer || "") +
     "\n</body>\n</html>";
 }
+// Guaranteed finishing touches injected into every page's <head> AFTER generation
+// (so the model can't get them wrong): a brand-monogram favicon so the browser tab
+// isn't blank, and Open-Graph/Twitter tags so a shared link previews as a real card.
+// Only adds what's missing. og:image uses the page's first hosted image.
+function polishHead(html, brand) {
+  let h = String(html || "");
+  const hm = h.match(/<head[^>]*>/i);
+  if (!hm) return h;
+  const at = hm.index + hm[0].length;
+  let inject = "";
+  if (!/<link[^>]+rel=["'][^"']*icon/i.test(h)) {
+    const letter = (String(brand || "").trim()[0] || "•").toUpperCase();
+    let bg = "#111319";
+    const cm = h.match(/--[a-z0-9-]*(?:accent|primary|brand)[a-z0-9-]*\s*:\s*(#[0-9a-fA-F]{6})/) || h.match(/:root[^}]*?:\s*(#[0-9a-fA-F]{6})/);
+    if (cm && cm[1] && !/^#[e-fE-F]/.test(cm[1])) bg = cm[1];   // use a token color unless it's near-white
+    const svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='" + bg + "'/><text x='16' y='22' font-family='Georgia,serif' font-size='18' font-weight='700' fill='#fff' text-anchor='middle'>" + escHtmlAttr(letter) + "</text></svg>";
+    inject += '\n<link rel="icon" href="data:image/svg+xml,' + encodeURIComponent(svg) + '">';
+  }
+  if (!/property=["']og:title/i.test(h)) {
+    const title = ((h.match(/<title[^>]*>([^<]*)<\/title>/i) || [])[1] || String(brand || "")).trim();
+    const desc = ((h.match(/<meta[^>]+name=["']description["'][^>]*content=["']([^"']*)/i) || [])[1] || "").trim();
+    const img = (h.match(/<img[^>]+src=["'](https:\/\/[^"']+)["']/i) || [])[1] || "";
+    inject += '\n<meta property="og:type" content="website">\n<meta property="og:title" content="' + escHtmlAttr(title) + '">';
+    if (desc) inject += '\n<meta property="og:description" content="' + escHtmlAttr(desc) + '">';
+    if (img) inject += '\n<meta property="og:image" content="' + escHtmlAttr(img) + '">';
+    inject += '\n<meta name="twitter:card" content="' + (img ? "summary_large_image" : "summary") + '">';
+  }
+  return inject ? h.slice(0, at) + inject + h.slice(at) : h;
+}
 
 // A published multi-page site lives at isibi.ai/s/<slug>/…, so its internal nav
 // links (href="/menu") must be prefixed to /s/<slug>/menu. Only rewrites <a>
@@ -4262,23 +4291,29 @@ async function handleRequest(request, env, ctx) {
           // Phase 2 — generate every page in parallel. COMPOSED: each page returns
           // only its <main>, assembled onto the shared shell (byte-identical chrome).
           // FALLBACK: each page returns a full document matching the design paragraph.
-          const built = (await Promise.all(pagesToBuild.map(async (pg) => {
-            try {
-              if (composed) {
-                const frag = stripToMain(await geminiCall(
-                  "You are a world-class designer + front-end engineer building the MAIN content of ONE page of a client's website. " + MAIN_RULES + "\n\nSHARED DESIGN SYSTEM (match it exactly):\n" + design + (brand ? "\nBrand (already rendered in the shared header/footer): " + brand + "." : "") + "\n\nSHARED <head> — its classes and :root tokens are AVAILABLE to you; REUSE them, do NOT redefine them:\n" + kitHead + "\n\nSHARED header/nav (added ABOVE your content automatically — do NOT repeat it):\n" + kitNav + "\n\nSHARED footer (added BELOW your content automatically — do NOT repeat it):\n" + kitFooter + assetLine + " " + DESIGN_DIRECTOR,
-                  "Build the MAIN content for the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
-                ));
-                if (!frag) return null;
-                const html = composeSitePage((pg.path === "/" ? (brand || pg.name) : pg.name + (brand ? " · " + brand : "")), pg.purpose, kitHead, kitNav, kitFooter, frag, pg.path);
-                return { path: pg.path, name: pg.name, html };
-              }
-              const h = extractHTML(await geminiCall(
-                "You are a world-class designer + front-end engineer building ONE page of a client's multi-page website as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same brand name, fonts, palette, nav, footer, voice) so every page reads as ONE brand:\n" + design + assetLine + (brand ? "\n\nThe brand/logo on EVERY page is EXACTLY \"" + brand + "\" — render that same wordmark in the header and footer; never invent a different name from page to page, and NEVER use \"isibi\" (that is the builder platform, not this client's site)." : "") + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
-                "Build the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
+          const buildOnePage = async (pg) => {
+            if (composed) {
+              const frag = stripToMain(await geminiCall(
+                "You are a world-class designer + front-end engineer building the MAIN content of ONE page of a client's website. " + MAIN_RULES + "\n\nSHARED DESIGN SYSTEM (match it exactly):\n" + design + (brand ? "\nBrand (already rendered in the shared header/footer): " + brand + "." : "") + "\n\nSHARED <head> — its classes and :root tokens are AVAILABLE to you; REUSE them, do NOT redefine them:\n" + kitHead + "\n\nSHARED header/nav (added ABOVE your content automatically — do NOT repeat it):\n" + kitNav + "\n\nSHARED footer (added BELOW your content automatically — do NOT repeat it):\n" + kitFooter + assetLine + " " + DESIGN_DIRECTOR,
+                "Build the MAIN content for the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
               ));
-              return h ? { path: pg.path, name: pg.name, html: h } : null;
-            } catch (e) { console.log("site page failed", pg.path, e && e.message); return null; }
+              if (!frag) return null;
+              return { path: pg.path, name: pg.name, html: composeSitePage((pg.path === "/" ? (brand || pg.name) : pg.name + (brand ? " · " + brand : "")), pg.purpose, kitHead, kitNav, kitFooter, frag, pg.path) };
+            }
+            const h = extractHTML(await geminiCall(
+              "You are a world-class designer + front-end engineer building ONE page of a client's multi-page website as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same brand name, fonts, palette, nav, footer, voice) so every page reads as ONE brand:\n" + design + assetLine + (brand ? "\n\nThe brand/logo on EVERY page is EXACTLY \"" + brand + "\" — render that same wordmark in the header and footer; never invent a different name from page to page, and NEVER use \"isibi\" (that is the builder platform, not this client's site)." : "") + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
+              "Build the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
+            ));
+            return h ? { path: pg.path, name: pg.name, html: h } : null;
+          };
+          // Generate every page in parallel, with ONE retry if a page comes back
+          // empty/errored — so a single Gemini hiccup never silently drops a page.
+          const built = (await Promise.all(pagesToBuild.map(async (pg) => {
+            for (let attempt = 0; attempt < 2; attempt++) {
+              try { const r = await buildOnePage(pg); if (r) return r; }
+              catch (e) { console.log("site page failed", pg.path, "attempt", attempt, e && e.message); }
+            }
+            return null;
           }))).filter(Boolean);
           if (!built.length) throw new Error("build returned no pages");
           // Validate → auto-fix each page BEFORE charging (so the fix's tokens are
@@ -4300,7 +4335,7 @@ async function handleRequest(request, env, ctx) {
           let imgCharged = 0;
           for (const pg of built) {
             const inj = await injectSiteImages(pg.html, request, env, stUser.id, imgBudget);
-            pg.html = inj.html; imgBudget -= inj.charged; imgCharged += inj.charged;
+            pg.html = polishHead(inj.html, brand); imgBudget -= inj.charged; imgCharged += inj.charged;
           }
           let imgCredits = 0;
           if (imgCharged > 0) { imgCredits = imgCharged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
@@ -4384,7 +4419,7 @@ async function handleRequest(request, env, ctx) {
           let imgCredits = 0;
           try {
             const inj = await injectSiteImages(html, request, env, stUser.id, affordable);
-            html = inj.html;
+            html = polishHead(inj.html, "");
             if (inj.charged > 0) { imgCredits = inj.charged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
           } catch (e) { console.log("site image pass failed:", e && e.message); }
           // A revision can add/replace edge functions too — extract, strip, persist.
