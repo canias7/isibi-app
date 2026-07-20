@@ -350,6 +350,29 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   guards. NB: login enforces the 8-char min BEFORE the lockout counter, so only
   valid-length wrong passwords count toward a lockout (fine — a <8 pw can't be right).
 
+- **Built-app visitor password reset SHIPPED (2026-07-20, #476).** The per-site D1
+  visitor auth had signup/login/me only — a forgotten password = locked out forever.
+  Added `POST /api/db/<slug>/auth/reset-request` (always ok, no existence leak;
+  emails a single-use 45-min link bound to the current hash via `pv`) + `reset`
+  (verifies sig+exp+purpose+slug+pv, sets new hash, clears lockout, returns a fresh
+  session). Platform-hosted **/reset** page (worker-served, self-contained, on-brand)
+  so the generated app never needs its own reset route — the model just wires a
+  "Forgot password?" request form (BACKEND_RULES updated). Email via `sendPlatformEmail`
+  → Go Farther. Tested 11/11 (page renders, reset-request always-ok for existing/
+  unknown/honeypot/bad-email, reset rejects garbage + wrong-purpose tokens, orig pw
+  still works). Happy path (real emailed token→change) unverifiable without the key +
+  a mailbox, and the token secret is correctly unforgeable.
+  **⚠️ SETUP NEEDED for email to actually send:** add a GitHub Actions secret
+  `GO_FARTHER_API_KEY` (the same gf_live_… key the Supabase send-email fn uses), then
+  re-add `GO_FARTHER_API_KEY` to deploy.yml's `secrets:` list + uncomment its env line
+  (instructions inline in deploy.yml). Until then reset-request succeeds silently but
+  sends nothing. **LESSON (logged):** adding a name to wrangler's `secrets:` list
+  before the GitHub secret exists FAILS THE WHOLE DEPLOY ("Value for secret X not
+  found") — always create the secret first, or the deploy is dead.
+- **BACKLOG (owner's call 2026-07-20):** cap built-site DB creation via CREDITS
+  (charge per provision) rather than a hard per-user limit — "set that up later."
+  No cap today; acceptable while the user base is small.
+
 - **Cloud panel was reading the OLD static-site store for React sites (2026-07-20).**
   A React site's More▸Cloud cards (Members/Submissions/Database/Secrets/Functions/
   Files) called the legacy Supabase endpoints, which resolve via a `published_sites`
