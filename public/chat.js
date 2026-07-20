@@ -9692,15 +9692,23 @@ async function loadSiteData(site) {
   host.querySelectorAll('[data-rm]').forEach((b) => b.onclick = async () => { if (!confirm('Delete this row?')) return; try { await apiFetch('/api/site/backend/row?slug=' + encodeURIComponent(site.slug || '') + '&table=' + encodeURIComponent(sel) + '&id=' + encodeURIComponent(b.dataset.rm), { method: 'DELETE' }); } catch (e) {} siteDataForm = null; loadSiteData(site); });
 }
 function moreCloud(site) {
+  const isReact = !!site.react;
+  const hasBackend = !!(isReact && site.backend);
+  // React sites: Members / Submissions / Database are backed by the site's OWN D1
+  // database (live once the app declares a backend). Secrets / Functions / Files /
+  // Emails / Payments have no equivalent for a static React app yet → shown as Soon.
+  // Legacy (non-React) sites keep the old Supabase-backed panels unchanged.
+  const dataLive = isReact ? hasBackend : !!site.slug;
+  const auxLive = isReact ? false : !!site.slug;
   const cards = [
-    ['users', 'Members', site.slug ? 'Real accounts — open the Members panel' : 'Publish to enable member accounts', true, 'members'],
-    ['inbox', 'Submissions', 'Form entries land in your Inbox', true, 'inbox'],
-    ['database', 'Database', site.slug ? 'Store + show dynamic content (reviews, menu…)' : 'Publish to enable collections', true, 'database'],
-    ['mail', 'Emails', site.slug ? 'Send email from your own provider' : 'Publish to enable email', true, 'emails'],
-    ['key', 'Secrets', site.slug ? 'Encrypted keys for server-side features' : 'Publish to add secrets', true, 'secrets'],
-    ['zap', 'Edge functions', site.slug ? 'Custom server logic your app builds' : 'Publish to add functions', true, 'functions'],
-    ['card', 'Payments', site.slug ? 'Sell with your own Stripe' : 'Publish to enable payments', true, 'payments'],
-    ['image', 'Files', site.slug ? 'Images + PDFs uploaded to your site' : 'Publish to manage files', true, 'files'],
+    ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
+    ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
+    ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
+    ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
+    ['key', 'Secrets', 'Encrypted keys for server-side features', auxLive, 'secrets'],
+    ['zap', 'Edge functions', 'Custom server logic your app builds', auxLive, 'functions'],
+    ['card', 'Payments', 'Sell with your own Stripe', auxLive, 'payments'],
+    ['image', 'Files', 'Images + PDFs uploaded to your site', auxLive, 'files'],
   ];
   return '<div class="st-panel"><div class="st-panel-head"><h3>Cloud</h3></div>' +
     '<div class="st-cards">' + cards.map((c) => {
@@ -10444,7 +10452,28 @@ async function siteInbox(site) {
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const bodyEl = box.querySelector('.si-body');
+  const fmtT = (t) => { try { if (!t) return ''; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
   try {
+    if (site.react && site.backend) {
+      // React site: submissions are rows in the site's own D1 `collect` tables.
+      const tr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug));
+      const td = await tr.json().catch(() => ({}));
+      const collectTables = ((td && td.tables) || []).filter((t) => t.access === 'collect');
+      if (!collectTables.length) { bodyEl.innerHTML = '<div class="si-empty">No form yet. When your app has a form that saves entries, they land here.</div>'; return; }
+      let html = '';
+      for (const t of collectTables) {
+        const rr = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(t.name));
+        const rd = await rr.json().catch(() => ({}));
+        const rows = (rd && Array.isArray(rd.rows)) ? rd.rows : [];
+        html += '<div class="si-count">' + esc(t.name) + ' · ' + rows.length + ' submission' + (rows.length === 1 ? '' : 's') + '</div>' + rows.map((row) => {
+          const fields = Object.keys(row).filter((k) => k !== 'id' && k !== 'created_at' && k !== 'owner_id');
+          return '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(t.name) + '</span><span class="si-when">' + esc(fmtT(row.created_at)) + '</span></div>' +
+            fields.map((k) => '<div class="si-row"><span class="si-k">' + esc(k) + '</span><span class="si-v">' + esc(String(row[k] == null ? '' : row[k])) + '</span></div>').join('') + '</div>';
+        }).join('');
+      }
+      bodyEl.innerHTML = html;
+      return;
+    }
     const r = await apiFetch('/api/site/submissions?slug=' + encodeURIComponent(slug));
     const d = await r.json().catch(() => ({ submissions: [] }));
     const subs = Array.isArray(d.submissions) ? d.submissions : [];
@@ -10474,12 +10503,24 @@ async function siteMembers(site) {
   box.querySelector('.si-x').onclick = close;
   box.addEventListener('click', (e) => { if (e.target === box) close(); });
   const bodyEl = box.querySelector('.si-body');
+  // D1 timestamps come back as "2026-07-20 21:27:35" (UTC, space-separated).
+  const fmt = (t) => { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } };
   try {
+    if (site.react && site.backend) {
+      // React site: members are the visitor accounts in the site's own D1 (_users).
+      const r = await apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug) + '&table=_users');
+      const d = await r.json().catch(() => ({}));
+      const members = (d && Array.isArray(d.rows)) ? d.rows : [];
+      bodyEl.innerHTML = members.length
+        ? '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
+            '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div></div>').join('')
+        : '<div class="si-empty">No members yet. When someone signs up in your app, their account shows up here.</div>';
+      return;
+    }
     const r = await apiFetch('/api/site/members?slug=' + encodeURIComponent(slug));
     const d = await r.json().catch(() => ({ members: [] }));
     const members = Array.isArray(d.members) ? d.members : [];
     if (!members.length) { bodyEl.innerHTML = '<div class="si-empty">No members yet. When someone signs up on your live site, their account shows up here.</div>'; return; }
-    const fmt = (t) => { try { return t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'; } catch (e) { return '—'; } };
     bodyEl.innerHTML = '<div class="si-count">' + members.length + ' member' + (members.length === 1 ? '' : 's') + '</div>' + members.map((m) =>
       '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(m.email || '') + '</span><span class="si-when">joined ' + esc(fmt(m.created_at)) + '</span></div>' +
       '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
@@ -10490,6 +10531,9 @@ async function siteMembers(site) {
 // Database — the site's collections (public records it saves + shows). Owner view,
 // grouped by collection, RLS-scoped by their JWT.
 async function siteDatabase(site) {
+  // React sites: the site's real database is its own D1, shown in the Data panel —
+  // just switch to it (no separate legacy-collections modal).
+  if (site.react && site.backend) { siteView = 'data'; renderSites(); return; }
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then its collections show up here.'); return; }
   let box = document.getElementById('siteDbModal');
