@@ -2616,6 +2616,43 @@ function parseFunctionSpecs(files) {
   }
   return out;
 }
+// Build a filtered/sorted/paginated SELECT for a data-API list read from the query
+// string: `where=<col>:<op>:<val>` (repeatable; op eq|ne|lt|lte|gt|gte|contains),
+// `q=<text>` (free-text across the declared columns), `sort=<col>&order=asc|desc`,
+// `limit`(≤200)+`offset`. Columns are validated against the table's own columns and
+// double-quoted; every value is parameterized. `base` scopes the read (owner_id for
+// a `user` table). Returns the row query + a matching COUNT for {total}.
+function buildD1List(url, tn, allowCols, base) {
+  const filterable = new Set(allowCols.concat(["id", "created_at"]).map((c) => String(c).toLowerCase()));
+  const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE" };
+  const where = [], params = [];
+  if (base && base.clause) { where.push(base.clause); params.push(...base.params); }
+  for (const raw of url.searchParams.getAll("where").slice(0, 12)) {
+    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains):([\s\S]*)$/i);
+    if (!m) continue;
+    const col = m[1].toLowerCase(); if (!filterable.has(col)) continue;
+    const op = OPS[m[2].toLowerCase()]; if (!op) continue;
+    where.push(sqlIdent(col) + " " + op + " ?");
+    params.push(op === "LIKE" ? "%" + m[3] + "%" : m[3]);
+  }
+  const q = (url.searchParams.get("q") || "").trim();
+  if (q && allowCols.length) {
+    where.push("(" + allowCols.map((c) => sqlIdent(c) + " LIKE ?").join(" OR ") + ")");
+    for (let i = 0; i < allowCols.length; i++) params.push("%" + q + "%");
+  }
+  const whereSql = where.length ? " WHERE " + where.join(" AND ") : "";
+  let sortCol = (url.searchParams.get("sort") || "").toLowerCase();
+  if (!filterable.has(sortCol)) sortCol = "id";
+  const order = /^asc$/i.test(url.searchParams.get("order") || "") ? "ASC" : "DESC";
+  const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+  const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+  return {
+    sql: "SELECT * FROM " + tn + whereSql + " ORDER BY " + sqlIdent(sortCol) + " " + order + " LIMIT ? OFFSET ?",
+    params: params.concat([lim, off]),
+    countSql: "SELECT COUNT(*) AS n FROM " + tn + whereSql,
+    countParams: params.slice(),
+  };
+}
 
 // ---- Phase C: built-site auth (each site's OWN visitor login) -----------------
 // Visitors of a built site log into THAT site — their accounts live in the site's
@@ -4982,9 +5019,10 @@ async function handleRequest(request, env, ctx) {
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
-            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
-            const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " ORDER BY id DESC LIMIT ?", [lim]);
-            return Response.json({ ok: true, rows: r });
+            const b = buildD1List(url, tn, allow, null);
+            const r = await cfD1Query(env, uuid, b.sql, b.params);
+            let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+            return Response.json({ ok: true, rows: r, total });
           }
           if (access === "collect") {
             if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
@@ -4998,9 +5036,10 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
-              const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
-              const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " ORDER BY id DESC LIMIT ?", [lim]);
-              return Response.json({ ok: true, rows: r });
+              const b = buildD1List(url, tn, allow, null);
+              const r = await cfD1Query(env, uuid, b.sql, b.params);
+              let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+              return Response.json({ ok: true, rows: r, total });
             }
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
             if (method === "POST") {
@@ -5027,8 +5066,10 @@ async function handleRequest(request, env, ctx) {
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); return Response.json({ ok: true, row: r[0] }); }
-            const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE owner_id=? ORDER BY id DESC LIMIT 200", [userId]);
-            return Response.json({ ok: true, rows: r });
+            const b = buildD1List(url, tn, allow, { clause: "owner_id=?", params: [userId] });
+            const r = await cfD1Query(env, uuid, b.sql, b.params);
+            let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+            return Response.json({ ok: true, rows: r, total });
           }
           if (method === "POST") {
             const body = await readBody(); const use = pickCols(body);
