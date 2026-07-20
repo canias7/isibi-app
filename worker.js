@@ -2465,13 +2465,18 @@ async function applySiteSchema(env, uuid, spec) {
     //   display  — anyone can READ; no public writes (owner-managed content)
     //   user     — requires the site's own login; each visitor sees only THEIR rows
     const access = ["collect", "display", "user", "feed"].includes(t.access) ? t.access : "collect";
-    const cols = []; let hasPk = false, hasCreated = false, hasOwner = false;
-    const colNames = [];
+    const cols = []; let hasPk = false;
+    const colNames = []; const seen = new Set();
+    // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
+    // Skip any the model declared itself (the rules say not to, but models don't
+    // always comply) and skip duplicate column names, else CREATE TABLE would have
+    // two columns of the same name → D1 error 7500 and the whole backend fails.
+    const MANAGED = new Set(["id", "created_at", "owner_id"]);
     for (const c of (Array.isArray(t.columns) ? t.columns.slice(0, 48) : [])) {
       if (!c || !c.name) continue;
       const low = String(c.name).toLowerCase();
-      if (low === "created_at") hasCreated = true;
-      if (low === "owner_id") hasOwner = true;
+      if (MANAGED.has(low) || seen.has(low)) continue;
+      seen.add(low);
       const cn = sqlIdent(c.name);
       const ty = D1_TYPES[String(c.type || "text").toLowerCase()] || "TEXT";
       let def = cn + " " + ty;
@@ -2481,8 +2486,8 @@ async function applySiteSchema(env, uuid, spec) {
       cols.push(def); colNames.push(c.name);
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
-    if ((access === "user" || access === "feed") && !hasOwner) { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
-    if (!hasCreated) cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
+    if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
+    cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames });
