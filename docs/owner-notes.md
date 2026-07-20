@@ -238,6 +238,26 @@ names clip the access label in the Data sidebar (cosmetic).
 
 ---
 
+## 2026-07-20 — Full site delete (the × on a Your-Sites card now wipes everything) ✅
+
+Owner: "if user deletes it from there, that's it, it's deleted." Done. The card ×
+used to only drop the site from localStorage — the live page + D1 db lingered.
+Now: `POST /api/site/backend/delete` (auth, owner-scoped via the React source uid
+and/or the `site_backends` row) deletes the **D1 database** (`cfD1Delete` → CF DELETE
+API) + its mapping row, and the R2 **published dist + uploads + generated source**.
+Frontend card × confirms (permanent) then calls it before removing locally; drafts
+with no slug still delete locally only. Verified live: owner delete → 404 "no
+backend" after; a NON-owner's delete attempt is blocked (site survives).
+
+- Nit: the non-owner block returns 401 ("sign in required") instead of a cleaner
+  403 — security is correct, message is off. Cosmetic.
+- **Still pending:** ACCOUNT deletion (`delete_account` + the client wipe) doesn't
+  yet loop the user's react sites through this delete endpoint, so deleting an
+  account leaves its site D1 DBs orphaned. Small follow-up: on account delete,
+  iterate `sitesCache` slugs → call `/api/site/backend/delete` for each first.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
