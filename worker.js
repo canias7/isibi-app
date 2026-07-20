@@ -4246,7 +4246,7 @@ async function handleRequest(request, env, ctx) {
       const brief = typeof rb.brief === "string" ? rb.brief.trim().slice(0, 4000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
       const auth = request.headers.get("Authorization") || "";
-      const CREDIT_USD = 0.008, RB_MAX_OUT = 32000, RB_MAX_IMAGES = 6;
+      const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD)); // Sonnet 5 rates
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
@@ -4262,7 +4262,7 @@ async function handleRequest(request, env, ctx) {
             signal: AbortSignal.timeout(180000),
           });
           const d = await r.json().catch(() => ({}));
-          if (!r.ok) return Response.json({ ok: false, error: "generation failed", code: r.status }, { status: 502 });
+          if (!r.ok) return Response.json({ ok: false, error: "generation failed", code: r.status, detail: JSON.stringify(d).slice(0, 400) }, { status: 502 });
           genText = Array.isArray(d.content) ? d.content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("") : "";
           const um = d.usage || {}; usedIn = um.input_tokens || 0; usedOut = um.output_tokens || Math.ceil(genText.length / 4);
         }
