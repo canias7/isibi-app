@@ -10,6 +10,43 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-20 — Phase 4a: React builder STREAMS (live code view) + auto-fix loop ✅
+
+`/api/site/react-build` is now an NDJSON stream (like the classic builder):
+- `{ev:"code"}` — the source as Sonnet writes it (the "watch the code" live view)
+- `{ev:"phase"}` — generating → images → compiling → (fixing) → publishing
+- `{ev:"done"|"error"}` — URL / slug / cost / balance / brand / fixed-count
+
+**Why streaming mattered:** the old one-shot ~138s request was borderline against
+timeouts; streaming keeps the connection alive AND Sonnet generation now streams,
+which removes the large-output non-streaming timeout risk. **Auto-fix loop:** on a
+Vite compile error the exact error + current files go back to Sonnet (≤2 tries),
+corrected files are grafted, images re-injected, rebuild. Brand is derived from
+the generated `<title>` for the slug + card name.
+
+**Verified live** on a throwaway account (deleted after; test credits via SQL, real
+✦ untouched): fired a plant-shop + a lemonade brief, watched phases + code stream
+live, terminal `{done}` → "Little Squeeze", compiled React, 3 files, buildMs 8436,
+`fixed:0`. Live code-view UI mocked from the REAL captured stream + screenshotted
+for the owner (dark Zephyr theme, filename tab, syntax highlight, phase stepper,
+success bar). The UI is a design preview — NOT yet wired into the chatbox.
+
+**Deploy gotcha logged:** the first Phase-4a deploy (873b79b) FAILED on a transient
+Cloudflare API **522** during `wrangler deploy` (nothing to do with the code —
+bundling + secrets succeeded). Re-deployed via a no-op change; also renamed
+`instance_type` `standard` → `standard-1` (same 4 GiB tier) to clear a wrangler
+deprecation warning. **Lesson: always confirm the deploy run's conclusion=success
+(GH Actions) before testing — a green *merge* is not a green *deploy*.**
+
+**Still open in Phase 4 — the CUTOVER (big, needs owner's steer):** wiring the React
+engine in as the actual chatbox builder replaces the whole static-HTML page/edit
+model (revise, per-page preview, publish, edge functions, version history are all
+built around editable page HTML; React output is a compiled bundle). That's a
+product decision + a multi-step migration, not a drop-in. Parked for the owner to
+direct next.
+
+---
+
 ## 2026-07-20 — ✅ FIRST LIVE REACT BUILD SUCCEEDED (owner reloaded Anthropic credits)
 
 Once the Anthropic API balance was topped up, the React pipeline ran clean
