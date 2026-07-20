@@ -3541,3 +3541,31 @@ blank window, on a near-black iframe bg.
   white page load, not a black void.
 - **Tested:** headless 9/9 — iframe element identity survives two switches (proves
   no recreate), picker/URL/active update correctly, white bg, zero JS errors.
+
+## 2026-07-20 — React builder: PROJECT KICKOFF (owner: go full Vite/React like Lovable)
+Owner decided to move the builder from static HTML to real React apps (Lovable
+parity), hosted all-on-Cloudflare (Worker + **Cloudflare Containers** for the
+build + R2). Chosen over no-build React and over StackBlitz WebContainers (that's
+non-commercial-free / Enterprise-contact-sales only). Cloudflare Containers cost:
+$5/mo Workers Paid base incl. ~200-300 builds/mo, then ~pennies/build.
+Building in PHASES; the live static-HTML builder stays working until React is proven.
+
+- **Phase 0 (DONE, validated locally):** a Vite+React+Tailwind project compiles to
+  a static `dist/` with RELATIVE asset paths (`./assets/…`) → serves from the
+  existing `/s/<slug>/` R2 path with NO hosting change. npm i ~16s, `vite build`
+  ~1.5s. Key insight: the built React app is just static files — publish path is
+  unchanged; only a build STEP is added.
+- **Phase 1 (DONE, tested 9/9):** the container build-service — `builder/`
+  (Dockerfile + build-server.mjs + template/ + pinned deps: react, react-router-dom,
+  lucide-react, tailwind). The image bakes deps so each build is just `vite build`
+  (~2.4s round-trip incl. a multi-file app with router+components+state). Server
+  contract: `POST /build {files}` → `{ok:true, files:dist}` or `{ok:false, error}`
+  (compile errors returned, not crashed — feeds the Phase-4 auto-fix loop). Path
+  writes allow-listed (index.html/vite/tailwind/postcss/src only; traversal +
+  node_modules blocked). Docker daemon isn't in the sandbox so the IMAGE build is
+  untested here, but the server logic is proven against the real pinned deps.
+- **Phases remaining:** 2 = rewrite the generator so Sonnet emits a Vite/React
+  project (highest risk = AI producing compilable code; needs live spend to test);
+  3 = Worker↔Container orchestration + R2 publish (needs **Cloudflare Containers
+  enabled on the account** — owner step); 4 = build-error auto-fix loop + live code
+  view + cutover from static HTML.
