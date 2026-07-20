@@ -258,6 +258,32 @@ backend" after; a NON-owner's delete attempt is blocked (site survives).
 
 ---
 
+## 2026-07-20 — Test pass on the builder + per-site backend (found + fixed 1 real bug)
+
+Ran real end-to-end builds (owner said "start testing"). Results:
+- **Login app (user-tier), "DayList" to-do:** PASS. Model declared a `user` table
+  (`tasks`: title/done), wired signup/login/rows + Bearer token; 2 visitors →
+  each sees ONLY their own tasks, logged-out → 401, re-login works, data saves +
+  reads. App renders as a real login-gated landing page.
+- **Plain portfolio ("Mira Voss"), no data:** PASS — correctly `backend=False`,
+  no schema (no over-provisioning of informational sites).
+- **Revise-adds-backend (add a contact form to the portfolio):** found a **REAL
+  BUG** → the model declared the schema in an alternate shape
+  `{tables:{messages:{fields:{...}}}}` (object-keyed + `fields`, no `access`)
+  instead of the canonical `{tables:[{name,columns:[...]}]}`, so `applySiteSchema`
+  created **0 tables** and the form would POST to a missing table. **FIXED:
+  `normalizeSchema()` (worker.js) now coerces tables-as-object/array, columns/
+  fields (object or array), bare-string cols, and missing access→'collect' before
+  applying.** Re-verified: alternate shape now creates the table + the form
+  saves + owner reads the message.
+- **Full site delete on real sites:** PASS — both test sites deleted via the
+  endpoint → backend 404 + live page 404 (R2 wiped).
+
+Lesson: the model's schema JSON shape VARIES run-to-run; keep `applySiteSchema`
+tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
