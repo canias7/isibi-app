@@ -4239,42 +4239,61 @@ async function handleRequest(request, env, ctx) {
         : "";
       let usedInTok = 0, usedOutTok = 0;
       const geminiCall = async (system, user, thinking = "low", imgParts = []) => {
-        // Retry transient rate-limit / overload responses (429 too-many-requests,
-        // 500, 503 overloaded) with backoff — a burst of parallel page calls can
-        // trip the model's per-minute rate cap, and a short wait clears it. Other
-        // errors (and the final attempt) throw as before.
-        let r, d, lastStatus = 0;
-        const BACKOFF = [1500, 4000, 8000]; // ms before attempts 2, 3, 4
+        // Resilient call: retry transient rate-limits/overloads (429/500/503) AND
+        // empty responses (a blip, or thinking ate the whole token budget →
+        // finishReason MAX_TOKENS with no visible text). On MAX_TOKENS we drop the
+        // thinking level so the retry leaves room for real output. The error thrown
+        // on final failure carries the TRUE status (429 / 0-empty / http) so the
+        // build's "no pages" error can report the real cause instead of a bare -1.
+        const BACKOFF = [1200, 3000, 6000]; // ms before attempts 2, 3, 4
+        const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+        let curThinking = thinking, lastErr = null;
         for (let attempt = 0; attempt < 4; attempt++) {
-          r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: system }] },
-              contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
-              // Thinking draws from the output budget and is billed as output. A
-              // fresh BUILD gets "high" (design reasoning is where quality comes
-              // from); a surgical REVISE stays "low". Big output headroom either way.
-              generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: thinking } },
-            }),
-            signal: AbortSignal.timeout(160000),
-          });
-          if (r.ok || (r.status !== 429 && r.status !== 500 && r.status !== 503)) break;
-          lastStatus = r.status;
-          if (attempt < 3) { try { await r.body?.cancel(); } catch {} await new Promise((res) => setTimeout(res, BACKOFF[attempt])); }
+          let r;
+          try {
+            r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+              body: JSON.stringify({
+                systemInstruction: { parts: [{ text: system }] },
+                contents: [{ role: "user", parts: [{ text: user }, ...(Array.isArray(imgParts) ? imgParts : [])] }],
+                // Thinking draws from the output budget and is billed as output. A
+                // fresh BUILD gets "high" (design reasoning is where quality comes
+                // from); a surgical REVISE stays "low". Big output headroom either way.
+                generationConfig: { maxOutputTokens: MAX_OUT_TOK, thinkingConfig: { thinkingLevel: curThinking } },
+              }),
+              signal: AbortSignal.timeout(160000),
+            });
+          } catch (netErr) { lastErr = netErr; if (attempt < 3) { await sleep(BACKOFF[attempt]); continue; } throw netErr; }
+          // Retryable HTTP (rate-limit / transient overload).
+          if (!r.ok && (r.status === 429 || r.status === 500 || r.status === 503) && attempt < 3) {
+            lastErr = Object.assign(new Error("gen " + r.status), { status: r.status });
+            try { await r.body?.cancel(); } catch {}
+            await sleep(BACKOFF[attempt]); continue;
+          }
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 300); throw e; }
+          const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
+          const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
+          const finish = (d.candidates && d.candidates[0] && d.candidates[0].finishReason) || "none";
+          if (!text) {
+            lastErr = Object.assign(new Error("empty"), { status: 0, detail: "finish:" + finish });
+            if (attempt < 3) {
+              // thinking blew the token budget → give the retry room for output.
+              if (finish === "MAX_TOKENS" && curThinking !== "low") curThinking = "low";
+              await sleep(BACKOFF[attempt]); continue;
+            }
+            throw lastErr;
+          }
+          // Success — real usage for metered billing (output billed INCLUDING
+          // thinking tokens). ACCUMULATE across calls (a build runs several).
+          const um = d.usageMetadata || {};
+          usedInTok += um.promptTokenCount || 0;
+          usedOutTok += (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
+          console.log("site tokens (cum):", usedInTok, "in /", usedOutTok, "out");
+          return text;
         }
-        d = await r.json().catch(() => ({}));
-        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 300); throw e; }
-        const parts = d.candidates && d.candidates[0] && d.candidates[0].content && d.candidates[0].content.parts;
-        const text = Array.isArray(parts) ? parts.map((p) => p.text || "").join("") : "";
-        if (!text) { const e = new Error("empty"); e.status = 0; e.detail = "finish:" + ((d.candidates && d.candidates[0] && d.candidates[0].finishReason) || "none"); throw e; }
-        // Real usage for metered billing — output is billed INCLUDING thinking
-        // tokens. ACCUMULATE across calls (a multi-page build runs several).
-        const um = d.usageMetadata || {};
-        usedInTok += um.promptTokenCount || 0;
-        usedOutTok += (um.candidatesTokenCount || Math.ceil(text.length / 4)) + (um.thoughtsTokenCount || 0);
-        console.log("site tokens (cum):", usedInTok, "in /", usedOutTok, "out");
-        return text;
+        throw lastErr || Object.assign(new Error("gen failed"), { status: -1 });
       };
       // Model output → the bare HTML document (fences stripped, prose cut).
       const extractHTML = (s) => {
@@ -4395,14 +4414,17 @@ async function handleRequest(request, env, ctx) {
           };
           // Generate every page in parallel, with ONE retry if a page comes back
           // empty/errored — so a single Gemini hiccup never silently drops a page.
+          let lastPageErr = null;
           const built = (await Promise.all(pagesToBuild.map(async (pg) => {
             for (let attempt = 0; attempt < 2; attempt++) {
               try { const r = await buildOnePage(pg); if (r) { emit({ ev: "page", name: pg.name }); return r; } }
-              catch (e) { console.log("site page failed", pg.path, "attempt", attempt, e && e.message); }
+              catch (e) { lastPageErr = e; console.log("site page failed", pg.path, "attempt", attempt, e && e.message, e && e.detail); }
             }
             return null;
           }))).filter(Boolean);
-          if (!built.length) throw new Error("build returned no pages");
+          // Surface the REAL underlying cause (rate-limit 429 / empty-0 / http)
+          // instead of a bare -1, so a persistent failure is diagnosable.
+          if (!built.length) { const e = new Error("build returned no pages"); e.status = (lastPageErr && lastPageErr.status != null) ? lastPageErr.status : -1; e.detail = lastPageErr && lastPageErr.detail; throw e; }
           await emit({ ev: "status", phase: "photos", msg: "Adding photos + finishing touches…" });
           // Validate → auto-fix each page BEFORE charging (so the fix's tokens are
           // billed and the fixed page is what we image + ship). One pass, only for

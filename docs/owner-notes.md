@@ -3474,3 +3474,19 @@ a different message) and nothing was charged.
 - **NOTE for owner:** if 429s persist even after the retries, the Gemini API key's
   quota (per-minute or per-day) is genuinely exhausted and needs a higher tier on
   the Google AI side — that's an account/billing change, not a code fix.
+
+## 2026-07-20 — Builder: resilient geminiCall + real error codes (code -1 was hiding the cause)
+Owner hit "That build didn't come together (code -1)" intermittently even on
+Tier 1 (huge quota). Root problem: -1 = a thrown Error with no HTTP status
+("build returned no pages"), which MASKED the real per-page failure. Most likely
+cause is empty model responses (a transient blip, or high-thinking eating the
+whole token budget → finishReason MAX_TOKENS with no visible text).
+- **geminiCall rewrite:** now retries BOTH transient HTTP (429/500/503) AND empty
+  responses, with backoff (1.2/3/6s, 4 attempts). On a MAX_TOKENS empty it drops
+  the thinking level to "low" for the retry so there's room for real output. Also
+  retries network errors. The thrown error now always carries the TRUE status.
+- **"no pages" error** now reports the real underlying status/detail (429 / 0-empty
+  / http) instead of a bare -1, so the next failure (if any) is diagnosable from
+  the code shown to the owner.
+- Net effect: transient empties/rate-blips now self-heal; a genuine failure shows
+  an honest code. Regression E2E 15/15.
