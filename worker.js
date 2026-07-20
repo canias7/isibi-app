@@ -2438,7 +2438,7 @@ function parseSchemaSpec(files) {
 // and no platform-wide secret gates it. These endpoints are PUBLIC (the visitors
 // aren't isibi users) but strictly scoped by slug → the site's own database.
 const _sbEnc = new TextEncoder();
-const PBKDF2_ITER = 120000;
+const PBKDF2_ITER = 100000; // Cloudflare Workers caps PBKDF2 at 100k iterations
 function _b64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
 function _unb64(str) { const bin = atob(str); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
 function _b64url(s) { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
@@ -4489,7 +4489,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, token: await mkToken(u.id), user: { id: u.id, email } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
-          return Response.json({ ok: false, error: "auth error — try again", _d: (e && e.detail) || (e && e.message) || null }, { status: 502 });
+          return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
         }
       }
     }
