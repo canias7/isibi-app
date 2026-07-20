@@ -395,6 +395,34 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — Builder: collapsible chat rail + cross-page consistency
+Owner flagged three things on the real-estate site: (1) the chatbox should be
+hideable; (2) design is inconsistent — logo/brand name changes per page
+("Vanguard & Co." on Home, "Aura Est." on Listings, even "isibi" on Sell); (3)
+off-topic images (astronauts on property cards).
+- **Collapsible chat rail (frontend):** topbar toggle (panel icon) hides/shows
+  `.st-rail` via a CSS class on `.st-ws` — NO re-render, so the preview iframe
+  never reloads and a half-typed message survives. `siteRailHidden` state,
+  `.st-ws.st-rail-hidden .st-rail{display:none}`, stage takes full width.
+  Headless-tested 5/5 + screenshot.
+- **Brand drift + "isibi" leak (worker prompts):** root cause — the plan defined
+  art direction but never pinned a fixed brand NAME, so each page (generated in
+  parallel) invented its own; and the page/revise prompts literally said "You are
+  isibi Websites", which leaked "isibi" as the site's logo. Fix: plan now returns
+  a `brand` field (exact name, never "isibi") and leads the shared `design`
+  paragraph with it; page + revise prompts dropped the "isibi Websites" identity
+  and explicitly forbid renaming / using "isibi". So every page renders the same
+  wordmark.
+- **Off-subject images (worker prompts):** DESIGN_BAR photography now requires
+  every image to depict the site's REAL subject/industry (no astronauts on a
+  property site), and repeated card grids (listings/products/gallery) must be
+  STATIC `<img data-gen>` per item — not JS-built with a hardcoded/placeholder src
+  or one image reused for many items. Over-budget data-gen imgs already fall back
+  to a soft gradient (injectSiteImages), so many-card grids never break.
+- **NOT yet live-verified:** the generation changes only show on a NEW build/
+  revise (Gemini, ~a little credit). Deployed; a test regen needs the owner's OK
+  on the small spend.
+
 ## 2026-07-19 — FIXED: blank workspace preview (CSP inheritance)
 Owner: a built site (real-estate/Zillow clone) showed BLACK in the workspace
 Preview, but rendered perfectly when Downloaded and when Published. Compared the
