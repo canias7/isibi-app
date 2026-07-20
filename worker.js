@@ -2429,6 +2429,72 @@ function parseSchemaSpec(files) {
   delete files[key];
   return spec;
 }
+
+// ---- Phase C: built-site auth (each site's OWN visitor login) -----------------
+// Visitors of a built site log into THAT site — their accounts live in the site's
+// own D1 (_users), passwords hashed with WebCrypto PBKDF2, and session tokens are
+// HMAC-signed with a secret that is generated once and stored IN THE SITE'S OWN
+// database (_meta.auth_secret). So a token for site A can't be forged for site B,
+// and no platform-wide secret gates it. These endpoints are PUBLIC (the visitors
+// aren't isibi users) but strictly scoped by slug → the site's own database.
+const _sbEnc = new TextEncoder();
+const PBKDF2_ITER = 120000;
+function _b64(bytes) { let s = ""; for (const b of bytes) s += String.fromCharCode(b); return btoa(s); }
+function _unb64(str) { const bin = atob(str); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+function _b64url(s) { return s.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+async function _pbkdf2(password, saltBytes) {
+  const km = await crypto.subtle.importKey("raw", _sbEnc.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", salt: saltBytes, iterations: PBKDF2_ITER, hash: "SHA-256" }, km, 256);
+  return new Uint8Array(bits);
+}
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const hash = await _pbkdf2(password, salt);
+  return { salt: _b64(salt), hash: _b64(hash) };
+}
+async function verifyPassword(password, saltB64, hashB64) {
+  const hash = await _pbkdf2(password, _unb64(saltB64));
+  const want = _unb64(hashB64);
+  if (hash.length !== want.length) return false;
+  let diff = 0; for (let i = 0; i < hash.length; i++) diff |= hash[i] ^ want[i];
+  return diff === 0; // constant-time compare
+}
+async function _hmac(secret, msg) {
+  const key = await crypto.subtle.importKey("raw", _sbEnc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, _sbEnc.encode(msg));
+  return _b64(new Uint8Array(sig));
+}
+async function signSiteUserToken(secret, payload) {
+  const body = _b64url(btoa(JSON.stringify(payload)));
+  return body + "." + _b64url(await _hmac(secret, body));
+}
+async function verifySiteUserToken(secret, token) {
+  if (typeof token !== "string" || token.indexOf(".") < 0) return null;
+  const [body, sig] = token.split(".");
+  if (!body || !sig || sig !== _b64url(await _hmac(secret, body))) return null;
+  let p; try { p = JSON.parse(atob(body.replace(/-/g, "+").replace(/_/g, "/"))); } catch { return null; }
+  if (!p || (p.exp && Math.floor(Date.now() / 1000) > p.exp)) return null;
+  return p;
+}
+// Ensure a site's D1 has the _users + _meta tables and a per-site signing secret.
+async function initSiteAuth(env, uuid) {
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, created_at TEXT DEFAULT (datetime('now')))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  const rows = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
+  if (rows[0] && rows[0].v) return rows[0].v;
+  const secret = _b64(crypto.getRandomValues(new Uint8Array(32)));
+  await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _meta (k,v) VALUES ('auth_secret', ?)", [secret]);
+  const r2 = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
+  return (r2[0] && r2[0].v) || secret;
+}
+// Look up a site's D1 UUID by slug (public, no owner check — used by visitor auth).
+async function siteBackendBySlug(env, slug) {
+  const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid`, {
+    headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await g.json().catch(() => []);
+  return (Array.isArray(rows) && rows[0] && rows[0].d1_uuid) || null;
+}
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 
@@ -4369,6 +4435,62 @@ async function handleRequest(request, env, ctx) {
         if (e && e.bad) return Response.json({ ok: false, error: "invalid table or column name" }, { status: 400 });
         console.error("site schema failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "schema apply failed", detail: (e && e.detail) || null }, { status: 502 });
+      }
+    }
+    // Phase C — built-site visitor auth: /api/db/<slug>/auth/{signup,login,me}.
+    // PUBLIC (the site's own visitors), scoped strictly to that site's D1.
+    {
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/(signup|login|me)$/i);
+      if (am) {
+        const slug = am[1].toLowerCase(), action = am[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch (e) { console.error("initSiteAuth failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        try {
+          if (action === "me") {
+            if (request.method !== "GET") return Response.json({ ok: false }, { status: 405 });
+            const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+            const p = await verifySiteUserToken(secret, tok);
+            if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at FROM _users WHERE id=?", [p.sub]);
+            if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+            return Response.json({ ok: true, user: rows[0] });
+          }
+          if (request.method !== "POST") return Response.json({ ok: false }, { status: 405 });
+          let body; try { body = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+          const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+          const password = String(body.password || "");
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "enter a valid email" }, { status: 400 });
+          if (password.length < 8) return Response.json({ ok: false, error: "password must be at least 8 characters" }, { status: 400 });
+          const now = Math.floor(Date.now() / 1000);
+          const mkToken = (uid) => signSiteUserToken(secret, { sub: uid, slug, email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+          if (action === "signup") {
+            const exists = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
+            if (exists[0]) return Response.json({ ok: false, error: "that email already has an account" }, { status: 409 });
+            const { salt, hash } = await hashPassword(password);
+            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash) VALUES (?,?,?)", [email, salt, hash]);
+            const rows = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
+            const uid = rows[0] && rows[0].id;
+            return Response.json({ ok: true, token: await mkToken(uid), user: { id: uid, email } });
+          }
+          // login
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until FROM _users WHERE email=?", [email]);
+          const u = rows[0];
+          if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
+          // Always run a hash (even when the email is unknown) so timing can't reveal
+          // whether an account exists.
+          const ok = u ? await verifyPassword(password, u.pass_salt, u.pass_hash) : (await _pbkdf2(password, _unb64("AAAAAAAAAAAAAAAAAAAAAA==")), false);
+          if (!ok) {
+            if (u) { const f = (u.failed || 0) + 1; const lock = f >= 8 ? now + 900 : null; await cfD1Query(env, uuid, "UPDATE _users SET failed=?, locked_until=? WHERE id=?", [f, lock, u.id]); }
+            return Response.json({ ok: false, error: "wrong email or password" }, { status: 401 });
+          }
+          if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
+          return Response.json({ ok: true, token: await mkToken(u.id), user: { id: u.id, email } });
+        } catch (e) {
+          console.error("site auth failed:", action, e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
+        }
       }
     }
     if (url.pathname === "/api/site/react-build" && request.method === "POST") {
