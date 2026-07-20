@@ -1986,8 +1986,22 @@ function resolveStr(s, data, secrets) {
     return typeof cur === "object" ? JSON.stringify(cur) : String(cur);
   }).slice(0, 6000);
 }
+// Resolve one path to its RAW value (not stringified) — used when a template value
+// is a SOLE `{{placeholder}}`, so `"{{steps.list.records}}"` embeds the actual array
+// (a function can respond with structured data), not a JSON string of it.
+function resolveRaw(path, data, secrets) {
+  const parts = path.split(".");
+  if (parts[0] === "secret") { const name = parts[1] || ""; return secrets && Object.prototype.hasOwnProperty.call(secrets, name) ? secrets[name] : ""; }
+  let cur = parts[0] === "input" ? data.input : parts[0] === "steps" ? data.steps : undefined;
+  for (let i = 1; i < parts.length && cur != null; i++) cur = cur[parts[i]];
+  return cur;
+}
 function resolveTempl(v, data, secrets) {
-  if (typeof v === "string") return resolveStr(v, data, secrets);
+  if (typeof v === "string") {
+    const sole = v.match(/^\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}$/); // the whole value is ONE placeholder → preserve its type
+    if (sole) { const raw = resolveRaw(sole[1], data, secrets); if (raw !== undefined) return raw; }
+    return resolveStr(v, data, secrets);
+  }
   if (Array.isArray(v)) return v.map((x) => resolveTempl(x, data, secrets));
   if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = resolveTempl(v[k], data, secrets); return o; }
   return v;
