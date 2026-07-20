@@ -2368,6 +2368,20 @@ async function cfD1Query(env, uuid, sql, params) {
   const first = Array.isArray(d.result) ? d.result[0] : d.result;
   return (first && first.results) || [];
 }
+// Same as cfD1Query but also returns how many rows the statement changed
+// (meta.changes) — used by scoped UPDATE/DELETE to tell "done" from "matched
+// nothing" (e.g. a visitor trying to edit a row that isn't theirs → 0 changes).
+async function cfD1Exec(env, uuid, sql, params) {
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ sql, params: params || [] }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) { const e = new Error("d1 query failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
+  const first = Array.isArray(d.result) ? d.result[0] : d.result;
+  return { results: (first && first.results) || [], changes: (first && first.meta && typeof first.meta.changes === "number") ? first.meta.changes : null };
+}
 // Permanently delete a site's D1 database (idempotent — already-gone is fine).
 async function cfD1Delete(env, uuid) {
   try {
@@ -4760,11 +4774,13 @@ async function handleRequest(request, env, ctx) {
             if (method === "PATCH" && rowId != null) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
-              await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 }); // not yours / gone
               return Response.json({ ok: true });
             }
             if (method === "DELETE" && rowId != null) {
-              await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
@@ -4772,7 +4788,7 @@ async function handleRequest(request, env, ctx) {
           // access === "user": requires login; every row scoped to owner_id.
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); return Response.json({ ok: true, row: r[0] || null }); }
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); return Response.json({ ok: true, row: r[0] }); }
             const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE owner_id=? ORDER BY id DESC LIMIT 200", [userId]);
             return Response.json({ ok: true, rows: r });
           }
@@ -4785,11 +4801,13 @@ async function handleRequest(request, env, ctx) {
           if (method === "PATCH" && rowId != null) {
             const body = await readBody(); const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
-            await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
           if (method === "DELETE" && rowId != null) {
-            await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
           return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
