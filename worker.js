@@ -2499,7 +2499,7 @@ function normalizeSchema(spec) {
   };
   const coerceTable = (name, def) => {
     if (!name || !def || typeof def !== "object") return;
-    const access = ["collect", "display", "user", "feed"].includes(def.access) ? def.access : "collect";
+    const access = ["collect", "display", "user", "feed", "admin"].includes(def.access) ? def.access : "collect";
     const src = def.columns || def.fields || def.cols || def.schema;
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
@@ -2522,7 +2522,9 @@ async function applySiteSchema(env, uuid, spec) {
     //   collect  — anyone can INSERT; nobody reads publicly (owner reads in-app)
     //   display  — anyone can READ; no public writes (owner-managed content)
     //   user     — requires the site's own login; each visitor sees only THEIR rows
-    const access = ["collect", "display", "user", "feed"].includes(t.access) ? t.access : "collect";
+    //   feed     — anyone READS; a logged-in visitor posts + edits only their OWN rows
+    //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
+    const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
     const colNames = []; const seen = new Set();
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
@@ -2745,10 +2747,26 @@ async function verifySiteUserToken(secret, token) {
   if (!p || (p.exp && Math.floor(Date.now() / 1000) > p.exp)) return null;
   return p;
 }
+// Newer _users columns (roles, email verification) added after some sites were
+// created. ALTER them in once per site per warm isolate (the Set caches it, so this
+// is not paid on every auth call); each ALTER is idempotent-by-catch. NEW sites get
+// the columns from the CREATE below, so the ALTERs just no-op for them.
+const _authExtrasDone = new Set();
+async function ensureAuthExtras(env, uuid) {
+  if (_authExtrasDone.has(uuid)) return;
+  for (const sql of [
+    "ALTER TABLE _users ADD COLUMN role TEXT DEFAULT 'user'",
+    "ALTER TABLE _users ADD COLUMN verified INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN verify_token TEXT",
+    "ALTER TABLE _users ADD COLUMN verify_exp INTEGER",
+  ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
+  _authExtrasDone.add(uuid);
+}
 // Ensure a site's D1 has the _users + _meta tables and a per-site signing secret.
 async function initSiteAuth(env, uuid) {
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, created_at TEXT DEFAULT (datetime('now')))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL, pass_salt TEXT NOT NULL, pass_hash TEXT NOT NULL, failed INTEGER DEFAULT 0, locked_until INTEGER, role TEXT DEFAULT 'user', verified INTEGER DEFAULT 0, verify_token TEXT, verify_exp INTEGER, created_at TEXT DEFAULT (datetime('now')))");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+  await ensureAuthExtras(env, uuid);
   const rows = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
   if (rows[0] && rows[0].v) return rows[0].v;
   const secret = _b64(crypto.getRandomValues(new Uint8Array(32)));
@@ -4925,9 +4943,10 @@ async function handleRequest(request, env, ctx) {
             const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
             const p = await verifySiteUserToken(secret, tok);
             if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at FROM _users WHERE id=?", [p.sub]);
+            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified FROM _users WHERE id=?", [p.sub]);
             if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            return Response.json({ ok: true, user: rows[0] });
+            const me = rows[0]; me.role = me.role || "user"; me.verified = me.verified ? 1 : 0;
+            return Response.json({ ok: true, user: me });
           }
           if (request.method !== "POST") return Response.json({ ok: false }, { status: 405 });
           let body; try { body = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
@@ -4936,18 +4955,23 @@ async function handleRequest(request, env, ctx) {
           if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "enter a valid email" }, { status: 400 });
           if (password.length < 8) return Response.json({ ok: false, error: "password must be at least 8 characters" }, { status: 400 });
           const now = Math.floor(Date.now() / 1000);
-          const mkToken = (uid) => signSiteUserToken(secret, { sub: uid, slug, email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+          const mkToken = (uid, role) => signSiteUserToken(secret, { sub: uid, slug, email, role: role || "user", iat: now, exp: now + 60 * 60 * 24 * 30 });
           if (action === "signup") {
             const exists = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
             if (exists[0]) return Response.json({ ok: false, error: "that email already has an account" }, { status: 409 });
             const { salt, hash } = await hashPassword(password);
-            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash) VALUES (?,?,?)", [email, salt, hash]);
+            // The FIRST person to sign up owns the app → they become 'admin'
+            // automatically (so the built app has an admin without any console step);
+            // everyone after is a normal 'user'.
+            const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _users");
+            const role = (cnt[0] && cnt[0].n) ? "user" : "admin";
+            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role) VALUES (?,?,?,?)", [email, salt, hash, role]);
             const rows = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
             const uid = rows[0] && rows[0].id;
-            return Response.json({ ok: true, token: await mkToken(uid), user: { id: uid, email } });
+            return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0 } });
           }
           // login
-          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until FROM _users WHERE email=?", [email]);
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified FROM _users WHERE email=?", [email]);
           const u = rows[0];
           if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
           // Always run a hash (even when the email is unknown) so timing can't reveal
@@ -4958,7 +4982,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: false, error: "wrong email or password" }, { status: 401 });
           }
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
-          return Response.json({ ok: true, token: await mkToken(u.id), user: { id: u.id, email } });
+          return Response.json({ ok: true, token: await mkToken(u.id, u.role), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
@@ -5122,6 +5146,40 @@ async function handleRequest(request, env, ctx) {
             }
             if (method === "DELETE" && rowId != null) {
               const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              return Response.json({ ok: true });
+            }
+            return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+          }
+          if (access === "admin") {
+            // Anyone READS (shared content — a catalog, blog, events). Only a site-
+            // user whose role is 'admin' may write; admins manage ALL rows (not
+            // owner-scoped), so this is an in-app CMS the app's own admin controls.
+            if (method === "GET") {
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, null);
+              const r = await cfD1Query(env, uuid, b.sql, b.params);
+              let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+              return Response.json({ ok: true, rows: r, total });
+            }
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (method === "POST") {
+              const body = await readBody(); const use = pickCols(body);
+              if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
+              return Response.json({ ok: true });
+            }
+            if (method === "PATCH" && rowId != null) {
+              const body = await readBody(); const use = pickCols(body);
+              if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", use.map((c) => body[c]).concat([rowId]));
+              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              return Response.json({ ok: true });
+            }
+            if (method === "DELETE" && rowId != null) {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [rowId]);
               if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
