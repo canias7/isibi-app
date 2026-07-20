@@ -4340,11 +4340,11 @@ async function handleRequest(request, env, ctx) {
           // to a full-document rebuild only if not one edit applies.
           const design0 = typeof body.design === "string" ? body.design.slice(0, 4000) : "";
           const editRaw = await geminiCall(
-            "You are a front-end engineer editing ONE page of a client's website. Apply the user's instruction with the SMALLEST possible change. Return ONLY minified JSON (no prose, no fences): {\"edits\":[{\"find\":\"<a substring copied VERBATIM from the current HTML — long + specific enough to occur EXACTLY ONCE>\",\"replace\":\"<the new HTML for exactly that region>\"}]}. Each find must be an exact character-for-character slice of the current HTML (same whitespace, same quotes). Change ONLY what the instruction requires; keep all other copy, sections, design, nav, footer, and the brand name/logo untouched (never rename the brand, never use \"isibi\"). Keep it consistent with the shared design system" + (design0 ? ":\n" + design0 : ".") + " New photos use the data-gen <img> protocol (art-directed prompt, data-ar, NO src). If — and ONLY if — the instruction is a full redesign, return ONE edit whose find is the entire \"<body …>…</body>\" and replace is the new body. " + assetLine,
+            "You are a front-end engineer editing ONE page of a client's website. Apply the user's instruction with the SMALLEST possible change and do ONLY what is asked — add nothing extra. Return ONLY minified JSON (no prose, no fences): {\"edits\":[{\"find\":\"<a substring copied VERBATIM from the current HTML — long + specific enough to occur EXACTLY ONCE>\",\"replace\":\"<the new HTML for exactly that region>\"}]}. Each find must be an exact character-for-character slice of the current HTML (same whitespace, same quotes). Change ONLY what the instruction requires; keep all other copy, sections, design, nav, footer, and the brand name/logo untouched (never rename the brand, never use \"isibi\"). Keep it consistent with the shared design system" + (design0 ? ":\n" + design0 : ".") + " New photos use the data-gen <img> protocol (art-directed prompt, data-ar, NO src). If — and ONLY if — the instruction is a full redesign, return ONE edit whose find is the entire \"<body …>…</body>\" and replace is the new body. If the current HTML ALREADY fully satisfies the instruction, return {\"edits\":[],\"done\":true} — do NOT invent changes. " + assetLine,
             "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low", imageParts
           );
-          let edits = [];
-          try { const j = editRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); const o = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); if (o && Array.isArray(o.edits)) edits = o.edits; } catch {}
+          let edits = [], alreadyDone = false;
+          try { const j = editRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); const o = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); if (o) { if (Array.isArray(o.edits)) edits = o.edits; if (o.done === true || o.noop === true) alreadyDone = true; } } catch {}
           let html = curHtml, applied = 0;
           for (const e of edits) {
             if (!e || typeof e.find !== "string" || typeof e.replace !== "string" || !e.find) continue;
@@ -4352,6 +4352,14 @@ async function handleRequest(request, env, ctx) {
             if (i < 0) continue; // couldn't anchor this edit → skip it
             html = html.slice(0, i) + e.replace + html.slice(i + e.find.length);
             applied++;
+          }
+          // Already implemented: the model made no edits and flagged it done → return
+          // the page UNCHANGED (no wasteful full re-roll, no drift). Only the tiny edit
+          // call is billed.
+          if (!applied && alreadyDone) {
+            const gc = toCredits(usedInTok, usedOutTok);
+            let ba = stBalance; try { const b = await useCredits(auth, gc); if (b >= 0) ba = b; } catch {}
+            return Response.json({ html: curHtml, path: typeof body.path === "string" ? body.path : "/", cost: gc, balance: ba, noop: true });
           }
           // Fallback: no edit anchored (model didn't copy exact bytes) → full-document
           // rebuild, the previous behavior, so the change still lands.

@@ -9967,6 +9967,10 @@ function siteSend(text) {
       }
       siteErr = null;
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
+    } else if (r.ok && !isBuild && d.noop) {
+      // The page already satisfied the request — nothing changed, no re-roll.
+      siteErr = null;
+      finish('👍 That’s already how it is — nothing to change.' + used);
     } else if (r.ok && !isBuild && d.html) {
       const s = siteById(origin);
       if (s) {
