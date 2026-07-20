@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./builder/react-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
