@@ -3569,3 +3569,28 @@ Building in PHASES; the live static-HTML builder stays working until React is pr
   3 = Worker↔Container orchestration + R2 publish (needs **Cloudflare Containers
   enabled on the account** — owner step); 4 = build-error auto-fix loop + live code
   view + cutover from static HTML.
+
+## 2026-07-20 — React builder Phase 2 (DONE, validated): generation format + parser
+The generator contract for emitting a React/Vite PROJECT (not static HTML):
+- **`builder/react-gen.mjs`** — `parseGeneratedFiles(text)` + `REACT_RULES` +
+  `REACT_DEPS`. Sonnet emits the whole project as `===FILE: <path>===` blocks
+  (delimiter format, NOT JSON — avoids escaping code); the parser turns that into
+  `{path: source}` ready for the build-service. Strips accidental ``` fences.
+- **REACT_RULES** contract: required files (index.html, src/main.jsx w/ **HashRouter**,
+  src/App.jsx <Routes>, src/index.css, src/pages/*, src/components/*, optional
+  tailwind.config.js); import ONLY the pinned deps (react, react-router-dom,
+  lucide-react, clsx, tailwind-merge); Tailwind classes only; real content, no dead
+  controls; images via `@@IMG:<prompt>@@` STATIC-literal tokens (platform swaps in
+  hosted URLs before build).
+- **Two real findings baked in:** (1) **HashRouter, not BrowserRouter** — the site
+  serves from `/s/<slug>/` sub-path on static R2, so hash routing is required (no
+  server rewrites, works under any base). (2) `@@IMG@@` tokens must be static string
+  literals (no runtime `+`/`${}`), else they can't be safely swapped/embedded.
+- **Validated 11/11 end-to-end** (`react-pipeline-test.mjs`): a realistic 12-file
+  wedding-photographer app (router + reusable components + state + forms + images)
+  → parse → resolve images → build-service → **rendered React SPA screenshotted**
+  (Fraunces font, custom Tailwind theme compiled, client-side routing Home↔Gallery,
+  zero runtime errors). Build ~2.7s. Screenshot: scratchpad/react_home.png.
+- **Still Phase 3/4:** wire into the Worker (Sonnet call w/ REACT_RULES → parse →
+  image inject → Cloudflare Container build → R2), needs Containers on the account
+  (confirmed available) + image-token injection at source level; then auto-fix loop.
