@@ -395,6 +395,33 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — Builder RELIABILITY: surgical edits + validate/auto-fix
+Owner: the builder feels "weak and not reliable" vs Lovable — wants code-gen +
+backend upgrades, not just prompt tweaks. Laid out the real architectural gap
+(whole-page re-roll on every edit; one-shot with no validation; no shared source
+of truth) and started on the two highest-leverage fixes.
+- **#1 Surgical edits (biggest win):** the revise step no longer regenerates the
+  whole page. The model returns minimal `{find,replace}` edits (find = exact
+  verbatim slice of the current HTML); the Worker splices them in, so every
+  untouched byte is identical → no drift, faster, cheaper. Falls back to the old
+  full-document rebuild only if NOT ONE edit anchors (so an edit never fails).
+  worker.js revise branch. Apply logic unit-tested 7/7 (multi-edit, missing
+  anchor→fallback, partial, whole-doc, malformed).
+- **#2 Validate → auto-fix loop:** `validateSiteHtml()` — cheap, high-precision,
+  no JS execution — flags truncated docs, leftover 'lorem ipsum', hotlinked
+  external <img> (blocked by the live CSP), and nav links to non-existent pages.
+  If any, `autoFixSiteHtml()` runs ONE targeted repair pass BEFORE charging (so
+  the fix's tokens are billed + the fixed page is what ships). Wired into build
+  (per page, validPaths from the plan) + revise (paths sent by the client).
+  Clean pages skip it → no extra cost. Validator unit-tested 7/7.
+- **Still on the reliability roadmap (not built yet):** #3 shared chrome as ONE
+  source of truth (nav/footer/tokens composed at publish, not re-described per
+  page); #4 stronger model / two-pass (engine is Gemini Flash); #5 typed per-site
+  DB tables. #1+#2 fit the current single-file architecture with no rewrite.
+- **Verification pending:** end-to-end needs a real build/revise (Gemini + fal =
+  real API cost). Deterministic logic is unit-tested; a live rebuild will confirm
+  the whole new pipeline (brand pin + surgical + validate + image rules).
+
 ## 2026-07-19 — Builder: collapsible chat rail + cross-page consistency
 Owner flagged three things on the real-estate site: (1) the chatbox should be
 hideable; (2) design is inconsistent — logo/brand name changes per page
