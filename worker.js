@@ -4996,7 +4996,13 @@ async function handleRequest(request, env, ctx) {
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
-      const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD)); // Sonnet 5 rates
+      // Build model: Sonnet 5 is the default (best whole-project quality); a caller
+      // may request the cheaper Haiku 4.5 for a faster/cheaper draft. Allowlisted;
+      // per-model token rates so metering stays honest. The fix loop + schema repair
+      // in this build all use the SAME model.
+      const RB_MODEL = (rb.model === "haiku" || rb.model === "haiku-4.5" || rb.model === "claude-haiku-4-5") ? "claude-haiku-4-5" : "claude-sonnet-5";
+      const RATE_IN = RB_MODEL === "claude-haiku-4-5" ? 1e-6 : 3e-6, RATE_OUT = RB_MODEL === "claude-haiku-4-5" ? 5e-6 : 15e-6;
+      const rbCredits = (i, o) => Math.max(1, Math.ceil((i * RATE_IN + o * RATE_OUT) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= rbCredits(2500, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
       // The whole build streams as NDJSON so the client shows it LIVE (Claude-Code
@@ -5017,7 +5023,7 @@ async function handleRequest(request, env, ctx) {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          body: JSON.stringify({ model: RB_MODEL, max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
           signal: AbortSignal.timeout(180000),
         });
         if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
@@ -5146,7 +5152,7 @@ async function handleRequest(request, env, ctx) {
             try { const dbid = await ensureSiteBackend(env, slug, rbUser.id); await applySiteSchema(env, dbid, schemaSpec); backend = true; }
             catch (e) { console.error("react-build backend provision failed:", e && e.message, e && e.detail); }
           }
-          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand, backend });
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand, backend, model: RB_MODEL });
         } catch (e) {
           if (e && e.status) console.error("react-build gen failed:", e.status, e.detail);
           else console.error("react-build failed:", e && e.message);
