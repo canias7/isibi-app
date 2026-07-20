@@ -2331,6 +2331,47 @@ async function autoFixSiteHtml(html, issues, geminiCall, assetLine, extractHTML)
   return fixed || html;
 }
 
+// ── Shared-chrome composition (#3: one source of truth) ──────────────────────
+// The plan emits the shared HEAD (fonts + :root tokens + all shared CSS), NAV,
+// and FOOTER once, as real code. Each page then generates ONLY its unique <main>
+// content, and we assemble the final document — so the header, footer, palette,
+// and fonts are BYTE-IDENTICAL on every page (consistency by construction), and
+// each page is cheaper to generate. Falls back to full-page mode if the plan
+// doesn't produce a usable kit.
+const escHtmlAttr = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+// Mark the current page's nav link active via aria-current="page" (the plan is
+// told to style the active link off that attribute), so the nav HTML itself stays
+// identical across pages — only the marker moves.
+function markActiveNav(nav, path) {
+  const want = path === "/" ? "/" : String(path || "/").replace(/\/+$/, "");
+  let marked = false;
+  return String(nav || "").replace(/<a\b([^>]*?)\shref="([^"]+)"([^>]*)>/gi, (m, pre, href, post) => {
+    if (marked || /aria-current=/i.test(m)) return m;
+    const h = href.replace(/\/+$/, "") || "/";
+    if (h === want) { marked = true; return "<a" + pre + ' href="' + href + '"' + post + ' aria-current="page">'; }
+    return m;
+  });
+}
+// Reduce a page-model's output to just its main content, whether it returned a
+// clean fragment or (defensively) a whole document. Drops any header/footer it
+// duplicated, since the shared ones are added by the composer.
+function stripToMain(out) {
+  let f = String(out || "").trim().replace(/^```(?:html)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  const bm = f.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  if (bm) f = bm[1];                                   // model returned a full doc → keep body inner
+  else { const di = f.search(/<!doctype html|<html[\s>]/i); if (di >= 0) { const he = f.toLowerCase().indexOf("<head"); f = he >= 0 ? f.slice(f.indexOf(">", he) + 1) : f.slice(di); } }
+  f = f.replace(/^\s*<header\b[\s\S]*?<\/header>/i, "").replace(/<footer\b[\s\S]*?<\/footer>\s*$/i, "").trim();
+  return f;
+}
+function composeSitePage(title, desc, headInner, nav, footer, main, path) {
+  return '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+    "<title>" + escHtmlAttr(title) + "</title>\n" +
+    '<meta name="description" content="' + escHtmlAttr(desc).slice(0, 300) + '">\n' +
+    String(headInner || "") + "\n</head>\n<body>\n" +
+    markActiveNav(nav, path) + "\n" + String(main || "") + "\n" + String(footer || "") +
+    "\n</body>\n</html>";
+}
+
 // A published multi-page site lives at isibi.ai/s/<slug>/…, so its internal nav
 // links (href="/menu") must be prefixed to /s/<slug>/menu. Only rewrites <a>
 // hrefs that exactly match one of the site's own page paths (anchors, external
@@ -4172,7 +4213,7 @@ async function handleRequest(request, env, ctx) {
         return end < 0 ? "" : t.slice(0, end + 7);
       };
       // Shared design-director bar (the anti-"AI-slop" rules) used by every page.
-      const DESIGN_BAR =
+      const DESIGN_DIRECTOR =
         "Design like the lead at a world-class studio — award-winning craft, never a template. " +
         "TYPOGRAPHY is the identity (real Google Fonts: a characterful display face + a clean body face, clamp() scale, confident headings — never a system default). " +
         "COLOR: a considered palette — hue-biased neutrals (never pure grey), one restrained accent, grounds that suit the brand; no default purple→blue gradients. " +
@@ -4181,13 +4222,18 @@ async function handleRequest(request, env, ctx) {
         "DEPTH & MOTION: layered gradients/mesh, subtle grain/texture, fine borders, considered shadows, tasteful scroll-reveal + hover microinteractions (respect prefers-reduced-motion). " +
         "COPY: real, specific, on-brand — never lorem, never 'Welcome to X', never fake 'John D.' testimonials. " +
         "AVOID AI-slop tells: centered-everything, emoji section icons, identical rounded cards, a generic hero→features→pricing→footer, Inter/system-ui as the identity, washed-out purple gradients, no spacing rhythm. Take one real aesthetic risk that fits the brand. " +
-        "You are also the engineer: semantic structure, responsive to 360px, accessible (focus/contrast/aria), clean SEO meta, robust guarded JS. " + SITE_RULES;
+        "You are also the engineer: semantic structure, responsive to 360px, accessible (focus/contrast/aria), clean SEO meta, robust guarded JS. ";
+      const DESIGN_BAR = DESIGN_DIRECTOR + SITE_RULES;
+      // Composed-mode rules: build ONLY this page's <main> (the shared shell adds
+      // <head>/nav/footer). The output override precedes SITE_RULES so the
+      // full-document mandate inside it doesn't apply; stripToMain also defends.
+      const MAIN_RULES = "OUTPUT ONLY this page's MAIN CONTENT: the <main>…</main> element, plus — only if this page needs them — ONE page-scoped <style> and ONE page-scoped <script> placed AFTER </main>. Do NOT output <!doctype>, <html>, <head>, <body>, the site header/nav, or the footer; those are added automatically from the shared shell. Therefore any instruction below to 'output ONE complete single-file HTML document' or to put all CSS in <head> is OVERRIDDEN — output only this page's content fragment, reusing the shared head's classes + :root tokens so it matches every other page exactly. " + SITE_RULES;
       const slug = (s) => "/" + String(s || "page").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24);
       try {
         if (step === "build") {
           // Phase 1 — plan the sitemap + a shared design system so all pages match.
           const planRaw = await geminiCall(
-            "You are the creative director + information architect for a client's new website (the platform you run on is called isibi, but that is NEVER the client's brand — do not name the site 'isibi'). From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Pick ONE exact brand/company NAME for the site (invent a fitting, specific one if the brief doesn't give one) — this same name is the logo/wordmark on every page. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"brand\":\"<the site's exact brand/company name — NOT 'isibi'>\",\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the shared nav + footer, the voice/tone, and 2-3 signature visual motifs — concrete enough that every page built from it matches. State the fixed brand NAME and its logo/wordmark treatment so every page renders it identically. Also state the PHOTOGRAPHY subject/style for this specific industry (e.g. a real-estate site shows homes/interiors — never off-topic stock). If a logo/brand image was attached, fold its exact hosted <img> url and placement into this paragraph so every page uses it; if a design reference was attached, describe the palette/layout to match.>\"}. Max 5 pages. Home is always first with path \"/\"." + assetLine,
+            "You are the creative director + information architect for a client's new website (the platform you run on is called isibi, but that is NEVER the client's brand — do not name the site 'isibi'). From the brief, plan the site. Decide how many PAGES it genuinely needs — a simple landing is ONE page (path \"/\"); a richer brand may warrant a few (e.g. Home, Menu, About, Contact). Do NOT pad — only real pages the brief justifies. Pick ONE exact brand/company NAME for the site (invent a fitting, specific one if the brief doesn't give one) — this same name is the logo/wordmark on every page. Then define ONE shared design system every page will follow so the site reads as one brand. Return ONLY minified JSON (no prose, no fences): {\"brand\":\"<the site's exact brand/company name — NOT 'isibi'>\",\"pages\":[{\"path\":\"/\",\"name\":\"Home\",\"purpose\":\"...\"}],\"design\":\"<one tight paragraph: the art direction, exact palette hex values, the Google Font pairing (display + body by name), the voice/tone, and 2-3 signature visual motifs — concrete enough that every page matches. State the PHOTOGRAPHY subject/style for this specific industry (e.g. a real-estate site shows homes/interiors — never off-topic stock).>\",\"head\":\"<the COMPLETE shared <head> INNER html the WHOLE site reuses verbatim: the Google Fonts <link>, then a <style> with :root{ exact --color and --font tokens } + a CSS reset + base typography + the HEADER/NAV styles + FOOTER styles + button/link styles + container & layout utilities + shared component classes — thorough enough that each page adds only a little page-specific CSS. Style the ACTIVE nav link with an aria-current=page attribute selector. Do NOT put <title> or <meta name=description> here (added per page).>\",\"nav\":\"<the exact shared <header>...</header> markup reused verbatim on every page: the brand wordmark (the brand name above) and nav links to EVERY page by path (href=/ , href=/listings , ...), using the classes defined in head>\",\"footer\":\"<the exact shared <footer>...</footer> markup reused verbatim on every page, using the classes defined in head>\"}. Every page will REUSE your head + nav + footer verbatim and only add its own <main>, so make those three complete, valid, and self-consistent. Max 5 pages. Home is always first with path \"/\"." + assetLine,
             "Brief:\n" + brief, "high", imageParts
           );
           let plan = null;
@@ -4200,14 +4246,33 @@ async function handleRequest(request, env, ctx) {
           let brand = String((plan && plan.brand) || "").replace(/\s+/g, " ").trim().slice(0, 60);
           if (/^isibi$/i.test(brand)) brand = ""; // never let the platform name leak as the site brand
           const design = (brand ? "BRAND NAME (use this EXACT name as the logo/wordmark on every page): " + brand + ". " : "") + String((plan && plan.design) || "").slice(0, 4000);
+          // #3 shared chrome: if the plan produced a usable kit (head+nav+footer),
+          // build in COMPOSED mode — each page contributes only its <main> and we
+          // assemble the doc, so the header/footer/palette are byte-identical on
+          // every page. Otherwise fall back to full-page generation.
+          const kitHead = String((plan && plan.head) || "").slice(0, 16000);
+          const kitNav = String((plan && plan.nav) || "").slice(0, 8000);
+          const kitFooter = String((plan && plan.footer) || "").slice(0, 8000);
+          const composed = kitHead.length > 300 && /<style[\s>]/i.test(kitHead) && /<(header|nav)[\s>]/i.test(kitNav) && /<footer[\s>]/i.test(kitFooter);
           // Cap page COUNT to what the balance affords (estPageMax generously covers
           // one page's Gemini cost; the pre-check already guaranteed ≥ one page).
           const estPageMax = toCredits(Math.ceil((design.length + brief.length + 2000) / 4), MAX_OUT_TOK);
           const pagesToBuild = planned.slice(0, Math.max(1, Math.min(planned.length, Math.floor(stBalance / estPageMax))));
           const navList = pagesToBuild.map((p) => p.name + " (" + p.path + ")").join(", ");
-          // Phase 2 — generate every page in parallel against the shared system.
+          // Phase 2 — generate every page in parallel. COMPOSED: each page returns
+          // only its <main>, assembled onto the shared shell (byte-identical chrome).
+          // FALLBACK: each page returns a full document matching the design paragraph.
           const built = (await Promise.all(pagesToBuild.map(async (pg) => {
             try {
+              if (composed) {
+                const frag = stripToMain(await geminiCall(
+                  "You are a world-class designer + front-end engineer building the MAIN content of ONE page of a client's website. " + MAIN_RULES + "\n\nSHARED DESIGN SYSTEM (match it exactly):\n" + design + (brand ? "\nBrand (already rendered in the shared header/footer): " + brand + "." : "") + "\n\nSHARED <head> — its classes and :root tokens are AVAILABLE to you; REUSE them, do NOT redefine them:\n" + kitHead + "\n\nSHARED header/nav (added ABOVE your content automatically — do NOT repeat it):\n" + kitNav + "\n\nSHARED footer (added BELOW your content automatically — do NOT repeat it):\n" + kitFooter + assetLine + " " + DESIGN_DIRECTOR,
+                  "Build the MAIN content for the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
+                ));
+                if (!frag) return null;
+                const html = composeSitePage((pg.path === "/" ? (brand || pg.name) : pg.name + (brand ? " · " + brand : "")), pg.purpose, kitHead, kitNav, kitFooter, frag, pg.path);
+                return { path: pg.path, name: pg.name, html };
+              }
               const h = extractHTML(await geminiCall(
                 "You are a world-class designer + front-end engineer building ONE page of a client's multi-page website as a COMPLETE single-file HTML document that matches this shared DESIGN SYSTEM exactly (same brand name, fonts, palette, nav, footer, voice) so every page reads as ONE brand:\n" + design + assetLine + (brand ? "\n\nThe brand/logo on EVERY page is EXACTLY \"" + brand + "\" — render that same wordmark in the header and footer; never invent a different name from page to page, and NEVER use \"isibi\" (that is the builder platform, not this client's site)." : "") + "\n\nThe site's pages are: " + navList + ". Put the SAME nav on this page linking to EVERY page by its path (href=\"/\", href=\"/menu\", …), the current page marked active, and the SAME footer. " + DESIGN_BAR,
                 "Build the \"" + pg.name + "\" page (path " + pg.path + "). Its purpose: " + pg.purpose + "\n\nThe overall brief:\n" + brief, "high"
