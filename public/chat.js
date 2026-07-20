@@ -9364,8 +9364,26 @@ function siteActivePage(site) {
 // the app CSP, which blocks the generated site's own inline scripts. One live
 // URL at a time; the previous one is revoked so long sessions don't leak.
 let sitePrevUrl = null;
-function sitePreviewSrc(html, slug) {
+// Build the shim-injected preview HTML (error watcher + draft slug + nav shim),
+// then hand it to the Worker so the iframe loads it from a real /preview/ URL
+// served under the WEBSITE CSP — the generated page's own inline <script>/<style>
+// run, exactly like the live site. A blob/srcdoc iframe inherits the APP's strict
+// CSP (script-src 'self', no inline) and renders the page blank; that was the bug.
+async function loadSitePreview(fr, html, slug) {
+  if (!fr) return;
+  const withShim = sitePreviewHtml(html, slug);
+  try {
+    const r = await apiFetch('/api/site/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: withShim }) });
+    if (r && r.ok) { const d = await r.json().catch(() => ({})); if (d && d.url) { fr.src = d.url; return; } }
+  } catch (e) {}
+  // Fallback only if the round-trip fails (offline / not signed in): a blob URL.
+  // Styled but its inline scripts are blocked by the app CSP, so dynamic content
+  // won't run — still better than a hard failure.
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
+  sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
+  fr.src = sitePrevUrl;
+}
+function sitePreviewHtml(html, slug) {
   // Intercept internal "/path" link clicks in the preview and hand them to the
   // parent so the picker switches pages (a blob preview can't route by itself).
   const shim = '<script>(function(){document.addEventListener("click",function(e){var a=e.target&&e.target.closest&&e.target.closest("a");if(!a)return;var h=a.getAttribute("href")||"";if(h.charAt(0)==="/"&&h.indexOf("//")!==0){e.preventDefault();try{parent.postMessage({__siteNav:h.split("#")[0].split("?")[0]||"/"},"*");}catch(x){}}},true);})();<\/script>';
@@ -9382,9 +9400,7 @@ function sitePreviewSrc(html, slug) {
   const slugTag = slug ? '<script>window.__SITE_SLUG__=' + JSON.stringify(String(slug)) + ';<\/script>' : '';
   const headInject = errShim + slugTag; // errShim first so it observes the site's own scripts
   out = /<head[^>]*>/i.test(out) ? out.replace(/<head[^>]*>/i, (m) => m + headInject) : (headInject + out);
-  const withShim = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, shim + '</body>') : (out + shim);
-  sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
-  return sitePrevUrl;
+  return /<\/body>/i.test(out) ? out.replace(/<\/body>/i, shim + '</body>') : (out + shim);
 }
 // Bind ONCE: preview link clicks (postMessaged from the shim) switch the picker.
 let siteNavBound = false;
@@ -9775,7 +9791,7 @@ function renderSiteWorkspace(view, site) {
   const fr = document.getElementById('stFrame');
   if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
-    fr.src = sitePreviewSrc(curHtml, site.slug);
+    loadSitePreview(fr, curHtml, site.slug);
   }
   paintPreviewErrBadge(); // hidden until the preview reports errors
   // "Fix with AI": route the caught runtime errors through the normal revise flow.
@@ -9830,7 +9846,7 @@ function renderSiteWorkspace(view, site) {
   const back = document.getElementById('stBack');
   if (back) back.onclick = () => { siteOpenId = null; renderSites(); };
   const rl = document.getElementById('stReload');
-  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) f.src = sitePreviewSrc(curHtml, site.slug); };
+  if (rl) rl.onclick = () => { const f = document.getElementById('stFrame'); if (f && curHtml) loadSitePreview(f, curHtml, site.slug); };
   // Page picker: toggle the menu; clicking a page switches the active page.
   const pageBtn = document.getElementById('stPageBtn');
   const pageMenu = document.getElementById('stPageMenu');

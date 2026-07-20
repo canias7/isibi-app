@@ -582,7 +582,10 @@ function harden(res, request) {
   // website — it needs its OWN inline <style>/<script>, Google Fonts, and the
   // Supabase-hosted images, so it gets a permissive website CSP, not the strict
   // app policy. Still same-origin-only for scripts/connect (no external code).
-  const publishedSite = pathname.startsWith("/s/");
+  // /preview/ = the builder's live draft preview: it renders the SAME generated
+  // page in the workspace iframe, so it needs the identical website CSP (a
+  // blob/srcdoc preview would inherit the strict app CSP and blank the page).
+  const publishedSite = pathname.startsWith("/s/") || pathname.startsWith("/preview/");
   h.set("X-Content-Type-Options", "nosniff");
   if (publishedSite) {
     h.set("Content-Security-Policy", [
@@ -2336,6 +2339,22 @@ async function handleRequest(request, env, ctx) {
         });
       }
       if (sm) return new Response("Not found", { status: 404 });
+    }
+
+    // Serve a builder DRAFT preview: isibi.ai/preview/<uid>/<nonce>. The workspace
+    // iframe loads this (not a blob) so the generated page runs its OWN inline
+    // <script>/<style> under the website CSP (see harden()), exactly like it will
+    // once published — blob/srcdoc inherit the app's strict script-src and blank
+    // the page. One rolling slot per user (preview/<uid>.html), overwritten each
+    // render; the nonce only busts the iframe cache. Never cached.
+    {
+      const pv = url.pathname.match(/^\/preview\/([0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12})(?:\/[A-Za-z0-9_-]{1,40})?$/i);
+      if (pv && env.SITES_BUCKET) {
+        const obj = await env.SITES_BUCKET.get("preview/" + pv[1].toLowerCase() + ".html");
+        if (!obj) return new Response("Preview not ready — reopen the site.", { status: 404 });
+        return new Response(obj.body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+      }
+      if (pv) return new Response("Not found", { status: 404 });
     }
 
     // Serve a visitor-uploaded file from R2: isibi.ai/u/<slug>/<file>. Public,
@@ -4275,6 +4294,24 @@ async function handleRequest(request, env, ctx) {
         });
       } catch {}
       return Response.json({ ok: true });
+    }
+    // Store the current draft page for the workspace preview (served back from
+    // /preview/<uid>/<nonce> under the website CSP so the page's inline scripts
+    // actually run). Auth'd; one small rolling slot per user (preview/<uid>.html),
+    // overwritten each render, so it never accumulates.
+    if (url.pathname === "/api/site/preview" && request.method === "POST") {
+      const pvUser = await authUser(request);
+      if (!pvUser) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ error: "preview unavailable" }, { status: 501 });
+      const tlP = tooLargeBody(request, 4_000_000); if (tlP) return tlP;
+      let pb; try { pb = await request.json(); } catch { return Response.json({ error: "invalid JSON" }, { status: 400 }); }
+      const html = typeof pb.html === "string" ? pb.html : "";
+      if (!html || html.length > 3_000_000) return Response.json({ error: "no html" }, { status: 400 });
+      try {
+        await env.SITES_BUCKET.put("preview/" + pvUser.id + ".html", html, { httpMetadata: { contentType: "text/html; charset=utf-8" } });
+      } catch { return Response.json({ error: "preview store failed" }, { status: 502 }); }
+      const nonce = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+      return Response.json({ url: "/preview/" + pvUser.id + "/" + nonce });
     }
     if (url.pathname === "/api/site/publish" && request.method === "POST") {
       const pubUser = await authUser(request);
