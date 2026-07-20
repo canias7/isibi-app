@@ -2368,6 +2368,15 @@ async function cfD1Query(env, uuid, sql, params) {
   const first = Array.isArray(d.result) ? d.result[0] : d.result;
   return (first && first.results) || [];
 }
+// Permanently delete a site's D1 database (idempotent — already-gone is fine).
+async function cfD1Delete(env, uuid) {
+  try {
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}` },
+    });
+    return r.ok || r.status === 404;
+  } catch { return false; }
+}
 // Look up (or lazily create) the D1 backend for a site slug → its database UUID.
 // Ownership is enforced: a caller can only reach a backend whose row.uid is theirs.
 async function ensureSiteBackend(env, slug, uid) {
@@ -4466,6 +4475,35 @@ async function handleRequest(request, env, ctx) {
         console.error("site schema failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "schema apply failed", detail: (e && e.detail) || null }, { status: 502 });
       }
+    }
+    // Full site delete (isibi-authed, owner-scoped): wipe EVERYTHING for a slug —
+    // the published files + source in R2, the D1 database, and its mapping row.
+    // Ownership is proven from the React source's uid and/or the site_backends row.
+    if (url.pathname === "/api/site/backend/delete" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      let bb; try { bb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof bb.slug === "string" ? bb.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      let owned = false, dbuuid = null;
+      // (a) the persisted React source records the owner uid
+      try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) { const j = JSON.parse(await o.text()); if (j && j.uid === u.id) owned = true; } } catch {}
+      // (b) the backend mapping row (also gives us the D1 uuid to delete)
+      if (env.SUPABASE_SERVICE_KEY) {
+        try {
+          const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid,uid`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+          const rows = await g.json().catch(() => []);
+          if (rows[0]) { if (rows[0].uid && rows[0].uid !== u.id) return UNAUTHED(); if (rows[0].uid === u.id) owned = true; dbuuid = rows[0].d1_uuid; }
+        } catch {}
+      }
+      if (!owned) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
+      // 1) the site's own database + its mapping row
+      if (dbuuid && d1Configured(env)) { try { await cfD1Delete(env, dbuuid); } catch {} }
+      if (env.SUPABASE_SERVICE_KEY) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }); } catch {} }
+      // 2) R2: published dist, uploads, and the generated source
+      try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+      try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+      try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
+      return Response.json({ ok: true });
     }
     // Owner-side data read (isibi-authed): the site OWNER sees any table's rows —
     // powers the builder Data/Users panel and reading 'collect' submissions.
