@@ -372,6 +372,15 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
 - **BACKLOG (owner's call 2026-07-20):** cap built-site DB creation via CREDITS
   (charge per provision) rather than a hard per-user limit — "set that up later."
   No cap today; acceptable while the user base is small.
+- **Robustness/fuzz pass (2026-07-20) — all clean (30/30), no bugs.** Threw malformed
+  schemas (tables as string/number/null, columns as string, access as number, garbage
+  types, nested junk, whole-body null/string) → all handled, never a raw 500
+  (normalizeSchema coerces or 400s). ensure with empty/missing/huge/symbol slugs →
+  sanitized or 400. Non-JSON bodies → 400. Data API: PUT→403, non-JSON→400, unknown
+  slug→404. `/s/<slug>/` serving: crafted traversal paths (`../../etc/passwd`,
+  `..%2f`, `....//`, 300-char) ALL 404 — safe by construction (R2 object keys are
+  literal strings, so `..` never resolves like a filesystem; slug regex is `[a-z0-9-]`
+  only). Site stayed functional after the whole fuzz. delete-all re-verified too.
 
 - **Cloud panel was reading the OLD static-site store for React sites (2026-07-20).**
   A React site's More▸Cloud cards (Members/Submissions/Database/Secrets/Functions/
