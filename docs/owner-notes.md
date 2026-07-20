@@ -77,6 +77,51 @@ wants.
 
 ---
 
+## 2026-07-20 — Phase 4c: FULL CUTOVER — the chatbox builder now IS the React engine ✅
+
+Owner's call: "full cutover now" + "collapsed rows" + "not the open-site card". Done.
+
+**What changed in the chatbox (`chat.js`/`styles.css`):**
+- New project OR any React site → the streaming React engine (`/api/site/react-build`
+  · `/api/site/react-revise`). Legacy static sites keep the old `/api/site` path.
+- **Live view IS the chat** — Claude-Code-style collapsible step rows (`.st-step`):
+  during a build "Writing the code ▾" streams the source live; when done the rows
+  collapse to ✓ summaries stored ON the message (Wrote the code / Generated images
+  → opens thumbnails / Compiled / Published), each opened by the ▾. Rows default
+  COLLAPSED. NO "Open site" result card (owner cut it — redundant w/ the preview +
+  the top-bar "Live ↗"). Output text restyled to match.
+- Stage: compile placeholder during a first build, then the compiled site from
+  `/s/<slug>/` (cache-busted per revise). `Publish`→`Live ↗`; Code tab + Download-
+  HTML hidden for React sites; site cards preview the live compiled app.
+- Data model: a React site carries `react:true` + `slug` + `url` + `previewV`; a
+  synthetic 1-page `pages[]` keeps the built/unbuilt gate working. `sitesSave`
+  spreads `...s` so these + `m.build` persist.
+
+**Verified live** (throwaway, real ✦ untouched, deleted after): built "El Fuego"
+(5 images, published), then **revised by chat** ("change the hero headline to Tacos
+That Bite Back") → same URL, rebuilt in 14s, headline changed, rest preserved.
+Screenshotted for the owner.
+
+**Bug caught + fixed in-flight:** revise first threw a generic error — `react-revise`
+referenced `REACT_REVISE_RULES` but the worker only imported `REACT_RULES` +
+`REACT_FIX_RULES`, so it was a runtime ReferenceError (esbuild doesn't catch an
+unimported reference — it becomes a global lookup). Added the import (PR #445).
+**Lesson: a new worker helper that references an imported binding must be added to
+the `react-gen.mjs` import list; syntax-check won't catch a missing import.**
+
+**Not screenshotted in-app:** the logged-in builder can't be rendered headless here
+(Supabase login + the agent proxy can't reach isibi.ai from Chromium), so the live-
+view visual was validated via the standalone prototype (identical markup/CSS) driven
+by a real stream. The in-app wiring is deployed; owner should try a build to confirm.
+
+**Deferred (React sites, follow-ups):** the More→Cloud panels (Analytics/Inbox/
+Members/Functions/Files/Payments) + Deep-scan + version-restore were built for
+static page-HTML; they're still reachable for React sites but some assume page HTML
+— revisit per-panel when the owner wants them on React. R2 has a few orphaned test
+sites (little-squeeze/ember/el-fuego) from throwaways — harmless, unlinked.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
