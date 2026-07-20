@@ -395,6 +395,22 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — Builder: conversational gate (chat vs build)
+Owner: typing "hey" as the first message kicked off a full ~200-credit build; it
+"should be a bit conversational too." Root cause: the builder treated EVERY first
+message as a build (isBuild = no pages yet), no chat notion.
+- **Fix:** a cheap intent classify runs at the top of /api/site (build + revise).
+  Greeting / thanks / small talk / question / too-vague → returns
+  `{chat:"<warm 1-2 sentence reply>"}` (no build, ~1 credit). Biased hard toward
+  acting so any real brief or concrete change still builds/edits. Client shows
+  `d.chat` as an assistant message, no site change.
+- **Live-verified** (throwaway acct, deleted): "hey" → "Hey there! What kind of
+  site are we making today—maybe a landing page for a cozy coffee shop?" (1
+  credit, no build); "can you make online stores?" → "Yes, absolutely! What kind
+  of products…" (1 credit). Real briefs still build (bias + the earlier full
+  build verification). Note: first hit timed out on edge-propagation lag, fine
+  after.
+
 ## 2026-07-19 — LIVE VERIFICATION of the new builder pipeline ✅
 Owner OK'd the spend. Ran a real build + edit on a throwaway account (800 credits
 set, fully deleted after via delete_account — which also re-verified that wipe).
