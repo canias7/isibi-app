@@ -335,10 +335,26 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   them as "unknown table", silently breaking a live app's existing forms/feeds.
   **FIXED:** applied tables now MERGE into the persisted schema (re-declared wins,
   untouched preserved); a revise can't strip a table's access. (PR #468)
+- **Boolean columns didn't round-trip (2026-07-20).** Posting `active: true` into
+  a `boolean` column stored the STRING "true" (D1 binds a JS bool as text). Both
+  "true" AND "false" are truthy in JS, so a generated app's `if (row.done)` would
+  treat a `false` row as true — silently broken todo/checkbox/published flags.
+  **FIXED:** `d1Params` coerces every bound param (true→1, false→0, undefined→null)
+  at the one bind point all writes share. Integer/real already round-tripped. (#470)
+- **Also audited clean (no bugs), 2026-07-20:** cross-OWNER isolation (a different
+  isibi user can't read/add/reschema/delete another owner's site), auth brute-force
+  lockout (7 wrong = 401, 8th locks, correct pw then 429 for 15 min), signup guards
+  (dup 409 / short-pw 400 / bad-email 400 / garbage-token 401), cross-SITE token
+  isolation (a login on site A can't touch site B — separate HMAC secret + slug
+  check), collect-read protection (submissions owner-only), and identifier/injection
+  guards. NB: login enforces the 8-char min BEFORE the lockout counter, so only
+  valid-length wrong passwords count toward a lockout (fine — a <8 pw can't be right).
 
 Bugs found by testing this session: normalizeSchema (shape drift), the feed gap,
-the misleading scoped-write response (#467), and the schema-overwrite-on-revise
-(#468). All fixed + live-verified. Test accounts/sites all deleted.
+the misleading scoped-write response (#467), the schema-overwrite-on-revise (#468),
+and boolean columns not round-tripping (#470). All fixed + live-verified. The
+backend's access control (cross-user, cross-owner, cross-site, collect-read,
+injection) held up clean. Test accounts/sites all deleted.
 
 ---
 
