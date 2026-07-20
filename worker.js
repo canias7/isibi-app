@@ -2553,6 +2553,26 @@ function parseSchemaSpec(files) {
   delete files[key];
   return spec;
 }
+// Pull declared edge functions out of a React build's `isibi.functions.json`
+// (body `{"functions":[{"name":"x","steps":[…],"schedule":?,"verify":?}]}` or a
+// bare array). Strips the file (never ships as a static asset). Returns validated
+// [{name, spec}] ready for persistSiteFunctions.
+function parseFunctionSpecs(files) {
+  const key = Object.keys(files).find((k) => /(^|\/)isibi\.functions\.json$/i.test(k));
+  if (!key) return [];
+  let j = null; try { j = JSON.parse(files[key]); } catch {}
+  delete files[key];
+  const list = Array.isArray(j) ? j : (j && Array.isArray(j.functions) ? j.functions : []);
+  const out = [];
+  for (const f of list.slice(0, 20)) {
+    if (!f || typeof f !== "object") continue;
+    const name = String(f.name || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64);
+    const specRaw = (f.spec && typeof f.spec === "object") ? f.spec : { steps: f.steps, schedule: f.schedule, verify: f.verify };
+    const spec = normalizeFnSpec(specRaw);
+    if (name && spec) out.push({ name, spec });
+  }
+  return out;
+}
 
 // ---- Phase C: built-site auth (each site's OWN visitor login) -----------------
 // Visitors of a built site log into THAT site — their accounts live in the site's
@@ -4636,7 +4656,13 @@ async function handleRequest(request, env, ctx) {
       if (!owned) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
       // 1) the site's own database + its mapping row
       if (dbuuid && d1Configured(env)) { try { await cfD1Delete(env, dbuuid); } catch {} }
-      if (env.SUPABASE_SERVICE_KEY) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }); } catch {} }
+      if (env.SUPABASE_SERVICE_KEY) {
+        const svcH = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` };
+        try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}`, { method: "DELETE", headers: svcH }); } catch {}
+        // Secrets + functions for this site (owner-scoped so a shared slug can't wipe another owner's).
+        try { await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?slug=eq.${encodeURIComponent(slug)}&owner_id=eq.${u.id}`, { method: "DELETE", headers: svcH }); } catch {}
+        try { await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&owner_id=eq.${u.id}`, { method: "DELETE", headers: svcH }); } catch {}
+      }
       // 2) R2: published dist, uploads, and the generated source
       try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
@@ -4670,8 +4696,11 @@ async function handleRequest(request, env, ctx) {
             if (env.SITES_BUCKET) await wipeR2(slug);
             done.add(slug); removed++;
           }
-          // Drop all the caller's mapping rows in one shot.
-          try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(u.id)}`, { method: "DELETE", headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }); } catch {}
+          // Drop all the caller's mapping rows + secrets + functions in one shot.
+          const svcH = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` };
+          try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(u.id)}`, { method: "DELETE", headers: svcH }); } catch {}
+          try { await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?owner_id=eq.${encodeURIComponent(u.id)}`, { method: "DELETE", headers: svcH }); } catch {}
+          try { await fetch(`${SUPABASE_URL}/rest/v1/site_functions?owner_id=eq.${encodeURIComponent(u.id)}`, { method: "DELETE", headers: svcH }); } catch {}
         } catch (e) { console.error("delete-all ledger sweep failed:", e && e.message); }
       }
       // (2) client-known slugs (informational sites with no ledger row) — verify
@@ -5067,6 +5096,7 @@ async function handleRequest(request, env, ctx) {
           let files = parseGeneratedFiles(g.text);
           if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
           let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
+          const fnSpecs = parseFunctionSpecs(files); // edge functions, likewise stripped + provisioned after publish
           genCredits += rbCredits(g.usedIn, g.usedOut);
           try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
           // SAFETY NET: the app wired itself to the backend API (/auth or /rows) but
@@ -5152,7 +5182,12 @@ async function handleRequest(request, env, ctx) {
             try { const dbid = await ensureSiteBackend(env, slug, rbUser.id); await applySiteSchema(env, dbid, schemaSpec); backend = true; }
             catch (e) { console.error("react-build backend provision failed:", e && e.message, e && e.detail); }
           }
-          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand, backend, model: RB_MODEL });
+          // Provision declared edge functions (server logic + secrets: 3rd-party API
+          // calls, payments, email). Non-fatal — the site still ships if it fails.
+          let functions = 0;
+          try { if (fnSpecs.length) { await persistSiteFunctions(env, rbUser.id, slug, fnSpecs); functions = fnSpecs.length; } }
+          catch (e) { console.error("react-build fn provision failed:", e && e.message); }
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand, backend, functions, model: RB_MODEL });
         } catch (e) {
           if (e && e.status) console.error("react-build gen failed:", e.status, e.detail);
           else console.error("react-build failed:", e && e.message);
@@ -6238,19 +6273,25 @@ async function handleRequest(request, env, ctx) {
       if (!value) return Response.json({ ok: false, error: "The secret value can’t be empty." });
       if (value.length > 8000) return Response.json({ ok: false, error: "That value is too long." });
       const jwt = (request.headers.get("Authorization") || "").slice(7);
-      const svcU = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, "Content-Type": "application/json" };
-      let site = null;
-      try {
-        const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: svcU, signal: AbortSignal.timeout(10000) });
-        const rows = await r.json().catch(() => []); site = Array.isArray(rows) ? rows[0] : null;
-      } catch {}
-      if (!site) return Response.json({ ok: false, error: "Publish the site first." });
+      // Prove the caller OWNS this site: a React build (sitesrc/<slug>.json.uid ===
+      // caller) OR a legacy static site (a published_sites row under the caller's
+      // own JWT — RLS scopes it to them). React sites never get a published_sites
+      // row, so the sitesrc check is what lets them use secrets.
+      let owns = false, publishedSiteId = null;
+      try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) { const j = JSON.parse(await o.text()); if (j && j.uid === sUser.id) owns = true; } } catch {}
+      if (!owns) {
+        try {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwt, "Content-Type": "application/json" }, signal: AbortSignal.timeout(10000) });
+          const rows = await r.json().catch(() => []); if (Array.isArray(rows) && rows[0]) { owns = true; publishedSiteId = rows[0].id; }
+        } catch {}
+      }
+      if (!owns) return Response.json({ ok: false, error: "Publish the site first." });
       const enc = await encryptSecret(env, value);
       const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY, "Content-Type": "application/json" };
       try {
         await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?on_conflict=owner_id,slug,name`, {
           method: "POST", headers: { ...svc, Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({ published_site_id: site.id, owner_id: sUser.id, slug, name, value_encrypted: enc, updated_at: new Date().toISOString() }),
+          body: JSON.stringify({ published_site_id: publishedSiteId, owner_id: sUser.id, slug, name, value_encrypted: enc, updated_at: new Date().toISOString() }),
           signal: AbortSignal.timeout(10000),
         });
       } catch { return Response.json({ ok: false, error: "Couldn’t save the secret." }); }

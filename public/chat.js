@@ -9694,19 +9694,21 @@ async function loadSiteData(site) {
 function moreCloud(site) {
   const isReact = !!site.react;
   const hasBackend = !!(isReact && site.backend);
-  // React sites: Members / Submissions / Database are backed by the site's OWN D1
-  // database (live once the app declares a backend). Secrets / Functions / Files /
-  // Emails / Payments have no equivalent for a static React app yet → shown as Soon.
-  // Legacy (non-React) sites keep the old Supabase-backed panels unchanged.
+  // React sites: Members / Submissions / Database ride the site's OWN D1 (live once
+  // the app declares a backend). Secrets + Edge functions are LIVE once published
+  // (server logic + keys for payments/email/integrations). Emails / Payments / Files
+  // management panels aren't ported to React yet → Soon (payments+email still work
+  // for React via an edge function + a secret). Legacy static sites unchanged.
   const dataLive = isReact ? hasBackend : !!site.slug;
-  const auxLive = isReact ? false : !!site.slug;
+  const fnLive = !!site.slug;                       // Secrets + Edge functions: any published site
+  const auxLive = isReact ? false : !!site.slug;    // Emails/Payments/Files dedicated panels: static only for now
   const cards = [
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
+    ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
+    ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
-    ['key', 'Secrets', 'Encrypted keys for server-side features', auxLive, 'secrets'],
-    ['zap', 'Edge functions', 'Custom server logic your app builds', auxLive, 'functions'],
     ['card', 'Payments', 'Sell with your own Stripe', auxLive, 'payments'],
     ['image', 'Files', 'Images + PDFs uploaded to your site', auxLive, 'files'],
   ];
