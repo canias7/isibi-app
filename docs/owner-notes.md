@@ -350,11 +350,26 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   guards. NB: login enforces the 8-char min BEFORE the lockout counter, so only
   valid-length wrong passwords count toward a lockout (fine — a <8 pw can't be right).
 
+- **Cloud panel was reading the OLD static-site store for React sites (2026-07-20).**
+  A React site's More▸Cloud cards (Members/Submissions/Database/Secrets/Functions/
+  Files) called the legacy Supabase endpoints, which resolve via a `published_sites`
+  row that React builds NEVER create — so every card silently returned `[]` (200,
+  not an error) even when the site had real data in D1. **FIXED (#472, owner chose
+  "rewire to D1"):** for React sites w/ a backend, Members→D1 `_users`, Submissions→
+  D1 `collect` tables, Database→opens the Data panel. Secrets/Functions/Files/Emails/
+  Payments have no equivalent for a static React SPA (no server-exec surface) → shown
+  as "Soon" instead of broken-empty. Legacy non-React sites keep the old panels.
+  Verified: owner reads _users (email+joined, no hash leak) + collect tables (5/5).
+  **NB legacy endpoints still live for old static sites**, untested this round:
+  /api/site/{publish,preview,unpublish,analytics,auth/*,members,secrets,collections,
+  data,functions,fn,upload,files,form,submissions} + /api/site/build-health.
+
 Bugs found by testing this session: normalizeSchema (shape drift), the feed gap,
 the misleading scoped-write response (#467), the schema-overwrite-on-revise (#468),
-and boolean columns not round-tripping (#470). All fixed + live-verified. The
-backend's access control (cross-user, cross-owner, cross-site, collect-read,
-injection) held up clean. Test accounts/sites all deleted.
+boolean columns not round-tripping (#470), and the Cloud panel reading the wrong
+store for React sites (#472). All fixed + live-verified. The backend's access
+control (cross-user, cross-owner, cross-site, collect-read, injection) held up
+clean. Test accounts/sites all deleted.
 
 ---
 
