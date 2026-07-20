@@ -2387,6 +2387,48 @@ async function ensureSiteBackend(env, slug, uid) {
   });
   return uuid;
 }
+// Phase B — schema: the AI declares the tables a data-driven site needs (as a
+// validated JSON spec, NOT raw SQL), and we generate safe DDL and apply it to that
+// site's own D1 database. Every identifier is strictly validated + double-quoted so
+// a declared name can never inject SQL; types are whitelisted. Each table always
+// gets an auto `id` PK and a `created_at`. Idempotent (CREATE TABLE IF NOT EXISTS).
+const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER" };
+const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
+function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
+async function applySiteSchema(env, uuid, spec) {
+  const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
+  const made = [];
+  for (const t of tables) {
+    if (!t || !t.name) continue;
+    const tn = sqlIdent(t.name);
+    const cols = []; let hasPk = false, hasCreated = false;
+    for (const c of (Array.isArray(t.columns) ? t.columns.slice(0, 48) : [])) {
+      if (!c || !c.name) continue;
+      if (String(c.name).toLowerCase() === "created_at") hasCreated = true;
+      const cn = sqlIdent(c.name);
+      const ty = D1_TYPES[String(c.type || "text").toLowerCase()] || "TEXT";
+      let def = cn + " " + ty;
+      if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " AUTOINCREMENT"; hasPk = true; }
+      if (c.notnull || c.required) def += " NOT NULL";
+      if (c.unique) def += " UNIQUE";
+      cols.push(def);
+    }
+    if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    if (!hasCreated) cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
+    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
+    made.push(t.name);
+  }
+  return made;
+}
+// Pull an `isibi.schema.json` declaration out of the generated project (and remove
+// it so it never ships as a static asset). Returns the parsed spec or null.
+function parseSchemaSpec(files) {
+  const key = Object.keys(files).find((k) => /(^|\/)isibi\.schema\.json$/i.test(k));
+  if (!key) return null;
+  let spec = null; try { spec = JSON.parse(files[key]); } catch {}
+  delete files[key];
+  return spec;
+}
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
 
@@ -4306,6 +4348,27 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("site backend ensure failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "backend provisioning failed", detail: (e && e.detail) || null }, { status: 502 });
+      }
+    }
+    // Phase B test: apply a declared table schema to a site's own D1 and list the
+    // resulting tables. Auth-gated + owner-scoped. Validated identifiers only.
+    if (url.pathname === "/api/site/backend/schema" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "service key not configured" }, { status: 501 });
+      if (!d1Configured(env)) return Response.json({ ok: false, error: "per-site backend not configured yet", need: "cf_token" }, { status: 501 });
+      let bb; try { bb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof bb.slug === "string" ? bb.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 60) : "";
+      if (!slug || !bb.schema) return Response.json({ ok: false, error: "missing slug or schema" }, { status: 400 });
+      try {
+        const uuid = await ensureSiteBackend(env, slug, u.id);
+        const made = await applySiteSchema(env, uuid, bb.schema);
+        const rows = await cfD1Query(env, uuid, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '_cf_KV' ORDER BY name");
+        return Response.json({ ok: true, slug, created: made, tables: rows.map((r) => r.name) });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        if (e && e.bad) return Response.json({ ok: false, error: "invalid table or column name" }, { status: 400 });
+        console.error("site schema failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "schema apply failed", detail: (e && e.detail) || null }, { status: 502 });
       }
     }
     if (url.pathname === "/api/site/react-build" && request.method === "POST") {
