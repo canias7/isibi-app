@@ -6802,6 +6802,17 @@ function renderSettings() {
         alert('Couldn’t reach billing to cancel your membership — the account wasn’t deleted so you’re not billed again. Try again in a moment.');
         return;
       }
+      // Wipe every built site FIRST (its own Cloudflare database + hosted files),
+      // while the account still exists — otherwise deleting the account would
+      // orphan those databases. Driven server-side off the site ledger; we also
+      // pass the locally-known slugs so informational sites get cleaned too.
+      try {
+        const slugs = (sitesLoad() || []).map((s) => s && s.slug).filter(Boolean);
+        await apiFetch('/api/site/backend/delete-all', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slugs }),
+        });
+      } catch (se) {} // best-effort — never block account deletion on it
       // Files first via the Storage API (clean byte removal; best-effort —
       // the RPC sweeps whatever this misses), then the account itself.
       await Auth.storageWipeOwn();

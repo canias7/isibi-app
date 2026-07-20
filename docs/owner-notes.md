@@ -297,10 +297,25 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   mugs (`backend=False`) instead of a `display` table — correct, because `display`
   tables start EMPTY and there's no owner content-editor yet. Not broken (the shop
   works), just not DB-editable. Rules now tell the model to hardcode small fixed
-  catalogs. **KNOWN LIMIT / next feature if wanted:** owner content-management —
-  add an owner WRITE path (add/edit/delete rows) in the Data panel so `display`
-  tables (products, blog posts, menus) become editable. Until then, `display` is
-  best avoided in favor of hardcoding.
+  catalogs. **RESOLVED 2026-07-20 — owner content editor SHIPPED:** the Data panel
+  is now editable. `/api/site/backend/row` (POST/PATCH/DELETE, owner-scoped via
+  `siteBackendForOwner`) lets the owner add/edit/delete rows in their own declared
+  tables; the panel got a `+ Add` button, an add/edit form (a field per declared
+  column) and per-row Edit/× controls. `_users`/`_meta` are blocked; columns are
+  allow-listed from the schema (minus id/created_at/owner_id). "The AI builds the
+  storefront; you stock the shelves." **So `display` is now first-class** — the
+  model can use it for products/posts/menus and the owner fills the content in.
+  Live-verified end-to-end: owner adds 2 menu rows → owner read sees them → PATCH
+  edits price → PUBLIC data API (what a visitor sees) reflects it → DELETE removes
+  it; guards held (_users 404, undeclared column dropped). Test account/site wiped.
+
+- **Account deletion now wipes built sites (2026-07-20):** deleting an isibi
+  account used to orphan each built site's Cloudflare D1 database. New
+  `/api/site/backend/delete-all` sweeps the `site_backends` ledger for the user
+  (every D1 they own, cross-device) + R2 (published dist, uploads, source) + the
+  mapping rows, and the client passes its locally-known slugs too so informational
+  sites (no D1) get their R2 cleaned. Called in the delete-account flow BEFORE the
+  account is removed (best-effort, never blocks the delete).
 
 Bugs found by testing so far this session: normalizeSchema (shape drift) + the
 feed gap. Both fixed + live-verified. Test accounts/sites all deleted.
