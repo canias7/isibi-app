@@ -6411,15 +6411,19 @@ async function handleRequest(request, env, ctx) {
       let bytes;
       try { const bin = atob(m[2]); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { return Response.json({ error: "couldn’t read the file" }, { status: 400, headers: cors }); }
       if (bytes.length > 6_000_000) return Response.json({ error: "That file is too big — keep it under 6 MB." }, { status: 413, headers: cors });
-      // Only store for a real (published or draft) site.
-      const svc = { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY };
-      if (env.SUPABASE_SERVICE_KEY) {
+      // Only store for a REAL site — a published React build (R2 sites/<slug>/) OR a
+      // legacy static site (published_sites row). The R2 check is what lets React
+      // apps, which never get a published_sites row, use uploads too.
+      let siteExists = false;
+      try { if (await env.SITES_BUCKET.head("sites/" + slug + "/index.html")) siteExists = true; } catch {}
+      if (!siteExists && env.SUPABASE_SERVICE_KEY) {
         try {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: svc, signal: AbortSignal.timeout(8000) });
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(8000) });
           const rows = await r.json().catch(() => []);
-          if (!Array.isArray(rows) || !rows[0]) return Response.json({ error: "not live yet" }, { status: 400, headers: cors });
-        } catch {}
+          if (Array.isArray(rows) && rows[0]) siteExists = true;
+        } catch { siteExists = true; } // fail-open on a Supabase blip — don't block a real upload
       }
+      if (!siteExists) return Response.json({ error: "not live yet" }, { status: 400, headers: cors });
       // Per-slug count cap (bounds abuse; R2 list is prefix-scoped).
       try {
         const listed = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", limit: 300 });
