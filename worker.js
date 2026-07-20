@@ -2355,13 +2355,20 @@ async function cfD1Create(env, name) {
   if (!r.ok || !d.result || !d.result.uuid) { const e = new Error("d1 create failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 300); throw e; }
   return d.result.uuid;
 }
+// D1 binds a JS boolean as the text "true"/"false" (both truthy in the app that
+// reads it back — "false" would break `if (row.done)`). SQLite has no boolean
+// type; the convention is 1/0. Coerce every bound param so boolean columns round-
+// trip cleanly. (undefined → null so a missing value doesn't bind as the string.)
+function d1Params(params) {
+  return (params || []).map((v) => (v === true ? 1 : v === false ? 0 : v === undefined ? null : v));
+}
 // Run SQL against ONE site's D1 database (by UUID). Returns the first statement's
 // result rows. Always parameterize — never string-concat user input into `sql`.
 async function cfD1Query(env, uuid, sql, params) {
   const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ sql, params: params || [] }),
+    body: JSON.stringify({ sql, params: d1Params(params) }),
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d.success === false) { const e = new Error("d1 query failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
@@ -2375,7 +2382,7 @@ async function cfD1Exec(env, uuid, sql, params) {
   const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ sql, params: params || [] }),
+    body: JSON.stringify({ sql, params: d1Params(params) }),
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok || d.success === false) { const e = new Error("d1 query failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
