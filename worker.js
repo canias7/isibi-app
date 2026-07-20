@@ -4521,7 +4521,7 @@ async function handleRequest(request, env, ctx) {
         try {
           const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid,uid`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
           const rows = await g.json().catch(() => []);
-          if (rows[0]) { if (rows[0].uid && rows[0].uid !== u.id) return UNAUTHED(); if (rows[0].uid === u.id) owned = true; dbuuid = rows[0].d1_uuid; }
+          if (rows[0]) { if (rows[0].uid && rows[0].uid !== u.id) return Response.json({ ok: false, error: "not your site" }, { status: 403 }); if (rows[0].uid === u.id) owned = true; dbuuid = rows[0].d1_uuid; }
         } catch {}
       }
       if (!owned) return Response.json({ ok: false, error: "not your site" }, { status: 403 });
@@ -4546,7 +4546,7 @@ async function handleRequest(request, env, ctx) {
         const uuid = await siteBackendForOwner(env, slug, u.id);
         if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
         const spec = await loadSiteSchema(env, uuid);
-        if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access })) });
+        if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access, columns: (t.columns || []) })) });
         if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
         const cols = table === "_users" ? "id,email,created_at" : "*"; // never expose password hashes
         const r = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 500");
@@ -4555,6 +4555,51 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner rows failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
+    // Owner content editor: add / edit / delete a row in one of the OWNER's own
+    // declared tables (products, posts, menu…). isibi-authed + owner-scoped; only
+    // declared tables + columns (never _users/_meta) — this is how 'display' content
+    // gets managed without a rebuild.
+    if (url.pathname === "/api/site/backend/row" && (request.method === "POST" || request.method === "PATCH" || request.method === "DELETE")) {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = request.method === "DELETE" ? {} : await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = ((bb.slug || url.searchParams.get("slug")) || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const table = ((bb.table || url.searchParams.get("table")) || "").replace(/[^a-z0-9_]/gi, "").slice(0, 41);
+      const rowId = parseInt(bb.id || url.searchParams.get("id") || "0", 10) || 0;
+      if (!slug || !table) return Response.json({ ok: false, error: "missing slug or table" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        const def = tableDef(spec, table);
+        if (!def) return Response.json({ ok: false, error: "not an editable table" }, { status: 404 }); // blocks _users/_meta
+        const tn = sqlIdent(table);
+        const managed = new Set(["id", "created_at", "owner_id"]);
+        const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+        const values = bb.values || bb.row || {};
+        const use = allow.filter((c) => values[c] !== undefined);
+        if (request.method === "DELETE") {
+          if (!rowId) return Response.json({ ok: false, error: "missing id" }, { status: 400 });
+          await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [rowId]);
+          return Response.json({ ok: true });
+        }
+        if (request.method === "PATCH") {
+          if (!rowId) return Response.json({ ok: false, error: "missing id" }, { status: 400 });
+          if (!use.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+          await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", use.map((c) => values[c]).concat([rowId]));
+          return Response.json({ ok: true });
+        }
+        // POST (insert)
+        if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+        await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => values[c]));
+        return Response.json({ ok: true });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        if (e && e.bad) return Response.json({ ok: false, error: "invalid field" }, { status: 400 });
+        console.error("owner row write failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "write failed" }, { status: 502 });
       }
     }
     // Phase C — built-site visitor auth: /api/db/<slug>/auth/{signup,login,me}.
