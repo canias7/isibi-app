@@ -4534,6 +4534,50 @@ async function handleRequest(request, env, ctx) {
       try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
       return Response.json({ ok: true });
     }
+    // Wipe EVERY site the caller owns — called by the account-deletion flow so a
+    // deleted isibi account never orphans a D1 database. Authoritative source is
+    // the site_backends ledger (all the user's D1-backed sites, regardless of
+    // which device built them); the client may also pass its locally-known slugs
+    // so informational sites (no D1, R2 source only) get their R2 cleaned too.
+    if (url.pathname === "/api/site/backend/delete-all" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      let bb = {}; try { bb = await request.json(); } catch {}
+      const wipeR2 = async (slug) => {
+        try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+        try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+        try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
+      };
+      const done = new Set();
+      let removed = 0;
+      // (1) every D1-backed site in the ledger — the part that must not orphan.
+      if (env.SUPABASE_SERVICE_KEY) {
+        try {
+          const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(u.id)}&select=slug,d1_uuid`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } });
+          const rows = await g.json().catch(() => []);
+          for (const row of (Array.isArray(rows) ? rows : [])) {
+            const slug = String(row.slug || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+            if (!slug || done.has(slug)) continue;
+            if (row.d1_uuid && d1Configured(env)) { try { await cfD1Delete(env, row.d1_uuid); } catch {} }
+            if (env.SITES_BUCKET) await wipeR2(slug);
+            done.add(slug); removed++;
+          }
+          // Drop all the caller's mapping rows in one shot.
+          try { await fetch(`${SUPABASE_URL}/rest/v1/site_backends?uid=eq.${encodeURIComponent(u.id)}`, { method: "DELETE", headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` } }); } catch {}
+        } catch (e) { console.error("delete-all ledger sweep failed:", e && e.message); }
+      }
+      // (2) client-known slugs (informational sites with no ledger row) — verify
+      // ownership from the persisted source before wiping its R2.
+      if (env.SITES_BUCKET && Array.isArray(bb.slugs)) {
+        for (const raw of bb.slugs.slice(0, 60)) {
+          const slug = String(raw || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+          if (!slug || done.has(slug)) continue;
+          let owned = false;
+          try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) { const j = JSON.parse(await o.text()); if (j && j.uid === u.id) owned = true; } } catch {}
+          if (owned) { await wipeR2(slug); done.add(slug); removed++; }
+        }
+      }
+      return Response.json({ ok: true, removed });
+    }
     // Owner-side data read (isibi-authed): the site OWNER sees any table's rows —
     // powers the builder Data/Users panel and reading 'collect' submissions.
     if (url.pathname === "/api/site/backend/rows" && request.method === "GET") {
