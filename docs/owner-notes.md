@@ -10,6 +10,36 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-20 — ✅ FIRST LIVE REACT BUILD SUCCEEDED (owner reloaded Anthropic credits)
+
+Once the Anthropic API balance was topped up, the React pipeline ran clean
+end-to-end on the first try:
+
+- Prompt: one line ("small-batch coffee roaster called Ember & Oak…").
+- Result: `ok:true`, live at **`/s/a-clean-landing-page-for-a-s-7a2c10/`** — a real
+  **compiled Vite/React SPA** (bundled `index.html` + hashed `index-*.js` +
+  `index-*.css`), not static HTML. `buildMs 8146` (container vite build ~8s),
+  total ~138s, `cost 133` credits (throwaway account, deleted after).
+- The model self-branded it "Ember & Oak — Small-Batch Coffee Roasters" (title +
+  nav + 3 bean cards Finca Alta/Kayanza Reserve/Cerro Negro with roast badges +
+  altitude/process/tasting notes + Our Story + footer). Screenshot sent to owner.
+- Rendered headless with ZERO page errors. (Screenshotting note for future
+  sessions: the headless browser can't reach isibi.ai through the agent proxy —
+  curl the dist files down, serve on 127.0.0.1, launch chromium with
+  `--proxy-server=direct://` / `--proxy-bypass-list=*` (NO proxy for localhost),
+  screenshot that. Generated images 404 in that local render but are real on the
+  live URL.)
+
+**Known rough edge for prod (not blocking the milestone):** the whole build is one
+synchronous ~138s HTTP request (generation is NON-streaming). At `max_tokens 16000`
+that's borderline against the 180s Anthropic AbortSignal and any client timeout —
+a bigger app could exceed it. Phase 4 should move generation to **streaming**
+(the claude-api guidance: stream for large max_tokens) and/or make the endpoint
+async (kick off → poll), which also feeds the live code-streaming view the owner
+wants.
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
