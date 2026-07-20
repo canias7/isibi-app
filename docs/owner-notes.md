@@ -217,6 +217,27 @@ account deletion / site delete (orphan test DBs still accumulate).
 
 ---
 
+## 2026-07-20 — Per-site backend Phase E: builder Data/Users panel ✅ (feature COMPLETE)
+
+New **"Data" top-bar tab** in the builder, shown on any React site that has a backend
+(`site.backend`, set from the build's `done.backend`). `loadSiteData(site)` (chat.js)
+lists the site's tables (from `/api/site/backend/rows?slug=`) down the left with their
+access type + a "Users" tab, and paints a live grid of the selected table's rows
+(`&table=`). The owner sees signups / submissions / accounts in-app. Styles: `.st-data*`.
+
+**→ The per-site backend is now feature-complete: A (provision) · B (schema) · C
+(built-site auth) · D (data API) · E (Data panel) + generation wiring, all live.**
+A user builds an app that needs data → its own DB + tables + login + working forms,
+and the owner views the data in the builder. Lovable-style, done.
+
+**Only real remaining item:** a **D1 delete path** — deleting a site or an account
+should also delete its D1 database(s) (call the CF DELETE API + drop the
+`site_backends` row; add to `delete_account`). Today orphan DBs accumulate (harmless,
+counts toward the 50k cap). Do this before heavy real usage. Minor UI nit: long table
+names clip the access label in the Data sidebar (cosmetic).
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
