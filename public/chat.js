@@ -10013,6 +10013,10 @@ function siteSend(text) {
         s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
         s.design = typeof d.design === 'string' ? d.design : '';
         s.active = (s.pages[0] || {}).path || '/';
+        // Rename the project card from the raw first prompt ("hey") to the brand
+        // the AI actually chose for the site (e.g. "HEY STUDIO"). The URL slug is
+        // brand-derived server-side too.
+        if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
         if (d.slug) s.slug = d.slug; // draft identity — accounts/forms/maps work in preview now
         delete s.html;
         siteSnap(s, t); // version-history restore point
