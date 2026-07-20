@@ -9953,7 +9953,7 @@ function siteSend(text) {
   const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }
-    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), design: site.design || '', siteId: site.id, images: imgs };
+    : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), pages: sitePages(site).map((p) => ({ path: p.path, name: p.name, html: p.html })), design: site.design || '', siteId: site.id, images: imgs };
   siteAbort = new AbortController();
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -9977,6 +9977,21 @@ function siteSend(text) {
       }
       siteErr = null;
       finish('✅ Built' + (d.pages.length > 1 ? ' — ' + d.pages.length + ' pages' : '') + '. Take a look on the right, then tell me what to change.' + used);
+    } else if (r.ok && !isBuild && Array.isArray(d.pages) && d.pages.length) {
+      // A site-wide op — add page / remove page / global edit / regenerate —
+      // returned the FULL updated page set (chat-driven, no UI).
+      let delta = 0;
+      const s = siteById(origin);
+      if (s) {
+        delta = d.pages.length - sitePages(s).length;
+        s.pages = d.pages.map((p) => ({ path: p.path, name: p.name, html: p.html }));
+        if (d.active && s.pages.some((p) => p.path === d.active)) s.active = d.active;
+        else if (!s.pages.some((p) => p.path === s.active)) s.active = (s.pages[0] || {}).path || '/';
+        delete s.html;
+        siteSnap(s, t); // version-history restore point
+      }
+      siteErr = null;
+      finish((delta > 0 ? '✅ Added a new page — it’s in the preview.' : delta < 0 ? '✅ Removed that page.' : '✅ Updated across the site — check the preview.') + used);
     } else if (r.ok && !isBuild && d.noop) {
       // The page already satisfied the request — nothing changed, no re-roll.
       siteErr = null;

@@ -2401,6 +2401,33 @@ function polishHead(html, brand) {
   return inject ? h.slice(0, at) + inject + h.slice(at) : h;
 }
 
+// Recover the shared chrome (head-inner + header/nav + footer) from an already-
+// built composed page, so a NEW page can be generated onto the SAME shell and a
+// page can be regenerated without re-planning the whole site. Strips the parts
+// that are per-page (the <title>, description, og/twitter/favicon that polishHead
+// re-adds, and the aria-current active marker markActiveNav re-applies), so the
+// kit is byte-for-byte the neutral shared shell every page starts from. Returns
+// null if the page doesn't look composed (no usable header/footer).
+function extractSiteKit(html) {
+  const h = String(html || "");
+  const headM = h.match(/<head[^>]*>([\s\S]*?)<\/head>/i);
+  const navM = h.match(/<header\b[\s\S]*?<\/header>/i) || h.match(/<nav\b[\s\S]*?<\/nav>/i);
+  const footM = h.match(/<footer\b[\s\S]*?<\/footer>/i);
+  if (!headM || !navM || !footM) return null;
+  let headInner = headM[1]
+    .replace(/<meta[^>]+charset[^>]*>/gi, "")
+    .replace(/<meta[^>]+name=["']viewport["'][^>]*>/gi, "")
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, "")
+    .replace(/<meta[^>]+name=["']description["'][^>]*>/gi, "")
+    .replace(/<meta[^>]+property=["']og:[^"']*["'][^>]*>/gi, "")
+    .replace(/<meta[^>]+name=["']twitter:[^"']*["'][^>]*>/gi, "")
+    .replace(/<link[^>]+rel=["'][^"']*icon[^"']*["'][^>]*>/gi, "")
+    .trim();
+  // Drop the active marker so markActiveNav sets it fresh per page.
+  const nav = navM[0].replace(/\s*aria-current=["'][^"']*["']/gi, "");
+  return { headInner, nav, footer: footM[0] };
+}
+
 // A published multi-page site lives at isibi.ai/s/<slug>/…, so its internal nav
 // links (href="/menu") must be prefixed to /s/<slug>/menu. Only rewrites <a>
 // hrefs that exactly match one of the site's own page paths (anchors, external
@@ -4149,6 +4176,12 @@ async function handleRequest(request, env, ctx) {
       const brief = typeof body.brief === "string" ? body.brief.trim().slice(0, 4000) : "";
       const instruction = typeof body.instruction === "string" ? body.instruction.trim().slice(0, 2000) : "";
       const curHtml = typeof body.html === "string" ? body.html.slice(0, 400000) : "";
+      // The whole site's pages (revise only) — needed for site-wide ops (global
+      // edit / add page / remove page / regenerate). Each: {path,name,html}.
+      const sitePagesIn = Array.isArray(body.pages)
+        ? body.pages.filter((p) => p && typeof p.path === "string" && typeof p.html === "string")
+            .slice(0, 8).map((p) => ({ path: p.path.slice(0, 40), name: (typeof p.name === "string" ? p.name : p.path).slice(0, 60), html: p.html.slice(0, 400000) }))
+        : [];
       if (step === "build" && !brief) return Response.json({ error: "no brief" }, { status: 400 });
       if (step === "revise" && (!instruction || !curHtml)) return Response.json({ error: "no instruction" }, { status: 400 });
       // Real-money engine calls, directly callable → a daily cap BEFORE the
@@ -4262,11 +4295,20 @@ async function handleRequest(request, env, ctx) {
         // Conversational gate (Lovable-style): a greeting, a question, thanks, or a
         // message too vague to act on gets a CHAT reply — not a credit-heavy
         // build/edit. Biased hard toward acting, so any real brief/change passes.
+        // On a revise it ALSO routes the request: an ordinary change edits THIS
+        // page (edit); a whole-site change (edit), a "add a … page" (addpage), a
+        // "remove/delete the … page" (removepage), or a "redo/redesign this page
+        // from scratch" (regenerate) each take a dedicated path.
+        let route = { kind: "edit", page: "" };
         {
+          const multi = step === "revise" && sitePagesIn.length > 0;
+          const pageList = multi ? sitePagesIn.map((p) => p.name + " (" + p.path + ")").join(", ") : "";
           const clsRaw = await geminiCall(
             "You are isibi, a warm, friendly AI website builder. Classify the user's chat message. " +
             (step === "build" ? "They have NO site yet (new project)." : "They already have a site open; a normal request would EDIT the current page.") +
-            " Return ONLY minified JSON: {\"act\":true|false,\"reply\":\"\"}. act=true = the message is an ACTIONABLE request to build or change the site (it names a site, a business/purpose, or a concrete change) → reply empty. act=false ONLY for a pure greeting (\"hey\"), thanks, small talk, or a question/too-vague message with nothing to act on → reply = a short warm 1-2 sentence answer: for a new project, invite them to describe the site with a concrete example (e.g. \"a landing page for my coffee shop with the menu and hours\"); for a question, answer briefly then nudge toward what to build or change. When unsure, prefer act=true.",
+            (multi ? " The site's pages are: " + pageList + ". The page currently open is \"" + (typeof body.path === "string" ? body.path : "/") + "\"." : "") +
+            " Return ONLY minified JSON: {\"act\":true|false,\"reply\":\"\"" + (multi ? ",\"kind\":\"edit|global|addpage|removepage|regenerate\",\"page\":\"\"" : "") + "}. act=true = the message is an ACTIONABLE request to build or change the site (it names a site, a business/purpose, or a concrete change) → reply empty. act=false ONLY for a pure greeting (\"hey\"), thanks, small talk, or a question/too-vague message with nothing to act on → reply = a short warm 1-2 sentence answer: for a new project, invite them to describe the site with a concrete example (e.g. \"a landing page for my coffee shop with the menu and hours\"); for a question, answer briefly then nudge toward what to build or change. When unsure, prefer act=true." +
+            (multi ? " When act=true, also set kind: \"edit\" for a normal change to the CURRENTLY-OPEN page (the default — use this whenever unsure); \"global\" for a change the user wants applied to the WHOLE site / EVERY page (e.g. the shared header, footer, nav, fonts, or colors, or phrases like 'on every page', 'across the site', 'all pages'); \"addpage\" to ADD a brand-new page (e.g. 'add a contact page', 'create a blog', 'I need an about page') — set page to a SHORT name for it (e.g. 'Contact'); \"removepage\" to DELETE an existing page — set page to that page's name or path; \"regenerate\" to REDO/REDESIGN/START-OVER the current page (or a named page) from scratch — set page to the page name/path if they named one, else empty. page is \"\" for edit and global." : ""),
             "User message: " + (step === "build" ? brief : instruction), "low"
           );
           let cls = null;
@@ -4275,6 +4317,9 @@ async function handleRequest(request, env, ctx) {
             const gc = toCredits(usedInTok, usedOutTok);
             let ba = stBalance; try { const b = await useCredits(auth, gc); if (b >= 0) ba = b; } catch {}
             return Response.json({ chat: cls.reply.trim().slice(0, 600), cost: gc, balance: ba });
+          }
+          if (multi && cls && typeof cls.kind === "string" && ["edit", "global", "addpage", "removepage", "regenerate"].includes(cls.kind)) {
+            route = { kind: cls.kind, page: typeof cls.page === "string" ? cls.page.slice(0, 60).trim() : "" };
           }
         }
         if (step === "build") {
@@ -4392,6 +4437,145 @@ async function handleRequest(request, env, ctx) {
           // untouched byte stays identical (no drift, faster, cheaper). Falls back
           // to a full-document rebuild only if not one edit applies.
           const design0 = typeof body.design === "string" ? body.design.slice(0, 4000) : "";
+          const curPath = typeof body.path === "string" ? body.path : "/";
+          // ── Site-wide operations, routed by the classify gate (all chat-driven, no
+          // UI): global edit / add page / remove page / regenerate. Each returns the
+          // FULL updated page set as {pages, active}. They only run when the client
+          // sent the whole site (sitePagesIn); otherwise everything falls through to
+          // the single-page surgical edit below (route.kind stays "edit").
+          const escRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const brandGuess = ((sitePagesIn[0] && sitePagesIn[0].html.match(/<title[^>]*>([^<]*)<\/title>/i)) || [])[1] ?
+            String(((sitePagesIn[0].html.match(/<title[^>]*>([^<]*)<\/title>/i)) || [])[1]).split("·").pop().trim().slice(0, 60) : "";
+          // Swap in a page's nav block (header or nav) with a new shared nav, marking
+          // the active link for that page. Function replacer → no $-substitution bugs.
+          const replaceNav = (h, newNav, path) => {
+            const marked = markActiveNav(newNav, path);
+            if (/<header\b[\s\S]*?<\/header>/i.test(h)) return h.replace(/<header\b[\s\S]*?<\/header>/i, () => marked);
+            if (/<nav\b[\s\S]*?<\/nav>/i.test(h)) return h.replace(/<nav\b[\s\S]*?<\/nav>/i, () => marked);
+            return h;
+          };
+          // Shared finisher for the multi-page ops: charge measured Gemini tokens,
+          // run the image pass on each page within an affordable site-wide budget,
+          // polish heads, persist any declared edge functions, return all pages.
+          const shipPages = async (pages, activePath) => {
+            const gemCredits = toCredits(usedInTok, usedOutTok);
+            let balAfter = stBalance;
+            try { const b = await useCredits(auth, gemCredits); if (b >= 0) balAfter = b; } catch {}
+            let budget = Math.max(0, Math.min(SITE_MAX_IMAGES, Math.floor(balAfter / IMG_CREDITS))), imgCharged = 0;
+            for (const pg of pages) {
+              try { const inj = await injectSiteImages(pg.html, request, env, stUser.id, budget); pg.html = polishHead(inj.html, brandGuess); budget -= inj.charged; imgCharged += inj.charged; }
+              catch (e) { console.log("site-wide image pass failed:", e && e.message); pg.html = polishHead(pg.html, brandGuess); }
+            }
+            let imgCredits = 0;
+            if (imgCharged > 0) { imgCredits = imgCharged * IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
+            const byName = {};
+            for (const pg of pages) { const ex = extractSiteFunctions(pg.html); pg.html = ex.clean; for (const f of ex.fns) byName[f.name] = f; }
+            const fnList = Object.values(byName), rsId = typeof body.siteId === "string" ? body.siteId.slice(0, 80) : "";
+            if (fnList.length && rsId) {
+              try {
+                const jwtR = (request.headers.get("Authorization") || "").slice(7);
+                const rr = await fetch(`${SUPABASE_URL}/rest/v1/published_sites?site_id=eq.${encodeURIComponent(rsId)}&select=slug&limit=1`, { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + jwtR }, signal: AbortSignal.timeout(8000) });
+                const rows = await rr.json().catch(() => []);
+                const rSlug = Array.isArray(rows) && rows[0] ? rows[0].slug : "";
+                if (rSlug) await persistSiteFunctions(env, stUser.id, rSlug, fnList);
+              } catch (e) { console.log("site-wide fn persist failed:", e && e.message); }
+            }
+            return Response.json({ pages, active: activePath, cost: gemCredits + imgCredits, balance: balAfter });
+          };
+
+          // GLOBAL EDIT — one set of surgical edits, applied to every page. The
+          // shared chrome/CSS is byte-identical across pages, so an edit anchored in
+          // the current page anchors in all of them.
+          if (route.kind === "global" && sitePagesIn.length) {
+            const gRaw = await geminiCall(
+              "You are a front-end engineer applying a SITE-WIDE change to a client's website — it must apply to EVERY page. Every page shares BYTE-IDENTICAL chrome (the same <head> <style>, the same header/nav, the same footer), so express the change as edits to that SHARED markup or CSS. Return ONLY minified JSON (no prose/fences): {\"edits\":[{\"find\":\"<a substring copied VERBATIM from the HTML below — from the shared header/footer/nav or the shared <style> — long + specific enough to occur EXACTLY ONCE per page>\",\"replace\":\"<the new HTML/CSS for that region>\"}]}. Copy each find character-for-character (same whitespace, same quotes). Change ONLY what's asked; keep the brand name/logo untouched (never rename it, never use \"isibi\"). Stay consistent with the design system" + (design0 ? ":\n" + design0 : ".") + " " + assetLine,
+              "Site-wide instruction: " + instruction + "\n\nOne page's full HTML (its shared chrome/CSS is identical on every page):\n\n" + curHtml, "low", imageParts
+            );
+            let gEdits = [];
+            try { const j = gRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); const o = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); if (o && Array.isArray(o.edits)) gEdits = o.edits; } catch {}
+            const pages = sitePagesIn.map((p) => ({ path: p.path, name: p.name, html: p.html }));
+            let totalApplied = 0;
+            for (const pg of pages) {
+              for (const e of gEdits) {
+                if (!e || typeof e.find !== "string" || typeof e.replace !== "string" || !e.find) continue;
+                const i = pg.html.indexOf(e.find);
+                if (i < 0) continue;
+                pg.html = pg.html.slice(0, i) + e.replace + pg.html.slice(i + e.find.length);
+                totalApplied++;
+              }
+            }
+            if (totalApplied > 0) return await shipPages(pages, curPath);
+            // Nothing anchored → fall through to the single-page edit path below.
+          }
+
+          // ADD PAGE — generate the new page's <main> + a complete new shared nav
+          // that includes a link to it; swap that nav into every existing page and
+          // compose the new page onto the shared shell.
+          if (route.kind === "addpage" && sitePagesIn.length) {
+            const kit = extractSiteKit(sitePagesIn[0].html) || extractSiteKit(curHtml);
+            if (kit) {
+              let newName = (route.page || "").replace(/\s+/g, " ").trim().slice(0, 40) || "New Page";
+              const existing = new Set(sitePagesIn.map((p) => p.path));
+              let newPath = slug(newName), n = 2;
+              while (existing.has(newPath) || newPath === "/") { newPath = slug(newName) + "-" + n; n++; }
+              const aRaw = await geminiCall(
+                "You are a designer + front-end engineer ADDING one brand-new page to a client's existing multi-page website, matching its shared design system EXACTLY (same fonts, palette, voice, components). " + MAIN_RULES + "\n\nSHARED DESIGN SYSTEM:\n" + design0 + "\n\nThe EXISTING shared header/nav is:\n" + kit.nav + "\n\nReturn ONLY minified JSON (no prose/fences): {\"main\":\"<the new page's <main>…</main> fragment (plus, if needed, ONE page-scoped <style>/<script> AFTER </main>), reusing the shared head classes + :root tokens>\",\"nav\":\"<the COMPLETE shared header/nav markup — IDENTICAL to the existing one but with ONE extra nav link added for the new page: href=\\\"" + newPath + "\\\", label styled like the other links, placed in a sensible position>\"}. Keep the brand/logo in the nav exactly as it is (never rename it, never use \"isibi\"). Photos use the data-gen <img> protocol (art-directed on-subject prompt, data-ar, NO src). " + assetLine + " " + DESIGN_DIRECTOR,
+                "New page to add: \"" + newName + "\" at path " + newPath + ".\nWhat it's for / the user's request: " + instruction, "high", imageParts
+              );
+              let aMain = "", aNav = "";
+              try { const j = aRaw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim(); const o = JSON.parse(j.slice(j.indexOf("{"), j.lastIndexOf("}") + 1)); if (o) { aMain = typeof o.main === "string" ? o.main : ""; aNav = typeof o.nav === "string" ? o.nav : ""; } } catch {}
+              aMain = stripToMain(aMain);
+              const newNav = /<(header|nav)\b/i.test(aNav) ? aNav : kit.nav;
+              if (aMain) {
+                const pages = sitePagesIn.map((p) => ({ path: p.path, name: p.name, html: replaceNav(p.html, newNav, p.path) }));
+                const title = newName + (brandGuess ? " · " + brandGuess : "");
+                const newHtml = composeSitePage(title, newName, kit.headInner, newNav, kit.footer, aMain, newPath);
+                pages.push({ path: newPath, name: newName, html: newHtml });
+                return await shipPages(pages, newPath);
+              }
+            }
+            // Couldn't extract a kit or generate the page → fall through to edit.
+          }
+
+          // REMOVE PAGE — drop the named page (never home) and strip its nav link
+          // from every remaining page.
+          if (route.kind === "removepage" && sitePagesIn.length > 1) {
+            const key = (route.page || "").toLowerCase().trim();
+            const target = sitePagesIn.find((p) => p.path === route.page || p.name.toLowerCase() === key || slug(p.name) === slug(key)) || null;
+            if (target && target.path !== "/") {
+              const rmA = new RegExp("<li\\b[^>]*>\\s*<a\\b[^>]*href=[\"']" + escRe(target.path) + "[\"'][\\s\\S]*?<\\/a>\\s*<\\/li>", "i");
+              const rmB = new RegExp("<a\\b[^>]*href=[\"']" + escRe(target.path) + "[\"'][\\s\\S]*?<\\/a>", "i");
+              const remaining = sitePagesIn.filter((p) => p.path !== target.path)
+                .map((p) => ({ path: p.path, name: p.name, html: p.html.replace(rmA, "").replace(rmB, "") }));
+              return await shipPages(remaining, "/");
+            }
+            // No removable target → fall through to edit.
+          }
+
+          // REGENERATE — rebuild ONE page's <main> from scratch (a fresh take) onto
+          // the unchanged shared shell.
+          if (route.kind === "regenerate" && sitePagesIn.length) {
+            const key = (route.page || "").toLowerCase().trim();
+            const target = (route.page && sitePagesIn.find((p) => p.path === route.page || p.name.toLowerCase() === key || slug(p.name) === slug(key)))
+              || sitePagesIn.find((p) => p.path === curPath) || { path: curPath, name: (sitePagesIn.find((p) => p.path === curPath) || {}).name || "Page", html: curHtml };
+            const kit = extractSiteKit(sitePagesIn[0].html) || extractSiteKit(target.html);
+            if (kit) {
+              const rMain = stripToMain(await geminiCall(
+                "You are a world-class designer + front-end engineer REBUILDING the MAIN content of ONE page of a client's website FROM SCRATCH — a fresh, different take — while keeping the shared design system, header, and footer IDENTICAL. " + MAIN_RULES + "\n\nSHARED DESIGN SYSTEM:\n" + design0 + "\n\nSHARED <head> classes + :root tokens are AVAILABLE; reuse them, don't redefine them:\n" + kit.headInner + assetLine + " " + DESIGN_DIRECTOR,
+                "Rebuild the \"" + target.name + "\" page (path " + target.path + ") from scratch. What the user wants: " + instruction, "high", imageParts
+              ));
+              if (rMain) {
+                const title = target.path === "/" ? (brandGuess || target.name) : (target.name + (brandGuess ? " · " + brandGuess : ""));
+                const newHtml = composeSitePage(title, target.name, kit.headInner, kit.nav, kit.footer, rMain, target.path);
+                let found = false;
+                const pages = sitePagesIn.map((p) => { if (p.path === target.path) { found = true; return { path: p.path, name: p.name, html: newHtml }; } return { path: p.path, name: p.name, html: p.html }; });
+                if (!found) pages.push({ path: target.path, name: target.name, html: newHtml });
+                return await shipPages(pages, target.path);
+              }
+            }
+            // Couldn't rebuild → fall through to edit.
+          }
+
           const editRaw = await geminiCall(
             "You are a front-end engineer editing ONE page of a client's website. Apply the user's instruction with the SMALLEST possible change and do ONLY what is asked — add nothing extra. Return ONLY minified JSON (no prose, no fences): {\"edits\":[{\"find\":\"<a substring copied VERBATIM from the current HTML — long + specific enough to occur EXACTLY ONCE>\",\"replace\":\"<the new HTML for exactly that region>\"}]}. Each find must be an exact character-for-character slice of the current HTML (same whitespace, same quotes). Change ONLY what the instruction requires; keep all other copy, sections, design, nav, footer, and the brand name/logo untouched (never rename the brand, never use \"isibi\"). Keep it consistent with the shared design system" + (design0 ? ":\n" + design0 : ".") + " New photos use the data-gen <img> protocol (art-directed prompt, data-ar, NO src). If — and ONLY if — the instruction is a full redesign, return ONE edit whose find is the entire \"<body …>…</body>\" and replace is the new body. If the current HTML ALREADY fully satisfies the instruction, return {\"edits\":[],\"done\":true} — do NOT invent changes. " + assetLine,
             "Instruction: " + instruction + "\n\nCurrent page HTML:\n\n" + curHtml, "low", imageParts
