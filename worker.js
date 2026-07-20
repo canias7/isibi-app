@@ -2404,7 +2404,36 @@ async function ensureSiteBackend(env, slug, uid) {
 const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER" };
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
+// The model mostly emits the canonical shape, but sometimes varies it (tables as
+// an object-map keyed by name; `fields` instead of `columns`; a column as a bare
+// string or {name,type} with odd keys; missing `access`). Coerce all of that into
+// the canonical { tables:[{name, access, columns:[{name,type,...}]}] } so a valid-
+// intent schema is never silently dropped. Missing access → 'collect' (safe: public
+// insert, owner-only read).
+function normalizeSchema(spec) {
+  if (!spec || typeof spec !== "object") return { tables: [] };
+  const out = [];
+  const coerceCol = (c) => {
+    if (typeof c === "string") return { name: c, type: "text" };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique };
+    return null;
+  };
+  const coerceTable = (name, def) => {
+    if (!name || !def || typeof def !== "object") return;
+    const access = ["collect", "display", "user"].includes(def.access) ? def.access : "collect";
+    const src = def.columns || def.fields || def.cols || def.schema;
+    let cols = [];
+    if (Array.isArray(src)) cols = src.map(coerceCol);
+    else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
+    out.push({ name, access, columns: cols.filter(Boolean) });
+  };
+  const t = spec.tables || spec;
+  if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
+  else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
+  return { tables: out };
+}
 async function applySiteSchema(env, uuid, spec) {
+  spec = normalizeSchema(spec);
   const tables = (spec && Array.isArray(spec.tables)) ? spec.tables.slice(0, 24) : [];
   const made = [], norm = [];
   for (const t of tables) {
