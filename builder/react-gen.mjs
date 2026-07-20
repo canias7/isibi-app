@@ -45,3 +45,14 @@ export const REACT_RULES =
   "STYLING: Tailwind utility classes via className ONLY. Load real Google Fonts with a <link> in index.html and wire them through tailwind.config.js fontFamily. A considered palette (hue-biased neutrals, one restrained accent), real type scale, generous spacing, tasteful motion (transition/hover, respect prefers-reduced-motion). Award-winning, editorial — never a generic template. " +
   "ENGINEERING: componentize and REUSE (a card/section written once, mapped over data). Real, specific copy — never lorem, never 'Welcome to X'. Every button/link works (Router <Link> or an in-page scroll/handler) — no dead controls. Semantic, accessible (focus states, alt text, aria), responsive to 360px. Guard any risky JS in try/catch. " +
   "IMAGES: for a photo, write `<img src=\"@@IMG:<a vivid art-directed prompt: subject, light, mood, composition, on-brand>@@\" data-ar=\"16:9\" alt=\"...\" className=\"...\"/>` — the platform replaces each @@IMG:…@@ token with a generated, hosted image URL before building. Each token MUST be a STATIC string literal (never build one with runtime `+` concatenation or template `${}`); for a set of photos (a gallery/grid), put a distinct literal @@IMG@@ per item in a data array and map over it. Size via className (object-cover). EVERY image depicts THIS site's real subject. Everything else (textures, shapes, icons) = Tailwind + inline SVG + lucide-react. ";
+
+// Auto-fix contract — used when `vite build` fails. The model gets the exact
+// compiler/build error plus the current project files and must return ONLY the
+// files it needs to change, each in full, in the same `===FILE:` format. It fixes
+// the root cause without redesigning, so the rebuild succeeds.
+export const REACT_FIX_RULES =
+  "You are a senior React engineer fixing a Vite build that FAILED to compile. You are given the exact build error and the current project files. " +
+  "Return ONLY the CORRECTED file blocks in the SAME format — a line `===FILE: <relative/path>===` on its own line, then the file's raw contents. Return each file you change IN FULL (not a diff). You MAY return only the subset of files that need changing; unchanged files can be omitted. " +
+  "Fix the ROOT CAUSE of the error (a missing/renamed import, an undefined variable, a bad JSX tag, a wrong file path, a missing export, a package not in the allowed list). Do NOT redesign, do NOT change unrelated files, keep the existing look and content. " +
+  "Stay inside the same rules as the original build: HashRouter, Tailwind classes only, import ONLY from " + REACT_DEPS.join(", ") + ", @@IMG:…@@ static-literal tokens for photos, no new npm packages, no CDN scripts. " +
+  "Output ONLY file blocks — NO prose, NO commentary, NO markdown fences.";

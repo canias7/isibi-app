@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES } from "./builder/react-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -4251,70 +4251,131 @@ async function handleRequest(request, env, ctx) {
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * 3e-6 + o * 15e-6) / CREDIT_USD)); // Sonnet 5 rates
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= rbCredits(2500, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
-      try {
-        // 1) Generate the whole React project.
-        let usedIn = 0, usedOut = 0, genText = "";
-        {
-          const r = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-            body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, system: REACT_RULES, messages: [{ role: "user", content: "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief }] }),
-            signal: AbortSignal.timeout(180000),
-          });
-          const d = await r.json().catch(() => ({}));
-          if (!r.ok) {
-            // Log the real upstream reason server-side; never leak the provider or
-            // its billing text to the client — just a generic "try again".
-            console.error("react-build gen failed:", r.status, JSON.stringify(d).slice(0, 500));
-            return Response.json({ ok: false, error: "the builder is busy right now — try again in a moment", code: r.status }, { status: 502 });
+      // The whole build streams as NDJSON so the client shows it LIVE (Claude-Code
+      // style): {ev:"code"} carries the source as the model writes it, {ev:"phase"}
+      // marks generating→images→compiling→(fixing)→publishing, and the terminal
+      // {ev:"done"|"error"} carries the URL/cost. Streaming also keeps the HTTP
+      // connection alive so a long build never trips a client/edge idle timeout,
+      // and it never blocks on a non-streaming Anthropic call (the large-output
+      // timeout risk). ctx.waitUntil keeps the async writer alive after we return
+      // the still-open stream.
+      const enc = new TextEncoder();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+      // Stream a Sonnet generation, forwarding text deltas to onDelta and returning
+      // the full text + token usage. Throws on a non-OK upstream (status carried).
+      const streamGen = async (system, userContent, onDelta) => {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: "claude-sonnet-5", max_tokens: RB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: userContent }] }),
+          signal: AbortSignal.timeout(180000),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
+        const reader = r.body.getReader(); const dec = new TextDecoder();
+        let buf = "", text = "", usedIn = 0, usedOut = 0;
+        for (;;) {
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(js); } catch { continue; }
+            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { text += ev.delta.text; if (onDelta) onDelta(ev.delta.text); }
+            else if (ev.type === "message_start" && ev.message && ev.message.usage) usedIn = ev.message.usage.input_tokens || 0;
+            else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
           }
-          genText = Array.isArray(d.content) ? d.content.filter((b) => b && b.type === "text").map((b) => b.text || "").join("") : "";
-          const um = d.usage || {}; usedIn = um.input_tokens || 0; usedOut = um.output_tokens || Math.ceil(genText.length / 4);
         }
-        let files = parseGeneratedFiles(genText);
-        if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) {
-          return Response.json({ ok: false, stage: "generate", error: "the generated project was incomplete", cost: 0 }, { status: 200 });
-        }
-        // Charge the generation now (it succeeded); images + build charge after.
-        const genCredits = rbCredits(usedIn, usedOut);
-        let balAfter = bal0; try { const b = await useCredits(auth, genCredits); if (b >= 0) balAfter = b; } catch {}
-        // 2) Real images into the SOURCE, budgeted to the remaining balance.
-        const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
-        const inj = await injectReactImages(files, request, env, rbUser.id, imgBudget);
-        files = inj.files;
-        let imgCredits = 0;
-        if (inj.charged > 0) { imgCredits = inj.charged * RB_IMG_CREDITS; try { const b = await useCredits(auth, imgCredits); if (b >= 0) balAfter = b; } catch {} }
-        // 3) Compile in the container.
+        if (!usedOut) usedOut = Math.ceil(text.length / 4);
+        return { text, usedIn, usedOut };
+      };
+      const buildInContainer = async (files) => {
         const c = getContainer(env.BUILD_CONTAINER);
         const t0 = Date.now();
         const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files }) }));
-        const buildMs = Date.now() - t0;
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
-        if (!bd.ok) {
-          // Compile failed → return the error for the (future) auto-fix loop. No
-          // build charge; the generation/images already landed and are billed.
-          return Response.json({ ok: false, stage: "build", error: String(bd.error || "compile failed").slice(0, 2000), cost: genCredits + imgCredits, balance: balAfter, buildMs }, { status: 200 });
-        }
-        const dist = bd.files || {};
-        if (!dist["index.html"]) return Response.json({ ok: false, stage: "build", error: "no index.html in output", cost: genCredits + imgCredits, balance: balAfter }, { status: 200 });
-        // 4) Store the dist to R2 under a slug → live at /s/<slug>/.
-        const base = (brief.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28)) || "app";
-        const slug = base + "-" + crypto.randomUUID().slice(0, 6);
-        for (const [rel, v] of Object.entries(dist)) {
-          const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
-          const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
-          const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
-          let bodyOut;
-          if (v && typeof v.t === "string") bodyOut = v.t;
-          else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
-          else continue;
-          await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
-        }
-        return Response.json({ ok: true, url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, cost: genCredits + imgCredits, balance: balAfter });
-      } catch (e) {
-        console.error("react-build failed:", e && e.message);
-        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 502 });
-      }
+        return { bd, buildMs: Date.now() - t0 };
+      };
+      // Batch code deltas so the client gets readable chunks, not a flood.
+      let codeBuf = "";
+      const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 140)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
+      const onDelta = (d) => { codeBuf += d; flushCode(false); };
+      const run = async () => {
+        let balAfter = bal0, genCredits = 0, imgCredits = 0;
+        try {
+          // 1) Generate the whole React project (streamed live).
+          emit({ ev: "phase", phase: "generating" });
+          const g = await streamGen(REACT_RULES, "Build this as a polished React app. Output ONLY the file blocks.\n\n" + brief, onDelta);
+          flushCode(true);
+          let files = parseGeneratedFiles(g.text);
+          if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
+          genCredits += rbCredits(g.usedIn, g.usedOut);
+          try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
+          // 2) Real images into the SOURCE, budgeted to the remaining balance.
+          emit({ ev: "phase", phase: "images" });
+          {
+            const imgBudget = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
+            const inj = await injectReactImages(files, request, env, rbUser.id, imgBudget);
+            files = inj.files;
+            if (inj.charged > 0) { const c = inj.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
+          }
+          // 3) Compile in the container, with an auto-fix loop (≤2 tries): on a
+          // compile error, hand the exact error + current files back to Sonnet,
+          // graft the corrected files, re-inject any new images, and rebuild.
+          emit({ ev: "phase", phase: "compiling" });
+          let { bd, buildMs } = await buildInContainer(files);
+          let attempt = 0;
+          while (!bd.ok && attempt < 2) {
+            attempt++;
+            emit({ ev: "phase", phase: "fixing", attempt });
+            const errText = String(bd.error || "compile failed").slice(0, 2000);
+            const filesDump = Object.entries(files).map(([p, src]) => "===FILE: " + p + "===\n" + src).join("\n\n").slice(0, 90000);
+            let fg;
+            try { fg = await streamGen(REACT_FIX_RULES, "The Vite build FAILED with this error:\n\n" + errText + "\n\nCurrent project files:\n\n" + filesDump + "\n\nReturn the corrected file(s).", onDelta); } catch (e) { if (e && e.status) console.error("react-build fix gen failed:", e.status, e.detail); break; }
+            flushCode(true);
+            const fixed = parseGeneratedFiles(fg.text);
+            if (!Object.keys(fixed).length) break; // nothing usable came back
+            for (const [p, v] of Object.entries(fixed)) files[p] = v;
+            const fc = rbCredits(fg.usedIn, fg.usedOut); genCredits += fc; try { const b = await useCredits(auth, fc); if (b >= 0) balAfter = b; } catch {}
+            const rem = Math.max(0, Math.min(RB_MAX_IMAGES, Math.floor(balAfter / RB_IMG_CREDITS)));
+            const inj2 = await injectReactImages(files, request, env, rbUser.id, rem);
+            files = inj2.files;
+            if (inj2.charged > 0) { const c = inj2.charged * RB_IMG_CREDITS; imgCredits += c; try { const b = await useCredits(auth, c); if (b >= 0) balAfter = b; } catch {} }
+            ({ bd, buildMs } = await buildInContainer(files));
+          }
+          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: "the site didn't compile — try rephrasing or send it again", detail: String(bd.error || "").slice(0, 400), cost: genCredits + imgCredits, balance: balAfter }); return; }
+          const dist = bd.files || {};
+          if (!dist["index.html"]) { emit({ ev: "error", stage: "build", msg: "the build produced no page — try again", cost: genCredits + imgCredits, balance: balAfter }); return; }
+          // 4) Publish the dist to R2 → live at /s/<slug>/.
+          emit({ ev: "phase", phase: "publishing" });
+          // Brand = the <title> the model chose, minus any " — tagline".
+          let brand = "";
+          const tm = (files["index.html"] || "").match(/<title>\s*([^<]{1,90})<\/title>/i);
+          if (tm) brand = tm[1].split(/\s[—–|·-]+\s/)[0].replace(/\s+/g, " ").trim().slice(0, 40);
+          const seed = (brand || brief).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 28) || "app";
+          const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
+          for (const [rel, v] of Object.entries(dist)) {
+            const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+            const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+            const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+            let bodyOut;
+            if (v && typeof v.t === "string") bodyOut = v.t;
+            else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+            else continue;
+            await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+          }
+          emit({ ev: "done", url: "/s/" + slug + "/", slug, files: Object.keys(dist), buildMs, fixed: attempt, cost: genCredits + imgCredits, balance: balAfter, brand });
+        } catch (e) {
+          if (e && e.status) console.error("react-build gen failed:", e.status, e.detail);
+          else console.error("react-build failed:", e && e.message);
+          emit({ ev: "error", msg: "the builder hit a problem — try again in a moment" });
+        } finally { try { await writer.close(); } catch {} }
+      };
+      ctx.waitUntil(run());
+      return new Response(readable, { headers: { "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store" } });
     }
     if (url.pathname === "/api/site" && request.method === "POST") {
       // Builder engine = Claude Sonnet 5 (owner's call 2026-07-20, replacing
