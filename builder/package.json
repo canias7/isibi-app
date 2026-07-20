@@ -1,0 +1,21 @@
+{
+  "name": "isibi-react-builder",
+  "private": true,
+  "type": "module",
+  "description": "Deps pre-baked into the build-service container image so each per-site build is just `vite build` (fast). The generator emits app source that uses ONLY these packages.",
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.0",
+    "lucide-react": "^0.436.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0",
+    "tailwindcss": "^3.4.10",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.41"
+  }
+}
