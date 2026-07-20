@@ -153,6 +153,39 @@ C built-site auth (signup/login/me, users in the site's own DB) · D data read/w
 
 ---
 
+## 2026-07-20 — Per-site backend Phases B + C (schema + built-site auth) ✅
+
+**Phase B — schema:** `applySiteSchema(uuid, spec)` turns an AI-declared JSON table
+spec into safe DDL (strict identifier validation + double-quoting → SQL-injection
+proof, whitelisted types, auto `id` PK + `created_at`) and creates the tables in the
+site's own D1. `parseSchemaSpec(files)` pulls `isibi.schema.json` out of a generated
+project. Test endpoint `POST /api/site/backend/schema`. Verified live: products+orders
+created; a malicious table name was rejected 400.
+
+**Phase C — built-site visitor auth:** public, slug-scoped endpoints
+`/api/db/<slug>/auth/{signup,login,me}`. Each site's visitors' accounts live in that
+site's own D1 `_users`; passwords hashed **WebCrypto PBKDF2 (100k iters — the Workers
+cap; 120k throws "iteration counts above 100000 are not supported")**, random salt,
+constant-time compare. Session tokens HMAC-signed with a **per-site secret** stored in
+the site's own DB (`_meta.auth_secret`) → a token for site A is invalid on site B (no
+platform-wide auth secret). Brute-force lockout (8 fails → 15 min), generic login
+errors + dummy hash on unknown email (no timing enumeration), 8-char min. Helpers are
+`signSiteUserToken`/`verifySiteUserToken` (the names `signSiteToken`/`verifySiteToken`
+were already taken by the OLD static-site member auth — don't collide).
+Verified live: signup→me→login all work; wrong-pw 401, dup 409, **cross-site token
+rejected 401**.
+
+**Still ahead (per-site backend):** D — data read/write API (access-controlled:
+collect / display / per-user buckets) · E — builder Data/Users panel · plus the
+GENERATION WIRING (extend REACT_RULES so the AI declares `isibi.schema.json` + wires
+login/data forms; the react-build/revise pipeline calls ensureSiteBackend +
+applySiteSchema). Until that wiring lands, A–C are server capabilities proven by
+endpoint tests, NOT yet triggered by a normal user build. **Orphan test D1 DBs still
+accumulate in the CF dashboard (no delete path yet — that's part of D/E + account
+deletion).**
+
+---
+
 ## How the owner likes things done
 
 - Explanations in **plain English**, not jargon dumps. Walk things "layer by
