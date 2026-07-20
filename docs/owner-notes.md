@@ -395,6 +395,39 @@ and fixed, and add a preference line whenever the owner signals one.
 - **No new schema** (reuses site_users + site_secrets). No owner-facing UI change —
   the Emails/Secrets cards already cover the one setup step (add email creds).
 
+## 2026-07-19 — FIXED: blank workspace preview (CSP inheritance)
+Owner: a built site (real-estate/Zillow clone) showed BLACK in the workspace
+Preview, but rendered perfectly when Downloaded and when Published. Compared the
+generated code to Lovable's on the way (isibi = single self-contained HTML file
+per page w/ inline <style>+<script>; Lovable = full React/TS codebase — noted for
+the owner, no action).
+- **Root cause (reproduced, not guessed):** the preview loaded the page via a
+  `blob:` URL, and blob/srcdoc iframes **inherit the parent's CSP**. The app's CSP
+  is `script-src 'self'` (NO 'unsafe-inline', by design — app XSS protection), so
+  the generated site's **inline `<script>` was blocked** → no JS → JS-built content
+  never rendered → black. Styles were fine (style-src has 'unsafe-inline'); scripts
+  were the killer. The published `/s/` route serves `script-src 'self' 'unsafe-inline'`,
+  so live + download work. Proved with a faithful Playwright repro: same page under
+  the app CSP = 0 cards + "Refused to execute inline script"; under the website CSP
+  = full render, 6 cards.
+- **Fix (no change to generated sites):** the workspace iframe no longer uses a
+  blob. `loadSitePreview()` POSTs the shim-injected page to **`/api/site/preview`**
+  (auth'd; one rolling R2 slot per user, `preview/<uid>.html`, overwritten each
+  render) and loads it from **`/preview/<uid>/<nonce>`**. `harden()` now treats
+  `/preview/` like `/s/` → serves it with the **website CSP** (inline scripts run),
+  so the preview matches production exactly. Blob stays as a fallback only if the
+  round-trip fails (offline / signed-out).
+- **Files:** worker.js (`harden()` /preview/ branch, `/preview/<uid>/<nonce>` R2
+  serve route, `POST /api/site/preview`), public/chat.js (`sitePreviewSrc` split
+  into `sitePreviewHtml` + async `loadSitePreview`; 2 callers updated).
+- **Verified live:** POST → `/preview/<uid>/<nonce>`; GET → 200 with
+  `script-src 'self' 'unsafe-inline'` + the page's inline script/style intact.
+  Repro rendered the full site (6 cards, working JS). Throwaway user cleaned up.
+- **Note:** the errShim `blankCheck` ("page renders blank on load") was firing a
+  false "your JS hides content" hint for pages that were actually fine — because
+  the REAL cause was our CSP, not the site. Now that the preview runs JS, that
+  hint only fires for genuinely-broken sites again.
+
 ## Shipped
 
 - **Workspace restructure — Builder is home, other views float (2026-07-15):**
