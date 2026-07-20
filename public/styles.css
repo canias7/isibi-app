@@ -1437,6 +1437,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
   border: 1.5px solid transparent; box-shadow: 0 0 16px -6px rgba(255, 121, 198, .45);
 }
 .st-sendc:hover { box-shadow: 0 0 24px -6px rgba(255, 121, 198, .65); }
+/* Stop button — replaces Send while a build/revise runs. */
+.st-stopc { font-size: .78rem; background: linear-gradient(rgba(30, 16, 20, .95), rgba(30, 16, 20, .95)) padding-box, linear-gradient(120deg, #ff5b7a, #ff8a5b) border-box; box-shadow: 0 0 16px -6px rgba(255, 91, 122, .55); animation: stPulse 1.4s ease-in-out infinite; }
+.st-stopc:hover { box-shadow: 0 0 24px -5px rgba(255, 91, 122, .8); }
+@keyframes stPulse { 0%,100% { opacity: 1; } 50% { opacity: .62; } }
 /* Preview — the dominant rounded card. */
 .st-stage { flex: 1; min-width: 0; display: flex; align-items: stretch; justify-content: center; overflow: hidden; position: relative; }
 /* ── History rail ── */

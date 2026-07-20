@@ -9156,6 +9156,7 @@ let sitesCache = null;
 let siteOpenId = null;      // project open in the workspace (null → project list)
 let siteDevice = 'desktop'; // preview viewport: desktop | tablet | phone
 let siteBusy = false;       // a build/revision is "running" (sample: brief delay)
+let siteAbort = null;       // AbortController for the in-flight build/revise (Stop)
 let siteView = 'preview';   // workspace stage: preview | code | more
 let siteMoreTab = 'analytics'; // More sub-nav: analytics | cloud | security | seo
 let siteRail = 'chat';      // left rail: chat | history
@@ -9754,7 +9755,9 @@ function renderSiteWorkspace(view, site) {
                 '<div class="st-comp-row">' +
                   '<button type="button" class="st-plus" id="stPlus" title="Attach a logo or reference image" aria-label="Attach image">+</button>' +
                   '<span class="st-buildsel">Build ▾</span>' +
-                  '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>' +
+                  (siteBusy
+                    ? '<button type="button" class="st-sendc st-stopc" id="stStop" title="Stop" aria-label="Stop generating">■</button>'
+                    : '<button type="button" class="st-sendc" id="stSend" title="Send" aria-label="Send">↑</button>') +
                 '</div>' +
               '</div>') +
         '</div>' +
@@ -9911,6 +9914,8 @@ function renderSiteWorkspace(view, site) {
   if (plusBtn) plusBtn.onclick = siteAttachOpen;
   paintAttachStrip();
   const sendBtn = document.getElementById('stSend');
+  const stopBtn = document.getElementById('stStop');
+  if (stopBtn) stopBtn.onclick = siteStop;
   const ta = document.getElementById('stRevise');
   if (sendBtn && ta) {
     sendBtn.onclick = () => { const t = ta.value.trim(); if (!t || siteBusy) return; ta.value = ''; siteSend(t); };
@@ -9949,9 +9954,10 @@ function siteSend(text) {
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }
     : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), design: site.design || '', siteId: site.id, images: imgs };
+  siteAbort = new AbortController();
   apiFetch('/api/site', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body), signal: siteAbort.signal,
   }).then(async (r) => {
     const d = await r.json().catch(() => ({}));
     const used = d.cost ? ' (✦' + d.cost + ' used)' : '';
@@ -9993,10 +9999,17 @@ function siteSend(text) {
       finish('⚠️ That build didn’t come together — you weren’t charged. Try again in a moment.' + (d.code != null ? ' (code ' + d.code + ')' : ''));
     }
     if (typeof fetchCredits === 'function') fetchCredits(); // repaint the ✦ pill
-  }).catch(() => {
+  }).catch((e) => {
+    if (e && e.name === 'AbortError') { finish('■ Stopped. (Generation already in progress may still finish server-side.)'); return; }
     siteErr = { chatId: origin };
     finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
-  });
+  }).finally(() => { siteAbort = null; });
+}
+// Stop the in-flight build/revise: aborts the request so the UI stops waiting.
+// (The server uses a charge-after model, so a generation that already completed
+// may still bill — noted to the user — but the workspace is freed immediately.)
+function siteStop() {
+  if (siteAbort) { try { siteAbort.abort(); } catch (e) {} }
 }
 
 // Publish the site live: every page → R2, served at isibi.ai/s/<slug>. Republish
