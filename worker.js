@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES } from "./builder/react-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -5060,9 +5060,28 @@ async function handleRequest(request, env, ctx) {
           flushCode(true);
           let files = parseGeneratedFiles(g.text);
           if (!files["index.html"] || !files["src/main.jsx"] || !files["src/App.jsx"]) { emit({ ev: "error", stage: "generate", msg: "the generated project came out incomplete — try again" }); return; }
-          const schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
+          let schemaSpec = parseSchemaSpec(files); // pulled out of the build; provisioned after publish
           genCredits += rbCredits(g.usedIn, g.usedOut);
           try { const b = await useCredits(auth, rbCredits(g.usedIn, g.usedOut)); if (b >= 0) balAfter = b; } catch {}
+          // SAFETY NET: the app wired itself to the backend API (/auth or /rows) but
+          // the model forgot to declare isibi.schema.json → no DB gets provisioned
+          // and every backend call 404s "this site has no backend yet" on the live
+          // site. Models omit it often enough that this can't be optional: ask for
+          // JUST the schema (inferred from the app's own code) and provision it.
+          if (!schemaSpec) {
+            const usesBackend = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)));
+            if (usesBackend) {
+              const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+              try {
+                const sg = await streamGen(SCHEMA_REPAIR_RULES, "This project calls the per-site backend API (/auth and/or /rows/<table>) but is MISSING its isibi.schema.json, so NO database is created and every backend call fails on the live site. Emit ONLY the isibi.schema.json file block declaring the tables it uses.\n\nProject files:\n\n" + dump, null);
+                if (sg && sg.text) {
+                  const sf = parseGeneratedFiles(sg.text);
+                  if (sf["isibi.schema.json"]) { files["isibi.schema.json"] = sf["isibi.schema.json"]; schemaSpec = parseSchemaSpec(files); }
+                  const sc = rbCredits(sg.usedIn, sg.usedOut); genCredits += sc; try { const b = await useCredits(auth, sc); if (b >= 0) balAfter = b; } catch {}
+                }
+              } catch (e) { console.error("react-build schema repair failed:", e && (e.status || e.message)); }
+            }
+          }
           // 2) Real images into the SOURCE, budgeted to the remaining balance.
           emit({ ev: "phase", phase: "images" });
           {
