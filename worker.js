@@ -2481,9 +2481,24 @@ async function applySiteSchema(env, uuid, spec) {
     norm.push({ name: t.name, access, columns: colNames });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
-  // the data API can enforce them per request.
+  // the data API can enforce them per request. MERGE into whatever's already
+  // persisted (don't replace): a revise may re-emit a schema with only the new/
+  // changed table, and replacing would strip the pre-existing tables from the
+  // API's allow-list — their data still exists (CREATE IF NOT EXISTS above never
+  // drops it) but the data API would 404 them. Re-declared tables win; untouched
+  // ones are preserved. (A revise cannot silently drop a table this way.)
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
-  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify({ tables: norm })]);
+  let mergedTables = norm;
+  try {
+    const prev = await loadSiteSchema(env, uuid);
+    if (prev && Array.isArray(prev.tables) && prev.tables.length) {
+      const byName = new Map();
+      for (const t of prev.tables) if (t && t.name) byName.set(String(t.name).toLowerCase(), t);
+      for (const t of norm) byName.set(String(t.name).toLowerCase(), t); // this run overrides
+      mergedTables = Array.from(byName.values());
+    }
+  } catch {}
+  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify({ tables: mergedTables })]);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
