@@ -9469,7 +9469,7 @@ function renderSites() {
       (sites.length
         ? '<div class="st-grid-h">Your sites</div><div class="st-grid">' + sites.map((s) =>
             '<div class="st-card" data-open="' + esc(s.id) + '" role="button" tabindex="0">' +
-              '<div class="st-card-prev"><iframe sandbox="" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
+              '<div class="st-card-prev"><iframe sandbox="' + (s.react && s.url ? 'allow-scripts' : '') + '" loading="lazy" title="' + esc(s.name) + '"></iframe></div>' +
               '<div class="st-card-meta"><span class="st-card-name">' + esc(s.name) + '</span>' +
                 '<span class="st-card-sub">' + esc(schWhen(new Date(s.updatedAt || s.createdAt).toISOString())) + '</span></div>' +
               '<button type="button" class="sch-del st-card-del" data-del="' + esc(s.id) + '" title="Delete" aria-label="Delete site">×</button>' +
@@ -9490,7 +9490,8 @@ function renderSites() {
     const s = siteById(card.dataset.open);
     const fr = card.querySelector('iframe');
     const home = s && (siteActivePage(s) || sitePages(s)[0]);
-    if (fr && home && home.html) fr.srcdoc = home.html;
+    if (fr && s && s.react && s.url) fr.src = s.url; // compiled React thumbnail
+    else if (fr && home && home.html) fr.srcdoc = home.html;
     card.onclick = (e) => { if (e.target.closest('[data-del]')) return; siteOpenId = card.dataset.open; renderSites(); };
     card.onkeydown = (e) => { if (e.key === 'Enter') { siteOpenId = card.dataset.open; renderSites(); } };
   });
@@ -9725,7 +9726,8 @@ function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
   const active = siteActivePage(site);
   const curHtml = active ? active.html : '';
-  const hasSite = !!curHtml;
+  const isReact = !!(site.react && site.url);
+  const hasSite = !!curHtml || isReact;
   // Browser-frame URL chip: the live path once published (drafts have a slug too).
   const previewUrl = site.slug
     ? 'isibi.ai/s/' + site.slug + (active && active.path && active.path !== '/' ? active.path : '')
@@ -9751,7 +9753,7 @@ function renderSiteWorkspace(view, site) {
         '<div class="st-tb-mid">' +
           '<div class="st-vtabs">' +
             '<button type="button" class="st-vtab' + (siteView === 'preview' ? ' on' : '') + '" data-view="preview">' + ic('globe', 14) + ' Preview</button>' +
-            '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>' +
+            (isReact ? '' : '<button type="button" class="st-vtab' + (siteView === 'code' ? ' on' : '') + '" data-view="code">' + ic('code', 14) + ' Code</button>') +
             '<button type="button" class="st-vtab' + (siteView === 'more' ? ' on' : '') + '" data-view="more">' + ic('grid', 14) + ' More</button>' +
           '</div>' +
           (siteView === 'preview' ? picker + '<button type="button" class="st-icon" id="stReload" title="Refresh preview" aria-label="Refresh preview">' + ic('reload', 15) + '</button>' : '') +
@@ -9764,9 +9766,11 @@ function renderSiteWorkspace(view, site) {
           '</div>' +
           (site.slug ? '<button type="button" class="st-icon" id="stInbox" title="Form submissions" aria-label="Form submissions">' + ic('inbox', 16) + '</button>' : '') +
           (site.slug ? '<button type="button" class="st-icon" id="stMembers" title="Site members" aria-label="Site members">' + ic('users', 16) + '</button>' : '') +
-          '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>' +
+          (isReact ? '' : '<button type="button" class="st-icon" id="stDl" title="Download page HTML" aria-label="Download page HTML"' + (hasSite ? '' : ' disabled') + '>' + ic('download', 16) + '</button>') +
           '<button type="button" class="st-share" id="stShare">Share</button>' +
-          '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>' +
+          (isReact
+            ? '<a class="st-publish" href="' + esc(site.url || '#') + '" target="_blank" rel="noopener">Live ↗</a>'
+            : '<button type="button" class="st-publish" id="stPub"' + (hasSite ? '' : ' disabled') + '>Publish</button>') +
         '</div>' +
       '</div>' +
       '<div class="st-body">' +
@@ -9788,15 +9792,20 @@ function renderSiteWorkspace(view, site) {
               '</div>') +
         '</div>' +
         '<div class="st-stage" id="stStage" data-dev="' + siteDevice + '">' +
-          (!hasSite
-            ? (siteBusy && siteBuild
-                ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
-                : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
-            : siteView === 'code'
-              ? siteCodeView(site, active, pages)
-              : siteView === 'more'
-                ? siteMoreView(site)
-                : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
+          ((siteBusy && siteBuild && siteBuild.react && !isReact)
+            // A first React build has no preview yet → show a compile placeholder in
+            // the stage; the live code is in the chat. (A React revise keeps its
+            // existing preview visible and just reloads it when done.)
+            ? '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><div class="st-building"><div class="st-bring"></div><div class="st-building-t">' + esc(reactStageLabel()) + '</div></div></div>'
+            : !hasSite
+              ? (siteBusy && siteBuild
+                  ? '<div class="st-empty"><div class="st-livelog st-livelog-stage"></div></div>'
+                  : '<div class="st-empty">' + (siteBusy ? 'Building your site — this takes a minute or two…' : 'Describe your site on the left to build the first draft.') + '</div>')
+              : (!isReact && siteView === 'code')
+                ? siteCodeView(site, active, pages)
+                : siteView === 'more'
+                  ? siteMoreView(site)
+                  : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="allow-scripts allow-forms allow-popups" title="Site preview"></iframe></div>') +
           ((hasSite && siteView === 'preview')
             ? '<div class="st-fixbar" id="stFixBar" hidden><span class="st-fixbar-ic">' + ic('alert', 15) + '</span><span class="st-fixbar-n"></span><button type="button" class="st-fixbar-btn" id="stFixBtn">Fix with AI</button><button type="button" class="st-fixbar-x" id="stFixX" aria-label="Dismiss">×</button></div>'
             : '') +
@@ -9813,19 +9822,29 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + linkify(m.t) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + linkify(m.t) + (m.build ? reactStepsHTML(m.build) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
-      ? (siteBuild ? '<div class="st-msg a st-busy"><div class="st-livelog"></div></div>' : '<div class="st-msg a st-busy">Working</div>')
+      ? (siteBuild
+          ? (siteBuild.react
+              ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
+              : '<div class="st-msg a st-busy"><div class="st-livelog"></div></div>')
+          : '<div class="st-msg a st-busy">Working</div>')
       : '');
-    if (siteBusy && siteBuild) paintBuildLog();
+    if (siteBusy && siteBuild && !siteBuild.react) paintBuildLog();
     thread.scrollTop = thread.scrollHeight;
     thread.querySelectorAll('[data-copy]').forEach((b) => b.onclick = () => {
       const txt = (b.closest('.st-msg') || {}).textContent || '';
       try { navigator.clipboard.writeText(txt.replace(/⧉\s*$/, '').trim()); } catch (e) {}
     });
+    // Delegated: expand/collapse a step row's ▾ (works for live-repainted rows too).
+    thread.onclick = (e) => { const h = e.target.closest && e.target.closest('[data-steptog]'); if (h && thread.contains(h)) h.parentNode.classList.toggle('open'); };
   }
   const fr = document.getElementById('stFrame');
-  if (fr && curHtml) {
+  if (fr && isReact) {
+    // React sites are served compiled at /s/<slug>/ — point the iframe straight
+    // there (cache-busted per revise) instead of the draft-preview HTML path.
+    fr.src = site.url + '?v=' + (site.previewV || 1);
+  } else if (fr && curHtml) {
     sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
     loadSitePreview(fr, curHtml, site.slug);
   }
@@ -9963,12 +9982,133 @@ const ST_TICK = {
   photos: ['Art-directing the photos', 'Generating the imagery', 'Placing the hero shot', 'Optimizing the images', 'Polishing the details'],
   finish: ['Reviewing the code', 'Final touches', 'Wrapping up'],
 };
-function siteBuildStart() {
-  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0 };
+function siteBuildStart(react) {
+  siteBuild = { phase: 'plan', pages: [], done: [], tick: 0, react: !!react, code: '', file: '', rphase: 'generating', images: [], filesSeen: [] };
   if (siteTicker) clearInterval(siteTicker);
-  siteTicker = setInterval(() => { if (!siteBuild) return; siteBuild.tick++; paintBuildLog(); }, 1500);
+  // React builds repaint on stream events, not on a timer — the timer only drives
+  // the classic rotating activity log.
+  siteTicker = setInterval(() => { if (!siteBuild || siteBuild.react) return; siteBuild.tick++; paintBuildLog(); }, 1500);
 }
 function siteBuildStop() { siteBuild = null; if (siteTicker) { clearInterval(siteTicker); siteTicker = null; } }
+// ---- React builder: Claude-Code-style "what it did" step rows (live + finished) ----
+function stHlCode(t) { return esc(t).replace(/\b(import|from|export|default|function|return|const|let|className)\b/g, '<span class="kw">$1</span>').replace(/(&quot;[^&]*?&quot;)/g, '<span class="str">$1</span>'); }
+function stStepRow(o) { // {label, meta, state:'run'|'done'|'wait', body, open}
+  const mark = o.state === 'run' ? '<span class="st-step-run"></span>' : o.state === 'done' ? '<span class="st-step-tick">✓</span>' : '<span class="st-step-wait"></span>';
+  return '<div class="st-step' + (o.open ? ' open' : '') + (o.body ? '' : ' st-step-nobody') + '">' +
+    '<div class="st-step-h"' + (o.body ? ' data-steptog' : '') + '><span class="st-step-chev">' + (o.body ? '▶' : '') + '</span>' + mark +
+    '<span class="st-step-lbl">' + esc(o.label) + '</span>' + (o.meta ? '<span class="st-step-meta">' + esc(o.meta) + '</span>' : '') + '</div>' +
+    (o.body ? '<div class="st-step-b">' + o.body + '</div>' : '') + '</div>';
+}
+function stFilesBody(files) { return '<div class="st-fchips">' + (files || []).map((f) => '<span class="st-fchip">' + esc(String(f).split('/').pop()) + '</span>').join('') + '</div>'; }
+function stImgsBody(imgs) { return '<div class="st-ithumbs">' + (imgs || []).map((im) => '<span class="st-ithumb"><img src="' + esc(im.url) + '" alt="" loading="lazy"><em>' + esc(String(im.prompt || '').slice(0, 70)) + '</em></span>').join('') + '</div>'; }
+function stCodeBody(txt, cursor) { return '<pre class="st-lc">' + stHlCode(txt) + (cursor ? '<span class="st-lc-cur"></span>' : '') + '</pre>'; }
+// Finished build, stored on an assistant message — collapsed by default.
+function reactStepsHTML(b) {
+  const rows = [];
+  rows.push(stStepRow({ label: 'Wrote the code', meta: (b.files && b.files.length ? b.files.length + ' files' : ''), state: 'done', body: stFilesBody(b.files) }));
+  if (b.images && b.images.length) rows.push(stStepRow({ label: 'Generated images', meta: b.images.length + (b.images.length === 1 ? ' photo' : ' photos'), state: 'done', body: stImgsBody(b.images) }));
+  rows.push(stStepRow({ label: 'Compiled React', meta: (b.buildMs ? (b.buildMs / 1000).toFixed(1) + 's' : ''), state: 'done' }));
+  rows.push(stStepRow({ label: b.revised ? 'Rebuilt & published' : 'Published', meta: b.slug || '', state: 'done' }));
+  return '<div class="st-steps">' + rows.join('') + '</div>';
+}
+// Live steps while a React build/revise streams (reads siteBuild).
+function reactLiveStepsHTML() {
+  const sb = siteBuild || {}; const order = ['generating', 'images', 'compiling', 'fixing', 'publishing'];
+  const idx = Math.max(0, order.indexOf(sb.rphase || 'generating'));
+  const st = (name) => { const i = order.indexOf(name); return i < idx ? 'done' : i === idx ? 'run' : 'wait'; };
+  const rows = [];
+  rows.push(stStepRow({ label: idx > 0 ? 'Wrote the code' : 'Writing the code', meta: sb.file || '', state: st('generating'), open: true, body: stCodeBody((sb.code || '').slice(-2600), st('generating') === 'run') }));
+  rows.push(stStepRow({ label: idx > 1 ? 'Generated images' : 'Generating images', meta: (sb.images && sb.images.length ? sb.images.length + ' photos' : ''), state: st('images'), body: (sb.images && sb.images.length) ? stImgsBody(sb.images) : '' }));
+  if (sb.rphase === 'fixing') rows.push(stStepRow({ label: 'Fixing a build error', state: 'run' }));
+  else rows.push(stStepRow({ label: idx > 2 ? 'Compiled React' : 'Compiling React', state: st('compiling') }));
+  if (idx >= 4) rows.push(stStepRow({ label: 'Publishing', state: st('publishing') }));
+  return '<div class="st-steps st-steps-live">' + rows.join('') + '</div>';
+}
+function paintReactLive() {
+  const host = document.querySelector('#stThread .st-steps-live');
+  if (host) host.outerHTML = reactLiveStepsHTML();
+  const pre = document.querySelector('#stThread .st-steps-live .st-lc'); if (pre) pre.scrollTop = pre.scrollHeight;
+  const th = document.getElementById('stThread'); if (th) th.scrollTop = th.scrollHeight;
+}
+function reactStageLabel() {
+  const p = (siteBuild && siteBuild.rphase) || 'generating';
+  return { generating: 'Writing the code…', images: 'Generating the images…', compiling: 'Compiling your app…', fixing: 'Fixing a build error…', publishing: 'Publishing…' }[p] || 'Building…';
+}
+// Read the React build/revise NDJSON stream: fold code/phase/image into the live
+// steps, return the terminal {done|error} payload.
+async function readReactStream(r, origin) {
+  const reader = r.body.getReader(); const dec = new TextDecoder();
+  let buf = '', final = null;
+  for (;;) {
+    const { value, done } = await reader.read(); if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let ev; try { ev = JSON.parse(line); } catch (e) { continue; }
+      if (siteOpenId !== origin || !siteBuild) { if (ev.ev === 'done') final = ev; else if (ev.ev === 'error') final = { error: true, msg: ev.msg, code: ev.code, need: ev.need }; continue; }
+      if (ev.ev === 'code') {
+        siteBuild.code = (siteBuild.code || '') + ev.t;
+        const mm = siteBuild.code.match(/===FILE:\s*([^=\n]+?)\s*===/g);
+        if (mm) { const f = mm[mm.length - 1].replace(/===FILE:\s*/, '').replace(/\s*===/, '').trim(); siteBuild.file = f; if (siteBuild.filesSeen.indexOf(f) < 0) siteBuild.filesSeen.push(f); }
+        paintReactLive();
+      } else if (ev.ev === 'phase') { siteBuild.rphase = ev.phase; paintReactLive(); }
+      else if (ev.ev === 'image') { (siteBuild.images = siteBuild.images || []).push({ prompt: ev.prompt, url: ev.url }); paintReactLive(); }
+      else if (ev.ev === 'done') final = ev;
+      else if (ev.ev === 'error') final = { error: true, msg: ev.msg, code: ev.code, need: ev.need };
+    }
+  }
+  return final || { error: true };
+}
+// Finish a React build/revise: stop the live log, append the assistant message
+// WITH its step data (so the collapsed rows persist in the thread), re-render.
+function siteFinishBuild(origin, reply, build) {
+  siteBusy = false; siteBuildMsg = ''; siteBuildStop();
+  const s = siteById(origin); if (!s) return;
+  s.msgs.push({ r: 'a', t: reply, build: build });
+  s.updatedAt = Date.now(); sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+// The React build/revise send path (cutover engine). Build = first message on a
+// project → /api/site/react-build; revise = any later message on a React site →
+// /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
+function reactSend(site, t, origin, mode, imgs, finish) {
+  const endpoint = mode === 'build' ? '/api/site/react-build' : '/api/site/react-revise';
+  const body = mode === 'build' ? { brief: t, images: imgs } : { slug: site.slug, instruction: t, images: imgs };
+  siteAbort = new AbortController();
+  apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
+    const ct = r.headers.get('content-type') || '';
+    const d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
+    const used = (d && d.cost) ? ' (✦' + d.cost + ' used)' : '';
+    if (r.ok && d && !d.error && d.slug) {
+      const s = siteById(origin);
+      if (s) {
+        s.react = true; s.slug = d.slug; s.url = d.url || ('/s/' + d.slug + '/');
+        if (d.brand && typeof d.brand === 'string' && d.brand.trim()) s.name = d.brand.trim().slice(0, 40);
+        if (!Array.isArray(s.pages) || !s.pages.length) s.pages = [{ path: '/', name: 'App', html: '' }];
+        s.active = '/'; delete s.html;
+        s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
+        siteSnap(s, t);
+      }
+      siteErr = null;
+      const build = { files: (siteBuild && siteBuild.filesSeen && siteBuild.filesSeen.length) ? siteBuild.filesSeen.slice() : (d.files || []), images: (siteBuild && siteBuild.images) ? siteBuild.images.slice() : [], buildMs: d.buildMs, cost: d.cost, slug: d.slug, revised: mode === 'revise' };
+      const name = (siteById(origin) || {}).name;
+      siteFinishBuild(origin, (mode === 'revise' ? '✅ Updated — the preview’s refreshed.' : '✅ Built ' + (name ? '“' + name + '”' : 'your site') + '. Tell me what to change.') + used, build);
+    } else if (r.status === 402 || (d && d.need === 'credits')) {
+      finish('⚡ You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.');
+    } else if (d && d.need === 'rebuild') {
+      finish('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
+    } else if (r.status === 429) { finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
+    else if (r.status === 501) { finish('⚠️ The build engine isn’t switched on yet — check back soon.'); }
+    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; finish('⏳ The builder’s busy right now — give it a few seconds, then send again. (You weren’t charged.)'); }
+    else { siteErr = { chatId: origin }; finish('⚠️ ' + ((d && d.msg) || 'That didn’t come together — you weren’t charged. Try again in a moment.')); }
+    if (typeof fetchCredits === 'function') fetchCredits();
+  }).catch((e) => {
+    if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)'); return; }
+    siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
+  }).finally(() => { siteAbort = null; });
+}
 function buildActiveText() {
   if (!siteBuild) return 'Working';
   const set = ST_TICK[siteBuild.phase] || ST_TICK.finish;
@@ -10050,7 +10190,10 @@ function siteSend(text) {
   const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });
   siteBusy = true;
-  if (isBuild) siteBuildStart(); else siteBuildStop(); // live activity log for builds only
+  // The React engine (build = new project, revise = any React site) drives its own
+  // live step-rows; legacy static sites keep the classic activity log / no log.
+  const reactPath = isBuild || site.react;
+  if (reactPath) siteBuildStart(true); else if (isBuild) siteBuildStart(); else siteBuildStop();
   sitesSave();
   renderSites();
   const origin = siteOpenId;
@@ -10066,6 +10209,8 @@ function siteSend(text) {
     if (siteOpenId === origin) renderSites();
   };
   const imgs = siteAttach.slice(0, 3); siteAttach = []; paintAttachStrip();
+  // Cutover: new projects + React sites go through the streaming React engine.
+  if (reactPath) { reactSend(site, t, origin, isBuild ? 'build' : 'revise', imgs, finish); return; }
   const body = isBuild
     ? { step: 'build', brief: t, siteId: site.id, images: imgs }
     : { step: 'revise', instruction: t, html: active ? active.html : '', path: active ? active.path : '/', paths: sitePages(site).map((p) => p.path), pages: sitePages(site).map((p) => ({ path: p.path, name: p.name, html: p.html })), design: site.design || '', siteId: site.id, images: imgs };
