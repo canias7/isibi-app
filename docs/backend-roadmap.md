@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~61 / 93)
+## DONE (~62 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41).
 
 ---
 
@@ -76,7 +76,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Signed upload URLs
 - [ ] Image resize/transform on upload (photon is available)
 - [ ] Full-text search index (LIKE `q` exists — add ranked FTS)
-- [ ] Saved views / filters per member
+- [x] Saved views / filters per member (/views) (Batch 41)
 - [ ] Row-level view counts (built on counters convention)
 - [x] Scheduled publish / drafts (`"publishable":true`, publish_at) (Batch 25)
 - [x] Scheduled publish (publish_at) (Batch 25)

@@ -401,6 +401,14 @@ reads `GET /rows/<t>/<id>/history` (newest-first) and restores via `POST /rows/<
 <historyId>` (restores the snapshot's declared columns; the revert UPDATE itself re-snapshots,
 so it's undoable). Carried via coerceTable + norm. Roadmap tally: ~61/93.
 
+## 2026-07-21 — Batch 41: NEW LAYER Saved views / filters per member (offline 10/10) ✅ built
+
+Private per-member named JSON query configs (saved searches, filter sets, dashboards). New
+`_views (user_id, name, spec, PK(user_id,name))`: `POST /views/<name> {spec}`, `GET /views`,
+`GET /views/<name>`, `DELETE /views/<name>` — all auth, spec is arbitrary JSON. Helpers
+ensureViews/saveView/listViews/getView/deleteView (mirrors the config KV pattern but per-user).
+One BACKEND_RULES line. Roadmap tally: ~62/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

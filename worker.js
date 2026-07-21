@@ -3369,6 +3369,34 @@ async function presenceOf(env, uuid, userId, within) {
   const on = await cfD1Query(env, uuid, "SELECT 1 AS y FROM _presence WHERE user_id=? AND datetime(at) > datetime('now', ?)", [userId, "-" + within + " minutes"]);
   return { online: !!on[0], last_seen: r[0].at };
 }
+// Saved views / filters — a member saves a NAMED query config (a filter set, a saved search,
+// a custom dashboard layout) as arbitrary JSON, and lists/loads them later. Private per
+// member, keyed (user_id, name) in `_views`. Ensured once per isolate.
+const _viewsReady = new Set();
+async function ensureViews(env, uuid) {
+  if (_viewsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _views (user_id INTEGER NOT NULL, name TEXT NOT NULL, spec TEXT, created_at TEXT, PRIMARY KEY (user_id, name))");
+  _viewsReady.add(uuid);
+}
+const _parseView = (v) => { try { return JSON.parse(v); } catch { return v; } };
+async function saveView(env, uuid, userId, name, spec) {
+  await ensureViews(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _views (user_id,name,spec,created_at) VALUES (?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET spec=excluded.spec, created_at=excluded.created_at", [userId, name, JSON.stringify(spec === undefined ? null : spec), new Date().toISOString()]);
+}
+async function listViews(env, uuid, userId) {
+  await ensureViews(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT name, spec, created_at FROM _views WHERE user_id=? ORDER BY name", [userId]);
+  return rows.map((r) => ({ name: r.name, spec: _parseView(r.spec), created_at: r.created_at }));
+}
+async function getView(env, uuid, userId, name) {
+  await ensureViews(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT spec FROM _views WHERE user_id=? AND name=?", [userId, name]);
+  return r[0] ? _parseView(r[0].spec) : null;
+}
+async function deleteView(env, uuid, userId, name) {
+  await ensureViews(env, uuid);
+  await cfD1Query(env, uuid, "DELETE FROM _views WHERE user_id=? AND name=?", [userId, name]);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6991,6 +7019,34 @@ async function handleRequest(request, env, ctx) {
           if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
+      // Saved views / filters (private per member) — a named JSON query config.
+      //   GET    /api/db/<slug>/views          → the caller's saved views
+      //   GET    /api/db/<slug>/views/<name>   → one view's spec
+      //   POST   /api/db/<slug>/views/<name> {spec}  → save/update
+      //   DELETE /api/db/<slug>/views/<name>   → remove
+      const vwm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/views(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (vwm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = vwm[1].toLowerCase(), name = (vwm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|vwr", 300)) return tooMany(); if (name) return Response.json({ ok: true, name, spec: await getView(env, uuid, userId, name) }); return Response.json({ ok: true, views: await listViews(env, uuid, userId) }); }
+          if (!name) return Response.json({ ok: false, error: "view name required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|vww", 120)) return tooMany();
+          if (request.method === "DELETE") { await deleteView(env, uuid, userId, name); return Response.json({ ok: true, name, deleted: true }); }
+          let body = {}; try { body = await request.json(); } catch {}
+          const spec = body && Object.prototype.hasOwnProperty.call(body, "spec") ? body.spec : body;
+          await saveView(env, uuid, userId, name, spec);
+          return Response.json({ ok: true, name, spec: await getView(env, uuid, userId, name) });
+        } catch (e) { console.error("views failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "views failed" }, { status: 502 }); }
       }
       // Presence / who's-online.
       //   POST /api/db/<slug>/presence            → ping "I'm here" (auth) → {ok}
