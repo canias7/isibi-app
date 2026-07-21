@@ -336,6 +336,19 @@ PK(poll,user_id))` — re-voting UPDATES the member's option (real one-per-user)
 Helpers ensurePolls/pollState/votePoll/unvotePoll. poll + options are app strings. One
 BACKEND_RULES line (after REACTIONS). Roadmap tally: ~53/93.
 
+## 2026-07-21 — Batch 34: Account self-service (offline 15/15) ✅ built
+
+New `/api/db/<slug>/auth/(password|email|account)` on the Phase-C visitor auth, each
+RE-VERIFYING the current password (a stolen token alone can't change/delete):
+- `POST …/auth/password {current_password, password}` → change password (strength-checked),
+  returns a fresh token.
+- `POST …/auth/email {password, email}` → change email (collision-checked, resets verified),
+  fresh token.
+- `DELETE …/auth/account {password}` → delete the member + their owned rows (every user/feed
+  table) + their social side-rows (_follows/_bookmarks/_reactions/_polls/_reports/_shares/
+  _notifications).
+One BACKEND_RULES line (after INVITE-ONLY). Roadmap tally: ~54/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

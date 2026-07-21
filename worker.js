@@ -6519,6 +6519,69 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
         }
       }
+      // Account self-service (the signed-in member manages THEIR OWN account):
+      //   POST   /api/db/<slug>/auth/password {current_password, password}  → change password
+      //   POST   /api/db/<slug>/auth/email    {password, email}             → change email
+      //   DELETE /api/db/<slug>/auth/account  {password}                    → delete own account
+      // Each re-verifies the current password (so a stolen token alone can't do it).
+      const acm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/(password|email|account)$/i);
+      if (acm && (request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = acm[1].toLowerCase(), what = acm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|acc", 30)) return tooMany("Too many attempts — please wait a minute.");
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        const p = await verifySiteUserToken(secret, tok);
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        let body = {}; try { body = await request.json(); } catch {}
+        try {
+          const rows = await cfD1Query(env, uuid, "SELECT id,email,pass_salt,pass_hash FROM _users WHERE id=?", [p.sub]);
+          const u = rows[0];
+          if (!u) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+          // Re-verify the current password on every account change.
+          const given = String((what === "password" ? (body.current_password || body.current || body.old_password) : body.password) || "");
+          if (!(await verifyPassword(given, u.pass_salt, u.pass_hash))) return Response.json({ ok: false, error: "current password is incorrect" }, { status: 403 });
+          const now = Math.floor(Date.now() / 1000);
+          if (what === "password") {
+            const np = String(body.password || body.new_password || "");
+            if (np.length < 8) return Response.json({ ok: false, error: "password must be at least 8 characters" }, { status: 400 });
+            if (np.toLowerCase() === u.email.toLowerCase() || np.toLowerCase() === u.email.split("@")[0].toLowerCase() || /^(.)\1+$/.test(np)) return Response.json({ ok: false, error: "please choose a stronger password" }, { status: 400 });
+            const { salt, hash } = await hashPassword(np);
+            await cfD1Query(env, uuid, "UPDATE _users SET pass_salt=?, pass_hash=?, failed=0, locked_until=NULL WHERE id=?", [salt, hash, u.id]);
+            const token = await signSiteUserToken(secret, { sub: u.id, slug, email: u.email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+            return Response.json({ ok: true, token });
+          }
+          if (what === "email") {
+            const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "enter a valid email" }, { status: 400 });
+            if (email !== u.email) { const taken = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=? AND id!=?", [email, u.id]); if (taken[0]) return Response.json({ ok: false, error: "that email already has an account" }, { status: 409 }); }
+            await cfD1Query(env, uuid, "UPDATE _users SET email=?, verified=0 WHERE id=?", [email, u.id]);
+            const token = await signSiteUserToken(secret, { sub: u.id, slug, email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+            return Response.json({ ok: true, token, user: { id: u.id, email, verified: 0 } });
+          }
+          // delete account: remove the member + their owned rows + their social side-rows.
+          if (request.method !== "DELETE") return Response.json({ ok: false, error: "use DELETE" }, { status: 405 });
+          try { const spec = await loadSiteSchema(env, uuid); for (const tdef of (spec && Array.isArray(spec.tables) ? spec.tables : [])) { if (tdef && (tdef.access === "user" || tdef.access === "feed")) { try { await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(tdef.name) + " WHERE owner_id=?", [u.id]); } catch {} } } } catch {}
+          for (const q of [
+            "DELETE FROM _follows WHERE follower_id=? OR followee_id=?",
+            "DELETE FROM _bookmarks WHERE user_id=?",
+            "DELETE FROM _reactions WHERE user_id=?",
+            "DELETE FROM _polls WHERE user_id=?",
+            "DELETE FROM _reports WHERE reporter_id=?",
+            "DELETE FROM _shares WHERE user_id=?",
+            "DELETE FROM _notifications WHERE user_id=?",
+          ]) { try { await cfD1Query(env, uuid, q, q.includes("OR followee_id") ? [u.id, u.id] : [u.id]); } catch {} }
+          await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
+          return Response.json({ ok: true, deleted: true });
+        } catch (e) {
+          console.error("account self-service failed:", what, e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "account update failed" }, { status: 502 });
+        }
+      }
     }
     // Public user profiles — a shared, publicly-readable member identity (display
     // name, avatar, bio) so a feed can show WHO authored a post without every app
