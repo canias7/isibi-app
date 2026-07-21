@@ -512,6 +512,15 @@ block via `listOpts.searchWeights`; carried through coerceTable + norm. Also mar
 decrement** done — it's exactly the atomic incr with a floor: `POST /rows/<t>/<id>/incr
 {col:"stock", by:-1, min:0}`. Roadmap tally: ~79/93.
 
+## 2026-07-21 — Batch 53: NEW LAYER Coupons / discount codes (offline 12/12) ✅ built
+
+`_coupons (code PK, discount, max_uses, used, expires_at)`: admin mints/lists/deletes
+(`POST/GET/DELETE /coupons`), anyone validates (`GET /coupon/<code>` → {valid, discount,
+remaining}, no consume), a member redeems (`POST /coupon/<code>/redeem`) via an atomic
+`UPDATE … WHERE used<max_uses AND not-expired` so the cap is race-free (409 when spent/
+expired). `discount` is app-defined JSON. Helpers ensureCoupons/couponState/redeemCoupon.
+Roadmap tally: ~80/93. (The no-Stripe half of commerce; checkout itself is 🔑.)
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

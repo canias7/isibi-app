@@ -3436,6 +3436,33 @@ async function linksOf(env, uuid, target, toTable) {
   const filtered = toTable ? others.filter((o) => o.toLowerCase().startsWith(toTable.toLowerCase() + ":")) : others;
   return filtered.map((o) => { const i = o.indexOf(":"); return { target: o, table: i > 0 ? o.slice(0, i) : null, id: i > 0 ? parseInt(o.slice(i + 1), 10) : null }; });
 }
+// Coupons / discount codes — a redeemable code with an optional usage cap + expiry. The app
+// ADMIN mints codes; anyone can VALIDATE one, and a signed-in member REDEEMS it (an atomic
+// UPDATE bumps `used`, so the cap is race-free). `discount` is app-defined JSON (percent/
+// amount/free-shipping/…). Stored in `_coupons`. Ensured once per isolate.
+const _couponsReady = new Set();
+async function ensureCoupons(env, uuid) {
+  if (_couponsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _coupons (code TEXT PRIMARY KEY, discount TEXT, max_uses INTEGER, used INTEGER DEFAULT 0, expires_at TEXT, created_at TEXT)");
+  _couponsReady.add(uuid);
+}
+const _parseDiscount = (v) => { if (v == null) return null; try { return JSON.parse(v); } catch { return v; } };
+async function couponState(env, uuid, code) {
+  await ensureCoupons(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT code,discount,max_uses,used,expires_at FROM _coupons WHERE code=?", [code]);
+  if (!r[0]) return { valid: false, reason: "not found" };
+  const row = r[0];
+  const expired = row.expires_at && new Date(row.expires_at).getTime() <= Date.now();
+  const spent = row.max_uses != null && row.used >= row.max_uses;
+  return { valid: !expired && !spent, reason: expired ? "expired" : spent ? "used up" : null, discount: _parseDiscount(row.discount), remaining: row.max_uses != null ? Math.max(0, row.max_uses - row.used) : null };
+}
+async function redeemCoupon(env, uuid, code) {
+  await ensureCoupons(env, uuid);
+  const ex = await cfD1Exec(env, uuid, "UPDATE _coupons SET used=used+1 WHERE code=? AND (max_uses IS NULL OR used < max_uses) AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))", [code]);
+  if (!ex.changes) { const st = await couponState(env, uuid, code); return { ok: false, reason: st.reason || "invalid" }; }
+  const r = await cfD1Query(env, uuid, "SELECT discount FROM _coupons WHERE code=?", [code]);
+  return { ok: true, discount: r[0] ? _parseDiscount(r[0].discount) : null };
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -7095,6 +7122,53 @@ async function handleRequest(request, env, ctx) {
           if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
+      // Coupons / discount codes.
+      //   GET    /api/db/<slug>/coupon/<code>          → {valid, discount, remaining} (validate, public)
+      //   POST   /api/db/<slug>/coupon/<code>/redeem   → atomically redeem (auth) → {ok, discount}
+      //   GET    /api/db/<slug>/coupons                → list (ADMIN)
+      //   POST   /api/db/<slug>/coupons {code, discount, max_uses?, expires_at?} → mint (ADMIN)
+      //   DELETE /api/db/<slug>/coupons/<code>         → remove (ADMIN)
+      const cpuse = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/coupon\/([a-z0-9_.-]{1,60})(\/redeem)?$/i);
+      const cpadm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/coupons(?:\/([a-z0-9_.-]{1,60}))?$/i);
+      if ((cpuse || cpadm) && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (cpuse || cpadm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (cpuse) {
+            const code = cpuse[2].toLowerCase(), isRedeem = !!cpuse[3];
+            if (!isRedeem) { if (request.method !== "GET") return Response.json({ ok: false, error: "use /redeem to redeem" }, { status: 405 }); if (!rateOk(slug + "|" + ip + "|cpr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, code }, await couponState(env, uuid, code))); }
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in to redeem" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|cpx", 60)) return tooMany();
+            const res = await redeemCoupon(env, uuid, code);
+            return Response.json(Object.assign({ code }, res), { status: res.ok ? 200 : 409 });
+          }
+          // admin coupon management
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureCoupons(env, uuid);
+          const code = cpadm[2] ? cpadm[2].toLowerCase() : null;
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|cpl", 300)) return tooMany(); const rows = await cfD1Query(env, uuid, "SELECT code,discount,max_uses,used,expires_at,created_at FROM _coupons ORDER BY created_at DESC LIMIT 500"); return Response.json({ ok: true, coupons: rows.map((r) => Object.assign(r, { discount: _parseDiscount(r.discount) })) }); }
+          if (request.method === "DELETE") { if (!code) return Response.json({ ok: false, error: "code required" }, { status: 400 }); await cfD1Query(env, uuid, "DELETE FROM _coupons WHERE code=?", [code]); return Response.json({ ok: true, code, deleted: true }); }
+          // POST — mint
+          if (!rateOk(slug + "|" + ip + "|cpw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const newCode = String(body.code || "").toLowerCase().replace(/[^a-z0-9_.-]/g, "").slice(0, 60);
+          if (!newCode) return Response.json({ ok: false, error: "code required" }, { status: 400 });
+          const maxUses = (body.max_uses != null && Number.isFinite(parseInt(body.max_uses, 10))) ? Math.max(1, parseInt(body.max_uses, 10)) : null;
+          const expiresAt = typeof body.expires_at === "string" ? body.expires_at.slice(0, 40) : null;
+          await cfD1Query(env, uuid, "INSERT INTO _coupons (code,discount,max_uses,expires_at,used,created_at) VALUES (?,?,?,?,0,?) ON CONFLICT(code) DO UPDATE SET discount=excluded.discount, max_uses=excluded.max_uses, expires_at=excluded.expires_at", [newCode, JSON.stringify(body.discount === undefined ? null : body.discount), maxUses, expiresAt, new Date().toISOString()]);
+          return Response.json(Object.assign({ ok: true, code: newCode }, await couponState(env, uuid, newCode)));
+        } catch (e) { console.error("coupon failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "coupon failed" }, { status: 502 }); }
       }
       // Many-to-many links between rows (targets are `<table>:<id>`).
       //   POST   /api/db/<slug>/link {a, b}      → link two rows (auth)
