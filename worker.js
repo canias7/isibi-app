@@ -2736,7 +2736,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2831,6 +2831,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
     if (t.scheduled) cols.push('"publish_at" TEXT'); // scheduled publish — hidden until this time (app-set)
+    if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2867,6 +2868,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
     if (t.scheduled) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "publish_at" TEXT'); } catch {} }
+    if (t.archivable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "archived_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2963,7 +2965,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, rateLimit: t.rateLimit || 0, geo: t.geo || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, rateLimit: t.rateLimit || 0, geo: t.geo || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -7317,6 +7319,42 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "config failed" }, { status: 502 });
         }
       }
+      // Mentions → notifications — a member @mentions others in a post/comment; the app
+      // detects the handles client-side and calls this with the mentioned user ids, which
+      // drops a "mention" notification into each one's inbox. Capped (≤10/call), rate-limited,
+      // and deduped per (recipient, target) within an hour so it can't be used to spam.
+      //   POST /api/db/<slug>/mention {target, users:[ids], text?}  (auth) → {notified}
+      const mnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mention$/i);
+      if (mnm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mnm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        if (!rateOk(slug + "|" + ip + "|mnw", 20)) return tooMany();
+        try {
+          let body = {}; try { body = await request.json(); } catch {}
+          const target = String(body.target || "").slice(0, 400);
+          const text = String(body.text || "mentioned you").replace(/[\r\n]+/g, " ").slice(0, 300);
+          const ids = [...new Set((Array.isArray(body.users) ? body.users : []).map((x) => parseInt(x, 10)).filter((n) => n > 0 && n !== userId))].slice(0, 10);
+          if (!ids.length) return Response.json({ ok: false, error: "no valid users to notify" }, { status: 400 });
+          await ensureNotifications(env, uuid);
+          let notified = 0;
+          for (const uid of ids) {
+            if (target) { try { const dup = await cfD1Query(env, uuid, "SELECT 1 FROM _notifications WHERE user_id=? AND type='mention' AND link=? AND datetime(created_at) > datetime('now','-1 hour') LIMIT 1", [uid, target]); if (dup[0]) continue; } catch {} }
+            // only notify real members
+            const exists = await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [uid]);
+            if (!exists[0]) continue;
+            if (await createNotification(env, uuid, uid, { type: "mention", text, link: target })) notified++;
+          }
+          return Response.json({ ok: true, notified });
+        } catch (e) { console.error("mention failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mention failed" }, { status: 502 }); }
+      }
       // In-app notification inbox (the signed-in member's OWN notifications):
       //   GET  /api/db/<slug>/notifications[?unread=1&limit=N] → {rows, unread}
       //   POST /api/db/<slug>/notifications/<id>/read           → mark one read
@@ -7396,7 +7434,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -7411,6 +7449,7 @@ async function handleRequest(request, env, ctx) {
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
+        const isArchive = dm[4] === "archive" || dm[4] === "unarchive";
         const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -7506,10 +7545,17 @@ async function handleRequest(request, env, ctx) {
           const publishClause = scheduledOn
             ? (url.searchParams.get("withScheduled") === "1" ? "" : url.searchParams.get("scheduled") === "1" ? "(publish_at IS NOT NULL AND datetime(publish_at) > datetime('now'))" : "(publish_at IS NULL OR datetime(publish_at) <= datetime('now'))")
             : "";
-          // Combined default row visibility (trash + expiry + scheduled). All clauses are
-          // param-free, so they compose into one AND-ed suffix shared by list, single-GET,
-          // stats, and bulk.
-          const visClause = [trashClause, expiresClause, publishClause].filter(Boolean).join(" AND ");
+          // Soft archive (Gmail-style "archive", distinct from trash) — on `archivable:true`
+          // tables reads HIDE archived rows by default; `?archived=1` lists only archived,
+          // `?withArchived=1` lists everything. Toggled via the /archive|/unarchive endpoints.
+          const archivableOn = !!def.archivable;
+          const archivedClause = archivableOn
+            ? (url.searchParams.get("withArchived") === "1" ? "" : url.searchParams.get("archived") === "1" ? "archived_at IS NOT NULL" : "archived_at IS NULL")
+            : "";
+          // Combined default row visibility (trash + expiry + scheduled + archive). All
+          // clauses are param-free, so they compose into one AND-ed suffix shared by list,
+          // single-GET, stats, and bulk.
+          const visClause = [trashClause, expiresClause, publishClause, archivedClause].filter(Boolean).join(" AND ");
           const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
@@ -7681,6 +7727,22 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, id: rowId, position: newPos });
           }
 
+          // Archive / unarchive — POST /rows/<t>/<id>/archive|/unarchive on an `archivable`
+          // table sets/clears archived_at (Gmail-style "archive"/"move to active"). Same write
+          // scope as the table (feed/user own rows, admin any, display/collect none).
+          if (isArchive) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!def.archivable) return badReq("this table isn't archivable (declare \"archivable\":true)");
+            let scope = "", sp = [];
+            if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; sp = [userId]; }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
+            else return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
+            const val = dm[4] === "archive" ? new Date().toISOString() : null;
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET archived_at=?" + tsFrag + " WHERE id=?" + scope, [val, rowId].concat(sp));
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            return Response.json({ ok: true, id: rowId, archived: !!val });
+          }
           // Row history / revert (owner or admin) — the change timeline of a `history:true`
           // row and restore of any prior version. GET /rows/<t>/<id>/history lists snapshots
           // (newest first); POST /rows/<t>/<id>/revert/<historyId> restores that snapshot's

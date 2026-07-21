@@ -451,6 +451,22 @@ Generic undirected relationship store `_links (a, b, PK(a,b))` where a/b are `<t
 table for a plain M2M (use a real join table when the link carries its own data). Roadmap
 tally: ~67/93.
 
+## 2026-07-21 — Batch 47: Soft archive ("archivable":true) (offline 10/10) ✅ built
+
+Gmail-style archive, distinct from trash: `archived_at` column, `archivedClause` folds into
+`visClause` (default hides archived; `?archived=1` / `?withArchived=1`). `POST /rows/<t>/<id>/
+archive` sets archived_at=now, `/unarchive` clears it (added `archive|unarchive` to the sub-
+route action group; same write scope as the table). Carried via coerceTable + norm. Reuses the
+trash/expiry/scheduled visibility mechanism (regressions green). Roadmap tally: ~68/93.
+
+## 2026-07-21 — Batch 48: Mentions → notifications (offline 8/8) ✅ built
+
+`POST /api/db/<slug>/mention {target, users:[ids], text?}` (auth) drops a `mention`
+notification (via the existing `createNotification`) into each listed member's inbox. Anti-
+spam: ≤10 recipients/call, rate-limited 20/min, self excluded, unknown ids skipped, and
+deduped per (recipient, target) within an hour. The app resolves @handles → ids client-side.
+Roadmap tally: ~69/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
