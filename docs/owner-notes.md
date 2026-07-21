@@ -349,6 +349,15 @@ RE-VERIFYING the current password (a stolen token alone can't change/delete):
   _notifications).
 One BACKEND_RULES line (after INVITE-ONLY). Roadmap tally: ~54/93.
 
+## 2026-07-21 — Batch 35: Email-verification enforcement (offline 6/6) ✅ built
+
+Table flag **`"requireVerified":true`** → a signed-in member must have confirmed their email
+(`_users.verified`) before ANY write to that table; unverified → 403 `{code:'unverified'}`.
+Single choke point right after userId is resolved in the rows handler (covers POST/PATCH/
+DELETE across every access branch); reads unaffected. Carried via coerceTable + norm.
+Note: account **lockout** (8 failed logins → 15-min lock) was ALREADY implemented in the
+login path — marked done in the roadmap, no new code. Roadmap tally: ~56/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
