@@ -3201,12 +3201,22 @@ function buildD1Filter(url, allowCols, base) {
   const where = [], params = [];
   if (base && base.clause) { where.push(base.clause); params.push(...base.params); }
   for (const raw of url.searchParams.getAll("where").slice(0, 12)) {
-    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|isnull|notnull):([\s\S]*)$/i);
+    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):([\s\S]*)$/i);
     if (!m) continue;
     const col = m[1].toLowerCase(); if (!filterable.has(col)) continue;
     const opName = m[2].toLowerCase(), val = m[3];
     if (opName === "isnull") { where.push(sqlIdent(col) + " IS NULL"); continue; }
     if (opName === "notnull") { where.push(sqlIdent(col) + " IS NOT NULL"); continue; }
+    // Inclusive range: `col:between:lo:hi` (or `lo,hi`) → col >= lo AND col <= hi. Good for
+    // price bands, date windows, score ranges. Both bounds required; values bind as-is
+    // (SQLite column affinity handles numeric vs text comparison).
+    if (opName === "between") {
+      const parts = String(val).split(/[:,]/).map((x) => x.trim());
+      if (parts.length < 2 || parts[0] === "" || parts[1] === "") continue;
+      where.push("(" + sqlIdent(col) + " >= ? AND " + sqlIdent(col) + " <= ?)");
+      params.push(parts[0], parts[1]);
+      continue;
+    }
     if (opName === "in" || opName === "nin") {
       const vals = String(val).split(",").map((x) => x.trim()).filter((x) => x !== "").slice(0, 100);
       if (!vals.length) continue;
@@ -3267,6 +3277,10 @@ function buildD1List(url, tn, allowCols, base) {
     for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
     orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
   }
+  // `sort=random` (aliases rand/shuffle) → random order, for "discover"/"featured"/
+  // "shuffle" surfaces. Overrides relevance/explicit sort. Not for pagination (each page
+  // reshuffles) — pair with a small `limit` to pick N random rows.
+  if (/^(random|rand|shuffle)$/i.test((url.searchParams.get("sort") || "").trim())) orderSql = "RANDOM()";
   // Keyset (cursor) pagination for endless "load more" over big/growing lists —
   // stable and faster than large OFFSETs. `?after=<id>` returns rows OLDER than that
   // id (id < after — pairs with the default newest-first order); `?before=<id>` the

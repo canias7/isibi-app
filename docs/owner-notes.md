@@ -175,6 +175,18 @@ low. New `_follows (follower_id, followee_id)` PK-deduped table in each site D1:
 Helpers `ensureFollows`/`toggleFollow`/`followState`/`followList` sit beside the reactions
 helpers. BACKEND_RULES: one new social line (after PROFILES). Roadmap tally: ~35/93.
 
+## 2026-07-21 — Batch 19: query power II — `between` + `sort=random` (offline 7/7) ✅ built, PR
+
+Both live inside the shared `buildD1Filter`/`buildD1List`, so EVERY read path (list/stats/
+facets/bulk, all access modes) gets them for free — one-place, low-risk changes:
+- **`where=<col>:between:lo:hi`** (also `lo,hi`) → inclusive range `col >= lo AND col <= hi`
+  (price bands, date windows, score ranges). Both bounds required else the clause is ignored;
+  values bind as-is (SQLite affinity handles numeric vs text). Added to the operator regex.
+- **`sort=random`** (aliases `rand`/`shuffle`) → `ORDER BY RANDOM()`, for discover/featured/
+  shuffle surfaces (pair with a small `limit`). Overrides relevance/explicit sort; not for
+  pagination (each page reshuffles).
+BACKEND_RULES: folded into the existing QUERY line. Roadmap tally: ~37/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
