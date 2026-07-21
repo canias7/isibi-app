@@ -291,6 +291,14 @@ a partial PATCH only if it carries both (documented limitation: one-field update
 against the stored other). Carried via coerceTable + norm (validateRow reads request-time def).
 Roadmap tally: ~48/93.
 
+## 2026-07-21 — Batch 29: Referential integrity (enforceRefs) (offline 7/7) ✅ built
+
+Table flag **`"enforceRefs":true`** → a BEFORE INSERT and BEFORE UPDATE-OF trigger per `ref`
+column that RAISEs when the fk is set but the parent id doesn't exist; abort maps to a clean
+**400 `{code:'ref'}`** in the data-api catch. NULL fk allowed (optional link). Complements the
+delete-time cascade. Trigger-based (no write-path plumbing); carried via coerceTable. Roadmap
+tally: ~49/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

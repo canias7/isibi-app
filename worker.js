@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2893,6 +2893,21 @@ async function applySiteSchema(env, uuid, spec) {
           " WHEN (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
           " BEGIN SELECT RAISE(ABORT, 'row limit reached'); END");
       } catch (e) { console.error("maxRows trigger failed:", t.name, e && e.detail); }
+    }
+    // Referential integrity — `enforceRefs:true` refuses a write whose foreign-key column
+    // points at a NON-existent parent (no orphan comments / line-items). A BEFORE INSERT and
+    // BEFORE UPDATE trigger per ref column RAISEs when the fk is set but the parent id is
+    // missing; the abort maps to a clean 400 in the data API. Complements the delete-time
+    // cascade (which stops orphans when a parent is removed). NULL fk = allowed (optional link).
+    if (t.enforceRefs) {
+      for (const col of Object.keys(refs)) {
+        const parent = refs[col];
+        if (!SAFE_IDENT.test(String(parent)) || !SAFE_IDENT.test(String(col))) continue;
+        const cn = sqlIdent(col), pn = sqlIdent(parent);
+        const cond = "NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn + " WHERE id=NEW." + cn + ")";
+        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
+        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
+      }
     }
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null });
@@ -7368,6 +7383,8 @@ async function handleRequest(request, env, ctx) {
           if (/UNIQUE constraint failed/i.test(emsg)) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
           // A `maxRows` quota trigger aborted the insert → a clean 409, not a 502.
           if (/row limit reached/i.test(emsg)) return Response.json({ ok: false, error: "row limit reached", code: "limit" }, { status: 409 });
+          // A referential-integrity trigger aborted (fk → missing parent) → a clean 400.
+          if (/missing parent/i.test(emsg)) return Response.json({ ok: false, error: "referenced record not found", code: "ref" }, { status: 400 });
           console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
