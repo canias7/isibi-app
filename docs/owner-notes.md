@@ -407,6 +407,20 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
 - **PLATFORM STACK — building out the layers every app needs (2026-07-20).** Model:
   the platform provides each backend layer as a ready primitive; the AI declares/
   wires it and the platform provisions+serves it (same as the DB does). Status:
+  · **AI-as-a-primitive (#508) — built apps call an LLM, no key, VERIFIED live 15/15.**
+    A built app adds real AI (chatbot, summarize, suggest-a-reply, categorize) with
+    `POST /api/db/<slug>/ai {prompt,system?}` → `{ok,text}`, or an `{do:"ai"}` function
+    step → `{{steps.r.text}}`. Platform runs Claude Haiku server-side; each call is
+    METERED TO THE APP OWNER'S CREDITS (their visitors trigger it, so the caller can't
+    be charged) via a NEW service-role, mint-gated `use_credits_for` RPC that atomically
+    gates+charges and REFUNDS on any failure. Flat 1 credit/call, output capped (800
+    tok), hard rate limit 20/min per visitor, errors ALWAYS generic (a visitor never
+    sees provider internals). **Proof:** 9/9 free (empty prompt → no charge + friendly
+    error; error text leaks no "anthropic/fal/haiku/claude/key"; `use_credits_for`
+    blocked for anon 401 + authenticated 403 = drain locked; GET /ai 404) + 6/6 paid
+    (real Haiku replied "OK" / "Hi there, friend!"; owner charged EXACTLY 1 credit per
+    call, 20→19→18). Owner approved the ~$0.006 test spend. Builder rules document both
+    forms. **This is the AI-native differentiator — apps ship AI features out of the box.**
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅

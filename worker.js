@@ -2546,6 +2546,25 @@ async function ensureSiteBackend(env, slug, uid) {
 const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER" };
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
+// Minimal RFC-4180-ish CSV parser → array of string arrays. Handles quoted fields,
+// embedded commas/newlines, and "" escaped quotes. For owner data import.
+function parseCsv(text) {
+  const s = String(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const rows = []; let row = [], field = "", q = false, i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (q) {
+      if (c === '"') { if (s[i + 1] === '"') { field += '"'; i += 2; continue; } q = false; i++; continue; }
+      field += c; i++; continue;
+    }
+    if (c === '"') { q = true; i++; continue; }
+    if (c === ",") { row.push(field); field = ""; i++; continue; }
+    if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+    field += c; i++;
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
 // The model mostly emits the canonical shape, but sometimes varies it (tables as
 // an object-map keyed by name; `fields` instead of `columns`; a column as a bare
 // string or {name,type} with odd keys; missing `access`). Coerce all of that into
@@ -5256,6 +5275,51 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner metrics failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
+    // Owner data import: load rows into one of the OWNER's declared tables from a CSV
+    // string or a rows array (the mirror of export). isibi-authed + owner-scoped; only
+    // declared columns are written (case-insensitive header match), cap 2000 rows.
+    if (url.pathname === "/api/site/backend/import" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = await request.json(); } catch { bb = {}; }
+      const slug = ((bb.slug || "") + "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const table = ((bb.table || "") + "").replace(/[^a-z0-9_]/gi, "").slice(0, 41);
+      if (!slug || !table) return Response.json({ ok: false, error: "missing slug or table" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        const def = tableDef(spec, table);
+        if (!def) return Response.json({ ok: false, error: "not an importable table" }, { status: 404 }); // blocks _users/_meta
+        const tn = sqlIdent(table);
+        const managed = new Set(["id", "created_at", "owner_id"]);
+        const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+        const colIndex = {}; for (const c of allow) colIndex[String(c).toLowerCase()] = c; // header → real col, case-insensitive
+        let objs = [];
+        if (typeof bb.csv === "string" && bb.csv.trim()) {
+          const grid = parseCsv(bb.csv).filter((r) => r.length && r.some((c) => String(c).trim() !== ""));
+          if (grid.length < 2) return Response.json({ ok: false, error: "need a header row plus at least one data row" }, { status: 400 });
+          const headers = grid[0].map((h) => String(h).trim());
+          for (const r of grid.slice(1, 2001)) { const o = {}; headers.forEach((h, idx) => { o[h] = r[idx]; }); objs.push(o); }
+        } else if (Array.isArray(bb.rows)) {
+          objs = bb.rows.slice(0, 2000).filter((o) => o && typeof o === "object" && !Array.isArray(o));
+        } else {
+          return Response.json({ ok: false, error: "provide csv text or a rows array" }, { status: 400 });
+        }
+        let imported = 0, skipped = 0;
+        for (const o of objs) {
+          const use = [], vals = [];
+          for (const k of Object.keys(o)) { const c = colIndex[String(k).toLowerCase().trim()]; if (c && o[k] !== undefined && o[k] !== null && o[k] !== "") { use.push(c); vals.push(o[k]); } }
+          if (!use.length) { skipped++; continue; }
+          try { await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", vals); imported++; } catch { skipped++; }
+        }
+        return Response.json({ ok: true, imported, skipped, columns: allow });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner import failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "import failed" }, { status: 502 });
       }
     }
     // Owner data backup: snapshot ALL of a built app's declared data tables into a
