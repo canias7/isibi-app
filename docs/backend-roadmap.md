@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~52 / 93)
+## DONE (~53 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33).
 
 ---
 
@@ -65,7 +65,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Following/home feed (?following=1 on feed reads) (Batch 26)
 - [ ] Block another member
 - [ ] Report/flag content → moderation queue (owner review)
-- [ ] Polls (first-class, built on counters + one-per-user)
+- [x] Polls (first-class, one-per-user) (Batch 33)
 - [ ] Comment threading depth helper (relations exist — add depth/tree read)
 - [ ] Many-to-many join helper (declare a link table + `?via=`)
 - [x] Reverse-relation rollups (`?rollup=child:agg:col`) (Batch 30)

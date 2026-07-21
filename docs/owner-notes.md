@@ -327,6 +327,15 @@ slug/position/pinned) becomes that row's value; anything else is a literal. Asse
 written value of that name is ignored, always recomputed). NULLs → "". Carried via
 coerceTable + norm. Roadmap tally: ~52/93.
 
+## 2026-07-21 — Batch 33: NEW LAYER Polls (offline 9/9) ✅ built
+
+One-vote-per-member polls (mirrors reactions). New `_polls (poll, option, user_id,
+PK(poll,user_id))` — re-voting UPDATES the member's option (real one-per-user):
+- `POST /api/db/<slug>/poll/<poll>/<option>` (auth) → cast/change → `{counts, total, mine}`.
+- `GET …/poll/<poll>` → tally (Bearer → mine); `DELETE …/poll/<poll>` (auth) → withdraw.
+Helpers ensurePolls/pollState/votePoll/unvotePoll. poll + options are app strings. One
+BACKEND_RULES line (after REACTIONS). Roadmap tally: ~53/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

@@ -3262,6 +3262,34 @@ async function reportState(env, uuid, target, userId) {
   if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
   return { count: (cnt[0] && cnt[0].n) || 0, mine };
 }
+// Polls — one vote per member per poll (change your vote by voting again). A poll is any
+// string id (e.g. `best-logo` or `question:${id}`); options are app-defined strings. Stored
+// in `_polls` with PK (poll, user_id), so re-voting UPDATES the member's choice — real
+// one-per-user tallies. Ensured once per isolate.
+const _pollsReady = new Set();
+async function ensurePolls(env, uuid) {
+  if (_pollsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _polls (poll TEXT NOT NULL, option TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (poll, user_id))");
+  _pollsReady.add(uuid);
+}
+async function pollState(env, uuid, poll, userId) {
+  await ensurePolls(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT option, COUNT(*) AS n FROM _polls WHERE poll=? GROUP BY option", [poll]);
+  const counts = {}; let total = 0; for (const r of rows) { counts[r.option] = r.n; total += r.n; }
+  let mine = null;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT option FROM _polls WHERE poll=? AND user_id=?", [poll, userId]); mine = m[0] ? m[0].option : null; }
+  return { counts, total, mine };
+}
+async function votePoll(env, uuid, poll, option, userId) {
+  await ensurePolls(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _polls (poll,option,user_id,created_at) VALUES (?,?,?,?) ON CONFLICT(poll,user_id) DO UPDATE SET option=excluded.option, created_at=excluded.created_at", [poll, option, userId, new Date().toISOString()]);
+  return pollState(env, uuid, poll, userId);
+}
+async function unvotePoll(env, uuid, poll, userId) {
+  await ensurePolls(env, uuid);
+  await cfD1Query(env, uuid, "DELETE FROM _polls WHERE poll=? AND user_id=?", [poll, userId]);
+  return pollState(env, uuid, poll, userId);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6797,6 +6825,30 @@ async function handleRequest(request, env, ctx) {
           const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
           return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
         } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
+      }
+      // Polls — one vote per member (change by re-voting). Poll + options are app strings.
+      //   GET    /api/db/<slug>/poll/<poll>           → {counts:{option:n}, total, mine}
+      //   POST   /api/db/<slug>/poll/<poll>/<option>  → cast/change vote (auth) → state
+      //   DELETE /api/db/<slug>/poll/<poll>           → withdraw your vote (auth) → state
+      const plm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/poll\/([a-z0-9_.:-]{1,80})(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (plm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = plm[1].toLowerCase(), poll = plm[2].toLowerCase(), option = (plm[3] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|plr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, poll }, await pollState(env, uuid, poll, userId))); }
+          if (!userId) return Response.json({ ok: false, error: "sign in to vote" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|plw", 120)) return tooMany();
+          if (request.method === "DELETE") return Response.json(Object.assign({ ok: true, poll }, await unvotePoll(env, uuid, poll, userId)));
+          if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
+          return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
+        } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
       }
       // Content reports / flags + moderation queue.
       //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
