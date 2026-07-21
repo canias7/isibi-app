@@ -384,6 +384,23 @@ RFC-4180 escaping (`"` doubled, quoted when it contains comma/quote/newline), CR
 JSON = array (json columns parsed). Cap 50k rows. Complements the existing OWNER-side
 `/api/site/backend/export`. Roadmap tally: ~59/93.
 
+## 2026-07-21 — Batch 39: NEW LAYER Presence / who's-online (offline 10/10) ✅ built
+
+`_presence (user_id PK, at)`: `POST /presence` (auth heartbeat), `GET /presence[?within=5]`
+→ members pinged in the last N min (joined to profiles), `GET /presence/<userId>` →
+`{online, last_seen}`. Online = `datetime(at) > datetime('now','-N minutes')` (node:sqlite
+supports the modifier). within capped 1–60. Helpers ensurePresence/touchPresence/onlineList/
+presenceOf. One BACKEND_RULES line. Roadmap tally: ~60/93.
+
+## 2026-07-21 — Batch 40: Row history + revert ("history":true) (offline 12/12) ✅ built
+
+Table flag → a BEFORE UPDATE trigger snapshots the OLD data columns as JSON (`json_object(
+'col', OLD."col", …)`) into a shared `_history` on every edit — no write-path plumbing.
+`history`/`revert` added to the rows sub-route regex. The row's OWNER (feed/user) or an admin
+reads `GET /rows/<t>/<id>/history` (newest-first) and restores via `POST /rows/<t>/<id>/revert/
+<historyId>` (restores the snapshot's declared columns; the revert UPDATE itself re-snapshots,
+so it's undoable). Carried via coerceTable + norm. Roadmap tally: ~61/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
