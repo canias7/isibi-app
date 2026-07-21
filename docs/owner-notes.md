@@ -37,6 +37,28 @@ Progress: ~8 of 93 roadmap items shipped. 🔑-flagged items (OAuth, SMS, web pu
 Stripe extensions) will need the owner's provider keys for live verification — batched
 toward the end.
 
+**Batches 4–8 (all shipped + verified live, no keys):**
+- **Batch 4 — bulk update/delete by filter** (PR #538, 14/14): `PATCH`/`DELETE
+  /rows/<t>?where=…` acts on every matching row → `{updated/deleted:N}`. Rails: a
+  filter is REQUIRED, capped 1000/call, scoped to own rows (feed/user), trash-aware.
+- **Batch 5 — password strength + block/ban** (PR #539, 15/15): signup rejects weak
+  passwords; `_users.blocked` (owner endpoint `/api/site/backend/member` block|unblock|
+  make_admin|remove_admin) — blocked can't log in + kicked on next `/auth/me`.
+- **Batch 6 — in-app notifications** (PR #540, 14/14): per-app `_notifications`, member
+  reads own inbox `GET …/notifications[?unread=1]` + `/read` + `/read-all`; created
+  server-side ONLY via a `{do:notify,to,type,text,link}` function step (usually an
+  on-insert trigger). Completes the social stack (profiles+reactions+tags+notifications).
+- **Batch 7 — invite-only signup** (PR #541, 13/13): owner endpoint
+  `/api/site/backend/invites` enable|disable|create(count,uses)|list|revoke; signup
+  requires a valid `invite` code (atomic redeem) except the bootstrap admin →
+  403 `{need:'invite'}`.
+- **Batch 8 — cursor pagination** (this PR): keyset `?after=<lastRowId>` / `?before=`
+  for stable "load more" on big lists (alongside limit/offset).
+
+Also a mid-run **security review** (PR #534) over batches' new code: no injection/
+authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
+~21 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

@@ -3111,10 +3111,20 @@ function buildD1List(url, tn, allowCols, base) {
     for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
     orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
   }
+  // Keyset (cursor) pagination for endless "load more" over big/growing lists —
+  // stable and faster than large OFFSETs. `?after=<id>` returns rows OLDER than that
+  // id (id < after — pairs with the default newest-first order); `?before=<id>` the
+  // newer side (id > before). The client just passes the last row's id as the next
+  // `after`. Ignored alongside a relevance sort. `where`/`q`/sort still apply.
+  let pageWhere = f.whereSql, pageParams = f.params.slice();
+  const after = parseInt(url.searchParams.get("after") || "", 10);
+  const before = parseInt(url.searchParams.get("before") || "", 10);
+  if (Number.isFinite(after) && after > 0) { pageWhere += (pageWhere ? " AND " : " WHERE ") + "id < ?"; pageParams.push(after); }
+  else if (Number.isFinite(before) && before > 0) { pageWhere += (pageWhere ? " AND " : " WHERE ") + "id > ?"; pageParams.push(before); }
   return {
-    sql: "SELECT * FROM " + tn + f.whereSql + " ORDER BY " + orderSql + " LIMIT ? OFFSET ?",
-    params: f.params.concat(rankParams, [lim, off]),
-    countSql: "SELECT COUNT(*) AS n FROM " + tn + f.whereSql,
+    sql: "SELECT * FROM " + tn + pageWhere + " ORDER BY " + orderSql + " LIMIT ? OFFSET ?",
+    params: pageParams.concat(rankParams, [lim, off]),
+    countSql: "SELECT COUNT(*) AS n FROM " + tn + f.whereSql, // total is the FULL filtered count, not the page
     countParams: f.params.slice(),
   };
 }
