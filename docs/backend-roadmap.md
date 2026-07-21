@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~58 / 93)
+## DONE (~59 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38).
 
 ---
 
@@ -45,7 +45,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Row history / change snapshots (per-row versions, revert)
 - [x] Settings / config KV per app (`/api/db/<slug>/config`) + feature flags (Batch 23)
 - [x] Feature flags per app (subsumed by config KV, Batch 23)
-- [ ] CSV export (`/api/site/backend/export?format=csv`; JSON export exists)
+- [x] CSV/JSON export (GET /api/db/<slug>/export/<table>) (Batch 38)
 - [ ] CSV/JSON import mapping niceties (import exists — add column mapping)
 - [ ] Data seeding endpoint (owner seeds demo rows)
 - [ ] Per-app rate-limit config (owner tunes the read/write caps)

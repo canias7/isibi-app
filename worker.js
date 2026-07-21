@@ -7034,6 +7034,40 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, id: rid, status });
         } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
       }
+      // Data export (ADMIN) — download a table as CSV (default) or JSON.
+      //   GET /api/db/<slug>/export/<table>[?format=csv|json&limit=N]
+      const exm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/export\/([a-z_][a-z0-9_]{0,40})$/i);
+      if (exm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = exm[1].toLowerCase(), table = exm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          if (!rateOk(slug + "|" + ip + "|expr", 30)) return tooMany();
+          const lim = Math.min(50000, Math.max(1, parseInt(url.searchParams.get("limit") || "10000", 10) || 10000));
+          const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT ?", [lim]);
+          parseJsonRows(def, rows);
+          const fmt = (url.searchParams.get("format") || "csv").toLowerCase();
+          if (fmt === "json") return new Response(JSON.stringify(rows), { headers: { "content-type": "application/json; charset=utf-8", "content-disposition": 'attachment; filename="' + table + '.json"' } });
+          // CSV — union of keys across rows; RFC-4180 escaping.
+          const cols = []; const seen = new Set();
+          for (const r of rows) for (const k of Object.keys(r)) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+          const esc = (v) => { if (v == null) return ""; const s = typeof v === "object" ? JSON.stringify(v) : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+          const csv = [cols.join(",")].concat(rows.map((r) => cols.map((c) => esc(r[c])).join(","))).join("\r\n");
+          return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="' + table + '.csv"' } });
+        } catch (e) { console.error("export failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "export failed" }, { status: 502 }); }
+      }
       // Audit trail (ADMIN) — the write history of `audit:true` tables.
       //   GET /api/db/<slug>/audit[?table=<t>&action=insert|update|delete&limit=N]
       const aum = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit$/i);

@@ -376,6 +376,14 @@ audit[?table=&action=&limit=]`** (inline admin role check, newest-first, filtera
 Carried via coerceTable; triggers created in applySiteSchema after the ref-integrity block.
 Roadmap tally: ~58/93.
 
+## 2026-07-21 — Batch 38: Data export CSV/JSON (offline 11/11) ✅ built
+
+**`GET /api/db/<slug>/export/<table>[?format=csv|json&limit=N]`** (admin site-user) returns
+the table as a downloadable file (Content-Disposition attachment). CSV = union of keys +
+RFC-4180 escaping (`"` doubled, quoted when it contains comma/quote/newline), CRLF rows;
+JSON = array (json columns parsed). Cap 50k rows. Complements the existing OWNER-side
+`/api/site/backend/export`. Roadmap tally: ~59/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
