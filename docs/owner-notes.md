@@ -409,6 +409,14 @@ Private per-member named JSON query configs (saved searches, filter sets, dashbo
 ensureViews/saveView/listViews/getView/deleteView (mirrors the config KV pattern but per-user).
 One BACKEND_RULES line. Roadmap tally: ~62/93.
 
+## 2026-07-21 — Batch 42: Cascade onDelete modes (offline 8/8) ✅ built
+
+Column-level **`"onDelete"`** on a fk: `cascade` (default, existing behavior), `setNull` (keep
+children, null their fk), `restrict` (block the parent delete while children exist → 409
+`{code:'restrict'}`). Threaded via coerceCol → per-table `refModes` in norm → `childRefsOf`
+returns the mode → `cascadeDeleteRow` unlinks/deletes/refuses accordingly; restrict throws a
+tagged error mapped to 409 in the data-api catch. Roadmap tally: ~63/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
