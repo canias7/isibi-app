@@ -414,9 +414,29 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
   (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
   (#499)** · **Rate limiting ✅ (#500)** · **Validation ✅ (#501)** · **Multi-word search
-  ✅ (#502)** · **Observability ✅ (#503)**. Custom domains LAST (owner's call 2026-07-21
-  — "all of them, leave custom domains for last"; it needs the owner to enable Cloudflare
-  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  ✅ (#502)** · **Observability ✅ (#503)** · **Backup/restore ✅ (#504)**. Custom domains
+  LAST (owner's call 2026-07-21 — "all of them, leave custom domains for last"; it needs
+  the owner to enable Cloudflare custom hostnames + SSL at the account level, so it's
+  gated on infra, not code).
+  · **Backup/restore (#504) — data DR for built apps, VERIFIED live 11/11.** Owner
+    endpoints: `POST /api/site/backend/backup` snapshots ALL declared data tables into
+    one JSON in R2 (`backups/<slug>/<ts>.json`); `GET …/backups` lists them; `POST …/
+    restore {key}` DELETEs + reloads those tables from a snapshot, **preserving row ids
+    so relations survive**. `_users` is EXCLUDED (a restore can never wipe/expose
+    logins). Restore keys are prefix-scoped to the slug; site delete (single + account-
+    wide) sweeps `backups/<slug>/`. Owner-facing, no build-prompt change. **Proof (zero
+    AI/fal): 11/11** — backup counted 4 rows, listed, deleted all posts, restore brought
+    3 posts + 1 comment back with **id 1 preserved** so the comment still expand-joins
+    its post; no-auth→401, foreign-slug key→400. Cleaned up.
+    **NOT done (honest):** *build* versioning/rollback (keep last N published builds for
+    one-click rollback) — that's a publish-pipeline change, separate from this DATA
+    backup/restore. Parked as the remaining CI/CD piece.
+  · **GAP PASS COMPLETE (2026-07-21).** After the stack-category review, closed every
+    gap except DNS (owner's skip): rate-limiting #500, validation #501, search #502,
+    observability #503, backup/restore #504 — all verified live. Remaining knowns:
+    custom domains (infra), build-rollback (pipeline), email key (owner sets GO_FARTHER_
+    API_KEY → verify/reset emails go live), true FTS5 / Durable-Object realtime /
+    Analytics-Engine metrics (all "scale upgrades", current versions work).
   · **Observability (#503) — per-app request/error counts, VERIFIED live 9/10.** Every
     `/api/db/<slug>/*` response status is captured at the top-level handler, buffered
     in-isolate, batch-flushed (~every 10 hits) into the site's own D1 `_metrics` table
