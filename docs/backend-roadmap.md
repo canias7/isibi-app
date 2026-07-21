@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~39 / 93)
+## DONE (~42 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -28,10 +28,10 @@ pagination (8) · JSON columns (9) · faceted filters + counts (10) · schema-ev
 backfill (11) · auto-slugs (12) · custom roles/RBAC (13) · per-row sharing/ACL (14) ·
 optimistic concurrency (15).
 
-**Batches 16–20 (this session):** updated_at timestamps + `?fields` + `?count` (16) ·
+**Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23).
 
 ---
 
@@ -39,12 +39,12 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 
 ### A. Automatic / owner-facing (no keys) — do first
 - [x] Ordered lists / manual positions (`"ordered":true` + `/move` reorder) — kanban, todo order (Batch 20)
-- [ ] Row `pin`/`feature` flag + pinned-first ordering
+- [x] Row `pin`/`feature` flag + pinned-first ordering + per-table defaultSort (Batch 22)
 - [x] Expiring rows / TTL (`"expires":true`, auto-hidden past expires_at) — sales, stories, invites (Batch 21)
 - [ ] Audit log (owner-facing `_audit` of writes; `GET /api/site/backend/audit`)
 - [ ] Row history / change snapshots (per-row versions, revert)
-- [ ] Settings / config KV per app (`/api/site/backend/config` get/set)
-- [ ] Feature flags per app (owner toggles, app reads)
+- [x] Settings / config KV per app (`/api/db/<slug>/config`) + feature flags (Batch 23)
+- [x] Feature flags per app (subsumed by config KV, Batch 23)
 - [ ] CSV export (`/api/site/backend/export?format=csv`; JSON export exists)
 - [ ] CSV/JSON import mapping niceties (import exists — add column mapping)
 - [ ] Data seeding endpoint (owner seeds demo rows)
@@ -55,7 +55,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Computed/derived read columns (e.g. full_name = first || last)
 - [ ] Unique case-insensitive constraint
 - [ ] Cross-field validation rules (e.g. end_date > start_date)
-- [ ] Default sort per table (schema `"defaultSort"`)
+- [x] Default sort per table (`"defaultSort"`) (Batch 22)
 - [ ] Max-rows / quota per table (owner cap)
 - [ ] Soft "archive" state distinct from trash (status lifecycle helper)
 

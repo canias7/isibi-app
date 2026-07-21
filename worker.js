@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2802,6 +2802,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
+    if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2836,6 +2837,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
     }
     if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
+    if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2867,7 +2869,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3124,6 +3126,27 @@ async function followList(env, uuid, targetId, dir, limit) {
   const byId = new Map(profs.map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
+// App settings / config — a per-app key→value store (theme, hero text, feature flags,
+// toggles). Publicly READABLE (the app renders from it), ADMIN-only writable (only the
+// built app's admin changes settings). Values are stored as JSON so booleans/numbers/
+// objects round-trip. Stored in the site's own D1 `_config`, ensured once per isolate.
+const _configReady = new Set();
+async function ensureConfig(env, uuid) {
+  if (_configReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _config (k TEXT PRIMARY KEY, v TEXT, updated_at TEXT)");
+  _configReady.add(uuid);
+}
+function parseConfigVal(v) { if (v == null) return null; try { return JSON.parse(v); } catch { return v; } }
+async function readConfig(env, uuid, key) {
+  await ensureConfig(env, uuid);
+  if (key) { const r = await cfD1Query(env, uuid, "SELECT v FROM _config WHERE k=?", [key]); return r[0] ? parseConfigVal(r[0].v) : null; }
+  const rows = await cfD1Query(env, uuid, "SELECT k, v FROM _config");
+  const out = {}; for (const r of rows) out[r.k] = parseConfigVal(r.v); return out;
+}
+async function writeConfig(env, uuid, key, value) {
+  await ensureConfig(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _config (k,v,updated_at) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at", [key, JSON.stringify(value === undefined ? null : value), new Date().toISOString()]);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -3266,14 +3289,20 @@ function buildD1Filter(url, allowCols, base, extra) {
 // Build a filtered/sorted/paginated SELECT for a data-API list read: the filter above
 // plus `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`. Returns the row query + a
 // matching COUNT for {total}.
-function buildD1List(url, tn, allowCols, base, extra) {
+function buildD1List(url, tn, allowCols, base, extra, opts) {
+  opts = opts || {};
   const f = buildD1Filter(url, allowCols, base, extra);
   // Sort — supports a SINGLE column (`sort=price&order=asc`) OR MULTIPLE, comma-
   // separated with an optional per-column direction prefix: `sort=-price,created_at`
   // (price DESC, created_at using the default). No prefix → the `order` param (default
   // DESC). Each column is validated against the table's own columns; up to 4.
+  // A table can declare `defaultSort` (e.g. "-created_at") — used when the request sends
+  // no `sort` of its own, so a list has a sensible built-in order without every query
+  // asking for it.
   const globalDesc = !/^asc$/i.test(url.searchParams.get("order") || "");
-  const sortToks = (url.searchParams.get("sort") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
+  const sortParam = url.searchParams.get("sort");
+  const sortRaw = (sortParam != null && sortParam !== "") ? sortParam : (opts.defaultSort || "");
+  const sortToks = String(sortRaw).toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
   // When ANY column carries a direction prefix (`-`/`+`), an UNprefixed column defaults
   // to ASC (the prefix convention — `sort=status,-price` = status asc, price desc).
   // With no prefixes anywhere, every column follows the `order` param (default DESC),
@@ -3302,7 +3331,12 @@ function buildD1List(url, tn, allowCols, base, extra) {
   // `sort=random` (aliases rand/shuffle) → random order, for "discover"/"featured"/
   // "shuffle" surfaces. Overrides relevance/explicit sort. Not for pagination (each page
   // reshuffles) — pair with a small `limit` to pick N random rows.
-  if (/^(random|rand|shuffle)$/i.test((url.searchParams.get("sort") || "").trim())) orderSql = "RANDOM()";
+  if (/^(random|rand|shuffle)$/i.test(String(sortRaw).trim())) orderSql = "RANDOM()";
+  // Pinned / featured first — on a `pinnable` table, rows with pinned=1 float to the top
+  // of EVERY order (sticky posts, featured products), then the normal order (or shuffle)
+  // applies within each group. `pinned` is a real app-set column, so `?sort=pinned` and
+  // `where=pinned:eq:1` also work.
+  if (opts.pinCol && f.filterable.has(String(opts.pinCol).toLowerCase())) orderSql = sqlIdent(opts.pinCol) + " DESC, " + orderSql;
   // Keyset (cursor) pagination for endless "load more" over big/growing lists —
   // stable and faster than large OFFSETs. `?after=<id>` returns rows OLDER than that
   // id (id < after — pairs with the default newest-first order); `?before=<id>` the
@@ -6551,6 +6585,44 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
         }
       }
+      // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
+      //   GET    /api/db/<slug>/config          → {config:{k:value}}
+      //   GET    /api/db/<slug>/config/<key>    → {key, value}
+      //   POST   /api/db/<slug>/config/<key> {value}  → set (admin site-user)
+      //   DELETE /api/db/<slug>/config/<key>   → remove (admin)
+      const gm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/config(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (gm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gm[1].toLowerCase(), key = (gm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cfgr", 300)) return tooMany();
+            if (key) return Response.json({ ok: true, key, value: await readConfig(env, uuid, key) });
+            return Response.json({ ok: true, config: await readConfig(env, uuid) });
+          }
+          // writes require an admin site-user (only the app's admin changes settings)
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!key) return Response.json({ ok: false, error: "config key required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|cfgw", 120)) return tooMany();
+          if (request.method === "DELETE") { await ensureConfig(env, uuid); await cfD1Query(env, uuid, "DELETE FROM _config WHERE k=?", [key]); return Response.json({ ok: true, key, deleted: true }); }
+          let body = {}; try { body = await request.json(); } catch {}
+          const value = body && Object.prototype.hasOwnProperty.call(body, "value") ? body.value : body;
+          await writeConfig(env, uuid, key, value);
+          return Response.json({ ok: true, key, value: await readConfig(env, uuid, key) });
+        } catch (e) {
+          console.error("config failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "config failed" }, { status: 502 });
+        }
+      }
       // In-app notification inbox (the signed-in member's OWN notifications):
       //   GET  /api/db/<slug>/notifications[?unread=1&limit=N] → {rows, unread}
       //   POST /api/db/<slug>/notifications/<id>/read           → mark one read
@@ -6657,6 +6729,9 @@ async function handleRequest(request, env, ctx) {
           // `expires_at` is platform-added but APP-SET (the app chooses when a row expires),
           // so it's writable + queryable + sortable like a normal column on expiring tables.
           if (def.expires && !allow.some((c) => String(c).toLowerCase() === "expires_at")) allow.push("expires_at");
+          // `pinned` is platform-added but APP-SET (the app marks featured rows), so it's
+          // writable + queryable + sortable like a normal column on pinnable tables.
+          if (def.pinnable && !allow.some((c) => String(c).toLowerCase() === "pinned")) allow.push("pinned");
           const tn = sqlIdent(table);
           // Identify the logged-in visitor (site-user token), if any.
           let userId = null;
@@ -6679,6 +6754,9 @@ async function handleRequest(request, env, ctx) {
           // (so `?sort=position`, `?sort=updated_at`, `?sort=_version` work even though they
           // aren't app-declared columns).
           const listExtras = [].concat(def.ordered ? ["position"] : [], def.timestamps ? ["updated_at"] : [], def.version ? ["_version"] : []);
+          // List-ordering options for this table: pinned-first (if pinnable) and a built-in
+          // defaultSort used when the request sends no sort of its own.
+          const listOpts = { pinCol: def.pinnable ? "pinned" : null, defaultSort: def.defaultSort || null };
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
             const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
@@ -6995,7 +7073,7 @@ async function handleRequest(request, env, ctx) {
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras, listOpts);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -7019,7 +7097,7 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -7057,7 +7135,7 @@ async function handleRequest(request, env, ctx) {
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -7105,7 +7183,7 @@ async function handleRequest(request, env, ctx) {
               if (!ids.length) return Response.json({ ok: true, rows: [], total: 0 });
               base = { clause: "id IN (" + ids.map(() => "?").join(",") + ")", params: ids };
             } else base = { clause: "owner_id=?", params: [userId] };
-            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(base)), listExtras);
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(base)), listExtras, listOpts);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);

@@ -217,6 +217,29 @@ Flash sales, 24h stories, one-time invites, temp share links:
   (covers list/stats/facets/bulk/single-GET at once). Trash behavior unchanged (reg 4/4).
 BACKEND_RULES: one new line (after ORDERED LISTS). Roadmap tally: ~39/93.
 
+## 2026-07-21 — Batch 22: pinned/featured rows + per-table defaultSort (offline 8/8) ✅ built, PR
+
+Both are list-ordering defaults, localized to `buildD1List` (via a new `opts` param):
+- **`"pinnable":true`** → adds a `pinned` INTEGER (app-set, added to the writable/queryable/
+  sortable allow list); pinned rows float to the TOP of every order (`pinned DESC` prepended
+  to orderSql), sticky posts / featured products. Survives explicit sorts and shuffle.
+- **`"defaultSort":"-created_at"`** (sanitized string, same prefix convention as `?sort`) →
+  used when the request sends no `sort`; per-query `?sort` still overrides. Threaded through
+  coerceTable/norm.
+This is the first batch of the post-merge run (16–21 merged to main via #551). Opens a new PR.
+Roadmap tally: ~40/93.
+
+## 2026-07-21 — Batch 23: NEW LAYER App settings / config KV (offline 15/15) ✅ built, PR #552
+
+Every app needs a settings/feature-flag store (theme, hero text, toggles). Self-contained
+like Counters — new `_config (k,v,updated_at)` table per site D1:
+- `GET /api/db/<slug>/config` → `{config:{k:value}}` · `GET …/config/<key>` → `{value}`
+  (PUBLIC — the app renders from it).
+- `POST …/config/<key> {value}` / `DELETE …/config/<key>` — **admin site-user only** (role
+  check inline). Values stored as JSON so booleans/numbers/objects round-trip.
+Helpers `ensureConfig`/`readConfig`/`writeConfig`/`parseConfigVal`. Subsumes "feature flags"
+(a config bool). BACKEND_RULES: one line (after FOLLOWS). Roadmap tally: ~42/93. On PR #552.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
