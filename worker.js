@@ -2741,7 +2741,23 @@ function normalizeSchema(spec) {
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
   else if (t && typeof t === "object") Object.entries(t).forEach(([n, def]) => coerceTable(n, def));
-  return { tables: out };
+  // Per-app rate-limit config — the owner tunes the data API's per-IP caps (requests
+  // per minute) for reads and writes; `{read, write}` (aliases rateLimits/rate/
+  // apiRateLimit, a bare number = both). Clamped to sane bounds; absent → platform
+  // defaults (300 read / 60 write). Threaded through to the persisted schema so it's
+  // loaded with the spec (no extra per-request read).
+  const rlSrc = spec.rateLimits || spec.rate || spec.apiRateLimit || spec.rateLimit;
+  let rateLimits = null;
+  if (rlSrc != null) {
+    const clamp = (v) => { const n = parseInt(v, 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 100000) : 0; };
+    if (typeof rlSrc === "number" || typeof rlSrc === "string") { const b = clamp(rlSrc); if (b) rateLimits = { read: b, write: b }; }
+    else if (typeof rlSrc === "object" && !Array.isArray(rlSrc)) {
+      const read = clamp(rlSrc.read != null ? rlSrc.read : rlSrc.get);
+      const write = clamp(rlSrc.write != null ? rlSrc.write : (rlSrc.post != null ? rlSrc.post : rlSrc.mutate));
+      if (read || write) rateLimits = { read: read || 0, write: write || 0 };
+    }
+  }
+  return rateLimits ? { tables: out, rateLimits } : { tables: out };
 }
 async function applySiteSchema(env, uuid, spec) {
   spec = normalizeSchema(spec);
@@ -2982,6 +2998,7 @@ async function applySiteSchema(env, uuid, spec) {
   // ones are preserved. (A revise cannot silently drop a table this way.)
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
   let mergedTables = norm;
+  let rateLimits = spec.rateLimits || null; // this run's per-app rate config (if any)
   try {
     const prev = await loadSiteSchema(env, uuid);
     if (prev && Array.isArray(prev.tables) && prev.tables.length) {
@@ -2990,8 +3007,10 @@ async function applySiteSchema(env, uuid, spec) {
       for (const t of norm) byName.set(String(t.name).toLowerCase(), t); // this run overrides
       mergedTables = Array.from(byName.values());
     }
+    if (!rateLimits && prev && prev.rateLimits) rateLimits = prev.rateLimits; // preserve prior tuning when unspecified
   } catch {}
-  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify({ tables: mergedTables })]);
+  const metaOut = { tables: mergedTables }; if (rateLimits) metaOut.rateLimits = rateLimits;
+  await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('schema', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [JSON.stringify(metaOut)]);
   return made;
 }
 // Load the persisted access rules for a site's tables (from its own _meta.schema).
@@ -3284,6 +3303,32 @@ async function readConfig(env, uuid, key) {
 async function writeConfig(env, uuid, key, value) {
   await ensureConfig(env, uuid);
   await cfD1Query(env, uuid, "INSERT INTO _config (k,v,updated_at) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at", [key, JSON.stringify(value === undefined ? null : value), new Date().toISOString()]);
+}
+// API keys for app-to-app / server-to-server access — an admin mints a long-lived
+// secret that another server presents as `X-API-Key` to the data API instead of a
+// site-user login. Each key is BOUND to the minting admin's user id, so it inherits
+// that member's identity + role through the normal authz path (no special-casing).
+// Only a SHA-256 hash is stored (like passwords); the plaintext is shown once at mint.
+// Stored in the site's own D1 `_apikeys`, ensured once per isolate.
+const _apiKeysReady = new Set();
+async function ensureApiKeys(env, uuid) {
+  if (_apiKeysReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _apikeys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT UNIQUE NOT NULL, prefix TEXT, label TEXT, user_id INTEGER, created_at TEXT, last_used TEXT, revoked INTEGER DEFAULT 0)");
+  _apiKeysReady.add(uuid);
+}
+// Resolve an X-API-Key header to the member id it acts as (or null). Non-throwing;
+// bumps last_used opportunistically so the owner can spot stale keys.
+async function resolveApiKeyUser(env, ctx, uuid, request) {
+  const raw = (request.headers.get("X-API-Key") || request.headers.get("x-api-key") || "").trim();
+  if (!raw || !/^sk_[a-z0-9]{24,64}$/i.test(raw)) return null;
+  try {
+    await ensureApiKeys(env, uuid);
+    const hash = await sha256hex(raw);
+    const r = await cfD1Query(env, uuid, "SELECT id, user_id, revoked FROM _apikeys WHERE key_hash=?", [hash]);
+    if (!r[0] || r[0].revoked) return null;
+    if (ctx && ctx.waitUntil) ctx.waitUntil(cfD1Query(env, uuid, "UPDATE _apikeys SET last_used=? WHERE id=?", [new Date().toISOString(), r[0].id]).catch(() => {}));
+    return r[0].user_id || null;
+  } catch { return null; }
 }
 // Content reports / flags → a moderation queue. A member flags a row (target `<table>:<id>`)
 // with a reason; the app's ADMIN reviews the queue and resolves/dismisses. Deduped per
@@ -7655,6 +7700,57 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "config failed" }, { status: 502 });
         }
       }
+      // API keys for app-to-app access — an ADMIN site-user mints long-lived secret keys
+      // that another server presents as `X-API-Key` to the data API (instead of a login).
+      // Each key is bound to the minting admin's identity, so it inherits that role. Only
+      // a hash is stored; the plaintext `sk_…` is returned ONCE at mint time.
+      //   GET    /api/db/<slug>/apikeys            → {keys:[{id,label,prefix,created_at,last_used,revoked}]} (admin)
+      //   POST   /api/db/<slug>/apikeys {label?}   → {id, key:"sk_…"} shown once (admin)
+      //   DELETE /api/db/<slug>/apikeys/<id>       → revoke (admin)
+      const akm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/apikeys(?:\/(\d+))?$/i);
+      if (akm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = akm[1].toLowerCase(), keyId = akm[2] ? parseInt(akm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|akw", 60)) return tooMany();
+        // Managing keys requires an ADMIN site-user (mirrors config writes).
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureApiKeys(env, uuid);
+          if (request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, label, prefix, created_at, last_used, revoked FROM _apikeys ORDER BY id DESC LIMIT 200");
+            return Response.json({ ok: true, keys: rows.map((r) => Object.assign(r, { revoked: !!r.revoked })) });
+          }
+          if (request.method === "DELETE") {
+            if (!(keyId > 0)) return Response.json({ ok: false, error: "key id required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _apikeys SET revoked=1 WHERE id=?", [keyId]);
+            return ex.changes > 0 ? Response.json({ ok: true, id: keyId, revoked: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          // POST — mint
+          let body = {}; try { body = await request.json(); } catch {}
+          const label = String(body.label || "").replace(/[\r\n]+/g, " ").slice(0, 80) || null;
+          const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _apikeys WHERE revoked=0");
+          if (cnt[0] && cnt[0].n >= 50) return Response.json({ ok: false, error: "too many active keys (max 50) — revoke some first" }, { status: 400 });
+          const rand = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
+          const plain = "sk_" + rand; // 48 hex chars after the prefix
+          const hash = await sha256hex(plain);
+          const prefix = plain.slice(0, 10); // shown in listings so keys are identifiable
+          await cfD1Query(env, uuid, "INSERT INTO _apikeys (key_hash, prefix, label, user_id, created_at, revoked) VALUES (?,?,?,?,?,0)", [hash, prefix, label, userId, new Date().toISOString()]);
+          const idr = await cfD1Query(env, uuid, "SELECT id FROM _apikeys WHERE key_hash=?", [hash]);
+          return Response.json({ ok: true, id: idr[0] && idr[0].id, key: plain, label, note: "Copy this key now — it won't be shown again." });
+        } catch (e) {
+          console.error("apikeys failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "apikeys failed" }, { status: 502 });
+        }
+      }
       // Mentions → notifications — a member @mentions others in a post/comment; the app
       // detects the handles client-side and calls this with the mentioned user ids, which
       // drops a "mention" notification into each one's inbox. Capped (≤10/call), rate-limited,
@@ -7791,9 +7887,13 @@ async function handleRequest(request, env, ctx) {
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
         const rlIp = request.headers.get("CF-Connecting-IP") || "0";
-        if (!rateOk(slug + "|" + rlIp + "|" + (method === "GET" ? "r" : "w"), method === "GET" ? 300 : 60)) return tooMany();
         try {
           const spec = await loadSiteSchema(env, uuid);
+          // Per-IP data-API throttle. Owner-tunable per app via schema `rateLimits`
+          // ({read,write} req/min); falls back to the platform defaults (300/60).
+          const appRl = spec && spec.rateLimits ? spec.rateLimits : null;
+          const rlCap = method === "GET" ? ((appRl && appRl.read) || 300) : ((appRl && appRl.write) || 60);
+          if (!rateOk(slug + "|" + rlIp + "|" + (method === "GET" ? "r" : "w"), rlCap)) return tooMany();
           const def = tableDef(spec, table);
           if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
           const access = def.access || "collect";
@@ -7813,6 +7913,11 @@ async function handleRequest(request, env, ctx) {
           let userId = null;
           const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          // App-to-app access — an `X-API-Key` (minted by an admin) authenticates the
+          // caller as the member the key is bound to, so it flows through the same
+          // per-access authz as a logged-in visitor. Only consulted when there's no
+          // site-user token, so a real login always wins.
+          if (!userId) { const kid = await resolveApiKeyUser(env, ctx, uuid, request); if (kid) userId = kid; }
           // Email-verification gate — on a `requireVerified:true` table, a signed-in member
           // must have confirmed their email before ANY write (single choke point covering
           // every write branch). Unverified → 403 {code:'unverified'}. Reads are unaffected.
