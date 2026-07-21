@@ -407,6 +407,21 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
 - **PLATFORM STACK — building out the layers every app needs (2026-07-20).** Model:
   the platform provides each backend layer as a ready primitive; the AI declares/
   wires it and the platform provisions+serves it (same as the DB does). Status:
+  · **QUALITY PASS (owner 2026-07-21, "do that better") — 3 things, not more breadth:**
+    (1) **BACKEND_RULES consolidation (#515):** the build prompt had grown to ~3900
+    tokens read on EVERY build (dilution + cost risk); rewrote it ~58% smaller (~1650
+    tokens) with ZERO capability lost — kept every endpoint/exact syntax + the critical
+    schema-mandatory + access-mode warnings, cut boilerplate fetch() examples; validation
+    folded into the column shape. Audited all 28 capability markers present. (2)
+    **Cascade delete (#516/#517) — VERIFIED live 11/11:** deleting a row (data API feed/
+    user/admin + owner editor) now also deletes its direct children (tables whose `ref`
+    points at it) so no orphans; ownership checked FIRST (gone/not-yours → 404, no phantom
+    cascade). **Honest transactions finding:** empirically confirmed **D1's HTTP /query
+    rejects multi-statement SQL + BEGIN/COMMIT**, so true multi-write ACID transactions
+    are NOT available for dynamic per-site DBs — cascade runs SEQUENTIAL children-first
+    deletes (a mid-failure can only leave a harmless childless parent, never an orphan).
+    So: the "transactions" gap is a genuine D1 platform limit, not a to-do. (3) Owner UI
+    for the ~11 backend-only endpoints = next.
   · **AI-as-a-primitive (#508) — built apps call an LLM, no key, VERIFIED live 15/15.**
     A built app adds real AI (chatbot, summarize, suggest-a-reply, categorize) with
     `POST /api/db/<slug>/ai {prompt,system?}` → `{ok,text}`, or an `{do:"ai"}` function
