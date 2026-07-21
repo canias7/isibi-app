@@ -2753,6 +2753,14 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
+    // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
+    // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
+    // trash would otherwise leave the newly-required platform columns missing — and its
+    // scoped writes / soft-deletes would silently fail. ADD COLUMN is idempotent here
+    // (a "duplicate column" error on a fresh table is swallowed), so re-declaring safely
+    // backfills owner_id / deleted_at onto a pre-existing table.
+    if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
+    if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
     // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
     // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
     //   unique: [...]      → a group of columns that must be globally unique
