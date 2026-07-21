@@ -2494,7 +2494,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2526,7 +2526,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
-    const colNames = []; const seen = new Set();
+    const colNames = []; const seen = new Set(); const refs = {};
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2544,13 +2544,17 @@ async function applySiteSchema(env, uuid, spec) {
       if (c.notnull || c.required) def += " NOT NULL";
       if (c.unique) def += " UNIQUE";
       cols.push(def); colNames.push(c.name);
+      // A declared foreign key (`ref`/`references`) is stored as metadata only — the
+      // column stays a plain integer id; the `expand` reader uses refs to join. Not a
+      // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
+      if (c.ref && SAFE_IDENT.test(String(c.ref))) refs[low] = String(c.ref);
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames });
+    norm.push({ name: t.name, access, columns: colNames, refs });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -2688,6 +2692,32 @@ function buildD1Stats(url, tn, allowCols, base) {
     sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql;
   }
   return { sql, params: f.params.slice(), wanted, groupCol };
+}
+// Relations: for a set of rows, `?expand=<fk_col>[,<fk_col>]` attaches each row's
+// referenced parent (declared via a column `ref`). Batched (one SELECT … WHERE id IN
+// per column, no N+1). SAFETY: a parent is only joined when the referenced table is
+// PUBLIC-READ (display/feed/admin) — never a `user`/`collect` table, so expand can't
+// leak private rows. Attached under the fk name minus a trailing `_id` (post_id →
+// `post`), else `<col>_ref`. Mutates + returns rows.
+async function expandRows(env, uuid, spec, def, rows, url) {
+  const want = String(url.searchParams.get("expand") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 4);
+  if (!want.length || !rows.length) return rows;
+  const refs = (def && def.refs) || {};
+  for (const col of want) {
+    const refTable = refs[col];
+    if (!refTable) continue;
+    const rdef = tableDef(spec, refTable);
+    if (!rdef) continue;
+    if (!["display", "feed", "admin"].includes(rdef.access || "collect")) continue; // public-read only
+    const ids = [...new Set(rows.map((r) => r[col]).filter((v) => v != null))].slice(0, 200);
+    if (!ids.length) continue;
+    let parents = [];
+    try { parents = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(refTable) + " WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { continue; }
+    const byId = new Map(parents.map((p) => [p.id, p]));
+    const key = /_id$/i.test(col) ? col.replace(/_id$/i, "") : col + "_ref";
+    for (const r of rows) r[key] = byId.get(r[col]) || null;
+  }
+  return rows;
 }
 // Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
 // requested aggregate families are present).
@@ -5160,6 +5190,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
+          const doExpand = (rows) => expandRows(env, uuid, spec, def, rows, url); // ?expand=<fk_col> joins the parent row(s)
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
@@ -5211,10 +5242,11 @@ async function handleRequest(request, env, ctx) {
 
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
             const b = buildD1List(url, tn, allow, null);
-            const r = await cfD1Query(env, uuid, b.sql, b.params);
+            let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+            r = await doExpand(r);
             return Response.json({ ok: true, rows: r, total });
           }
           if (access === "collect") {
@@ -5228,10 +5260,11 @@ async function handleRequest(request, env, ctx) {
             // Public READ (a shared feed/board/comments); a LOGGED-IN visitor may
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
               const b = buildD1List(url, tn, allow, null);
-              const r = await cfD1Query(env, uuid, b.sql, b.params);
+              let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+              r = await doExpand(r);
               return Response.json({ ok: true, rows: r, total });
             }
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
@@ -5260,10 +5293,11 @@ async function handleRequest(request, env, ctx) {
             // user whose role is 'admin' may write; admins manage ALL rows (not
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); return Response.json({ ok: true, row: r[0] || null }); }
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
               const b = buildD1List(url, tn, allow, null);
-              const r = await cfD1Query(env, uuid, b.sql, b.params);
+              let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+              r = await doExpand(r);
               return Response.json({ ok: true, rows: r, total });
             }
             if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
@@ -5292,10 +5326,11 @@ async function handleRequest(request, env, ctx) {
           // access === "user": requires login; every row scoped to owner_id.
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); return Response.json({ ok: true, row: r[0] }); }
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); await doExpand(r); return Response.json({ ok: true, row: r[0] }); }
             const b = buildD1List(url, tn, allow, { clause: "owner_id=?", params: [userId] });
-            const r = await cfD1Query(env, uuid, b.sql, b.params);
+            let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
+            r = await doExpand(r);
             return Response.json({ ok: true, rows: r, total });
           }
           if (method === "POST") {
