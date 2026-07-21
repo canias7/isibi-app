@@ -2699,7 +2699,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue) };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce) };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2763,7 +2763,15 @@ async function applySiteSchema(env, uuid, spec) {
       // Safely literalized: numbers as-is, booleans as 0/1, strings single-quote-escaped.
       if (c.default !== undefined && c.default !== null && !c.pk) {
         let dl = null;
-        if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
+        // Computed default tokens (dynamic per-insert): `@now`/`now`/`timestamp` →
+        // current datetime, `@today`/`today` → current date, `@uuid`/`uuid` → a random
+        // uuid-shaped id. Emitted as a SQL DEFAULT expression so the DB fills it when the
+        // writer omits the field (no insert-path plumbing). A bare literal string default
+        // still works for anything that isn't one of these reserved words.
+        const COMPUTED = { now: "(datetime('now'))", timestamp: "(datetime('now'))", today: "(date('now'))", uuid: "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(6))))" };
+        const tok = typeof c.default === "string" ? c.default.trim().toLowerCase().replace(/^@/, "") : null;
+        if (tok && COMPUTED[tok]) dl = COMPUTED[tok];
+        else if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
         else if (typeof c.default === "boolean") dl = c.default ? "1" : "0";
         else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
         if (dl != null) def += " DEFAULT " + dl;
@@ -2782,6 +2790,7 @@ async function applySiteSchema(env, uuid, spec) {
       const fmt = String(c.format || "").toLowerCase(); if (["email", "url", "number"].includes(fmt)) rule.format = fmt;
       if (Array.isArray(c.enum) && c.enum.length) rule.enum = c.enum.map((x) => String(x)).slice(0, 100);
       if (typeof c.pattern === "string" && c.pattern.length && c.pattern.length <= 300) rule.pattern = c.pattern;
+      if (c.immutable) rule.immutable = true; // write-once: set on insert, rejected on any later edit
       if (Object.keys(rule).length) rules[low] = rule;
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
@@ -3406,6 +3415,9 @@ function validateRow(def, body, isInsert) {
     const v = body ? body[col] : undefined;
     const present = v !== undefined && v !== null && !(typeof v === "string" && v.trim() === "");
     if (rule.required && isInsert && !present) return col + " is required";
+    // Write-once / immutable: settable on insert, but any UPDATE that carries the field
+    // is rejected (a client trying to change a locked value — an email, a created price).
+    if (rule.immutable && !isInsert && v !== undefined) return col + " can't be changed";
     if (!present) continue;
     if (rule.max && typeof v === "string" && v.length > rule.max) return col + " is too long (max " + rule.max + ")";
     if (rule.minLen && typeof v === "string" && v.length < rule.minLen) return col + " is too short (min " + rule.minLen + ")";
@@ -6672,6 +6684,7 @@ async function handleRequest(request, env, ctx) {
             const col = String(body.col || "").toLowerCase();
             if (!col || !allow.map((a) => String(a).toLowerCase()).includes(col)) return badReq("unknown column");
             if (!numSet.has(col)) return badReq("column is not numeric");
+            if (def.rules && def.rules[col] && def.rules[col].immutable) return badReq(col + " can't be changed");
             let by = Number(body.by); if (!Number.isFinite(by)) by = 1; by = Math.max(-1e9, Math.min(1e9, by));
             const hasFloor = body.min !== undefined && Number.isFinite(Number(body.min));
             const floor = hasFloor ? Number(body.min) : 0;

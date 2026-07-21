@@ -146,6 +146,23 @@ Three additive, mostly-automatic primitives (PR on `claude/chat-session-xy6jwe`)
   public-read children only (no private leak), trash-aware. Peer of `?children`.
 BACKEND_RULES got ONE tight combined line (prompt-bloat-aware). Roadmap tally: ~32/93.
 
+## 2026-07-21 — Batch 17: write integrity — immutable fields + computed defaults (offline 13/13) ✅ built, PR
+
+Two cohesive write-integrity primitives (same PR/branch):
+- **`"immutable":true`** (column flag; aliases readonly/readOnly/writeOnce) → write-once: a
+  field is settable on INSERT but any later edit that includes it → 400 "can't be changed".
+  Enforced in `validateRow` on `!isInsert` (covers single + bulk PATCH, both call it) and
+  in the `incr` path (an immutable numeric can't be incremented). Threaded via `coerceCol`
+  → `rules[col].immutable`. Use for an email, a created price, an order number.
+- **Computed default tokens** — a column `"default"` of `"@now"`/`"now"`/`"timestamp"` →
+  `datetime('now')`, `"@today"`/`"today"` → `date('now')`, `"@uuid"`/`"uuid"` → a random
+  uuid-shaped id. Emitted as a SQL DEFAULT *expression* in CREATE TABLE, so the DB fills it
+  when the writer omits the field — NO insert-path plumbing. A provided value still wins;
+  a plain literal default is unchanged (these words are reserved when used as a default).
+  Same ALTER caveat as updated_at (a table REVISED to add one gets it only on fresh CREATE).
+BACKEND_RULES: folded into the existing schema-column-rules line (no new bullet).
+Roadmap tally: ~34/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
