@@ -3463,6 +3463,26 @@ async function redeemCoupon(env, uuid, code) {
   const r = await cfD1Query(env, uuid, "SELECT discount FROM _coupons WHERE code=?", [code]);
   return { ok: true, discount: r[0] ? _parseDiscount(r[0].discount) : null };
 }
+// Shopping cart — a member's cart of items (`<table>:<id>` → quantity). One row per
+// (member,item) in `_cart`; setting qty≤0 removes. A ready cart so the app doesn't hand-roll
+// one; on checkout it reads the cart, prices it, and (once paid) writes an orders row + clears.
+const _cartReady = new Set();
+async function ensureCart(env, uuid) {
+  if (_cartReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _cart (user_id INTEGER NOT NULL, item TEXT NOT NULL, qty INTEGER NOT NULL DEFAULT 1, added_at TEXT, PRIMARY KEY (user_id, item))");
+  _cartReady.add(uuid);
+}
+async function setCartItem(env, uuid, userId, item, qty) {
+  await ensureCart(env, uuid);
+  if (qty <= 0) await cfD1Query(env, uuid, "DELETE FROM _cart WHERE user_id=? AND item=?", [userId, item]);
+  else await cfD1Query(env, uuid, "INSERT INTO _cart (user_id,item,qty,added_at) VALUES (?,?,?,?) ON CONFLICT(user_id,item) DO UPDATE SET qty=excluded.qty", [userId, item, qty, new Date().toISOString()]);
+}
+async function getCart(env, uuid, userId) {
+  await ensureCart(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT item, qty, added_at FROM _cart WHERE user_id=? ORDER BY added_at DESC", [userId]);
+  return rows.map((r) => { const i = String(r.item).indexOf(":"); return { item: r.item, table: i > 0 ? r.item.slice(0, i) : null, id: i > 0 ? parseInt(r.item.slice(i + 1), 10) : null, qty: r.qty, added_at: r.added_at }; });
+}
+async function clearCart(env, uuid, userId) { await ensureCart(env, uuid); await cfD1Query(env, uuid, "DELETE FROM _cart WHERE user_id=?", [userId]); }
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -7210,6 +7230,36 @@ async function handleRequest(request, env, ctx) {
           if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
+      // Shopping cart (private per member).
+      //   GET    /api/db/<slug>/cart              → {cart:[{item,table,id,qty,added_at}], count}
+      //   POST   /api/db/<slug>/cart/<item> {qty} → set quantity (qty≤0 removes) (auth)
+      //   DELETE /api/db/<slug>/cart/<item>       → remove one item (auth)
+      //   DELETE /api/db/<slug>/cart              → empty the cart (auth)
+      const crm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/cart(?:\/([a-z0-9_.:-]{1,80}))?$/i);
+      if (crm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = crm[1].toLowerCase(), item = (crm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|crr", 300)) return tooMany(); const cart = await getCart(env, uuid, userId); return Response.json({ ok: true, cart, count: cart.reduce((n, x) => n + (x.qty || 0), 0) }); }
+          if (!rateOk(slug + "|" + ip + "|crw", 200)) return tooMany();
+          if (request.method === "DELETE") { if (item) await setCartItem(env, uuid, userId, item, 0); else await clearCart(env, uuid, userId); return Response.json({ ok: true }); }
+          // POST — set qty
+          if (!item) return Response.json({ ok: false, error: "item required (<table>:<id>)" }, { status: 400 });
+          let body = {}; try { body = await request.json(); } catch {}
+          let qty = parseInt(body.qty, 10); if (!Number.isFinite(qty)) qty = 1; qty = Math.max(0, Math.min(qty, 100000));
+          await setCartItem(env, uuid, userId, item, qty);
+          const cart = await getCart(env, uuid, userId);
+          return Response.json({ ok: true, cart, count: cart.reduce((n, x) => n + (x.qty || 0), 0) });
+        } catch (e) { console.error("cart failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "cart failed" }, { status: 502 }); }
       }
       // Coupons / discount codes.
       //   GET    /api/db/<slug>/coupon/<code>          → {valid, discount, remaining} (validate, public)
