@@ -430,13 +430,31 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     its post; no-auth→401, foreign-slug key→400. Cleaned up.
     **NOT done (honest):** *build* versioning/rollback (keep last N published builds for
     one-click rollback) — that's a publish-pipeline change, separate from this DATA
-    backup/restore. Parked as the remaining CI/CD piece.
+    backup/restore. NOW BUILT as #506 (below).
+  · **Build rollback (#506) — revert a bad deploy, safety VERIFIED live 7/7.** Every
+    React publish (build + revise) archives its whole dist as one JSON snapshot in R2
+    (`builds/<slug>/<ts>.json`), keeps the newest 5. Owner endpoints: `GET …/builds`
+    lists snapshots newest-first; `POST …/rollback {key}` rewrites that snapshot's dist
+    to `sites/<slug>/` — the live site reverts in one call. Owner-scoped via the
+    generated source uid; keys prefix-scoped to the slug; delete sweeps `builds/<slug>/`.
+    Reverts what SERVES; source is unchanged so a later AI edit rebuilds from newest
+    (edit-after-rollback = roll forward — documented caveat). **Free safety proof: 7/7**
+    (builds/rollback on a non-owned or absent site → 401 before any R2 read; foreign-
+    slug key → 400; missing slug/key → 400; no-auth → 401). The FULL archive→rollback
+    cycle needs one real published build to seed a snapshot — owner chose NOT to spend
+    (~$0.05 Anthropic) on a test build 2026-07-21, so that half verifies on the next
+    real build. Owner-facing, no build-prompt change.
   · **GAP PASS COMPLETE (2026-07-21).** After the stack-category review, closed every
-    gap except DNS (owner's skip): rate-limiting #500, validation #501, search #502,
-    observability #503, backup/restore #504 — all verified live. Remaining knowns:
-    custom domains (infra), build-rollback (pipeline), email key (owner sets GO_FARTHER_
-    API_KEY → verify/reset emails go live), true FTS5 / Durable-Object realtime /
-    Analytics-Engine metrics (all "scale upgrades", current versions work).
+    backend gap except DNS (owner's skip): rate-limiting #500, validation #501, search
+    #502, observability #503, backup/restore #504, build-rollback #506 — all verified
+    live (rollback: safety only, per owner's no-spend call). Remaining knowns: custom
+    domains (infra), email key (owner sets GO_FARTHER_API_KEY → verify/reset emails go
+    live), true FTS5 / Durable-Object realtime / Analytics-Engine metrics (all "scale
+    upgrades", current versions work). **The backend stack is ~complete — flagged to
+    owner 2026-07-21 that the higher-value work now is (1) OWNER-FACING UI for the
+    backend-only endpoints (export/backup/restore/rollback/metrics have no button yet)
+    and (2) a BACKEND_RULES consolidation for build-prompt bloat. Next new-capability
+    candidate: AI-as-a-primitive (built apps call an LLM via the platform).**
   · **Observability (#503) — per-app request/error counts, VERIFIED live 9/10.** Every
     `/api/db/<slug>/*` response status is captured at the top-level handler, buffered
     in-isolate, batch-flushed (~every 10 hits) into the site's own D1 `_metrics` table
