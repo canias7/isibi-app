@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~40 / 93)
+## DONE (~42 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23).
 
 ---
 
@@ -43,8 +43,8 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Expiring rows / TTL (`"expires":true`, auto-hidden past expires_at) — sales, stories, invites (Batch 21)
 - [ ] Audit log (owner-facing `_audit` of writes; `GET /api/site/backend/audit`)
 - [ ] Row history / change snapshots (per-row versions, revert)
-- [ ] Settings / config KV per app (`/api/site/backend/config` get/set)
-- [ ] Feature flags per app (owner toggles, app reads)
+- [x] Settings / config KV per app (`/api/db/<slug>/config`) + feature flags (Batch 23)
+- [x] Feature flags per app (subsumed by config KV, Batch 23)
 - [ ] CSV export (`/api/site/backend/export?format=csv`; JSON export exists)
 - [ ] CSV/JSON import mapping niceties (import exists — add column mapping)
 - [ ] Data seeding endpoint (owner seeds demo rows)

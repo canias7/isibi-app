@@ -3126,6 +3126,27 @@ async function followList(env, uuid, targetId, dir, limit) {
   const byId = new Map(profs.map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
+// App settings / config — a per-app key→value store (theme, hero text, feature flags,
+// toggles). Publicly READABLE (the app renders from it), ADMIN-only writable (only the
+// built app's admin changes settings). Values are stored as JSON so booleans/numbers/
+// objects round-trip. Stored in the site's own D1 `_config`, ensured once per isolate.
+const _configReady = new Set();
+async function ensureConfig(env, uuid) {
+  if (_configReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _config (k TEXT PRIMARY KEY, v TEXT, updated_at TEXT)");
+  _configReady.add(uuid);
+}
+function parseConfigVal(v) { if (v == null) return null; try { return JSON.parse(v); } catch { return v; } }
+async function readConfig(env, uuid, key) {
+  await ensureConfig(env, uuid);
+  if (key) { const r = await cfD1Query(env, uuid, "SELECT v FROM _config WHERE k=?", [key]); return r[0] ? parseConfigVal(r[0].v) : null; }
+  const rows = await cfD1Query(env, uuid, "SELECT k, v FROM _config");
+  const out = {}; for (const r of rows) out[r.k] = parseConfigVal(r.v); return out;
+}
+async function writeConfig(env, uuid, key, value) {
+  await ensureConfig(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _config (k,v,updated_at) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at", [key, JSON.stringify(value === undefined ? null : value), new Date().toISOString()]);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6562,6 +6583,44 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("follow failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
+        }
+      }
+      // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
+      //   GET    /api/db/<slug>/config          → {config:{k:value}}
+      //   GET    /api/db/<slug>/config/<key>    → {key, value}
+      //   POST   /api/db/<slug>/config/<key> {value}  → set (admin site-user)
+      //   DELETE /api/db/<slug>/config/<key>   → remove (admin)
+      const gm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/config(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (gm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = gm[1].toLowerCase(), key = (gm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cfgr", 300)) return tooMany();
+            if (key) return Response.json({ ok: true, key, value: await readConfig(env, uuid, key) });
+            return Response.json({ ok: true, config: await readConfig(env, uuid) });
+          }
+          // writes require an admin site-user (only the app's admin changes settings)
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!key) return Response.json({ ok: false, error: "config key required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|cfgw", 120)) return tooMany();
+          if (request.method === "DELETE") { await ensureConfig(env, uuid); await cfD1Query(env, uuid, "DELETE FROM _config WHERE k=?", [key]); return Response.json({ ok: true, key, deleted: true }); }
+          let body = {}; try { body = await request.json(); } catch {}
+          const value = body && Object.prototype.hasOwnProperty.call(body, "value") ? body.value : body;
+          await writeConfig(env, uuid, key, value);
+          return Response.json({ ok: true, key, value: await readConfig(env, uuid, key) });
+        } catch (e) {
+          console.error("config failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "config failed" }, { status: 502 });
         }
       }
       // In-app notification inbox (the signed-in member's OWN notifications):

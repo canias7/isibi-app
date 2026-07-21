@@ -229,6 +229,17 @@ Both are list-ordering defaults, localized to `buildD1List` (via a new `opts` pa
 This is the first batch of the post-merge run (16–21 merged to main via #551). Opens a new PR.
 Roadmap tally: ~40/93.
 
+## 2026-07-21 — Batch 23: NEW LAYER App settings / config KV (offline 15/15) ✅ built, PR #552
+
+Every app needs a settings/feature-flag store (theme, hero text, toggles). Self-contained
+like Counters — new `_config (k,v,updated_at)` table per site D1:
+- `GET /api/db/<slug>/config` → `{config:{k:value}}` · `GET …/config/<key>` → `{value}`
+  (PUBLIC — the app renders from it).
+- `POST …/config/<key> {value}` / `DELETE …/config/<key>` — **admin site-user only** (role
+  check inline). Values stored as JSON so booleans/numbers/objects round-trip.
+Helpers `ensureConfig`/`readConfig`/`writeConfig`/`parseConfigVal`. Subsumes "feature flags"
+(a config bool). BACKEND_RULES: one line (after FOLLOWS). Roadmap tally: ~42/93. On PR #552.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
