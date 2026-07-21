@@ -420,8 +420,14 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     rejects multi-statement SQL + BEGIN/COMMIT**, so true multi-write ACID transactions
     are NOT available for dynamic per-site DBs — cascade runs SEQUENTIAL children-first
     deletes (a mid-failure can only leave a harmless childless parent, never an orphan).
-    So: the "transactions" gap is a genuine D1 platform limit, not a to-do. (3) Owner UI
-    for the ~11 backend-only endpoints = next.
+    So: the "transactions" gap is a genuine D1 platform limit, not a to-do. (3) **Owner
+    UI (#519):** wired 3 new More▸Cloud cards + on-brand glass modals — **Insights**
+    (visitor traffic by event + top pages from analytics, plus API request/error counts
+    from metrics), **Backups** (back-up-now + list + one-click restore, logins
+    untouched), **Versions** (list archived builds + one-click roll back). Screenshot
+    shown + approved. Endpoints were already live/verified — this is the missing UI.
+    Still backend-only (small follow-up): Export/Import buttons (belong in the Database
+    panel) + the AI test surface (no owner need — it's an app feature).
   · **AI-as-a-primitive (#508) — built apps call an LLM, no key, VERIFIED live 15/15.**
     A built app adds real AI (chatbot, summarize, suggest-a-reply, categorize) with
     `POST /api/db/<slug>/ai {prompt,system?}` → `{ok,text}`, or an `{do:"ai"}` function
