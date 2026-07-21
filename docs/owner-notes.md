@@ -424,6 +424,16 @@ make at most N writes/min to that table (anti-spam). Single choke point beside t
 requireVerified gate (POST/PATCH/DELETE, keyed `slug|urate|table|userId` through the existing
 `rateOk`); over the cap → 429. Carried via coerceTable + norm. Roadmap tally: ~64/93.
 
+## 2026-07-21 — Batch 44: Nearby / geo search (offline 9/9) ✅ built
+
+`GET /rows/<t>/near?lat=&lng=&radius=<km>[&limit=]` (added `near` to the rows sub-route group).
+Table declares `"geo":{"lat":"latitude","lng":"longitude"}` or auto-detects lat/lng(/lon/
+longitude). A SQL bounding-box prefilter (± radius/111.32°, lng adjusted by cos(lat), no trig
+needed) narrows candidates (cap 2000), then JS haversine filters to the exact radius, attaches
+`row._distance_km`, sorts nearest-first, pages. Respects read visibility + user scope. Gotcha
+fixed: `Number(null)===0` so missing lat/lng must be checked as empty, not via isFinite.
+Roadmap tally: ~65/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

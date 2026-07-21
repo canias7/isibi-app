@@ -2736,7 +2736,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2963,7 +2963,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, rateLimit: t.rateLimit || 0 });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, rateLimit: t.rateLimit || 0, geo: t.geo || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -7345,12 +7345,13 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
         const isFacets = dm[3] === "facets";
+        const isNear = dm[3] === "near";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -7358,7 +7359,7 @@ async function handleRequest(request, env, ctx) {
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
-        const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets", "near"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -7663,6 +7664,43 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, reverted: rowId, from: histId });
           }
 
+          // Nearby / geo search — GET /rows/<t>/near?lat=&lng=&radius=<km>[&limit=]. A cheap
+          // bounding-box prefilter in SQL (no trig needed) narrows candidates, then exact
+          // haversine distance in JS filters + sorts. Each row comes back with `_distance_km`.
+          // Table declares its coordinate columns as `"geo":{"lat":"latitude","lng":"longitude"}`
+          // (or auto-detects lat/lng). Same read visibility as the table.
+          if (isNear) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no read" }, { status: 403 });
+            const allowLC = allow.map((a) => String(a).toLowerCase());
+            let latCol = def.geo && def.geo.lat, lngCol = def.geo && def.geo.lng;
+            if (!latCol) latCol = ["lat", "latitude"].find((x) => allowLC.includes(x));
+            if (!lngCol) lngCol = ["lng", "lon", "long", "longitude"].find((x) => allowLC.includes(x));
+            if (!latCol || !lngCol || !allowLC.includes(latCol) || !allowLC.includes(lngCol)) return badReq("this table has no lat/lng columns (declare \"geo\":{lat,lng})");
+            const latRaw = url.searchParams.get("lat"), lngRaw = url.searchParams.get("lng");
+            const lat = (latRaw == null || latRaw === "") ? NaN : Number(latRaw);
+            const lng = (lngRaw == null || lngRaw === "") ? NaN : Number(lngRaw);
+            let radius = Number(url.searchParams.get("radius") || url.searchParams.get("km"));
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) return badReq("lat and lng required");
+            if (!Number.isFinite(radius) || radius <= 0) radius = 10;
+            radius = Math.min(radius, 20000);
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+            const dLat = radius / 111.32;
+            const dLng = radius / (111.32 * Math.max(0.01, Math.cos(lat * Math.PI / 180)));
+            let scopeSql = "", scopeParams = [];
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scopeSql = " AND owner_id=?"; scopeParams = [userId]; }
+            const latq = sqlIdent(latCol), lngq = sqlIdent(lngCol);
+            const box = latq + " BETWEEN ? AND ? AND " + lngq + " BETWEEN ? AND ?";
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + box + (visClause ? " AND " + visClause : "") + scopeSql + " LIMIT 2000", [lat - dLat, lat + dLat, lng - dLng, lng + dLng].concat(scopeParams));
+            const R = 6371; // km
+            const hav = (la1, lo1, la2, lo2) => { const p = Math.PI / 180; const a = 0.5 - Math.cos((la2 - la1) * p) / 2 + Math.cos(la1 * p) * Math.cos(la2 * p) * (1 - Math.cos((lo2 - lo1) * p)) / 2; return 2 * R * Math.asin(Math.sqrt(a)); };
+            const out = [];
+            for (const r of rows) { const rl = Number(r[latCol]), rg = Number(r[lngCol]); if (!Number.isFinite(rl) || !Number.isFinite(rg)) continue; const d = hav(lat, lng, rl, rg); if (d <= radius) { r._distance_km = Math.round(d * 100) / 100; out.push(r); } }
+            out.sort((a, b) => a._distance_km - b._distance_km);
+            const page = out.slice(0, lim);
+            await doExpand(page);
+            return Response.json({ ok: true, rows: page, total: out.length });
+          }
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
           // display/feed aggregate publicly over ALL rows; `user` aggregates only the
