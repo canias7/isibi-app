@@ -412,10 +412,21 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
-  (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)**. Custom domains LAST
-  (owner's call 2026-07-21 — "all of them, leave custom domains for last"; it needs the
-  owner to enable Cloudflare custom hostnames + SSL at the account level, so it's gated
-  on infra, not code).
+  (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
+  (#499)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
+  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
+  the account level, so it's gated on infra, not code).
+  · **Data export (#499) — owner downloads a built-app table, VERIFIED live 13/13.**
+    `GET /api/site/backend/export?slug=&table=&format=csv|json` streams the table as a
+    CSV or JSON attachment (backups, GDPR, analysis). isibi-authed + owner-scoped;
+    `_users` limited to safe cols (NEVER password hashes); cap 5000 rows; proper CSV
+    escaping. **Owner-facing — ZERO builder-rules cost** (doesn't touch the build
+    prompt; this is the "add capability without taxing every build" strategy from the
+    bloat note). **Proof (zero AI/fal): 13/13** — CSV with header + escaped tricky value
+    (comma/quote/newline → doubled quotes, wrapped), JSON array intact, `_users` export
+    carried role/verified but NO pass_hash/pass_salt, no-auth → 401, unknown table →
+    404. Cleaned up. **TODO (tiny, needs a screenshot):** add a ⤓ Export button to the
+    Data panel in the Cloud UI — endpoint's live, just no button yet.
   · **PROMPT-BLOAT NOTE (flagged to owner 2026-07-21):** every layer appends to
     BACKEND_RULES (fed to the AI on EVERY build), which is now long — costs input tokens
     per build + can dilute the important rules. Owner chose "keep adding layers" anyway,
