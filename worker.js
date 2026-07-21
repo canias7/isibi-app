@@ -2837,6 +2837,37 @@ function recordVisit(env, ctx, slug, event, path) {
   };
   if (ctx && ctx.waitUntil) ctx.waitUntil(run()); else run();
 }
+// Named counters — atomic, race-free tallies (likes, views, reactions, poll
+// options) that the read-modify-write of a normal row column can't do safely.
+// Stored in the site's own D1 `_counters`, ensured once per isolate. Unlike a row
+// write these are intentionally PUBLIC (an anonymous visitor can like/view), so
+// they live outside the access-mode model and are only rate-limited.
+const _countersReady = new Set();
+async function ensureCounters(env, uuid) {
+  if (_countersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _counters (name TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _countersReady.add(uuid);
+}
+// Atomic increment (or decrement) with a floor of 0, returning the NEW value.
+async function bumpCounter(env, uuid, name, by) {
+  await ensureCounters(env, uuid);
+  const now = new Date().toISOString();
+  const rows = await cfD1Query(
+    env, uuid,
+    "INSERT INTO _counters (name,n,updated_at) VALUES (?,?,?) ON CONFLICT(name) DO UPDATE SET n=MAX(0, n + ?), updated_at=? RETURNING n",
+    [name, Math.max(0, by), now, by, now],
+  );
+  return rows && rows[0] ? rows[0].n : null;
+}
+async function readCounter(env, uuid, name) {
+  await ensureCounters(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT n FROM _counters WHERE name=?", [name]);
+  return rows && rows[0] ? rows[0].n : 0;
+}
+async function readAllCounters(env, uuid) {
+  await ensureCounters(env, uuid);
+  return await cfD1Query(env, uuid, "SELECT name,n FROM _counters ORDER BY n DESC LIMIT 500");
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5378,7 +5409,10 @@ async function handleRequest(request, env, ctx) {
         try { rows = await cfD1Query(env, uuid, "SELECT day,event,path,n FROM _analytics WHERE day >= date('now', ?) ORDER BY day DESC, n DESC LIMIT 2000", ["-" + days + " days"]); } catch {}
         let total = 0; const byEvent = {}, byPath = {}, byDay = {};
         for (const r of rows) { const n = r.n || 0; total += n; byEvent[r.event] = (byEvent[r.event] || 0) + n; if (r.path) byPath[r.path] = (byPath[r.path] || 0) + n; byDay[r.day] = (byDay[r.day] || 0) + n; }
-        return Response.json({ ok: true, total, byEvent, byPath, byDay, rows });
+        // Named counters (likes/views/reactions/polls) live in the same D1 — surface
+        // them alongside analytics so the owner sees them in one place.
+        const counters = {}; try { const cr = await cfD1Query(env, uuid, "SELECT name,n FROM _counters ORDER BY n DESC LIMIT 500"); for (const r of cr) counters[r.name] = r.n; } catch {}
+        return Response.json({ ok: true, total, byEvent, byPath, byDay, rows, counters });
       } catch (e) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner analytics failed:", e && e.message, e && e.detail);
@@ -5753,6 +5787,39 @@ async function handleRequest(request, env, ctx) {
         const path = String((body && body.path) || "").replace(/[\n\r"]/g, "").slice(0, 120);
         recordVisit(env, ctx, slug, event, path);
         return Response.json({ ok: true });
+      }
+      // Named counters — likes / views / reactions / poll tallies. Public + atomic.
+      //   POST /api/db/<slug>/count/<name>[?by=N]  → increments (default +1, floored
+      //        at 0), returns {value}. GET /count/<name> → {value}. GET /count → all.
+      const cm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/count(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (cm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" } });
+        const slug = cm[1].toLowerCase(), name = (cm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cr", 300)) return tooMany();
+            if (name) return Response.json({ ok: true, name, value: await readCounter(env, uuid, name) });
+            const rows = await readAllCounters(env, uuid);
+            const counters = {}; for (const r of rows) counters[r.name] = r.n;
+            return Response.json({ ok: true, counters });
+          }
+          // POST — increment
+          if (!name) return Response.json({ ok: false, error: "counter name required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|cw", 120)) return tooMany();
+          let by = 1;
+          const qby = parseInt(url.searchParams.get("by") || "", 10);
+          if (Number.isFinite(qby)) by = qby;
+          else { try { const b = await request.json(); if (b && b.by != null && Number.isFinite(parseInt(b.by, 10))) by = parseInt(b.by, 10); } catch {} }
+          by = Math.max(-1000, Math.min(1000, by || 1));
+          return Response.json({ ok: true, name, value: await bumpCounter(env, uuid, name, by) });
+        } catch (e) {
+          console.error("counter failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "counter failed" }, { status: 502 });
+        }
       }
     }
     // Built-site password reset — step 2: set a new password with the token.
