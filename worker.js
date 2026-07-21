@@ -2549,6 +2549,49 @@ async function cfD1Exec(env, uuid, sql, params) {
   const first = Array.isArray(d.result) ? d.result[0] : d.result;
   return { results: (first && first.results) || [], changes: (first && first.meta && typeof first.meta.changes === "number") ? first.meta.changes : null };
 }
+// Run several statements in ONE D1 /query call (semicolon-joined, params flattened in
+// order). D1 executes a single query() call as one unit of work, so this is the closest
+// to a transaction the HTTP API gives for dynamic per-site DBs — used for cascade delete
+// (parent + its children together). Returns the raw result array. Throws on any error.
+async function cfD1Batch(env, uuid, stmts) {
+  const list = (stmts || []).filter((s) => s && s.sql);
+  if (!list.length) return [];
+  const sql = list.map((s) => s.sql).join(";\n");
+  const params = [];
+  for (const s of list) for (const p of (Array.isArray(s.params) ? s.params : [])) params.push(p);
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ sql, params: d1Params(params) }),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.success === false) { const e = new Error("d1 batch failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
+  return Array.isArray(d.result) ? d.result : [];
+}
+// Direct child tables of <parentName>: the declared tables with a column whose `ref`
+// points back at it (used to cascade a delete so no orphan children are left behind).
+function childRefsOf(spec, parentName) {
+  const out = []; const pn = String(parentName).toLowerCase();
+  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+    const refs = (t && t.refs) || {};
+    for (const col of Object.keys(refs)) if (String(refs[col]).toLowerCase() === pn) out.push({ table: t.name, col });
+  }
+  return out;
+}
+// Delete one row AND its direct children (rows in tables whose `ref` points at it), so
+// a delete never orphans related rows. Verifies the row exists within the caller's scope
+// FIRST (so a not-yours/gone row deletes nothing), then removes children + the row in one
+// batched call. Returns false if the row wasn't there / not in scope. (One level of
+// children — the common shape; grandchildren aren't auto-chased.)
+async function cascadeDeleteRow(env, uuid, spec, table, tn, id, scopeSql, scopeParams) {
+  const sp = scopeParams || [];
+  const check = await cfD1Query(env, uuid, "SELECT id FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
+  if (!check[0]) return false;
+  const stmts = childRefsOf(spec, table).map((k) => ({ sql: "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", params: [id] }));
+  stmts.push({ sql: "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), params: [id].concat(sp) });
+  await cfD1Batch(env, uuid, stmts);
+  return true;
+}
 // Permanently delete a site's D1 database (idempotent — already-gone is fine).
 async function cfD1Delete(env, uuid) {
   try {
@@ -5553,7 +5596,7 @@ async function handleRequest(request, env, ctx) {
         const use = allow.filter((c) => values[c] !== undefined);
         if (request.method === "DELETE") {
           if (!rowId) return Response.json({ ok: false, error: "missing id" }, { status: 400 });
-          await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [rowId]);
+          await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, "", []); // cascade children too
           return Response.json({ ok: true });
         }
         if (request.method === "PATCH") {
@@ -5897,8 +5940,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true });
             }
             if (method === "DELETE" && rowId != null) {
-              const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
-              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, " AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
@@ -5938,8 +5980,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true });
             }
             if (method === "DELETE" && rowId != null) {
-              const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [rowId]);
-              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, "", []))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
@@ -5974,8 +6015,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true });
           }
           if (method === "DELETE" && rowId != null) {
-            const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
-            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, " AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
           return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
