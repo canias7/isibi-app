@@ -2736,7 +2736,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2826,7 +2826,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
-    if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
+    if (t.timestamps || t.sync) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking (also required by sync): set on insert, bumped on every UPDATE
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
@@ -2847,7 +2847,13 @@ async function applySiteSchema(env, uuid, spec) {
     // datetime() default, so seed existing rows to created_at; new inserts on a table
     // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
     // default above, so the common path is fully automatic).
-    if (t.timestamps) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    if (t.timestamps || t.sync) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
+    // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
+    if (t.sync) {
+      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _deletes (row_table TEXT, row_id INTEGER, at TEXT)"); } catch {}
+      try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_del") + " AFTER DELETE ON " + tn + " BEGIN INSERT INTO _deletes (row_table,row_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, datetime('now')); END"); } catch (e) { console.error("delete tombstone trigger failed:", t.name, e && e.detail); }
+    }
     // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
     // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
     // never manages positions itself; rows are reordered by the /move endpoint (midpoints,
@@ -2965,7 +2971,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, rateLimit: t.rateLimit || 0, geo: t.geo || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3607,8 +3613,14 @@ function buildD1List(url, tn, allowCols, base, extra, opts) {
   // (term × column) pairs a row matches — best matches first — then by id.
   let orderSql = (hasExplicit ? orderCols.join(", ") : ("id " + (globalDesc ? "DESC" : "ASC"))), rankParams = [];
   if (f.terms && f.terms.length && allowCols.length && !hasExplicit) {
+    // Relevance rank. With a table `searchWeights` map, matches in higher-weighted columns
+    // (e.g. title:3, body:1) score more AND only the weighted columns rank; otherwise every
+    // column ranks equally (weight 1). The WHERE-side `q` filter still matches any column.
+    const weights = opts.searchWeights;
+    const rankCols = weights ? allowCols.filter((c) => weights[String(c).toLowerCase()] != null) : allowCols;
+    const use = rankCols.length ? rankCols : allowCols;
     const parts = [];
-    for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
+    for (const t of f.terms) for (const c of use) { const w = weights ? (weights[String(c).toLowerCase()] || 1) : 1; parts.push((w !== 1 ? w + "*" : "") + "(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
     orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
   }
   // `sort=random` (aliases rand/shuffle) → random order, for "discover"/"featured"/
@@ -7531,14 +7543,14 @@ async function handleRequest(request, env, ctx) {
           // conflict (row exists but version moved) from a genuine not-found/not-yours.
           // Auto edit-timestamp fragment — on a `timestamps:true` table every UPDATE also
           // bumps updated_at to now (spliced into the SET clause of single/bulk PATCH + incr).
-          const tsFrag = def.timestamps ? ", \"updated_at\"=datetime('now')" : "";
+          const tsFrag = (def.timestamps || def.sync) ? ", \"updated_at\"=datetime('now')" : "";
           // Auto-managed columns this table has that are legitimately sortable/filterable
           // (so `?sort=position`, `?sort=updated_at`, `?sort=_version` work even though they
           // aren't app-declared columns).
-          const listExtras = [].concat(def.ordered ? ["position"] : [], def.timestamps ? ["updated_at"] : [], def.version ? ["_version"] : []);
+          const listExtras = [].concat(def.ordered ? ["position"] : [], (def.timestamps || def.sync) ? ["updated_at"] : [], def.version ? ["_version"] : []);
           // List-ordering options for this table: pinned-first (if pinnable) and a built-in
           // defaultSort used when the request sends no sort of its own.
-          const listOpts = { pinCol: def.pinnable ? "pinned" : null, defaultSort: def.defaultSort || null };
+          const listOpts = { pinCol: def.pinnable ? "pinned" : null, defaultSort: def.defaultSort || null, searchWeights: def.searchWeights || null };
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
             const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
@@ -7926,6 +7938,23 @@ async function handleRequest(request, env, ctx) {
           if (isChanges) {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
             if (access === "collect") return Response.json({ ok: false, error: "no read" }, { status: 403 });
+            // Full incremental SYNC (offline-first) — on a `sync:true` table, `?sync=<iso>`
+            // returns everything changed since a timestamp: `updated` (rows created OR edited
+            // after it, via updated_at) AND `deleted` (row ids tombstoned after it), plus a
+            // fresh `at` cursor to pass next time. Omit `sync` (or pass empty) for a full pull.
+            if (def.sync && url.searchParams.has("sync")) {
+              let sscope = "", sp = [];
+              if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); sscope = " AND owner_id=?"; sp = [userId]; }
+              const since = (url.searchParams.get("sync") || "").trim();
+              const nowIso = new Date().toISOString();
+              const hasSince = /^\d{4}-\d\d-\d\d/.test(since);
+              const updSql = "SELECT * FROM " + tn + " WHERE 1=1" + (hasSince ? " AND datetime(COALESCE(updated_at, created_at)) > datetime(?)" : "") + sscope + " ORDER BY datetime(COALESCE(updated_at, created_at)) ASC LIMIT 1000";
+              const updated = await cfD1Query(env, uuid, updSql, (hasSince ? [since] : []).concat(sp));
+              parseJsonRows(def, updated); attachComputed(def, updated);
+              let deleted = [];
+              try { const dq = await cfD1Query(env, uuid, "SELECT row_id FROM _deletes WHERE row_table=?" + (hasSince ? " AND datetime(at) > datetime(?)" : "") + " ORDER BY at ASC LIMIT 2000", hasSince ? [table, since] : [table]); deleted = dq.map((r) => r.row_id); } catch {}
+              return Response.json({ ok: true, updated, deleted, at: nowIso, count: updated.length + deleted.length });
+            }
             let scope = "";
             const params = [];
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; }
