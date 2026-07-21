@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2790,6 +2790,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
+    if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2801,6 +2802,11 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
     if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
+    // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a
+    // datetime() default, so seed existing rows to created_at; new inserts on a table
+    // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
+    // default above, so the common path is fully automatic).
+    if (t.timestamps) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2832,7 +2838,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3314,6 +3320,54 @@ async function attachAuthors(env, uuid, rows, url) {
   try { authors = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { return rows; }
   const byId = new Map(authors.map((a) => [a.id, a]));
   for (const r of rows) if (r.owner_id != null) r.author = byId.get(r.owner_id) || null;
+  return rows;
+}
+// `?count=<child>[,<child>]` — attach how many rows each child table has pointing back
+// at THIS row, WITHOUT fetching them, under `row._counts` ({comments: 12}). A feed shows
+// "12 comments" in one list request. Batched (one grouped COUNT per child, no N+1), only
+// PUBLIC-READ child tables (never leaks private counts), trash-aware. Peer of ?children.
+async function attachCounts(env, uuid, spec, def, rows, url) {
+  const want = String(url.searchParams.get("count") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 4);
+  if (!want.length || !rows.length) return rows;
+  const parentIds = [...new Set(rows.map((r) => r.id).filter((v) => v != null))].slice(0, 200);
+  if (!parentIds.length) return rows;
+  const thisName = String(def.name).toLowerCase();
+  for (const childName of want) {
+    const cdef = tableDef(spec, childName);
+    if (!cdef) continue;
+    if (!["display", "feed", "admin"].includes(cdef.access || "collect")) continue; // don't leak private counts
+    const crefs = cdef.refs || {};
+    const fkCol = Object.keys(crefs).find((c) => String(crefs[c]).toLowerCase() === thisName);
+    if (!fkCol) continue; // this child doesn't reference us
+    let counts = [];
+    try { counts = await cfD1Query(env, uuid, "SELECT " + sqlIdent(fkCol) + " AS pid, COUNT(*) AS n FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ")" + (cdef.trash ? " AND deleted_at IS NULL" : "") + " GROUP BY " + sqlIdent(fkCol), parentIds); } catch { continue; }
+    const byPid = new Map(counts.map((c) => [c.pid, Number(c.n) || 0]));
+    for (const r of rows) { if (!r._counts) r._counts = {}; r._counts[childName] = byPid.get(r.id) || 0; }
+  }
+  return rows;
+}
+// `?fields=a,b` — sparse field selection: return only the named columns (plus id, always,
+// which clients need for keys/links), trimming payload on big lists. Applied LAST, after
+// all joins, so opt-in attached objects (author, children, _counts, expanded refs,
+// reactions, tags) are always kept — the projection only controls the row's OWN columns.
+// Unknown/undeclared field names are ignored. No-op when the param is absent.
+function projectFields(rows, url, allow) {
+  const raw = url.searchParams.get("fields");
+  if (!raw || !rows.length) return rows;
+  const allowSet = new Set((allow || []).map((c) => String(c).toLowerCase()));
+  const selectable = new Set(["id", "owner_id", "created_at", "updated_at", "slug", ...allowSet]);
+  const baseCols = new Set(["id", "owner_id", "created_at", "updated_at", "deleted_at", "_version", "slug", ...allowSet]);
+  const keep = new Set(raw.toLowerCase().split(",").map((s) => s.trim()).filter((c) => selectable.has(c)));
+  keep.add("id"); // id is always retained
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]; const out = {};
+    for (const k of Object.keys(row)) {
+      const lk = k.toLowerCase();
+      if (!baseCols.has(lk)) { out[k] = row[k]; continue; } // an attached join key → always keep
+      if (keep.has(lk)) out[k] = row[k];
+    }
+    rows[i] = out;
+  }
   return rows;
 }
 // Create-or-update by a key column (`?upsert=<col>`): find an existing row whose
@@ -6472,7 +6526,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); return rows; }; // JSON cols parsed + ?expand + ?children + ?authors=1 + ?reactions=1 + ?tags=1
+          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
@@ -6480,9 +6534,12 @@ async function handleRequest(request, env, ctx) {
           // Single-row PATCH executor with optimistic-concurrency support. Bumps _version
           // on version tables, honors ?ifVersion / If-Match, and distinguishes a stale-write
           // conflict (row exists but version moved) from a genuine not-found/not-yours.
+          // Auto edit-timestamp fragment — on a `timestamps:true` table every UPDATE also
+          // bumps updated_at to now (spliced into the SET clause of single/bulk PATCH + incr).
+          const tsFrag = def.timestamps ? ", \"updated_at\"=datetime('now')" : "";
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
-            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag;
+            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
             const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?" + scopeSql + v.guardSql, use.map((c) => body[c]).concat([rowId], scopeParams, v.guardParams));
             if (ex.changes > 0) { let version; if (v.on) { try { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?", [rowId]); version = r[0] && r[0].v; } catch {} } return { ok: true, version }; }
             if (v.on && v.want != null) { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?" + scopeSql, [rowId].concat(scopeParams)); if (r[0]) return { conflict: r[0].v }; }
@@ -6626,7 +6683,7 @@ async function handleRequest(request, env, ctx) {
             else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
             params = hasFloor ? [floor, by] : [by];
             const where = [rowId].concat(scope ? [userId] : []);
-            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cq + "=" + expr + " WHERE id=?" + scope, params.concat(where));
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cq + "=" + expr + tsFrag + " WHERE id=?" + scope, params.concat(where));
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             const r = await cfD1Query(env, uuid, "SELECT " + cq + " AS v FROM " + tn + " WHERE id=?", [rowId]);
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
@@ -6730,7 +6787,7 @@ async function handleRequest(request, env, ctx) {
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE " + idSub, use.map((c) => body[c]).concat(filt.params));
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + tsFrag + " WHERE " + idSub, use.map((c) => body[c]).concat(filt.params));
               return Response.json({ ok: true, updated: ex.changes || 0 });
             }
             // bulk DELETE

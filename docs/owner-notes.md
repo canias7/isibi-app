@@ -102,8 +102,49 @@ Also a mid-run **security review** (PR #534) over batches' new code: no injectio
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
 ~31 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
 **Lesson (recurring):** any NEW table-level schema key must be forwarded in
-`normalizeSchema`/`coerceTable` (line ~2712) or it's silently dropped before
-`applySiteSchema` — column-level keys survive via `coerceCol`, table-level ones don't.
+`normalizeSchema`/`coerceTable` (line ~2712) AND in the persisted `norm.push({…})`
+(line ~2841) or it's silently dropped before `applySiteSchema` (the second half of the
+lesson: even if it reaches `applySiteSchema` and creates the column, the request-time
+`def` is loaded from `_meta` and won't carry the flag unless `norm` includes it) —
+column-level keys survive via `coerceCol`, table-level ones don't.
+
+## 2026-07-21 — CONTINUING THE ROADMAP (session picked up "keep going until 93")
+
+Owner: finish the backend roadmap (~31 → 93). Original 100-item artifact was never
+committed (lived in a prior session), so remaining items are being reconstructed from
+the shipped tally + standard backend primitives, favoring OWNER-FACING/AUTOMATIC layers
+(near-zero builder-prompt cost) first, then client-facing, then 🔑 key-gated (Stripe/
+OAuth/SMS/push) last. This session CAN'T live-verify (no deployed test backend + auth
+token), so batches are shipped **branch + PR for the owner to verify/merge** (owner's
+call), each **offline-verified** against a new harness instead of live.
+
+**NEW: offline backend harness** (`scratchpad/bh/` this session — consider committing to
+`test/backend/` if it keeps proving useful). Imports the REAL `worker.js` default fetch
+handler unmodified (an ESM loader stubs the two native deps `@cf-wasm/photon` +
+`@cloudflare/containers`) and backs Cloudflare D1 with in-memory `node:sqlite`, plus a
+fetch mock for the `site_backends` slug→uuid ledger and owner auth. So `ensure`→`schema`
+→signup→auth'd insert→list→patch all run the actual route code end-to-end offline. This
+is the quality gate now; the owner still does the real live pass before merge.
+
+## 2026-07-21 — Batch 16: edit-tracking + read-shaping (offline 17/17 + reg 5/5) ✅ built, PR
+
+Three additive, mostly-automatic primitives (PR on `claude/chat-session-xy6jwe`):
+- **`"timestamps":true`** (table flag; aliases updatedAt/updated_at/timestamp) → auto
+  `updated_at` column, set on insert (= created) via CREATE default, **bumped to now on
+  EVERY edit** — single PATCH (via `applyVersionedUpdate`, so it also covers the
+  share-edit collaborator path), bulk PATCH, and incr. Returned on reads. Fully automatic,
+  zero app code. Threaded through `normalizeSchema` + `norm` + CREATE/ALTER (ALTER can't
+  carry a `datetime()` default, so existing rows are backfilled `= created_at`; the only
+  caveat is a NEW insert on a table REVISED to add timestamps gets `updated_at` on its
+  first edit — fresh tables are perfect).
+- **`?fields=a,b`** — sparse field selection on any list/get: returns only those columns
+  (plus `id`, always). Applied LAST after all joins, so opt-in attached objects
+  (author/children/_counts/expanded refs/reactions/tags) are always kept; it only trims
+  the row's own columns. Unknown names ignored.
+- **`?count=<child>`** — attaches `row._counts.<child>` = how many children reference each
+  row, WITHOUT fetching them (feed shows "12 comments" cheaply). Batched grouped COUNT,
+  public-read children only (no private leak), trash-aware. Peer of `?children`.
+BACKEND_RULES got ONE tight combined line (prompt-bloat-aware). Roadmap tally: ~32/93.
 
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
