@@ -426,8 +426,10 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     from metrics), **Backups** (back-up-now + list + one-click restore, logins
     untouched), **Versions** (list archived builds + one-click roll back). Screenshot
     shown + approved. Endpoints were already live/verified — this is the missing UI.
-    Still backend-only (small follow-up): Export/Import buttons (belong in the Database
-    panel) + the AI test surface (no owner need — it's an app feature).
+    **Export/Import UI (#521):** added under snapshot/restore in the Backups panel —
+    pick a table → Export CSV/JSON (authed blob download) or Import CSV (file → rows).
+    So EVERY backend data endpoint now has an owner control. Only non-UI'd surface left
+    is the AI endpoint (no owner need — it's an in-app feature). **QUALITY PASS COMPLETE.**
   · **AI-as-a-primitive (#508) — built apps call an LLM, no key, VERIFIED live 15/15.**
     A built app adds real AI (chatbot, summarize, suggest-a-reply, categorize) with
     `POST /api/db/<slug>/ai {prompt,system?}` → `{ok,text}`, or an `{do:"ai"}` function
