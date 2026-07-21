@@ -3304,6 +3304,7 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN display_name TEXT",
     "ALTER TABLE _users ADD COLUMN avatar_url TEXT",
     "ALTER TABLE _users ADD COLUMN bio TEXT",
+    "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
   ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -5496,13 +5497,41 @@ async function handleRequest(request, env, ctx) {
         if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access, columns: (t.columns || []) })) });
         if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
         if (table === "_users") await initSiteAuth(env, uuid); // ensure role/verified columns exist on older sites
-        const cols = table === "_users" ? "id,email,role,verified,display_name,created_at" : "*"; // never expose password hashes
+        const cols = table === "_users" ? "id,email,role,verified,display_name,blocked,created_at" : "*"; // never expose password hashes
         const r = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 500");
         return Response.json({ ok: true, rows: r });
       } catch (e) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner rows failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
+    // Owner member moderation — block / unblock a member of one of the owner's built
+    // apps. isibi-authed + owner-scoped. A blocked member can't log in and is signed
+    // out on their next session check; can also promote/demote the admin role.
+    if (url.pathname === "/api/site/backend/member" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = String(bb.slug || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const memberId = parseInt(bb.id, 10) || 0;
+      const action = String(bb.action || "");
+      if (!slug || !memberId) return Response.json({ ok: false, error: "missing slug or id" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        await initSiteAuth(env, uuid); // ensure the blocked/role columns exist
+        if (action === "block") await cfD1Query(env, uuid, "UPDATE _users SET blocked=1 WHERE id=?", [memberId]);
+        else if (action === "unblock") await cfD1Query(env, uuid, "UPDATE _users SET blocked=0 WHERE id=?", [memberId]);
+        else if (action === "make_admin") await cfD1Query(env, uuid, "UPDATE _users SET role='admin' WHERE id=?", [memberId]);
+        else if (action === "remove_admin") await cfD1Query(env, uuid, "UPDATE _users SET role='user' WHERE id=?", [memberId]);
+        else return Response.json({ ok: false, error: "unknown action" }, { status: 400 });
+        const r = await cfD1Query(env, uuid, "SELECT id,email,role,verified,display_name,blocked FROM _users WHERE id=?", [memberId]);
+        return Response.json({ ok: true, member: r[0] || null });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner member action failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "action failed" }, { status: 502 });
       }
     }
     // Owner data export: download one of the OWNER's own built-app tables as CSV or
@@ -5820,9 +5849,10 @@ async function handleRequest(request, env, ctx) {
             const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
             const p = await verifySiteUserToken(secret, tok);
             if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio FROM _users WHERE id=?", [p.sub]);
+            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio,blocked FROM _users WHERE id=?", [p.sub]);
             if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            const me = rows[0]; me.role = me.role || "user"; me.verified = me.verified ? 1 : 0;
+            if (rows[0].blocked) return Response.json({ ok: false, error: "this account has been suspended" }, { status: 403 }); // block takes effect on the next session check (the app guards on /me)
+            const me = rows[0]; delete me.blocked; me.role = me.role || "user"; me.verified = me.verified ? 1 : 0;
             return Response.json({ ok: true, user: me });
           }
           if (request.method !== "POST") return Response.json({ ok: false }, { status: 405 });
@@ -5834,6 +5864,13 @@ async function handleRequest(request, env, ctx) {
           const now = Math.floor(Date.now() / 1000);
           const mkToken = (uid, role) => signSiteUserToken(secret, { sub: uid, slug, email, role: role || "user", iat: now, exp: now + 60 * 60 * 24 * 30 });
           if (action === "signup") {
+            // Password strength (signup only — never blocks an existing user's login):
+            // reject very common passwords, all-same-character, or the email itself.
+            const pwLow = password.toLowerCase();
+            const COMMON = new Set(["password", "password1", "12345678", "123456789", "1234567890", "qwertyui", "qwerty123", "11111111", "iloveyou", "letmein1", "welcome1", "admin123", "abc12345", "football", "baseball", "sunshine", "princess", "1qaz2wsx"]);
+            if (COMMON.has(pwLow) || /^(.)\1+$/.test(password) || pwLow === email.split("@")[0].toLowerCase() || pwLow === email) {
+              return Response.json({ ok: false, error: "please choose a stronger password" }, { status: 400 });
+            }
             const exists = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
             if (exists[0]) return Response.json({ ok: false, error: "that email already has an account" }, { status: 409 });
             const { salt, hash } = await hashPassword(password);
@@ -5851,7 +5888,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0, display_name: dn } });
           }
           // login
-          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified FROM _users WHERE email=?", [email]);
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked FROM _users WHERE email=?", [email]);
           const u = rows[0];
           if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
           // Always run a hash (even when the email is unknown) so timing can't reveal
@@ -5861,6 +5898,7 @@ async function handleRequest(request, env, ctx) {
             if (u) { const f = (u.failed || 0) + 1; const lock = f >= 8 ? now + 900 : null; await cfD1Query(env, uuid, "UPDATE _users SET failed=?, locked_until=? WHERE id=?", [f, lock, u.id]); }
             return Response.json({ ok: false, error: "wrong email or password" }, { status: 401 });
           }
+          if (u.blocked) return Response.json({ ok: false, error: "this account has been suspended" }, { status: 403 });
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
           return Response.json({ ok: true, token: await mkToken(u.id, u.role), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
