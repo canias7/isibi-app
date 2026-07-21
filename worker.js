@@ -6024,12 +6024,12 @@ async function handleRequest(request, env, ctx) {
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
-      // Build model: Sonnet 5 is the default (best whole-project quality); a caller
-      // may request the cheaper Haiku 4.5 for a faster/cheaper draft. Allowlisted;
-      // per-model token rates so metering stays honest. The fix loop + schema repair
-      // in this build all use the SAME model.
-      const RB_MODEL = (rb.model === "haiku" || rb.model === "haiku-4.5" || rb.model === "claude-haiku-4-5") ? "claude-haiku-4-5" : "claude-sonnet-5";
-      const RATE_IN = RB_MODEL === "claude-haiku-4-5" ? 1e-6 : 3e-6, RATE_OUT = RB_MODEL === "claude-haiku-4-5" ? 5e-6 : 15e-6;
+      // Build model: always Sonnet 5 (owner's call 2026-07-21). Haiku was dropped from
+      // the builder — it mis-wired the backend API often enough to ship dead apps, so
+      // whole-app builds go through Sonnet for reliability. (Haiku is still used
+      // elsewhere for cheap director steps — this only removes it from react-build.)
+      const RB_MODEL = "claude-sonnet-5";
+      const RATE_IN = 3e-6, RATE_OUT = 15e-6; // Sonnet 5 token rates
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * RATE_IN + o * RATE_OUT) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= rbCredits(2500, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });

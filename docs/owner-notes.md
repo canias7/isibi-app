@@ -35,24 +35,28 @@ auto-fix loop only checks that the code COMPILES. This compiles fine; it's wired
 wrong at RUNTIME.** So a fully non-functional backend app can build clean, pass
 validation, and ship. Exactly what real e2e testing is for.
 
-**FIX — three defensive layers (code shipped to the branch; live-verify pending a
-credit top-up):**
-1. **Louder rule** (`react-gen.mjs` BACKEND_RULES) — the API-base requirement is now
-   a hard, unmissable directive ("NEVER hardcode `/api/db/auth`… NEVER `/api/db${'{'}x${'}'}`…").
-2. **Post-build wiring guard + repair pass** (`worker.js`, mirrors the existing
-   schema-repair) — after generation, if the app hits `/api/db` with a broken slug-less
-   shape AND never derives the slug, hand it to a targeted URL-only rewrite pass
-   (`WIRING_REPAIR_RULES`). Model-agnostic net; one small extra LLM call only when the
-   defect is present.
-3. Detection logic **verified offline, 9/9** (fires on the real broken bundle + 4
-   broken variants; stays silent on 3 correctly-wired variants + a static site — no
-   wasted repair calls). The repair LLM output itself needs a live rebuild (~13
-   credits) to confirm — **owner balance is down to 3, so that's paused until top-up.**
+**Important framing:** the bug was **Haiku-specific**, and the builder UI already
+sent NO model field → production builds were **already Sonnet-only**. The dead app
+only happened because the *test* forced Haiku via the raw API. So live users were
+almost certainly unaffected — but the Haiku code path existed and was reachable.
 
-**Follow-up options for the owner:** (a) top up → I rebuild Townsquare and prove the
-guard heals it end-to-end; (b) also route backend-declaring builds to Sonnet for
-higher first-pass reliability (costs more per build). Test app `townsquare-e7c3eb`
-left UP as evidence; clean it up after the fix is confirmed.
+**FIX — decided + shipped (code on the branch; not deployed — no PR to main yet):**
+1. **Haiku REMOVED from the builder** (owner's call 2026-07-21 — "just take haiku
+   out"). `RB_MODEL` in `/api/site/react-build` is now hardcoded `claude-sonnet-5`;
+   the `model:'haiku'` API path is gone. (Haiku is untouched everywhere else — it
+   still writes the cheap director steps. This only removes it from whole-app builds.)
+2. **Louder API-base rule** (`react-gen.mjs` BACKEND_RULES) — deriving the slug is now
+   a hard, explicit directive ("NEVER hardcode `/api/db/auth`… NEVER `/api/db${'{'}x${'}'}`…").
+3. **Post-build wiring guard + repair pass** (`worker.js`, mirrors schema-repair) — a
+   model-agnostic net in case even Sonnet ever mis-wires: if the app hits `/api/db`
+   with a slug-less shape and never derives the slug, a targeted URL-only rewrite pass
+   (`WIRING_REPAIR_RULES`) fixes it. One small extra LLM call only when the defect is
+   present. Detection **verified offline 9/9** (fires on the real broken bundle + 4
+   broken variants; silent on 3 correctly-wired variants + a static site).
+
+**Still pending:** a live Sonnet rebuild of a backend app to confirm end-to-end (needs
+a credit top-up — owner balance was 3). Test app `townsquare-e7c3eb` left UP as
+evidence; clean up after the next verified build.
 
 ---
 
