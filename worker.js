@@ -6764,6 +6764,103 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "write failed" }, { status: 502 });
       }
     }
+    // OAuth social login (Google / GitHub) — the OWNER registers an OAuth app with the
+    // provider and stores the credentials as site secrets (GOOGLE_CLIENT_ID /
+    // GOOGLE_CLIENT_SECRET, GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET) in Cloud → Secrets.
+    // Two GET steps, a normal browser redirect dance (no client secret ever hits the page):
+    //   GET /api/db/<slug>/auth/oauth/<provider>[?return=<path>] → 302 to the provider.
+    //   GET /api/db/<slug>/auth/oauth/<provider>/callback?code&state → verify the signed
+    //       state, exchange the code (server-side, with the secret), read the verified
+    //       email, upsert a passwordless `_users` row, mint a normal site-user session
+    //       token, and 302 back to /s/<slug>/<return>#token=<jwt> for the SPA to store.
+    {
+      const oam = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/oauth\/(google|github)(\/callback)?$/i);
+      if (oam && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = oam[1].toLowerCase(), provider = oam[2].toLowerCase(), isCallback = !!oam[3];
+        const oauthErr = (msg, status = 400) => new Response("<!doctype html><meta charset=utf-8><title>Sign-in</title><body style=\"font:16px system-ui;max-width:32rem;margin:12vh auto;padding:0 1.25rem;color:#222\"><h1 style=\"font-size:1.3rem\">Couldn't finish signing in</h1><p>" + String(msg).replace(/[<>&]/g, "") + "</p><p><a href=\"/s/" + slug + "/\">← Back to the app</a></p></body>", { status, headers: { "content-type": "text/html; charset=utf-8" } });
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return oauthErr("This app's backend isn't available right now.", 503);
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return oauthErr("This site has no backend yet.", 404);
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|oauth", 60)) return oauthErr("Too many attempts — please wait a minute.", 429);
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return oauthErr("Auth is unavailable right now.", 502); }
+        const ownerUid = await siteOwnerUid(env, slug);
+        const secrets = ownerUid ? await loadSiteSecrets(env, ownerUid, slug) : {};
+        const cfg = provider === "google"
+          ? { id: secrets.GOOGLE_CLIENT_ID, sec: secrets.GOOGLE_CLIENT_SECRET, authUrl: "https://accounts.google.com/o/oauth2/v2/auth", scope: "openid email profile", label: "Google" }
+          : { id: secrets.GITHUB_CLIENT_ID, sec: secrets.GITHUB_CLIENT_SECRET, authUrl: "https://github.com/login/oauth/authorize", scope: "read:user user:email", label: "GitHub" };
+        if (!cfg.id || !cfg.sec) return oauthErr("Social sign-in isn't set up for this site yet. The owner needs to add " + provider.toUpperCase() + "_CLIENT_ID and " + provider.toUpperCase() + "_CLIENT_SECRET in Cloud → Secrets.", 501);
+        const origin = url.origin;
+        const redirectUri = origin + "/api/db/" + slug + "/auth/oauth/" + provider + "/callback";
+        const now = Math.floor(Date.now() / 1000);
+        try {
+          if (!isCallback) {
+            // Step 1 — build the provider authorize URL and bounce the browser to it.
+            const ret = (url.searchParams.get("return") || "").replace(/[^a-zA-Z0-9/_-]/g, "").slice(0, 80);
+            const state = await signSiteUserToken(secret, { purpose: "oauth", slug, provider, ret, nonce: crypto.randomUUID(), iat: now, exp: now + 600 });
+            const qp = new URLSearchParams({ client_id: cfg.id, redirect_uri: redirectUri, response_type: "code", scope: cfg.scope, state });
+            if (provider === "google") { qp.set("access_type", "online"); qp.set("include_granted_scopes", "true"); }
+            return Response.redirect(cfg.authUrl + "?" + qp.toString(), 302);
+          }
+          // Step 2 — the provider redirected back with ?code&state. Verify the state first.
+          const code = url.searchParams.get("code") || "";
+          const state = url.searchParams.get("state") || "";
+          const st = await verifySiteUserToken(secret, state).catch(() => null);
+          if (!code || !st || st.purpose !== "oauth" || st.slug !== slug || st.provider !== provider) return oauthErr("Your sign-in link couldn't be verified (it may have expired). Please try again.", 400);
+          // Exchange the authorization code for an access token (server-to-server; the
+          // client secret never touches the browser).
+          let accessToken = null;
+          try {
+            if (provider === "google") {
+              const tr = await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ code, client_id: cfg.id, client_secret: cfg.sec, redirect_uri: redirectUri, grant_type: "authorization_code" }).toString(), signal: AbortSignal.timeout(10000) });
+              const tj = await tr.json().catch(() => ({})); accessToken = tj && tj.access_token;
+            } else {
+              const tr = await fetch("https://github.com/login/oauth/access_token", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ code, client_id: cfg.id, client_secret: cfg.sec, redirect_uri: redirectUri }), signal: AbortSignal.timeout(10000) });
+              const tj = await tr.json().catch(() => ({})); accessToken = tj && tj.access_token;
+            }
+          } catch {}
+          if (!accessToken) return oauthErr("Couldn't complete sign-in with " + cfg.label + ". Please try again.", 502);
+          // Read the verified email (+ name/avatar) from the provider.
+          let email = null, name = null, avatar = null;
+          try {
+            if (provider === "google") {
+              const ur = await fetch("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: "Bearer " + accessToken }, signal: AbortSignal.timeout(10000) });
+              const uj = await ur.json().catch(() => ({}));
+              if (uj && uj.email && uj.email_verified !== false && uj.email_verified !== "false") { email = String(uj.email).toLowerCase(); name = uj.name || null; avatar = uj.picture || null; }
+            } else {
+              const ur = await fetch("https://api.github.com/user", { headers: { Authorization: "Bearer " + accessToken, "User-Agent": "isibi", Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) });
+              const uj = await ur.json().catch(() => ({}));
+              if (uj) { name = uj.name || uj.login || null; avatar = uj.avatar_url || null; if (uj.email) email = String(uj.email).toLowerCase(); }
+              if (!email) { const er = await fetch("https://api.github.com/user/emails", { headers: { Authorization: "Bearer " + accessToken, "User-Agent": "isibi", Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(10000) }); const ej = await er.json().catch(() => []); const prim = Array.isArray(ej) ? (ej.find((e) => e && e.primary && e.verified) || ej.find((e) => e && e.verified)) : null; if (prim) email = String(prim.email).toLowerCase(); }
+            }
+          } catch {}
+          if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return oauthErr("Your " + cfg.label + " account didn't share a verified email, so we can't create an account.", 400);
+          // Upsert a passwordless member (provider vouches for the email → verified=1).
+          await ensureAuthExtras(env, uuid);
+          let urow = (await cfD1Query(env, uuid, "SELECT id, role, token_epoch, blocked FROM _users WHERE email=?", [email]))[0];
+          if (urow && urow.blocked) return oauthErr("This account has been suspended.", 403);
+          if (!urow) {
+            const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _users");
+            const role = (cnt[0] && cnt[0].n) ? "user" : "admin"; // first member owns the app
+            if (role === "user" && await isInviteOnly(env, uuid)) return oauthErr("This app is invite-only, so a social account can't self-join. Ask the owner for an invite.", 403);
+            const dn = String(name || email.split("@")[0]).replace(/[\r\n]/g, "").slice(0, 80);
+            const rnd = crypto.randomUUID() + crypto.randomUUID(); const { salt, hash } = await hashPassword(rnd); // unusable random password — this account signs in via the provider
+            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role,display_name,verified,avatar_url) VALUES (?,?,?,?,?,1,?)", [email, salt, hash, role, dn, avatar || null]);
+            urow = (await cfD1Query(env, uuid, "SELECT id, role, token_epoch FROM _users WHERE email=?", [email]))[0];
+          } else {
+            await cfD1Query(env, uuid, "UPDATE _users SET verified=1 WHERE id=? AND (verified IS NULL OR verified=0)", [urow.id]);
+          }
+          if (!urow) return oauthErr("Couldn't finish creating your account. Please try again.", 502);
+          const token = await signSiteUserToken(secret, { sub: urow.id, slug, email, role: urow.role || "user", ep: urow.token_epoch || 0, iat: now, exp: now + 60 * 60 * 24 * 30 });
+          const ret = String(st.ret || "").replace(/[^a-zA-Z0-9/_-]/g, "");
+          return Response.redirect(origin + "/s/" + slug + "/" + ret + "#token=" + encodeURIComponent(token), 302);
+        } catch (e) {
+          console.error("oauth failed:", e && e.message, e && e.detail);
+          return oauthErr("Something went wrong during sign-in. Please try again.", 502);
+        }
+      }
+    }
     // Phase C — built-site visitor auth: /api/db/<slug>/auth/{signup,login,me}.
     // PUBLIC (the site's own visitors), scoped strictly to that site's D1.
     {

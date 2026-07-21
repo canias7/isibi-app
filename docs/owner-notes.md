@@ -617,6 +617,40 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-21 — Batch 61: OAuth social login (Google / GitHub) — ROADMAP COMPLETE 93/93 ✅ built
+
+The final roadmap layer. Two GET endpoints, a normal browser redirect dance:
+`GET /api/db/<slug>/auth/oauth/<google|github>[?return=<path>]` → 302 to the provider;
+`GET .../callback?code&state` → verify the signed state, exchange the code server-side
+(client secret never touches the page), read the VERIFIED email + name/avatar, upsert a
+PASSWORDLESS `_users` row (random unusable password, verified=1, first member = admin,
+invite-only respected), mint a normal site-user session token, and 302 back to
+`/s/<slug>/<return>#token=<jwt>` for the SPA to grab from the hash. Shares `_users` with
+password auth, so a member can use either. Owner setup: add `GOOGLE_CLIENT_ID`/
+`GOOGLE_CLIENT_SECRET` (+/or GITHUB_*) in Cloud → Secrets and register the redirect URI
+`https://<site>/api/db/<slug>/auth/oauth/<provider>/callback` with the provider; until
+then the buttons return a clear "not set up" message (501). State = a signed 10-min
+site-user token (purpose:oauth, provider, nonce, return path).
+
+**OFFLINE-TESTED FULLY (17/17):** the test mocks the provider token/userinfo calls AND
+the owner's encrypted secrets (replicating encryptSecret with the harness's
+test-service-key), so the whole dance runs offline — authorize URL construction, state
+sign/verify + tamper rejection, code→token→email exchange, passwordless user creation,
+session issuance, idempotent re-login, and GitHub's /user/emails fallback. The harness
+`makeClient` now also returns `location` (302 Location header). **The real Google/GitHub
+round-trip still needs the owner's live pass** (a registered OAuth app + a browser) — I
+can't do that offline. BACKEND_RULES taught the flow (send browser to the endpoint, read
+`#token=` on return).
+
+### 🎉 BACKEND ROADMAP COMPLETE — 93/93
+
+All 93 backend primitives for the website-builder DB are built and merged. The last four
+(Batches 59–61: API keys, per-app rate config, image resize, OAuth) are offline-verified;
+the three that touch a live-only surface — **image pixel resize (photon/wasm)** and **the
+real Google/GitHub OAuth round-trip** — are structurally complete and need only the
+owner's live pass / OAuth-app credentials to exercise end-to-end. Nothing remains on the
+roadmap. See docs/backend-roadmap.md (all boxes ticked).
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
