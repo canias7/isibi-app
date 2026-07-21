@@ -3551,6 +3551,43 @@ async function attachCounts(env, uuid, spec, def, rows, url) {
   }
   return rows;
 }
+// `?rollup=<child>:<agg>:<col>` (comma-list) — aggregate a child column up onto each parent
+// row WITHOUT fetching the children: order total (`line_items:sum:amount`), average rating
+// (`reviews:avg:rating`), highest bid, etc. `agg` ∈ sum/avg/min/max/count. Attaches
+// `row._rollups.<child>.<agg>.<col>` (count → `row._rollups.<child>.count`). Batched grouped
+// aggregate per spec (no N+1), public-read children only, trash-aware. Peer of ?count.
+async function attachRollups(env, uuid, spec, def, rows, url) {
+  const specs = String(url.searchParams.get("rollup") || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  if (!specs.length || !rows.length) return rows;
+  const parentIds = [...new Set(rows.map((r) => r.id).filter((v) => v != null))].slice(0, 200);
+  if (!parentIds.length) return rows;
+  const thisName = String(def.name).toLowerCase();
+  const AGG = { sum: "SUM", avg: "AVG", min: "MIN", max: "MAX", count: "COUNT" };
+  for (const one of specs) {
+    const parts = one.toLowerCase().split(":");
+    const childName = parts[0], aggName = parts[1], colName = parts[2];
+    const agg = AGG[aggName]; if (!agg) continue;
+    const cdef = tableDef(spec, childName); if (!cdef) continue;
+    if (!["display", "feed", "admin"].includes(cdef.access || "collect")) continue; // don't leak private children
+    const crefs = cdef.refs || {};
+    const fkCol = Object.keys(crefs).find((c) => String(crefs[c]).toLowerCase() === thisName);
+    if (!fkCol) continue;
+    let col = colName;
+    if (agg === "COUNT") col = "*";
+    else { const cols = new Set((cdef.columns || []).map((x) => String(x).toLowerCase())); if (!cols.has(col)) continue; }
+    const expr = agg + "(" + (col === "*" ? "*" : sqlIdent(col)) + ")";
+    let out = [];
+    try { out = await cfD1Query(env, uuid, "SELECT " + sqlIdent(fkCol) + " AS pid, " + expr + " AS v FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ")" + (cdef.trash ? " AND deleted_at IS NULL" : "") + " GROUP BY " + sqlIdent(fkCol), parentIds); } catch { continue; }
+    const byPid = new Map(out.map((o) => [o.pid, o.v]));
+    for (const r of rows) {
+      if (!r._rollups) r._rollups = {};
+      if (!r._rollups[childName]) r._rollups[childName] = {};
+      if (agg === "COUNT") { r._rollups[childName].count = Number(byPid.get(r.id)) || 0; }
+      else { if (!r._rollups[childName][aggName]) r._rollups[childName][aggName] = {}; r._rollups[childName][aggName][col] = byPid.has(r.id) ? byPid.get(r.id) : null; }
+    }
+  }
+  return rows;
+}
 // `?fields=a,b` — sparse field selection: return only the named columns (plus id, always,
 // which clients need for keys/links), trimming payload on big lists. Applied LAST, after
 // all joins, so opt-in attached objects (author, children, _counts, expanded refs,
@@ -6880,7 +6917,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
+          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachRollups(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null

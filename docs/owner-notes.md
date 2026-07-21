@@ -299,6 +299,14 @@ column that RAISEs when the fk is set but the parent id doesn't exist; abort map
 delete-time cascade. Trigger-based (no write-path plumbing); carried via coerceTable. Roadmap
 tally: ~49/93.
 
+## 2026-07-21 — Batch 30: Reverse-relation rollups (?rollup=child:agg:col) (offline 10/10) ✅ built
+
+Extends `?count` (Batch 16) to AGGREGATE a child column onto each parent without fetching the
+children: `?rollup=line_items:sum:amount,reviews:avg:rating` → `row._rollups.line_items.sum.amount`,
+`row._rollups.reviews.avg.rating` (count → `._rollups.<child>.count`). agg ∈ sum/avg/min/max/
+count. `attachRollups` beside `attachCounts` in `doExpand`; batched grouped aggregate per spec,
+public-read children only, trash-aware, invalid specs ignored. Roadmap tally: ~50/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
