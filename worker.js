@@ -951,6 +951,50 @@ function watermarkImageBytes(imgBytes, badgeBytes) {
     img.free(); badge.free(); if (scaled) scaled.free();
   }
 }
+// Server-side image resize / transform for uploads (photon/wasm). Takes decoded
+// bytes + their mime + a transform spec, returns {bytes, mime, ext} — the resized/
+// re-encoded image, or the ORIGINAL untouched on any problem (unsupported source,
+// no-op spec, decode/encode failure) so a bad transform never loses the upload.
+//   spec: { max?, w?, h?, format?('jpeg'|'webp'|'png'), quality? }
+//   - max: bound the LONGEST side to N px (downscale only, keeps aspect) — the common
+//          "shrink big phone photos" case.
+//   - w/h: exact target; one alone scales the other to keep aspect.
+//   - format: re-encode (jpeg shrinks photos hard; webp is smallest; png for alpha).
+// Only PNG/JPEG/WEBP sources are transformable (GIF loses animation, PDF isn't an
+// image) — those pass through unchanged.
+function transformImageBytes(bytes, mime, spec) {
+  const EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+  const orig = { bytes, mime, ext: EXT[mime] || null };
+  if (!spec || typeof spec !== "object") return orig;
+  if (!(mime === "image/jpeg" || mime === "image/png" || mime === "image/webp")) return orig;
+  const fmtRaw = String(spec.format || "").toLowerCase();
+  const fmt = fmtRaw === "jpg" ? "jpeg" : fmtRaw;
+  const wantFmt = (fmt === "jpeg" || fmt === "webp" || fmt === "png") ? fmt : null;
+  const clampDim = (n) => { const v = Math.round(Number(n)); return (Number.isFinite(v) && v > 0) ? Math.min(v, 5000) : 0; };
+  const max = clampDim(spec.max), wIn = clampDim(spec.w != null ? spec.w : spec.width), hIn = clampDim(spec.h != null ? spec.h : spec.height);
+  if (!max && !wIn && !hIn && !wantFmt) return orig; // nothing asked
+  let img = null, out = null;
+  try {
+    img = PhotonImage.new_from_byteslice(bytes);
+    const ow = img.get_width(), oh = img.get_height();
+    if (!(ow > 0 && oh > 0)) return orig;
+    let tw = ow, th = oh;
+    if (max) { if (Math.max(ow, oh) > max) { const s = max / Math.max(ow, oh); tw = Math.max(1, Math.round(ow * s)); th = Math.max(1, Math.round(oh * s)); } }
+    else if (wIn && hIn) { tw = wIn; th = hIn; }
+    else if (wIn) { tw = wIn; th = Math.max(1, Math.round(oh * (wIn / ow))); }
+    else if (hIn) { th = hIn; tw = Math.max(1, Math.round(ow * (hIn / oh))); }
+    const needResize = tw !== ow || th !== oh;
+    const src = needResize ? (out = resize(img, tw, th, SamplingFilter.Lanczos3)) : img;
+    const outMime = wantFmt ? ("image/" + wantFmt) : mime;
+    let enc;
+    if (outMime === "image/jpeg") { let q = parseInt(spec.quality, 10); if (!(q >= 40 && q <= 100)) q = 82; enc = src.get_bytes_jpeg(q); }
+    else if (outMime === "image/webp") enc = src.get_bytes_webp();
+    else enc = src.get_bytes(); // png
+    if (!enc || !enc.length) return orig; // encode produced nothing → keep original
+    return { bytes: enc instanceof Uint8Array ? enc : new Uint8Array(enc), mime: outMime, ext: EXT[outMime] };
+  } catch { return orig; }
+  finally { try { if (out) out.free(); if (img) img.free(); } catch {} }
+}
 // Detect an image by magic bytes (PNG / JPEG / WEBP), returning its media type
 // or null — never trust an upstream Content-Type for the watermark decision.
 function sniffImageType(b) {
@@ -7120,15 +7164,27 @@ async function handleRequest(request, env, ctx) {
         let bytes;
         try { const bin = atob(m[2]); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { return Response.json({ ok: false, error: "couldn't read the file" }, { status: 400, headers: cors }); }
         if (bytes.length > 6_000_000) return Response.json({ ok: false, error: "That file is too big — keep it under 6 MB." }, { status: 413, headers: cors });
+        // Optional server-side resize / re-encode (photon) — shrink big photos + convert
+        // format on the way in, so an app can store a bounded thumbnail instead of a 6 MB
+        // phone shot. Spec via `resize:{max|w|h,format,quality}` (or top-level shortcuts).
+        // Applies only to PNG/JPEG/WEBP; GIF/PDF pass through untouched. Falls back to the
+        // original bytes on any failure, so a transform can never lose the upload.
+        let outBytes = bytes, outMime = mime, outExt = ext;
+        if (mime === "image/png" || mime === "image/jpeg" || mime === "image/webp") {
+          const rspec = (ub.resize && typeof ub.resize === "object") ? ub.resize
+            : ((ub.max != null || ub.w != null || ub.h != null || ub.width != null || ub.height != null || ub.format != null)
+              ? { max: ub.max, w: ub.w, h: ub.h, width: ub.width, height: ub.height, format: ub.format, quality: ub.quality } : null);
+          if (rspec) { const tr = transformImageBytes(bytes, mime, rspec); outBytes = tr.bytes; outMime = tr.mime; outExt = tr.ext || ext; }
+        }
         let siteExists = false;
         try { if (await env.SITES_BUCKET.head("sites/" + slug + "/index.html")) siteExists = true; } catch {}
         if (!siteExists && env.SUPABASE_SERVICE_KEY) { try { const uuid = await siteBackendBySlug(env, slug); if (uuid) siteExists = true; } catch {} }
         if (!siteExists) return Response.json({ ok: false, error: "this site isn't live yet" }, { status: 400, headers: cors });
         try { const listed = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", limit: 300 }); if (listed && Array.isArray(listed.objects) && listed.objects.length >= 300) return Response.json({ ok: false, error: "upload limit reached for this site" }, { status: 429, headers: cors }); } catch {}
         const id = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
-        const key = "uploads/" + slug + "/" + id + "." + ext;
-        try { await env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } }); } catch { return Response.json({ ok: false, error: "couldn't save the file" }, { status: 502, headers: cors }); }
-        return Response.json({ ok: true, url: "https://isibi.ai/u/" + slug + "/" + id + "." + ext, name: typeof ub.name === "string" ? ub.name.slice(0, 120) : "", type: mime, size: bytes.length }, { headers: cors });
+        const key = "uploads/" + slug + "/" + id + "." + outExt;
+        try { await env.SITES_BUCKET.put(key, outBytes, { httpMetadata: { contentType: outMime } }); } catch { return Response.json({ ok: false, error: "couldn't save the file" }, { status: 502, headers: cors }); }
+        return Response.json({ ok: true, url: "https://isibi.ai/u/" + slug + "/" + id + "." + outExt, name: typeof ub.name === "string" ? ub.name.slice(0, 120) : "", type: outMime, size: outBytes.length }, { headers: cors });
       }
       // Named counters — likes / views / reactions / poll tallies. Public + atomic.
       //   POST /api/db/<slug>/count/<name>[?by=N]  → increments (default +1, floored

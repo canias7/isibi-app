@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~93 / 93 — only live-only OAuth + photon resize remain)
+## DONE (~93 / 93 — only OAuth social login remains, needs owner creds)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -74,7 +74,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Realtime edits+deletes diff ("sync":true, ?sync=) (Batch 51)
 - [x] File upload to R2 per app (/api/db/<slug>/upload) (Batch 49)
 - [x] Signed upload URLs (covered: direct base64 -> public URL model) (Batch 49)
-- [ ] Image resize/transform on upload (photon is available)
+- [x] Image resize/transform on upload (/upload `resize:{max|w|h,format}`) (Batch 60)
 - [x] Full-text search: weighted ranking ("searchWeights") (Batch 52)
 - [x] Saved views / filters per member (/views) (Batch 41)
 - [x] Row-level view counts (covered by Counters layer) (Batch 50)
