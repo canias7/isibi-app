@@ -5791,7 +5791,7 @@ async function handleRequest(request, env, ctx) {
       // Named counters — likes / views / reactions / poll tallies. Public + atomic.
       //   POST /api/db/<slug>/count/<name>[?by=N]  → increments (default +1, floored
       //        at 0), returns {value}. GET /count/<name> → {value}. GET /count → all.
-      const cm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/count(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      const cm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/count(?:\/([a-z0-9_.:-]{1,60}))?\/?$/i);
       if (cm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" } });
         const slug = cm[1].toLowerCase(), name = (cm[2] || "").toLowerCase();

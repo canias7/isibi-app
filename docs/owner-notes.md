@@ -10,6 +10,27 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — NEW LAYER: Counters (atomic likes/views/reactions/polls) ✅ live
+
+Built apps had no race-free way to tally likes, view counts, reactions, or poll
+options — a read-modify-write on a row column races under load, and a full row per
+event is overkill. (Testing had surfaced the pain: Parkbench duplicated `author_name`
+into every row for lack of shared primitives.) Added a named-counter primitive:
+
+- `POST /api/db/<slug>/count/<name>[?by=N]` → atomic increment (default +1, floored
+  at 0; negative to undo a like), returns the new `{value}`.
+- `GET /api/db/<slug>/count/<name>` → `{value}`; `GET …/count` → `{counters:{…}}`.
+- PUBLIC + atomic (anonymous likes/views, no login, no races), rate-limited
+  (300/min read · 120/min write). Stored in the site's own D1 `_counters` (dropped
+  with the DB — no orphans). Surfaced to the owner in `/api/site/backend/analytics`
+  as `{counters}`. BACKEND_RULES teaches the builder counter-vs-feed-row + naming
+  (`like:post:${id}`) + pairing with a `user` row to stop double-likes.
+
+Shipped PR #524 (+#525 trailing-slash tolerance), deployed. **Verified live 12/12** —
+increment/by/floor, read single+all+unknown, owner analytics surfacing, method guard,
+and the property that matters: **25 concurrent increments → exactly 25 (race-free)**.
+All test backends provisioned bare (ensure+schema, $0) and deleted after.
+
 ## 2026-07-21 — End-to-end platform test + a real bug caught (backend wiring) ⚠️→✅
 
 **Drove a real Haiku-built app ("Townsquare" community board, $0 fal, photo-free)
