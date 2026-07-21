@@ -5024,6 +5024,39 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
       }
     }
+    // Owner data export: download one of the OWNER's own built-app tables as CSV or
+    // JSON (backups, GDPR, analysis). isibi-authed + owner-scoped; _users is limited to
+    // safe columns (never password hashes). Streamed as an attachment.
+    if (url.pathname === "/api/site/backend/export" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const table = (url.searchParams.get("table") || "").replace(/[^a-z0-9_]/gi, "").slice(0, 41);
+      const format = (url.searchParams.get("format") || "csv").toLowerCase() === "json" ? "json" : "csv";
+      if (!slug || !table) return Response.json({ ok: false, error: "missing slug or table" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+        if (table === "_users") await initSiteAuth(env, uuid);
+        const cols = table === "_users" ? "id,email,role,verified,created_at" : "*"; // never expose password hashes
+        const rows = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 5000");
+        const fname = slug + "-" + table + "." + format;
+        if (format === "json") {
+          return new Response(JSON.stringify(rows, null, 2), { headers: { "Content-Type": "application/json; charset=utf-8", "Content-Disposition": 'attachment; filename="' + fname + '"', "Cache-Control": "no-store" } });
+        }
+        const headers = rows.length ? Object.keys(rows[0]) : (table === "_users" ? ["id", "email", "role", "verified", "created_at"] : ["id"]);
+        const esc = (v) => { if (v == null) return ""; const s = String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const lines = [headers.join(",")];
+        for (const r of rows) lines.push(headers.map((h) => esc(r[h])).join(","));
+        return new Response(lines.join("\r\n"), { headers: { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="' + fname + '"', "Cache-Control": "no-store" } });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner export failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "export failed" }, { status: 502 });
+      }
+    }
     // Owner content editor: add / edit / delete a row in one of the OWNER's own
     // declared tables (products, posts, menu…). isibi-authed + owner-scoped; only
     // declared tables + columns (never _users/_meta) — this is how 'display' content
