@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2803,6 +2803,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
+    if (t.scheduled) cols.push('"publish_at" TEXT'); // scheduled publish — hidden until this time (app-set)
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2838,6 +2839,7 @@ async function applySiteSchema(env, uuid, spec) {
     }
     if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
+    if (t.scheduled) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "publish_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2869,7 +2871,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -6814,6 +6816,9 @@ async function handleRequest(request, env, ctx) {
           // `pinned` is platform-added but APP-SET (the app marks featured rows), so it's
           // writable + queryable + sortable like a normal column on pinnable tables.
           if (def.pinnable && !allow.some((c) => String(c).toLowerCase() === "pinned")) allow.push("pinned");
+          // `publish_at` is platform-added but APP-SET (the app schedules when a row goes
+          // live), so it's writable + queryable + sortable on scheduled tables.
+          if (def.scheduled && !allow.some((c) => String(c).toLowerCase() === "publish_at")) allow.push("publish_at");
           const tn = sqlIdent(table);
           // Identify the logged-in visitor (site-user token), if any.
           let userId = null;
@@ -6868,9 +6873,18 @@ async function handleRequest(request, env, ctx) {
           const expiresClause = expiresOn
             ? (url.searchParams.get("withExpired") === "1" ? "" : url.searchParams.get("expired") === "1" ? "(expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now'))" : "(expires_at IS NULL OR datetime(expires_at) > datetime('now'))")
             : "";
-          // Combined default row visibility (trash + expiry). Both clauses are param-free, so
-          // they compose into one AND-ed suffix shared by list, single-GET, stats, and bulk.
-          const visClause = [trashClause, expiresClause].filter(Boolean).join(" AND ");
+          // Scheduled publish (inverse of TTL) — on `scheduled:true` tables reads HIDE rows
+          // whose `publish_at` is still in the future (drafts / scheduled posts); NULL or a
+          // past time = live. `?scheduled=1` lists only the not-yet-published, `?withScheduled=1`
+          // lists everything. Param-free (SQLite datetime()), composes into visClause.
+          const scheduledOn = !!def.scheduled;
+          const publishClause = scheduledOn
+            ? (url.searchParams.get("withScheduled") === "1" ? "" : url.searchParams.get("scheduled") === "1" ? "(publish_at IS NOT NULL AND datetime(publish_at) > datetime('now'))" : "(publish_at IS NULL OR datetime(publish_at) <= datetime('now'))")
+            : "";
+          // Combined default row visibility (trash + expiry + scheduled). All clauses are
+          // param-free, so they compose into one AND-ed suffix shared by list, single-GET,
+          // stats, and bulk.
+          const visClause = [trashClause, expiresClause, publishClause].filter(Boolean).join(" AND ");
           const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
