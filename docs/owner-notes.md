@@ -565,6 +565,15 @@ Added a one-line WEBHOOKS/SMS/MAGIC-LINK hint to the functions section. Genuinel
 (need dedicated builds, not just keys): OAuth redirect flow, session revoke, API keys, per-app
 rate config, image resize. Roadmap tally: ~90/93.
 
+## 2026-07-21 — Batch 58: Session revoke / "log out other devices" (offline 9/9) built
+
+Block-style token epoch: `_users.token_epoch` (ensureAuthExtras); every token carries `ep`
+(set at signup=0 / login = current epoch). `POST /auth/logout-all` (auth) bumps the epoch and
+returns a FRESH token (current device stays in). `/auth/me` now rejects a token whose `ep` !=
+the stored epoch -> old sessions die at the next guard (same model as block/verified; the
+stateless data API keeps a revoked token until expiry, which is the documented tradeoff). The
+login + /me SELECTs self-heal older sites lacking the column. Roadmap tally: ~91/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
