@@ -282,6 +282,15 @@ Both DB-enforced (no insert-path plumbing), mirroring the trigger/index patterns
   uniqueness (usernames/emails), race-free, surfaces as the existing 409 `{code:'duplicate'}`.
 Carried through coerceTable (enforcement is index/trigger, so norm not needed). Roadmap: ~47/93.
 
+## 2026-07-21 — Batch 28: Cross-field validation checks (offline 7/7) ✅ built
+
+Table-level **`"checks":[["end_at","gte","start_at"],["capacity","gt","reserved"]]`** (ops
+gt/gte/lt/lte/eq/ne) enforced in `validateRow`: numeric compare when both parse as numbers,
+else string/ISO-date. Enforced when BOTH fields are in the body — always on a full insert; on
+a partial PATCH only if it carries both (documented limitation: one-field update can't compare
+against the stored other). Carried via coerceTable + norm (validateRow reads request-time def).
+Roadmap tally: ~48/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
