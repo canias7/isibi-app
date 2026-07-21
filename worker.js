@@ -4015,6 +4015,40 @@ async function _hmac(secret, msg) {
   const sig = await crypto.subtle.sign("HMAC", key, _sbEnc.encode(msg));
   return _b64(new Uint8Array(sig));
 }
+// TOTP (RFC 6238) for two-factor auth — standard authenticator-app codes (Google
+// Authenticator, Authy, 1Password). Secret is base32; codes are 6 digits over a 30s step.
+const _B32_ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function base32Encode(bytes) {
+  let bits = 0, val = 0, out = "";
+  for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += _B32_ALPH[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += _B32_ALPH[(val << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(s) {
+  const clean = String(s || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = 0, val = 0; const out = [];
+  for (const ch of clean) { const idx = _B32_ALPH.indexOf(ch); if (idx < 0) continue; val = (val << 5) | idx; bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8; } }
+  return new Uint8Array(out);
+}
+async function _totpAt(keyBytes, counter) {
+  const buf = new Uint8Array(8); let c = counter;
+  for (let i = 7; i >= 0; i--) { buf[i] = c & 0xff; c = Math.floor(c / 256); }
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf));
+  const off = sig[sig.length - 1] & 0x0f;
+  const bin = ((sig[off] & 0x7f) << 24) | (sig[off + 1] << 16) | (sig[off + 2] << 8) | sig[off + 3];
+  return String(bin % 1000000).padStart(6, "0");
+}
+async function totpVerify(secretB32, code, window = 1) {
+  const c = String(code || "").replace(/\D/g, "");
+  if (c.length !== 6) return false;
+  const key = base32Decode(secretB32);
+  if (!key.length) return false;
+  const step = Math.floor(Date.now() / 1000 / 30);
+  for (let i = -window; i <= window; i++) { if (await _totpAt(key, step + i) === c) return true; }
+  return false;
+}
+function newTotpSecret() { return base32Encode(crypto.getRandomValues(new Uint8Array(20))); }
 async function signSiteUserToken(secret, payload) {
   const body = _b64url(btoa(JSON.stringify(payload)));
   return body + "." + _b64url(await _hmac(secret, body));
@@ -4043,6 +4077,8 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN avatar_url TEXT",
     "ALTER TABLE _users ADD COLUMN bio TEXT",
     "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN totp_secret TEXT",
+    "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
   ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -6680,7 +6716,11 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0, display_name: dn } });
           }
           // login
-          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked FROM _users WHERE email=?", [email]);
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]).catch(async () => {
+            // older sites created before the 2FA columns existed → backfill then retry
+            await ensureAuthExtras(env, uuid);
+            return cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]);
+          });
           const u = rows[0];
           if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
           // Always run a hash (even when the email is unknown) so timing can't reveal
@@ -6691,12 +6731,60 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: false, error: "wrong email or password" }, { status: 401 });
           }
           if (u.blocked) return Response.json({ ok: false, error: "this account has been suspended" }, { status: 403 });
+          // Two-factor gate — when enabled, the password is right but a valid TOTP `code` is
+          // also required; without/with-wrong code, tell the client to prompt for it.
+          if (u.totp_enabled && u.totp_secret) {
+            if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "enter your authenticator code", need: "2fa" }, { status: 401 });
+          }
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
           return Response.json({ ok: true, token: await mkToken(u.id, u.role), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
         }
+      }
+      // Two-factor auth (TOTP — authenticator apps). The signed-in member enrolls, confirms
+      // with a code to enable, and can disable. Once enabled, login requires a `code`.
+      //   POST /api/db/<slug>/auth/2fa/setup            → {secret, otpauth} (start enrollment)
+      //   POST /api/db/<slug>/auth/2fa/enable {code}    → verify + turn on
+      //   POST /api/db/<slug>/auth/2fa/disable {code}   → turn off
+      const tfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/2fa\/(setup|enable|disable)$/i);
+      if (tfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tfm[1].toLowerCase(), act = tfm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|2fa", 30)) return tooMany();
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        const p = await verifySiteUserToken(secret, tok);
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        let body = {}; try { body = await request.json(); } catch {}
+        try {
+          await ensureAuthExtras(env, uuid);
+          const rows = await cfD1Query(env, uuid, "SELECT id,email,totp_secret,totp_enabled FROM _users WHERE id=?", [p.sub]);
+          const u = rows[0];
+          if (!u) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+          if (act === "setup") {
+            const ts = newTotpSecret();
+            await cfD1Query(env, uuid, "UPDATE _users SET totp_secret=?, totp_enabled=0 WHERE id=?", [ts, u.id]);
+            const label = encodeURIComponent(slug + ":" + u.email);
+            return Response.json({ ok: true, secret: ts, otpauth: "otpauth://totp/" + label + "?secret=" + ts + "&issuer=" + encodeURIComponent(slug) });
+          }
+          if (act === "enable") {
+            if (!u.totp_secret) return Response.json({ ok: false, error: "run setup first" }, { status: 400 });
+            if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "that code is incorrect" }, { status: 403 });
+            await cfD1Query(env, uuid, "UPDATE _users SET totp_enabled=1 WHERE id=?", [u.id]);
+            return Response.json({ ok: true, enabled: true });
+          }
+          // disable — require a current valid code (so a stolen token alone can't turn it off)
+          if (!u.totp_enabled) return Response.json({ ok: true, enabled: false });
+          if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "that code is incorrect" }, { status: 403 });
+          await cfD1Query(env, uuid, "UPDATE _users SET totp_enabled=0, totp_secret=NULL WHERE id=?", [u.id]);
+          return Response.json({ ok: true, enabled: false });
+        } catch (e) { console.error("2fa failed:", act, e && e.message, e && e.detail); return Response.json({ ok: false, error: "2fa error" }, { status: 502 }); }
       }
       // Account self-service (the signed-in member manages THEIR OWN account):
       //   POST   /api/db/<slug>/auth/password {current_password, password}  → change password
