@@ -1402,6 +1402,10 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .si-bar-v { flex: 0 0 auto; min-width: 30px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .78rem; }
 .si-body > .st-publish { width: 100%; margin-bottom: .4rem; }
 .si-item > .st-hi-restore { margin-top: .1rem; }
+.si-io { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.si-io select.st-in { flex: 1 1 120px; min-width: 110px; }
+.si-io .st-gen2 { flex: 0 0 auto; cursor: pointer; }
+.si-io label.st-gen2 { display: inline-flex; align-items: center; }
 .si-form { font-weight: 700; font-size: .82rem; text-transform: capitalize; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .si-when { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .si-row { display: flex; gap: .8rem; padding: .2rem 0; font-size: .86rem; }

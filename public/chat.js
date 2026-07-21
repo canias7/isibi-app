@@ -9707,7 +9707,7 @@ function moreCloud(site) {
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
     ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
-    ['download', 'Backups', dataLive ? 'Snapshot + restore your app’s data' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
+    ['download', 'Backups', dataLive ? 'Snapshot, restore, export + import data' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
     ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
@@ -10581,17 +10581,32 @@ async function siteBackups(site) {
   const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
   if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
   const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups');
+  const dl = async (table, fmt) => { // authed download → blob (a plain <a> can't send the Bearer)
+    try { const r = await apiFetch('/api/site/backend/export?slug=' + encodeURIComponent(slug) + '&table=' + encodeURIComponent(table) + '&format=' + fmt); const blob = await r.blob(); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = slug + '-' + table + '.' + fmt; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500); } catch (e) { if (typeof sbToast === 'function') sbToast('Export failed — try again.'); }
+  };
   const load = async () => {
     try {
-      const r = await apiFetch('/api/site/backend/backups?slug=' + encodeURIComponent(slug));
-      const d = await r.json().catch(() => ({}));
+      const [br, tr] = await Promise.all([
+        apiFetch('/api/site/backend/backups?slug=' + encodeURIComponent(slug)),
+        apiFetch('/api/site/backend/rows?slug=' + encodeURIComponent(slug)),
+      ]);
+      const d = await br.json().catch(() => ({})); const td = await tr.json().catch(() => ({}));
       const list = (d && d.backups) || [];
+      const tables = ((td && td.tables) || []).map((t) => t.name);
       bodyEl.innerHTML = '<button type="button" class="st-publish" id="bkNow">Back up now</button>' +
         (list.length ? '<div class="si-panel-sub">' + list.length + ' backup' + (list.length === 1 ? '' : 's') + '</div>' + list.map((b) =>
           '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(stFmtTime(b.uploaded)) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div><button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Restore</button></div>').join('')
-          : '<div class="si-empty">No backups yet. Snapshot your data anytime — it’s kept safe.</div>');
+          : '<div class="si-empty">No backups yet. Snapshot your data anytime — it’s kept safe.</div>') +
+        (tables.length ? '<div class="si-panel-sub">Export / import a table</div>' +
+          '<div class="si-io"><select class="st-in" id="ioTable">' + tables.map((t) => '<option>' + esc(t) + '</option>').join('') + '</select>' +
+          '<button type="button" class="st-gen2" id="ioCsv">Export CSV</button><button type="button" class="st-gen2" id="ioJson">Export JSON</button>' +
+          '<label class="st-gen2" id="ioImpL">Import CSV<input type="file" id="ioImp" accept=".csv,text/csv" hidden></label></div>' : '');
       const nb = bodyEl.querySelector('#bkNow'); if (nb) nb.onclick = async () => { nb.disabled = true; nb.textContent = 'Backing up…'; try { const rr = await apiFetch('/api/site/backend/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Backed up ' + (rd.rows || 0) + ' rows.') : 'Backup failed.'); } catch (e) { } load(); };
       bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Restore this backup? It replaces your current data with the snapshot (member logins are untouched).')) return; el.disabled = true; el.textContent = 'Restoring…'; try { const rr = await apiFetch('/api/site/backend/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Restored ' + (rd.restored || 0) + ' rows.') : 'Restore failed.'); } catch (e) { } load(); });
+      const tSel = bodyEl.querySelector('#ioTable');
+      const c = bodyEl.querySelector('#ioCsv'); if (c) c.onclick = () => dl(tSel.value, 'csv');
+      const j = bodyEl.querySelector('#ioJson'); if (j) j.onclick = () => dl(tSel.value, 'json');
+      const imp = bodyEl.querySelector('#ioImp'); if (imp) imp.onchange = async () => { const f = imp.files && imp.files[0]; if (!f) return; try { const csv = await f.text(); const rr = await apiFetch('/api/site/backend/import', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, table: tSel.value, csv }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Imported ' + (rd.imported || 0) + ' rows into ' + tSel.value + '.') : (rd.error || 'Import failed.')); } catch (e) { if (typeof sbToast === 'function') sbToast('Import failed — try again.'); } imp.value = ''; };
     } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load backups — try again.</div>'; }
   };
   load();
