@@ -10,6 +10,52 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — End-to-end platform test + a real bug caught (backend wiring) ⚠️→✅
+
+**Drove a real Haiku-built app ("Townsquare" community board, $0 fal, photo-free)
+end-to-end as a real user** — signup/login, feed posts, comments (relations),
+search, the AI suggest-title function, analytics — then checked every owner panel.
+
+**Platform backend: 22/22 checks PASSED.** Auth (+ first-user→admin role), feed
+writes (auth-gated, anon rejected), relations (`?children=comments` nested 3,
+`?expand=post_id` inlined the parent), search (`?q=coffee`→1; multi-term AND),
+**AI-as-a-primitive** (suggest-title → owner charged EXACTLY 1 credit, zero provider
+leak), analytics (owner panel showed EXACT counts: 22 total / view 16 / post 6),
+owner reads (posts, comments, members, admin role). Every DB point the platform
+exposes is solid.
+
+**THE BUG (in the GENERATOR, not the platform):** the Haiku build rendered a
+perfect UI but showed "Could not load posts" — because it wired EVERY backend call
+**without the site slug**. The rule mandates `const API = '/api/db/' +
+location.pathname.split('/')[2]`; Haiku ignored it, wrote its own helper
+`fetch(\`/api/db${'{'}t${'}'}\`)` and called `w("/rows/comments")` → `/api/db/rows/comments`
+(slug-less → 404). The string `townsquare-e7c3eb` appeared **0 times** in the whole
+bundle. Auth, posts, comments — all dead. **Why nothing caught it: the build +
+auto-fix loop only checks that the code COMPILES. This compiles fine; it's wired
+wrong at RUNTIME.** So a fully non-functional backend app can build clean, pass
+validation, and ship. Exactly what real e2e testing is for.
+
+**FIX — three defensive layers (code shipped to the branch; live-verify pending a
+credit top-up):**
+1. **Louder rule** (`react-gen.mjs` BACKEND_RULES) — the API-base requirement is now
+   a hard, unmissable directive ("NEVER hardcode `/api/db/auth`… NEVER `/api/db${'{'}x${'}'}`…").
+2. **Post-build wiring guard + repair pass** (`worker.js`, mirrors the existing
+   schema-repair) — after generation, if the app hits `/api/db` with a broken slug-less
+   shape AND never derives the slug, hand it to a targeted URL-only rewrite pass
+   (`WIRING_REPAIR_RULES`). Model-agnostic net; one small extra LLM call only when the
+   defect is present.
+3. Detection logic **verified offline, 9/9** (fires on the real broken bundle + 4
+   broken variants; stays silent on 3 correctly-wired variants + a static site — no
+   wasted repair calls). The repair LLM output itself needs a live rebuild (~13
+   credits) to confirm — **owner balance is down to 3, so that's paused until top-up.**
+
+**Follow-up options for the owner:** (a) top up → I rebuild Townsquare and prove the
+guard heals it end-to-end; (b) also route backend-declaring builds to Sonnet for
+higher first-pass reliability (costs more per build). Test app `townsquare-e7c3eb`
+left UP as evidence; clean it up after the fix is confirmed.
+
+---
+
 ## 2026-07-20 — Phase 4a: React builder STREAMS (live code view) + auto-fix loop ✅
 
 `/api/site/react-build` is now an NDJSON stream (like the classic builder):
