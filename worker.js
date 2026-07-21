@@ -418,6 +418,60 @@ async function readCredits(authHeader) {
   return Number(await r.json());
 }
 
+// ---- AI-as-a-primitive: a built app calls an LLM through the platform ----------
+// The platform holds the key; each call is metered to the app OWNER's credits (their
+// app's visitors trigger it, so we can't charge the caller). use_credits_for is
+// service_role-only + mint-gated, returns the new balance or -1 when the owner can't
+// afford it. Flat fee per call — Haiku with a capped output makes the real cost small.
+const AI_FEE = 1; // credits per app AI call
+async function chargeOwnerAI(env, ownerUid, credits) {
+  if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET || !ownerUid || !(credits > 0)) return -1;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/use_credits_for`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ target: ownerUid, amount: credits, mint_key: env.CREDITS_MINT_SECRET }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return -1;
+    return Number(await r.json());
+  } catch { return -1; }
+}
+// Owner (isibi user) id for a built app, from the D1 backend ledger, then the source.
+async function siteOwnerUid(env, slug) {
+  try {
+    const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=uid`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY}` }, signal: AbortSignal.timeout(8000) });
+    const rows = await g.json().catch(() => []);
+    if (Array.isArray(rows) && rows[0] && rows[0].uid) return rows[0].uid;
+  } catch {}
+  try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) { const j = JSON.parse(await o.text()); if (j && j.uid) return j.uid; } } catch {}
+  return null;
+}
+// Run one platform AI call for a built app. Charges the owner up front (refunds on any
+// failure). Errors are always generic — a built app's visitors must never see provider
+// internals. Returns { text } or { error }.
+async function runSiteAI(env, ownerUid, opts) {
+  const prompt = String((opts && opts.prompt) || "").slice(0, 6000);
+  if (!prompt.trim()) return { error: "Ask a question first." };
+  if (!env.ANTHROPIC_API_KEY || !ownerUid) return { error: "This app's AI isn't available right now." };
+  const bal = await chargeOwnerAI(env, ownerUid, AI_FEE);
+  if (bal < 0) return { error: "This app's AI is temporarily unavailable." }; // owner out of credits (generic)
+  const system = String((opts && opts.system) || "").slice(0, 2000);
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify(Object.assign({ model: "claude-haiku-4-5", max_tokens: 800, messages: [{ role: "user", content: prompt }] }, system ? { system } : {})),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!r.ok) { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI is busy — try again in a moment." }; }
+    const j = await r.json();
+    const text = (Array.isArray(j.content) ? j.content.filter((b) => b && b.type === "text").map((b) => b.text).join("") : "").trim();
+    if (!text) { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI returned nothing — try rewording." }; }
+    return { text };
+  } catch { await creditBack(env, ownerUid, AI_FEE); return { error: "The AI is busy — try again in a moment." }; }
+}
+
 // Per-user daily quota, enforced by the Postgres side (use_quota is
 // SECURITY DEFINER over a client-locked table). Fails open if the quota
 // service itself is unreachable so an outage can't take the feature down —
@@ -2111,6 +2165,13 @@ async function runSiteFunction(env, row, input, slug) {
           if (total < 500) { try { await fetch(`${SUPABASE_URL}/rest/v1/site_collections`, { method: "POST", headers: { ...svc, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ published_site_id: row.published_site_id || null, owner_id: row.owner_id, slug, collection: st.collection, data: rec && typeof rec === "object" ? rec : {} }), signal: AbortSignal.timeout(8000) }); } catch {} }
           data.steps[st.as || "saved"] = { ok: true };
         }
+      } else if (st.do === "ai") {
+        // Platform LLM call, metered to this app's owner. Prompt/system may template
+        // in earlier steps + input; the result lands as {{steps.<as>.text}}.
+        const prompt = resolveStr(String(st.prompt || ""), data, null);
+        const system = st.system ? resolveStr(String(st.system), data, null) : "";
+        const res = await runSiteAI(env, row.owner_id, { prompt, system });
+        data.steps[st.as || "ai"] = (res.text != null) ? { text: res.text } : { error: res.error || "ai unavailable" };
       } else if (st.do === "fetch") {
         if (secrets === null) secrets = await loadSiteSecrets(env, row.owner_id, slug);
         const url = resolveStr(st.url, data, secrets);
@@ -5494,6 +5555,19 @@ async function handleRequest(request, env, ctx) {
           if (uid && email && !verified) await sendVerifyEmail(env, ctx, secret, slug, uid, email);
         } catch (e) { console.error("site verify-request failed:", e && e.message); }
         return okResp();
+      }
+      // AI primitive — a built app asks the platform LLM a question. Metered to the
+      // app OWNER's credits (their visitors trigger it). Rate-limited hard.
+      const aim = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ai$/i);
+      if (aim && request.method === "POST") {
+        const slug = aim[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: false, error: "This app's AI isn't available right now." }, { status: 503 });
+        if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|ai", 20)) return tooMany("You're asking too fast — give it a second.");
+        let body; try { body = await request.json(); } catch { body = {}; }
+        const ownerUid = await siteOwnerUid(env, slug);
+        const res = await runSiteAI(env, ownerUid, { prompt: body && body.prompt, system: body && body.system });
+        if (res.text != null) return Response.json({ ok: true, text: res.text });
+        return Response.json({ ok: false, error: res.error || "AI unavailable" }, { status: 400 });
       }
     }
     // Built-site password reset — step 2: set a new password with the token.
