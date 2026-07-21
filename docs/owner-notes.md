@@ -442,6 +442,15 @@ all rows (cap 2000, visibility + user scope), runs authors/reactions/tags/comput
 set, then nests them: each row gets a `replies` array (`byId` map, guards self-parent cycles).
 `?root=<id>` returns one subtree. Roadmap tally: ~66/93.
 
+## 2026-07-21 — Batch 46: NEW LAYER Many-to-many links (offline 11/11) ✅ built
+
+Generic undirected relationship store `_links (a, b, PK(a,b))` where a/b are `<table>:<id>`
+(pairs normalized/sorted so one edge per pair, queryable from either side): `POST /link {a,b}`
+(auth), `DELETE /link {a,b}` (auth), `GET /links/<target>[?to=<table>]` → linked items
+`[{target,table,id}]`. Helpers ensureLinks/addLink/removeLink/linksOf. Saves declaring a join
+table for a plain M2M (use a real join table when the link carries its own data). Roadmap
+tally: ~67/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
