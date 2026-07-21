@@ -413,9 +413,24 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
   (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
-  (#499)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
-  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
-  the account level, so it's gated on infra, not code).
+  (#499)** · **Rate limiting ✅ (#500)**. Custom domains LAST (owner's call 2026-07-21 —
+  "all of them, leave custom domains for last"; it needs the owner to enable Cloudflare
+  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  · **GAP-CLOSING PASS (owner 2026-07-21, "build all of them, skip dns"):** after the
+    stack-category review, closing the real gaps — rate limiting ✅ (#500), then
+    validation, full-text search, observability, backups/rollback. Email-key + custom
+    domains stay owner-gated. Each free to verify.
+  · **Rate limiting (#500) — built apps' API now throttled, VERIFIED live.** Per-site +
+    per-visitor-IP burst limiter on `/api/db/*`: reads 300/min, writes 60/min, auth
+    30/min, email-send (reset/verify request) 10/min (dropped neutrally — no reveal, no
+    inbox flood). 429 + Retry-After over the limit. Fixed 60s window, in-isolate counter
+    with stale-window eviction — ZERO new infra (a strict GLOBAL limit would need KV/
+    Durable Objects; per-isolate still meaningfully caps abuse). Transparent to apps (no
+    build-prompt change). **Proof (zero AI/fal):** auth capped at EXACTLY 30/min (30×401
+    then 15×429), writes at EXACTLY 60/min (60×200 then 20×429), 20 quick reads all 200,
+    throttle body friendly ("please wait a minute", no internals). (The lone red check
+    in the harness was a TEST-REGEX false positive — its no-leak guard matched "fal"
+    inside the JSON word "false"; not a real leak.) Cleaned up.
   · **Data export (#499) — owner downloads a built-app table, VERIFIED live 13/13.**
     `GET /api/site/backend/export?slug=&table=&format=csv|json` streams the table as a
     CSV or JSON attachment (backups, GDPR, analysis). isibi-authed + owner-scoped;

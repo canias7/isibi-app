@@ -2494,7 +2494,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: c.max || c.maxLength || c.maxlength, format: c.format };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2526,7 +2526,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
-    const colNames = []; const seen = new Set(); const refs = {};
+    const colNames = []; const seen = new Set(); const refs = {}; const rules = {};
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2548,13 +2548,19 @@ async function applySiteSchema(env, uuid, spec) {
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
       if (c.ref && SAFE_IDENT.test(String(c.ref))) refs[low] = String(c.ref);
+      // validation rules (enforced on writes): required, max length, basic format
+      const rule = {};
+      if (c.notnull || c.required) rule.required = true;
+      const mx = parseInt(c.max, 10); if (mx > 0) rule.max = Math.min(mx, 100000);
+      const fmt = String(c.format || "").toLowerCase(); if (["email", "url", "number"].includes(fmt)) rule.format = fmt;
+      if (Object.keys(rule).length) rules[low] = rule;
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -2780,6 +2786,28 @@ async function upsertRow(env, uuid, tn, allow, col, body, owner) {
   const vals = owner != null ? use.map((c) => body[c]).concat([owner]) : use.map((c) => body[c]);
   await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + cols.map(sqlIdent).join(",") + ") VALUES (" + cols.map(() => "?").join(",") + ")", vals);
   return { created: true };
+}
+// Server-side validation of a write against the table's declared rules. On INSERT,
+// required columns must be present + non-empty; on UPDATE only supplied fields are
+// checked (partial update). Enforces max length + basic email/url/number format, plus
+// a hard 100k-char cap on ANY field (abuse guard). Returns an error string or null.
+function validateRow(def, body, isInsert) {
+  const rules = (def && def.rules) || {};
+  for (const c of Object.keys(body || {})) {
+    const v = body[c];
+    if (typeof v === "string" && v.length > 100000) return c + " is too long";
+  }
+  for (const [col, rule] of Object.entries(rules)) {
+    const v = body ? body[col] : undefined;
+    const present = v !== undefined && v !== null && !(typeof v === "string" && v.trim() === "");
+    if (rule.required && isInsert && !present) return col + " is required";
+    if (!present) continue;
+    if (rule.max && typeof v === "string" && v.length > rule.max) return col + " is too long (max " + rule.max + ")";
+    if (rule.format === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) return col + " must be a valid email";
+    if (rule.format === "url" && !/^https?:\/\/[^\s]+$/i.test(String(v))) return col + " must be a valid URL";
+    if (rule.format === "number" && isNaN(Number(v))) return col + " must be a number";
+  }
+  return null;
 }
 // Batch insert — POST `{rows:[…]}` writes many rows in ONE statement (import a CSV,
 // seed a list, bulk actions). Uses the union of declared columns present across the
@@ -5310,6 +5338,9 @@ async function handleRequest(request, env, ctx) {
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
           const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
+          const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
+          const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
+          const vBatch = (arr) => { for (const rr of arr) { const e = vErr(rr, true); if (e) return e; } return null; };
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
@@ -5371,9 +5402,10 @@ async function handleRequest(request, env, ctx) {
           if (access === "collect") {
             if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
             const body = await readBody();
-            if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null)));
+            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null))); }
             const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+            { const e = vErr(body, true); if (e) return badReq(e); }
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
             return Response.json({ ok: true });
@@ -5392,8 +5424,9 @@ async function handleRequest(request, env, ctx) {
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
             if (method === "POST") {
               const body = await readBody();
-              if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId)));
+              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
               const use = pickCols(body);
+              { const e = vErr(body, true); if (e) return badReq(e); }
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
@@ -5402,6 +5435,7 @@ async function handleRequest(request, env, ctx) {
             if (method === "PATCH" && rowId != null) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              { const e = vErr(body, false); if (e) return badReq(e); }
               const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
               if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 }); // not yours / gone
               return Response.json({ ok: true });
@@ -5430,9 +5464,10 @@ async function handleRequest(request, env, ctx) {
             if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
             if (method === "POST") {
               const body = await readBody();
-              if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null)));
+              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null))); }
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              { const e = vErr(body, true); if (e) return badReq(e); }
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
               return Response.json({ ok: true });
@@ -5440,6 +5475,7 @@ async function handleRequest(request, env, ctx) {
             if (method === "PATCH" && rowId != null) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              { const e = vErr(body, false); if (e) return badReq(e); }
               const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", use.map((c) => body[c]).concat([rowId]));
               if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
@@ -5463,8 +5499,9 @@ async function handleRequest(request, env, ctx) {
           }
           if (method === "POST") {
             const body = await readBody();
-            if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId)));
+            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
             const use = pickCols(body);
+            { const e = vErr(body, true); if (e) return badReq(e); }
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
@@ -5473,6 +5510,7 @@ async function handleRequest(request, env, ctx) {
           if (method === "PATCH" && rowId != null) {
             const body = await readBody(); const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+            { const e = vErr(body, false); if (e) return badReq(e); }
             const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
