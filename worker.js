@@ -7345,13 +7345,14 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
         const isFacets = dm[3] === "facets";
         const isNear = dm[3] === "near";
+        const isTree = dm[3] === "tree";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -7359,7 +7360,7 @@ async function handleRequest(request, env, ctx) {
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
-        const rowId = dm[3] && !["stats", "changes", "facets", "near"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -7664,6 +7665,29 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, reverted: rowId, from: histId });
           }
 
+          // Threaded / nested read — GET /rows/<t>/tree for a SELF-REFERENTIAL table (a column
+          // whose `ref` points back at its own table, e.g. comments.parent_id → comments).
+          // Returns the rows nested: each carries a `replies` array of its children (recursive).
+          // `?root=<id>` returns just that node's subtree. Honors ?authors=1/?reactions=1/?tags=1
+          // on the flat rows first. Same read visibility as the table (user scoped to own rows).
+          if (isTree) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no read" }, { status: 403 });
+            const refs = def.refs || {};
+            const selfCol = Object.keys(refs).find((c) => String(refs[c]).toLowerCase() === table.toLowerCase());
+            if (!selfCol) return badReq("this table isn't self-referential (declare a column with ref back to itself, e.g. parent_id → " + table + ")");
+            let scopeSql = "", sp = [];
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scopeSql = " AND owner_id=?"; sp = [userId]; }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE 1=1" + (visClause ? " AND " + visClause : "") + scopeSql + " ORDER BY id ASC LIMIT 2000", sp);
+            parseJsonRows(def, rows); attachComputed(def, rows);
+            await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url);
+            const byId = new Map(); for (const r of rows) { r.replies = []; byId.set(r.id, r); }
+            const roots = [];
+            for (const r of rows) { const pid = r[selfCol]; if (pid != null && byId.has(pid) && pid !== r.id) byId.get(pid).replies.push(r); else roots.push(r); }
+            const rootId = parseInt(url.searchParams.get("root") || "", 10);
+            const tree = (rootId > 0 && byId.has(rootId)) ? [byId.get(rootId)] : roots;
+            return Response.json({ ok: true, tree, total: rows.length });
+          }
           // Nearby / geo search — GET /rows/<t>/near?lat=&lng=&radius=<km>[&limit=]. A cheap
           // bounding-box prefilter in SQL (no trig needed) narrows candidates, then exact
           // haversine distance in JS filters + sorts. Each row comes back with `_distance_km`.
