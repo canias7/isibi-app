@@ -2641,6 +2641,34 @@ function parseJsonRows(def, rows) {
 }
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
+// Auto-slug: a url-safe, lowercase, dash-joined key derived from a source column
+// ("My First Post!" → "my-first-post"), used for pretty per-row URLs. Uniqueness is
+// enforced with a UNIQUE INDEX; on collision we append -2, -3, … (also deduping within
+// a single batch via `extraTaken`). Diacritics are folded; empty → "item".
+function slugify(s) {
+  return String(s == null ? "" : s).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
+async function uniqueSlug(env, uuid, tn, base, extraTaken) {
+  const rows = await cfD1Query(env, uuid, "SELECT slug FROM " + tn + " WHERE slug = ? OR slug LIKE ?", [base, base + "-%"]);
+  const taken = new Set(rows.map((r) => r.slug));
+  if (extraTaken) for (const s of extraTaken) taken.add(s);
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 100000; n++) { const c = base + "-" + n; if (!taken.has(c)) return c; }
+  return base + "-" + Date.now();
+}
+// Populate body.slug for an INSERT when the table declares a slug source. Returns true
+// only when WE generated one (so the caller adds "slug" to the insert column list); an
+// app-supplied slug is normalized in place and left to the UNIQUE index to police.
+async function maybeSlug(env, uuid, def, tn, body, extraTaken) {
+  const sc = def && def.slug; if (!sc || !sc.from || !body || typeof body !== "object") return false;
+  if (body.slug !== undefined && body.slug !== null && String(body.slug).trim() !== "") {
+    body.slug = slugify(body.slug) || null; if (extraTaken && body.slug) extraTaken.add(body.slug); return false;
+  }
+  const base = slugify(body[sc.from]) || "item";
+  const s = await uniqueSlug(env, uuid, tn, base, extraTaken);
+  body.slug = s; if (extraTaken) extraTaken.add(s);
+  return true;
+}
 // Minimal RFC-4180-ish CSV parser → array of string arrays. Handles quoted fields,
 // embedded commas/newlines, and "" escaped quotes. For owner data import.
 function parseCsv(text) {
@@ -2704,6 +2732,11 @@ async function applySiteSchema(env, uuid, spec) {
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
     const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const rules = {};
+    // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
+    // adds+fills a unique url-safe `slug` column derived from that source column on insert.
+    let slugFrom = null;
+    if (typeof t.slug === "string" && SAFE_IDENT.test(t.slug)) slugFrom = t.slug.toLowerCase();
+    else if (t.slug && typeof t.slug === "object" && typeof t.slug.from === "string" && SAFE_IDENT.test(t.slug.from)) slugFrom = t.slug.from.toLowerCase();
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2749,6 +2782,8 @@ async function applySiteSchema(env, uuid, spec) {
       if (Object.keys(rule).length) rules[low] = rule;
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    // Auto-slug column (unless the app already declared its own `slug`): a UNIQUE url-safe key.
+    if (slugFrom && !seen.has("slug")) { cols.push('"slug" TEXT'); colNames.push("slug"); seen.add("slug"); }
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
@@ -2761,6 +2796,12 @@ async function applySiteSchema(env, uuid, spec) {
     // backfills owner_id / deleted_at onto a pre-existing table.
     if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
     if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
+    // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
+    // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
+    if (slugFrom) {
+      try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "slug" TEXT'); } catch {}
+      try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_slug") + " ON " + tn + ' ("slug")'); } catch (e) { console.error("slug index failed:", t.name, e && e.detail); }
+    }
     // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
     // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
     //   unique: [...]      → a group of columns that must be globally unique
@@ -2786,7 +2827,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3252,7 +3293,7 @@ async function attachAuthors(env, uuid, rows, url) {
 // settings singletons, likes/toggles, idempotent saves. No DB-level UNIQUE is required
 // (small race window under truly-concurrent writes, fine at app scale). Returns
 // {created}. `owner` scopes the match/insert to one user (user/feed tables).
-async function upsertRow(env, uuid, tn, allow, col, body, owner) {
+async function upsertRow(env, uuid, tn, allow, col, body, owner, def) {
   const use = allow.filter((c) => body[c] !== undefined);
   const where = [sqlIdent(col) + "=?"], wparams = [body[col]];
   if (owner != null) { where.push('"owner_id"=?'); wparams.push(owner); }
@@ -3262,6 +3303,8 @@ async function upsertRow(env, uuid, tn, allow, col, body, owner) {
     if (setCols.length) await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + setCols.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", setCols.map((c) => body[c]).concat([found[0].id]));
     return { id: found[0].id, created: false };
   }
+  // Creating a new row → generate its slug (skips the update branch above, so edits don't re-slug).
+  if (def && def.slug && def.slug.from && await maybeSlug(env, uuid, def, tn, body) && !use.includes("slug")) use.push("slug");
   const cols = owner != null ? use.concat(["owner_id"]) : use;
   const vals = owner != null ? use.map((c) => body[c]).concat([owner]) : use.map((c) => body[c]);
   await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + cols.map(sqlIdent).join(",") + ") VALUES (" + cols.map(() => "?").join(",") + ")", vals);
@@ -3299,6 +3342,9 @@ function validateRow(def, body, isInsert) {
 async function insertMany(env, uuid, tn, allow, rowsArr, owner, def) {
   const rows = (Array.isArray(rowsArr) ? rowsArr : []).slice(0, 100).filter((r) => r && typeof r === "object").map((r) => jsonizeRow(def, r));
   if (!rows.length) return { inserted: 0 };
+  // Auto-slug each row (a shared `seen` set dedupes slugs WITHIN this batch, since the
+  // uniqueness query can't see rows not yet inserted). Must run before `cols` is derived.
+  if (def && def.slug && def.slug.from) { const seen = new Set(); for (const r of rows) await maybeSlug(env, uuid, def, tn, r, seen); }
   const cols = allow.filter((c) => rows.some((r) => r[c] !== undefined));
   if (!cols.length && owner == null) return { inserted: 0 };
   const outCols = owner != null ? cols.concat(["owner_id"]) : cols;
@@ -6607,7 +6653,8 @@ async function handleRequest(request, env, ctx) {
             const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             { const e = vErr(body, true); if (e) return badReq(e); }
-            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
+            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null, def)));
+            if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug (adds body.slug + the column)
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
             fireInsertTriggers(env, ctx, slug, table, body);
             return Response.json({ ok: true });
@@ -6630,7 +6677,8 @@ async function handleRequest(request, env, ctx) {
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
               { const e = vErr(body, true); if (e) return badReq(e); }
-              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
+              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId, def)));
+              if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
               fireInsertTriggers(env, ctx, slug, table, body);
@@ -6671,7 +6719,8 @@ async function handleRequest(request, env, ctx) {
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, true); if (e) return badReq(e); }
-              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
+              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null, def)));
+              if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
               fireInsertTriggers(env, ctx, slug, table, body);
               return Response.json({ ok: true });
@@ -6706,7 +6755,8 @@ async function handleRequest(request, env, ctx) {
             const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
             { const e = vErr(body, true); if (e) return badReq(e); }
-            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
+            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId, def)));
+            if (await maybeSlug(env, uuid, def, tn, body)) use.push("slug"); // auto-slug
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
             fireInsertTriggers(env, ctx, slug, table, body);
