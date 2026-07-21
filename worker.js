@@ -2719,6 +2719,33 @@ async function expandRows(env, uuid, spec, def, rows, url) {
   }
   return rows;
 }
+// Reverse relations: `?children=<child_table>[,<child_table>]` attaches each parent
+// row's children — the rows in <child_table> whose declared `ref` points back at THIS
+// table. Batched (one SELECT … WHERE fk IN (parentIds) per child table, grouped in
+// memory — no N+1), capped 500 total / 50 per parent. SAFETY: only PUBLIC-READ child
+// tables (display/feed/admin) are joined, never a `user`/`collect` table. Attached
+// under the child table's name (post.comments = [...]). Mutates + returns rows.
+async function expandChildren(env, uuid, spec, def, rows, url) {
+  const want = String(url.searchParams.get("children") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 3);
+  if (!want.length || !rows.length) return rows;
+  const parentIds = [...new Set(rows.map((r) => r.id).filter((v) => v != null))].slice(0, 200);
+  if (!parentIds.length) return rows;
+  const thisName = String(def.name).toLowerCase();
+  for (const childName of want) {
+    const cdef = tableDef(spec, childName);
+    if (!cdef) continue;
+    if (!["display", "feed", "admin"].includes(cdef.access || "collect")) continue; // don't leak private children
+    const crefs = cdef.refs || {};
+    const fkCol = Object.keys(crefs).find((c) => String(crefs[c]).toLowerCase() === thisName);
+    if (!fkCol) continue; // this child doesn't reference us
+    let kids = [];
+    try { kids = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ") ORDER BY id DESC LIMIT 500", parentIds); } catch { continue; }
+    const grouped = new Map();
+    for (const k of kids) { const pid = k[fkCol]; if (!grouped.has(pid)) grouped.set(pid, []); const arr = grouped.get(pid); if (arr.length < 50) arr.push(k); }
+    for (const r of rows) r[childName] = grouped.get(r.id) || [];
+  }
+  return rows;
+}
 // Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
 // requested aggregate families are present).
 function shapeD1Stats(row, wanted) {
@@ -5190,7 +5217,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = (rows) => expandRows(env, uuid, spec, def, rows, url); // ?expand=<fk_col> joins the parent row(s)
+          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids)
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
