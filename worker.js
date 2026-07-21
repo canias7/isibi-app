@@ -6334,15 +6334,16 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr|restore|tags)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
+        const isFacets = dm[3] === "facets";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
-        const rowId = dm[3] && dm[3] !== "stats" && dm[3] !== "changes" ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -6489,6 +6490,33 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true, group: b.groupCol, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted)));
+          }
+
+          // Faceted counts — for each requested column, the distinct values and how many
+          // rows have each (`{color:[{value,count}],size:[…]}`), so an app renders filter
+          // sidebars like "Red (12) · Blue (4)". Respects the SAME where/q/tag/trash
+          // filters as a list read, so counts reflect the currently-applied filters (drill
+          // down). Same read visibility as the table (collect exposes nothing; user counts
+          // only its own rows). Each facet is a GROUP BY over a declared column, top 100 by
+          // count. NULL/empty values are dropped.
+          if (isFacets) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no facets" }, { status: 403 });
+            let base = null;
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
+            base = withTagFilter(withTrash(base));
+            const allowSet = new Set(allow.map((c) => String(c).toLowerCase()));
+            const fields = (url.searchParams.get("fields") || "").toLowerCase().split(",").map((s) => s.trim()).filter((c) => allowSet.has(c)).slice(0, 8);
+            if (!fields.length) return Response.json({ ok: false, error: "fields required" }, { status: 400 });
+            const f = buildD1Filter(url, allow, base);
+            const facets = {};
+            for (const col of fields) {
+              const cid = sqlIdent(col);
+              const sql = "SELECT " + cid + " AS value, COUNT(*) AS n FROM " + tn + f.whereSql + (f.whereSql ? " AND " : " WHERE ") + cid + " IS NOT NULL AND " + cid + " != '' GROUP BY " + cid + " ORDER BY n DESC, value ASC LIMIT 100";
+              try { const rows = await cfD1Query(env, uuid, sql, f.params.slice()); facets[col] = rows.map((r) => ({ value: r.value, count: Number(r.n) || 0 })); }
+              catch { facets[col] = []; }
+            }
+            return Response.json({ ok: true, facets });
           }
 
           // Realtime feed — return only rows NEWER than the caller's cursor (`since`
