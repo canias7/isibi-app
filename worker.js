@@ -2644,7 +2644,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: c.max || c.maxLength || c.maxlength, min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue) };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue) };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -6223,6 +6223,7 @@ async function handleRequest(request, env, ctx) {
               const body = await readBody();
               if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
               const use = pickCols(body);
+              if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
               { const e = vErr(body, true); if (e) return badReq(e); }
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
@@ -6298,6 +6299,7 @@ async function handleRequest(request, env, ctx) {
             const body = await readBody();
             if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
             const use = pickCols(body);
+            if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
             { const e = vErr(body, true); if (e) return badReq(e); }
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
