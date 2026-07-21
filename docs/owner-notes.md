@@ -617,6 +617,28 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-21 — BUGFIX: schema revise dropped new app columns (+ stale flag-triggers)
+
+Found while live-testing: **re-applying a schema (what a REVISE does) never ALTER-added a
+newly-declared app column.** `applySiteSchema` only `ALTER ADD COLUMN`-ed platform columns
+(owner_id, deleted_at, position, …); app columns relied on `CREATE TABLE IF NOT EXISTS`,
+which is a no-op on an existing table. So "add a due_date to tasks" (a super-common revise)
+silently left the column out → every write to it failed with "data error". This was the
+real cause of the "data error" I first misattributed to the audit trigger.
+
+Fix (worker.js applySiteSchema):
+- Collect each declared app column's `name type` and `ALTER TABLE … ADD COLUMN` it after
+  the CREATE (idempotent try/catch — bare type only, since ALTER can't add NOT NULL/UNIQUE/
+  PK to a populated table; required-ness is enforced at the API layer). Revises that add a
+  field now work.
+- Secondary hygiene: DROP the flag-driven triggers (`_del`/`_pos`/`_max`/`_aud_*`/`_hist`)
+  before the conditional CREATE blocks, so turning a flag OFF (e.g. dropping `audit`) removes
+  its trigger instead of leaving it firing into `_audit`/`_history` after it's disabled.
+
+Offline-verified: test/backend/batch62.test.mjs (4/4) — audit on→insert, audit off same-cols
+→insert still works, NEW column added on re-apply→insert works, audit re-enabled→works. Full
+suite green. Deploying; will re-verify live.
+
 ## 2026-07-21 — Live generation QA + BACKEND_RULES tightening
 
 Generated real sites through the live Sonnet builder (`/api/site/react-build`) as a user

@@ -2819,6 +2819,7 @@ async function applySiteSchema(env, uuid, spec) {
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
     const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
+    const appAdds = []; // [name-type] for each declared app column, ALTER-added on re-apply so a REVISE that adds a field actually gets the column (CREATE IF NOT EXISTS won't)
     // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
     // adds+fills a unique url-safe `slug` column derived from that source column on insert.
     let slugFrom = null;
@@ -2864,6 +2865,7 @@ async function applySiteSchema(env, uuid, spec) {
         if (dl != null) def += " DEFAULT " + dl;
       }
       cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
+      appAdds.push(cn + " " + ty); // bare type only — ALTER ADD COLUMN can't carry NOT NULL/UNIQUE/PK on a populated table; required-ness is enforced at the API layer anyway
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
@@ -2894,6 +2896,12 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
+    // Schema evolution for APP columns: CREATE IF NOT EXISTS is a no-op on an existing table,
+    // so a REVISE that adds a new field (e.g. "add a due_date to tasks") would never get the
+    // column and every write to it fails ("data error"). ADD COLUMN is idempotent here (the
+    // "duplicate column" error on a fresh table is swallowed), so this backfills any newly
+    // declared column onto a pre-existing table without disturbing existing data.
+    for (const add of appAdds) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + add); } catch {} }
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
     // so a revise that CHANGES a table's access mode (display→user/feed) or turns on
     // trash would otherwise leave the newly-required platform columns missing — and its
@@ -2908,6 +2916,16 @@ async function applySiteSchema(env, uuid, spec) {
     // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
     // default above, so the common path is fully automatic).
     if (t.timestamps || t.sync) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    // Re-apply hygiene: DROP the flag-driven triggers first, so turning a flag OFF on a
+    // revise (e.g. removing `audit`) actually REMOVES its trigger instead of leaving a stale
+    // one behind. A left-behind AFTER trigger keeps firing into its side table (_audit /
+    // _history) and rolls back every subsequent write ("data error") — a real bug when a
+    // schema is re-applied without a flag it previously had. Each conditional block below
+    // recreates its trigger only when the flag is still set. (Names are fixed per table; the
+    // per-column enforceRefs triggers are left alone — columns are never dropped.)
+    for (const suf of ["_del", "_pos", "_max", "_aud_i", "_aud_u", "_aud_d", "_hist"]) {
+      try { await cfD1Query(env, uuid, "DROP TRIGGER IF EXISTS " + sqlIdent("trg_" + t.name + suf)); } catch {}
+    }
     // Sync (offline-first) — record deletes as tombstones so a client can pull edits AND
     // deletes since a timestamp via /changes?sync=. `updated_at` (above) covers inserts+edits.
     if (t.sync) {
