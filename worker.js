@@ -3224,6 +3224,28 @@ async function writeConfig(env, uuid, key, value) {
   await ensureConfig(env, uuid);
   await cfD1Query(env, uuid, "INSERT INTO _config (k,v,updated_at) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at", [key, JSON.stringify(value === undefined ? null : value), new Date().toISOString()]);
 }
+// Content reports / flags → a moderation queue. A member flags a row (target `<table>:<id>`)
+// with a reason; the app's ADMIN reviews the queue and resolves/dismisses. Deduped per
+// (target, reporter) so one flag each. Stored in the site's own D1 `_reports`, ensured once.
+const _reportsReady = new Set();
+async function ensureReports(env, uuid) {
+  if (_reportsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reports (id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, reporter_id INTEGER NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, UNIQUE(target, reporter_id))");
+  _reportsReady.add(uuid);
+}
+async function createReport(env, uuid, target, reporterId, reason) {
+  await ensureReports(env, uuid);
+  await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _reports (target,reporter_id,reason,status,created_at) VALUES (?,?,?, 'open', ?)", [target, reporterId, String(reason || "").slice(0, 500), new Date().toISOString()]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _reports WHERE target=?", [target]);
+  return { reported: true, count: (cnt[0] && cnt[0].n) || 0 };
+}
+async function reportState(env, uuid, target, userId) {
+  await ensureReports(env, uuid);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _reports WHERE target=?", [target]);
+  let mine = false;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
+  return { count: (cnt[0] && cnt[0].n) || 0, mine };
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6759,6 +6781,57 @@ async function handleRequest(request, env, ctx) {
           const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
           return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
         } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
+      }
+      // Content reports / flags + moderation queue.
+      //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
+      //   GET  /api/db/<slug>/report/<target>           → {count, mine}
+      //   GET  /api/db/<slug>/reports[?status=open]     → the moderation queue (ADMIN)
+      //   POST /api/db/<slug>/reports/<id> {action}     → resolve|dismiss (ADMIN)
+      const rpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/report\/([a-z0-9_.:-]{1,80})$/i);
+      const rqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reports(?:\/(\d+))?$/i);
+      if ((rpm || rqm) && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (rpm || rqm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (rpm) { // member: flag a target / read its report state
+            const target = rpm[2].toLowerCase();
+            if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|rpr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true }, await reportState(env, uuid, target, userId))); }
+            if (!userId) return Response.json({ ok: false, error: "sign in to report" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rpw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            return Response.json(Object.assign({ ok: true, target }, await createReport(env, uuid, target, userId, body && body.reason)));
+          }
+          // admin: the moderation queue
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureReports(env, uuid);
+          const rid = rqm[2] ? parseInt(rqm[2], 10) : null;
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rqr", 300)) return tooMany();
+            const status = (url.searchParams.get("status") || "open").toLowerCase().replace(/[^a-z]/g, "").slice(0, 12);
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT r.id, r.target, r.reporter_id, r.reason, r.status, r.created_at, u.display_name AS reporter_name FROM _reports r LEFT JOIN _users u ON u.id=r.reporter_id" + (status && status !== "all" ? " WHERE r.status=?" : "") + " ORDER BY r.id DESC LIMIT ?", (status && status !== "all") ? [status, lim] : [lim]);
+            return Response.json({ ok: true, reports: rows });
+          }
+          // POST /reports/<id> {action: resolve|dismiss|reopen}
+          if (!rid) return Response.json({ ok: false, error: "report id required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|rqw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const action = String(body && body.action || "").toLowerCase();
+          const status = action === "resolve" ? "resolved" : action === "dismiss" ? "dismissed" : action === "reopen" ? "open" : null;
+          if (!status) return Response.json({ ok: false, error: "action must be resolve|dismiss|reopen" }, { status: 400 });
+          const ex = await cfD1Exec(env, uuid, "UPDATE _reports SET status=? WHERE id=?", [status, rid]);
+          if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+          return Response.json({ ok: true, id: rid, status });
+        } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
