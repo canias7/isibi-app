@@ -3408,6 +3408,26 @@ async function deleteView(env, uuid, userId, name) {
   await ensureViews(env, uuid);
   await cfD1Query(env, uuid, "DELETE FROM _views WHERE user_id=? AND name=?", [userId, name]);
 }
+// Many-to-many links — a generic UNDIRECTED relationship between any two rows (targets are
+// `<table>:<id>`): tags↔posts, users↔projects, students↔courses, a "related items" web.
+// Pairs are normalized (sorted) + PK-deduped in `_links` so one edge per pair, queryable
+// from EITHER side. Saves declaring a join table for a simple many-to-many.
+const _linksReady = new Set();
+async function ensureLinks(env, uuid) {
+  if (_linksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _links (a TEXT NOT NULL, b TEXT NOT NULL, created_at TEXT, PRIMARY KEY (a,b))");
+  _linksReady.add(uuid);
+}
+const _normPair = (x, y) => (x <= y ? [x, y] : [y, x]);
+async function addLink(env, uuid, x, y) { await ensureLinks(env, uuid); const [a, b] = _normPair(x, y); await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _links (a,b,created_at) VALUES (?,?,?)", [a, b, new Date().toISOString()]); }
+async function removeLink(env, uuid, x, y) { await ensureLinks(env, uuid); const [a, b] = _normPair(x, y); await cfD1Query(env, uuid, "DELETE FROM _links WHERE a=? AND b=?", [a, b]); }
+async function linksOf(env, uuid, target, toTable) {
+  await ensureLinks(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT a,b,created_at FROM _links WHERE a=? OR b=? ORDER BY created_at DESC LIMIT 500", [target, target]);
+  const others = rows.map((r) => (r.a === target ? r.b : r.a));
+  const filtered = toTable ? others.filter((o) => o.toLowerCase().startsWith(toTable.toLowerCase() + ":")) : others;
+  return filtered.map((o) => { const i = o.indexOf(":"); return { target: o, table: i > 0 ? o.slice(0, i) : null, id: i > 0 ? parseInt(o.slice(i + 1), 10) : null }; });
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -7031,6 +7051,37 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
       }
+      // Many-to-many links between rows (targets are `<table>:<id>`).
+      //   POST   /api/db/<slug>/link {a, b}      → link two rows (auth)
+      //   DELETE /api/db/<slug>/link {a, b}      → unlink (auth)
+      //   GET    /api/db/<slug>/links/<target>[?to=<table>] → rows linked to <target>
+      const lkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/link$/i);
+      const lksm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/links\/([a-z0-9_.:-]{1,80})$/i);
+      if ((lkm || lksm) && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (lkm || lksm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        const okTarget = (s) => /^[a-z_][a-z0-9_]{0,40}:\d{1,18}$/i.test(String(s || ""));
+        try {
+          if (lksm) { if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 }); if (!rateOk(slug + "|" + ip + "|lkr", 300)) return tooMany(); const target = lksm[2].toLowerCase(); const to = (url.searchParams.get("to") || "").toLowerCase().replace(/[^a-z0-9_]/g, "") || null; return Response.json({ ok: true, target, links: await linksOf(env, uuid, target, to) }); }
+          // mutating /link — auth required
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|lkw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const a = String(body.a || "").toLowerCase(), b = String(body.b || "").toLowerCase();
+          if (!okTarget(a) || !okTarget(b)) return Response.json({ ok: false, error: "a and b must be <table>:<id>" }, { status: 400 });
+          if (a === b) return Response.json({ ok: false, error: "can't link a row to itself" }, { status: 400 });
+          if (request.method === "DELETE") { await removeLink(env, uuid, a, b); return Response.json({ ok: true, unlinked: true }); }
+          await addLink(env, uuid, a, b);
+          return Response.json({ ok: true, linked: true });
+        } catch (e) { console.error("links failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "links failed" }, { status: 502 }); }
+      }
       // Saved views / filters (private per member) — a named JSON query config.
       //   GET    /api/db/<slug>/views          → the caller's saved views
       //   GET    /api/db/<slug>/views/<name>   → one view's spec
@@ -7345,13 +7396,14 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
         const isFacets = dm[3] === "facets";
         const isNear = dm[3] === "near";
+        const isTree = dm[3] === "tree";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -7359,7 +7411,7 @@ async function handleRequest(request, env, ctx) {
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
-        const rowId = dm[3] && !["stats", "changes", "facets", "near"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -7664,6 +7716,29 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, reverted: rowId, from: histId });
           }
 
+          // Threaded / nested read — GET /rows/<t>/tree for a SELF-REFERENTIAL table (a column
+          // whose `ref` points back at its own table, e.g. comments.parent_id → comments).
+          // Returns the rows nested: each carries a `replies` array of its children (recursive).
+          // `?root=<id>` returns just that node's subtree. Honors ?authors=1/?reactions=1/?tags=1
+          // on the flat rows first. Same read visibility as the table (user scoped to own rows).
+          if (isTree) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no read" }, { status: 403 });
+            const refs = def.refs || {};
+            const selfCol = Object.keys(refs).find((c) => String(refs[c]).toLowerCase() === table.toLowerCase());
+            if (!selfCol) return badReq("this table isn't self-referential (declare a column with ref back to itself, e.g. parent_id → " + table + ")");
+            let scopeSql = "", sp = [];
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scopeSql = " AND owner_id=?"; sp = [userId]; }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE 1=1" + (visClause ? " AND " + visClause : "") + scopeSql + " ORDER BY id ASC LIMIT 2000", sp);
+            parseJsonRows(def, rows); attachComputed(def, rows);
+            await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url);
+            const byId = new Map(); for (const r of rows) { r.replies = []; byId.set(r.id, r); }
+            const roots = [];
+            for (const r of rows) { const pid = r[selfCol]; if (pid != null && byId.has(pid) && pid !== r.id) byId.get(pid).replies.push(r); else roots.push(r); }
+            const rootId = parseInt(url.searchParams.get("root") || "", 10);
+            const tree = (rootId > 0 && byId.has(rootId)) ? [byId.get(rootId)] : roots;
+            return Response.json({ ok: true, tree, total: rows.length });
+          }
           // Nearby / geo search — GET /rows/<t>/near?lat=&lng=&radius=<km>[&limit=]. A cheap
           // bounding-box prefilter in SQL (no trig needed) narrows candidates, then exact
           // haversine distance in JS filters + sorts. Each row comes back with `_distance_km`.

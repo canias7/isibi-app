@@ -434,6 +434,23 @@ needed) narrows candidates (cap 2000), then JS haversine filters to the exact ra
 fixed: `Number(null)===0` so missing lat/lng must be checked as empty, not via isFinite.
 Roadmap tally: ~65/93.
 
+## 2026-07-21 — Batch 45: Threaded/nested tree read (offline 8/8) ✅ built
+
+`GET /rows/<t>/tree` (added `tree` to the rows sub-route group) for a SELF-REFERENTIAL table
+(a column whose `ref` points at its own table, e.g. comments.parent_id → comments). Fetches
+all rows (cap 2000, visibility + user scope), runs authors/reactions/tags/computed on the flat
+set, then nests them: each row gets a `replies` array (`byId` map, guards self-parent cycles).
+`?root=<id>` returns one subtree. Roadmap tally: ~66/93.
+
+## 2026-07-21 — Batch 46: NEW LAYER Many-to-many links (offline 11/11) ✅ built
+
+Generic undirected relationship store `_links (a, b, PK(a,b))` where a/b are `<table>:<id>`
+(pairs normalized/sorted so one edge per pair, queryable from either side): `POST /link {a,b}`
+(auth), `DELETE /link {a,b}` (auth), `GET /links/<target>[?to=<table>]` → linked items
+`[{target,table,id}]`. Helpers ensureLinks/addLink/removeLink/linksOf. Saves declaring a join
+table for a plain M2M (use a real join table when the link carries its own data). Roadmap
+tally: ~67/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
