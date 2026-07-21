@@ -115,7 +115,7 @@ export function makeClient(worker, h) {
     const res = await worker.fetch(req, h.env, h.ctx);
     let json = null; const text = await res.text();
     try { json = JSON.parse(text); } catch {}
-    return { status: res.status, json, text };
+    return { status: res.status, json, text, location: res.headers.get("location") };
   }
   return {
     call,

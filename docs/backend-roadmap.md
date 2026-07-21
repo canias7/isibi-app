@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~93 / 93 — only OAuth social login remains, needs owner creds)
+## DONE (93 / 93 — COMPLETE ✅)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -35,7 +35,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 
 ---
 
-## REMAINING (~56, ordered by build priority)
+## REMAINING (0 — all 93 layers built)
 
 ### A. Automatic / owner-facing (no keys) — do first
 - [x] Ordered lists / manual positions (`"ordered":true` + `/move` reorder) — kanban, todo order (Batch 20)
@@ -108,7 +108,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Coupons / discount codes (/coupons, /coupon/<code>/redeem) (Batch 53)
 
 ### F. Integrations 🔑
-- [ ] OAuth social login (Google/GitHub)
+- [x] OAuth social login (Google/GitHub) (/auth/oauth/<provider>) (Batch 61)
 - [x] 2FA / TOTP (/auth/2fa/*) (Batch 54)
 
 ---
