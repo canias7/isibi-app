@@ -3007,6 +3007,21 @@ async function expandChildren(env, uuid, spec, def, rows, url) {
   }
   return rows;
 }
+// `?authors=1` — attach each row's AUTHOR public profile under `row.author`
+// ({id, display_name, avatar_url}), keyed off the row's `owner_id` (stamped on
+// user/feed/admin writes). Batched (one SELECT over distinct owner_ids), safe
+// columns only. Lets a feed show who posted without copying an author name into
+// every row. No-op when rows have no owner_id (display/collect tables).
+async function attachAuthors(env, uuid, rows, url) {
+  if (url.searchParams.get("authors") !== "1" || !rows.length) return rows;
+  const ids = [...new Set(rows.map((r) => r.owner_id).filter((v) => v != null))].slice(0, 200);
+  if (!ids.length) return rows;
+  let authors = [];
+  try { authors = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { return rows; }
+  const byId = new Map(authors.map((a) => [a.id, a]));
+  for (const r of rows) if (r.owner_id != null) r.author = byId.get(r.owner_id) || null;
+  return rows;
+}
 // Create-or-update by a key column (`?upsert=<col>`): find an existing row whose
 // <col> matches (within the owner scope when given), UPDATE it, else INSERT. Powers
 // settings singletons, likes/toggles, idempotent saves. No DB-level UNIQUE is required
@@ -3137,6 +3152,9 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN verified INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN verify_token TEXT",
     "ALTER TABLE _users ADD COLUMN verify_exp INTEGER",
+    "ALTER TABLE _users ADD COLUMN display_name TEXT",
+    "ALTER TABLE _users ADD COLUMN avatar_url TEXT",
+    "ALTER TABLE _users ADD COLUMN bio TEXT",
   ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -5329,7 +5347,7 @@ async function handleRequest(request, env, ctx) {
         if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access, columns: (t.columns || []) })) });
         if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
         if (table === "_users") await initSiteAuth(env, uuid); // ensure role/verified columns exist on older sites
-        const cols = table === "_users" ? "id,email,role,verified,created_at" : "*"; // never expose password hashes
+        const cols = table === "_users" ? "id,email,role,verified,display_name,created_at" : "*"; // never expose password hashes
         const r = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 500");
         return Response.json({ ok: true, rows: r });
       } catch (e) {
@@ -5354,7 +5372,7 @@ async function handleRequest(request, env, ctx) {
         const spec = await loadSiteSchema(env, uuid);
         if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
         if (table === "_users") await initSiteAuth(env, uuid);
-        const cols = table === "_users" ? "id,email,role,verified,created_at" : "*"; // never expose password hashes
+        const cols = table === "_users" ? "id,email,role,verified,display_name,created_at" : "*"; // never expose password hashes
         const rows = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 5000");
         const fname = slug + "-" + table + "." + format;
         if (format === "json") {
@@ -5653,7 +5671,7 @@ async function handleRequest(request, env, ctx) {
             const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
             const p = await verifySiteUserToken(secret, tok);
             if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified FROM _users WHERE id=?", [p.sub]);
+            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio FROM _users WHERE id=?", [p.sub]);
             if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
             const me = rows[0]; me.role = me.role || "user"; me.verified = me.verified ? 1 : 0;
             return Response.json({ ok: true, user: me });
@@ -5675,11 +5693,13 @@ async function handleRequest(request, env, ctx) {
             // everyone after is a normal 'user'.
             const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _users");
             const role = (cnt[0] && cnt[0].n) ? "user" : "admin";
-            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role) VALUES (?,?,?,?)", [email, salt, hash, role]);
+            // Optional public display name at signup (else derived from the email local part).
+            const dn = (typeof body.display_name === "string" ? body.display_name : (typeof body.name === "string" ? body.name : "")).trim().replace(/[\r\n]/g, "").slice(0, 80) || email.split("@")[0].slice(0, 80);
+            await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role,display_name) VALUES (?,?,?,?,?)", [email, salt, hash, role, dn]);
             const rows = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
             const uid = rows[0] && rows[0].id;
             await sendVerifyEmail(env, ctx, secret, slug, uid, email); // fire-and-forget confirm-your-email
-            return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0 } });
+            return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0, display_name: dn } });
           }
           // login
           const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified FROM _users WHERE email=?", [email]);
@@ -5697,6 +5717,74 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
+        }
+      }
+    }
+    // Public user profiles — a shared, publicly-readable member identity (display
+    // name, avatar, bio) so a feed can show WHO authored a post without every app
+    // copying an author name into every row. Read is PUBLIC (safe columns only —
+    // never email/hash); write is the member editing ONLY their own profile.
+    //   GET   /api/db/<slug>/profile/<userId>  → public {id, display_name, avatar_url, bio, created_at}
+    //   GET   /api/db/<slug>/profile/me         → own profile (auth)
+    //   PATCH /api/db/<slug>/profile/me         → update own display_name/avatar_url/bio (auth)
+    //   GET   /api/db/<slug>/profiles?ids=1,2,3 → batch public profiles (for a feed)
+    {
+      const pm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/profile\/([a-z0-9]{1,20})$/i);
+      const plm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/profiles$/i);
+      if (pm || plm) {
+        const slug = (pm ? pm[1] : plm[1]).toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        const PUB = "id,display_name,avatar_url,bio,created_at";
+        try {
+          let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+          // batch public read: /profiles?ids=1,2,3
+          if (plm && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|pr", 300)) return tooMany();
+            const ids = String(url.searchParams.get("ids") || "").split(",").map((x) => parseInt(x, 10)).filter((n) => n > 0).slice(0, 100);
+            if (!ids.length) return Response.json({ ok: true, profiles: [] });
+            const rows = await cfD1Query(env, uuid, "SELECT " + PUB + " FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids);
+            return Response.json({ ok: true, profiles: rows });
+          }
+          const who = pm ? pm[2].toLowerCase() : "";
+          // own profile (auth): /profile/me
+          if (who === "me") {
+            const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+            const p = await verifySiteUserToken(secret, tok);
+            if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+            if (request.method === "GET") {
+              const rows = await cfD1Query(env, uuid, "SELECT " + PUB + ",email,role FROM _users WHERE id=?", [p.sub]);
+              return rows[0] ? Response.json({ ok: true, profile: rows[0] }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+            }
+            if (request.method === "PATCH") {
+              if (!rateOk(slug + "|" + ip + "|pw", 60)) return tooMany();
+              let body; try { body = await request.json(); } catch { body = {}; }
+              const sets = [], vals = [];
+              const clean = (v, n) => String(v == null ? "" : v).replace(/[\r\n]/g, " ").slice(0, n);
+              if (body.display_name !== undefined) { const dn = clean(body.display_name, 80).trim(); if (!dn) return Response.json({ ok: false, error: "display name can't be empty" }, { status: 400 }); sets.push("display_name=?"); vals.push(dn); }
+              if (body.avatar_url !== undefined) { const a = clean(body.avatar_url, 400).trim(); if (a && !/^https?:\/\//i.test(a)) return Response.json({ ok: false, error: "avatar must be a URL" }, { status: 400 }); sets.push("avatar_url=?"); vals.push(a || null); }
+              if (body.bio !== undefined) { sets.push("bio=?"); vals.push(clean(body.bio, 600)); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              await cfD1Query(env, uuid, "UPDATE _users SET " + sets.join(",") + " WHERE id=?", vals.concat([p.sub]));
+              const rows = await cfD1Query(env, uuid, "SELECT " + PUB + ",email,role FROM _users WHERE id=?", [p.sub]);
+              return Response.json({ ok: true, profile: rows[0] || null });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
+          // public read by id: /profile/<id>
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|pr", 300)) return tooMany();
+            const id = parseInt(who, 10);
+            if (!(id > 0)) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const rows = await cfD1Query(env, uuid, "SELECT " + PUB + " FROM _users WHERE id=?", [id]);
+            return rows[0] ? Response.json({ ok: true, profile: rows[0] }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+        } catch (e) {
+          console.error("profile failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "profile failed" }, { status: 502 });
         }
       }
     }
@@ -5886,7 +5974,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids)
+          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids) + ?authors=1 (row.author profile)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
