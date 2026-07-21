@@ -64,18 +64,24 @@ toward the end.
   color,size` → `{facets:{color:[{value,count}],…}}` (top 100/col by count) for filter
   sidebars ("Red (12)·Blue (4)"). Respects the SAME where/q/tag/trash + read visibility,
   so counts drill down as filters tick. Pure read, no write-path risk.
+- **Batch 11 — schema-evolution column backfill** (PR #545, 8/8): fixes the footgun below.
+  `applySiteSchema` now ALTER-adds `owner_id`/`deleted_at` (idempotent) after the
+  `CREATE IF NOT EXISTS`, so revising a table's access (display→feed/user) or turning on
+  `trash` backfills the required columns instead of silently breaking scoped writes.
+- **Batch 12 — auto-slugs / pretty URLs** (PR #546 + fix #547, 8/8): table-level
+  `"slug":"title"` → the platform fills a UNIQUE url-safe `slug` column on insert
+  ("My First Post!"→`my-first-post`, `-2/-3` on collision, batch-deduped, diacritics
+  folded, empty→`item`). Wired into ALL insert paths (single/batch/upsert); edits never
+  re-slug; apps route via `?where=slug:eq:`. **Fix #547:** `normalizeSchema` was
+  stripping the new `slug` table key (it only forwarded unique/oncePerUser/trash) — the
+  column was created but never populated; caught by the live test, now threaded through.
 
 Also a mid-run **security review** (PR #534) over batches' new code: no injection/
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
-~23 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
-
-**Known schema-evolution footgun (noted, not yet fixed):** `applySiteSchema` uses
-`CREATE TABLE IF NOT EXISTS`, so CHANGING an existing table's access mode
-(e.g. display→feed/user) does NOT add the now-needed `owner_id` column, and its
-scoped writes silently fail. Same for turning on `trash:true` after creation
-(`deleted_at`). The AI almost never flips a table's access across revisions, so it's
-low-risk, but a future correctness batch should ALTER-add owner_id/deleted_at when a
-persisted table's access/trash flag changes. (Surfaced while writing the Batch 10 test.)
+~25 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+**Lesson (recurring):** any NEW table-level schema key must be forwarded in
+`normalizeSchema`/`coerceTable` (line ~2712) or it's silently dropped before
+`applySiteSchema` — column-level keys survive via `coerceCol`, table-level ones don't.
 
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 

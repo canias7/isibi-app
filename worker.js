@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2737,6 +2737,9 @@ async function applySiteSchema(env, uuid, spec) {
     let slugFrom = null;
     if (typeof t.slug === "string" && SAFE_IDENT.test(t.slug)) slugFrom = t.slug.toLowerCase();
     else if (t.slug && typeof t.slug === "object" && typeof t.slug.from === "string" && SAFE_IDENT.test(t.slug.from)) slugFrom = t.slug.from.toLowerCase();
+    // RBAC: an `admin`-access table may name extra custom roles allowed to WRITE (the
+    // built-in `admin` role always can). Role names are short safe identifiers.
+    const writeRoles = (access === "admin" && Array.isArray(t.writeRoles)) ? t.writeRoles.map((r) => String(r).toLowerCase()).filter((r) => /^[a-z0-9_]{1,24}$/.test(r)).slice(0, 16) : null;
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2827,7 +2830,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3335,6 +3338,19 @@ function validateRow(def, body, isInsert) {
     if (rule.pattern) { try { if (!new RegExp(rule.pattern).test(String(v))) return col + " has an invalid format"; } catch {} }
   }
   return null;
+}
+// Write-authorization for an `admin`-access table (public read, role-gated write). By
+// default only the built-in `admin` role may write, but a table can declare
+// `writeRoles:["editor","admin"]` (RBAC) to let other custom roles write too — the
+// `admin` role is ALWAYS allowed (superuser). Returns true if this user may write.
+async function siteRoleAllows(env, uuid, userId, def) {
+  if (!userId) return false;
+  const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+  const role = rr[0] && rr[0].role;
+  if (!role) return false;
+  if (role === "admin") return true;
+  const wr = def && Array.isArray(def.writeRoles) ? def.writeRoles.map(String) : null;
+  return wr ? wr.includes(String(role)) : false;
 }
 // Batch insert — POST `{rows:[…]}` writes many rows in ONE statement (import a CSV,
 // seed a list, bulk actions). Uses the union of declared columns present across the
@@ -5651,6 +5667,7 @@ async function handleRequest(request, env, ctx) {
         else if (action === "unblock") await cfD1Query(env, uuid, "UPDATE _users SET blocked=0 WHERE id=?", [memberId]);
         else if (action === "make_admin") await cfD1Query(env, uuid, "UPDATE _users SET role='admin' WHERE id=?", [memberId]);
         else if (action === "remove_admin") await cfD1Query(env, uuid, "UPDATE _users SET role='user' WHERE id=?", [memberId]);
+        else if (action === "set_role") { const role = String(bb.role || "").toLowerCase(); if (!/^[a-z0-9_]{1,24}$/.test(role)) return Response.json({ ok: false, error: "invalid role" }, { status: 400 }); await cfD1Query(env, uuid, "UPDATE _users SET role=? WHERE id=?", [role, memberId]); } // RBAC: assign any custom role
         else return Response.json({ ok: false, error: "unknown action" }, { status: 400 });
         const r = await cfD1Query(env, uuid, "SELECT id,email,role,verified,display_name,blocked FROM _users WHERE id=?", [memberId]);
         return Response.json({ ok: true, member: r[0] || null });
@@ -6462,7 +6479,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "display" || access === "collect") return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
             if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
             if (access === "feed" || access === "user") { const own = await cfD1Query(env, uuid, "SELECT 1 FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!own[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); }
-            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
             await ensureTags(env, uuid);
             if (method === "POST") {
               let b = {}; try { b = await request.json(); } catch {}
@@ -6491,7 +6508,7 @@ async function handleRequest(request, env, ctx) {
             if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
             let scope = "", params = [rowId];
             if (access === "feed" || access === "user") { scope = " AND owner_id=?"; params.push(userId); }
-            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
             const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=NULL WHERE id=?" + scope, params);
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true, restored: rowId });
@@ -6517,7 +6534,7 @@ async function handleRequest(request, env, ctx) {
             const expr = hasFloor ? "MAX(?, COALESCE(" + cq + ",0) + ?)" : "COALESCE(" + cq + ",0) + ?";
             let scope = "", params;
             if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; }
-            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
             else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
             params = hasFloor ? [floor, by] : [by];
             const where = [rowId].concat(scope ? [userId] : []);
@@ -6617,7 +6634,7 @@ async function handleRequest(request, env, ctx) {
             if (!url.searchParams.getAll("where").length && !(url.searchParams.get("q") || "").trim() && !tagParam) return Response.json({ ok: false, error: "a where/q/tag filter is required for a bulk operation" }, { status: 400 });
             let base = null;
             if (access === "feed" || access === "user") base = { clause: "owner_id=?", params: [userId] };
-            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
             const filt = buildD1Filter(url, allow, withTagFilter(withTrash(base)));
             const idSub = "id IN (SELECT id FROM " + tn + filt.whereSql + " LIMIT 1000)";
             if (method === "PATCH") {
@@ -6711,8 +6728,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true, rows: r, total });
             }
             if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
-            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
-            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
             if (method === "POST") {
               const body = await readBody();
               if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null, def))); }
