@@ -75,10 +75,23 @@ toward the end.
   re-slug; apps route via `?where=slug:eq:`. **Fix #547:** `normalizeSchema` was
   stripping the new `slug` table key (it only forwarded unique/oncePerUser/trash) — the
   column was created but never populated; caught by the live test, now threaded through.
+- **Batch 13 — custom roles / RBAC** (PR #548, 10/10): an `admin`-access table can declare
+  `"writeRoles":["editor","admin"]` so those custom roles may write (built-in `admin` is
+  always superuser). Centralized the 5 admin write-auth sites into one
+  `siteRoleAllows(env,uuid,userId,def)`. Owner `/member` gained `set_role` (assign any
+  role, validated). Role assignment is owner-only (no in-app self-serve = no priv-esc).
+  Note: the FIRST signup on any built app auto-becomes `admin` (bootstrap) — expected.
+- **Batch 14 — per-row sharing / ACL** (PR #549, N/N): on a `user`-access table the row
+  OWNER shares one record with specific members — `POST …/rows/<t>/<id>/share
+  {user:email|id, perm:'view'|'edit'}`, `DELETE …/share/<memberId>`, `GET …/share`.
+  Recipient reads it via the normal single-GET; lists everything shared with them via
+  `?shared=1`; `edit`-shares may PATCH, `view` is read-only, DELETE stays owner-only.
+  New `_shares` table (PK row_table,row_id,user_id). Default owner-only reads unchanged
+  (no leak) — sharing is purely additive.
 
 Also a mid-run **security review** (PR #534) over batches' new code: no injection/
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
-~25 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+~30 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
 **Lesson (recurring):** any NEW table-level schema key must be forwarded in
 `normalizeSchema`/`coerceTable` (line ~2712) or it's silently dropped before
 `applySiteSchema` — column-level keys survive via `coerceCol`, table-level ones don't.

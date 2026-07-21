@@ -3066,6 +3066,29 @@ async function attachTags(env, uuid, table, rows, url) {
   for (const r of rows) r.tags = m.get(r.id) || [];
   return rows;
 }
+// Per-row sharing / ACL — a member who OWNS a private (`user`-access) row can grant
+// specific OTHER members `view` or `edit` access to just that row (share a doc, a
+// board, a trip). Stored in the site's own D1 `_shares`, keyed (row_table,row_id,user).
+const _sharesReady = new Set();
+async function ensureShares(env, uuid) {
+  if (_sharesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _shares (row_table TEXT NOT NULL, row_id INTEGER NOT NULL, user_id INTEGER NOT NULL, perm TEXT NOT NULL DEFAULT 'view', created_at TEXT, PRIMARY KEY (row_table, row_id, user_id))");
+  _sharesReady.add(uuid);
+}
+// The caller's access level to one row via a share: 'edit' | 'view' | null.
+async function shareLevel(env, uuid, table, rowId, userId) {
+  if (!userId || !(rowId > 0)) return null;
+  await ensureShares(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT perm FROM _shares WHERE row_table=? AND row_id=? AND user_id=?", [table, rowId, userId]);
+  return r[0] ? (r[0].perm === "edit" ? "edit" : "view") : null;
+}
+// Row ids of `table` shared WITH this member (for the "shared with me" list view).
+async function sharedRowIds(env, uuid, table, userId, editOnly) {
+  if (!userId) return [];
+  await ensureShares(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT row_id FROM _shares WHERE row_table=? AND user_id=?" + (editOnly ? " AND perm='edit'" : ""), [table, userId]);
+  return r.map((x) => x.row_id);
+}
 // In-app notifications — a per-member inbox (someone commented on your post, your
 // order shipped, you were @mentioned). Created SERVER-SIDE ONLY (a function/trigger
 // `notify` step), so a visitor can't spam another; each member reads only their own.
@@ -6405,7 +6428,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -6414,6 +6437,7 @@ async function handleRequest(request, env, ctx) {
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
+        const isShare = dm[4] === "share";
         const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6493,6 +6517,41 @@ async function handleRequest(request, env, ctx) {
               if (!tag) return Response.json({ ok: false, error: "tag required" }, { status: 400 });
               await cfD1Query(env, uuid, "DELETE FROM _tags WHERE row_table=? AND row_id=? AND tag=?", [table, rowId, tag]);
               return Response.json({ ok: true, tags: await tagsForRow(env, uuid, table, rowId) });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
+
+          // Per-row sharing — the OWNER of a private (`user`-access) row grants specific
+          // members view/edit access to just that row. GET /rows/<t>/<id>/share (list,
+          // owner only) · POST {user:<id|email>, perm:'view'|'edit'} (grant) · DELETE
+          // /rows/<t>/<id>/share/<userId> (revoke). Only makes sense for `user` tables.
+          if (isShare) {
+            if (access !== "user") return Response.json({ ok: false, error: "sharing is only for private (user) tables" }, { status: 400 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            // Only the row's OWNER may see or change its share list.
+            const own = await cfD1Query(env, uuid, "SELECT 1 FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]);
+            if (!own[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            await ensureShares(env, uuid);
+            if (method === "GET") {
+              const rows = await cfD1Query(env, uuid, "SELECT s.user_id, s.perm, u.email, u.display_name FROM _shares s LEFT JOIN _users u ON u.id=s.user_id WHERE s.row_table=? AND s.row_id=? ORDER BY s.created_at", [table, rowId]);
+              return Response.json({ ok: true, shares: rows });
+            }
+            if (method === "POST") {
+              let b = {}; try { b = await request.json(); } catch {}
+              const perm = b.perm === "edit" ? "edit" : "view";
+              let targetId = parseInt(b.user, 10) || 0;
+              if (!targetId && typeof b.user === "string" && b.user.includes("@")) { const u2 = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [String(b.user).trim().toLowerCase()]); targetId = (u2[0] && u2[0].id) || 0; }
+              if (!targetId) return Response.json({ ok: false, error: "no such member" }, { status: 404 });
+              if (targetId === userId) return Response.json({ ok: false, error: "you already own this" }, { status: 400 });
+              await cfD1Query(env, uuid, "INSERT INTO _shares (row_table,row_id,user_id,perm,created_at) VALUES (?,?,?,?,?) ON CONFLICT(row_table,row_id,user_id) DO UPDATE SET perm=excluded.perm", [table, rowId, targetId, perm, new Date().toISOString()]);
+              return Response.json({ ok: true, shared: { user_id: targetId, perm } });
+            }
+            if (method === "DELETE") {
+              const targetId = parseInt(dm[5], 10) || 0;
+              if (!targetId) return Response.json({ ok: false, error: "member id required" }, { status: 400 });
+              await cfD1Query(env, uuid, "DELETE FROM _shares WHERE row_table=? AND row_id=? AND user_id=?", [table, rowId, targetId]);
+              return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }
@@ -6758,8 +6817,20 @@ async function handleRequest(request, env, ctx) {
           // access === "user": requires login; every row scoped to owner_id.
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); await doExpand(r); return Response.json({ ok: true, row: r[0] }); }
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash({ clause: "owner_id=?", params: [userId] })));
+            if (rowId != null) {
+              let r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]);
+              if (!r[0] && await shareLevel(env, uuid, table, rowId, userId)) r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); // shared with me
+              if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              await doExpand(r); return Response.json({ ok: true, row: r[0] });
+            }
+            // "Shared with me" view: rows another member shared with the caller (not owned).
+            let base;
+            if (url.searchParams.get("shared") === "1") {
+              const ids = await sharedRowIds(env, uuid, table, userId);
+              if (!ids.length) return Response.json({ ok: true, rows: [], total: 0 });
+              base = { clause: "id IN (" + ids.map(() => "?").join(",") + ")", params: ids };
+            } else base = { clause: "owner_id=?", params: [userId] };
+            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(base)));
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6782,11 +6853,16 @@ async function handleRequest(request, env, ctx) {
             const body = await readBody(); const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             { const e = vErr(body, false); if (e) return badReq(e); }
-            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",");
+            let ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
+            // A collaborator with EDIT-level share may also update the row (view-only cannot).
+            if (ex.changes === 0 && (await shareLevel(env, uuid, table, rowId, userId)) === "edit") ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?", use.map((c) => body[c]).concat([rowId]));
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
           if (method === "DELETE" && rowId != null) {
+            // Delete stays OWNER-only — a shared collaborator can edit content but never
+            // delete someone else's row (safe default).
             if (!(await doDelete(" AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
