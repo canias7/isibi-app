@@ -2958,6 +2958,34 @@ async function attachReactions(env, uuid, table, rows, url, userId) {
   for (const r of rows) { const t = table + ":" + r.id; r.reactions = { counts: cMap.get(t) || {}, mine: mMap.get(t) || [] }; }
   return rows;
 }
+// Tags / labels — attach short labels to any row and filter by them. Stored in the
+// site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
+// public; adding/removing follows the same write scope as the row.
+const _tagsReady = new Set();
+async function ensureTags(env, uuid) {
+  if (_tagsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tags (row_table TEXT NOT NULL, row_id INTEGER NOT NULL, tag TEXT NOT NULL, created_at TEXT, PRIMARY KEY (row_table, row_id, tag))");
+  _tagsReady.add(uuid);
+}
+const cleanTag = (t) => String(t || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40);
+async function tagsForRow(env, uuid, table, rowId) {
+  await ensureTags(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT tag FROM _tags WHERE row_table=? AND row_id=? ORDER BY tag", [table, rowId]);
+  return r.map((x) => x.tag);
+}
+// `?tags=1` — attach each row's tag list under `row.tags` (batched over all row ids).
+async function attachTags(env, uuid, table, rows, url) {
+  if (url.searchParams.get("tags") !== "1" || !rows.length) return rows;
+  await ensureTags(env, uuid);
+  const ids = rows.map((r) => r.id).filter((v) => v != null).slice(0, 200);
+  if (!ids.length) return rows;
+  let recs = [];
+  try { recs = await cfD1Query(env, uuid, "SELECT row_id, tag FROM _tags WHERE row_table=? AND row_id IN (" + ids.map(() => "?").join(",") + ") ORDER BY tag", [table, ...ids]); } catch { return rows; }
+  const m = new Map();
+  for (const rec of recs) { if (!m.has(rec.row_id)) m.set(rec.row_id, []); m.get(rec.row_id).push(rec.tag); }
+  for (const r of rows) r.tags = m.get(r.id) || [];
+  return rows;
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -2966,16 +2994,26 @@ async function attachReactions(env, uuid, table, rows, url, userId) {
 // columns that are legal to reference (for sort/group validation upstream).
 function buildD1Filter(url, allowCols, base) {
   const filterable = new Set(allowCols.concat(["id", "created_at"]).map((c) => String(c).toLowerCase()));
-  const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE" };
+  const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE", startswith: "LIKE", endswith: "LIKE" };
   const where = [], params = [];
   if (base && base.clause) { where.push(base.clause); params.push(...base.params); }
   for (const raw of url.searchParams.getAll("where").slice(0, 12)) {
-    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains):([\s\S]*)$/i);
+    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|isnull|notnull):([\s\S]*)$/i);
     if (!m) continue;
     const col = m[1].toLowerCase(); if (!filterable.has(col)) continue;
-    const op = OPS[m[2].toLowerCase()]; if (!op) continue;
+    const opName = m[2].toLowerCase(), val = m[3];
+    if (opName === "isnull") { where.push(sqlIdent(col) + " IS NULL"); continue; }
+    if (opName === "notnull") { where.push(sqlIdent(col) + " IS NOT NULL"); continue; }
+    if (opName === "in" || opName === "nin") {
+      const vals = String(val).split(",").map((x) => x.trim()).filter((x) => x !== "").slice(0, 100);
+      if (!vals.length) continue;
+      where.push(sqlIdent(col) + (opName === "nin" ? " NOT IN (" : " IN (") + vals.map(() => "?").join(",") + ")");
+      params.push(...vals);
+      continue;
+    }
+    const op = OPS[opName]; if (!op) continue;
     where.push(sqlIdent(col) + " " + op + " ?");
-    params.push(op === "LIKE" ? "%" + m[3] + "%" : m[3]);
+    params.push(op !== "LIKE" ? val : opName === "startswith" ? val + "%" : opName === "endswith" ? "%" + val : "%" + val + "%");
   }
   // Free-text `q`: split into words and require EVERY word to appear in SOME declared
   // column (AND of terms, OR across columns) — so "miami beach" matches rows containing
@@ -2995,16 +3033,27 @@ function buildD1Filter(url, allowCols, base) {
 // matching COUNT for {total}.
 function buildD1List(url, tn, allowCols, base) {
   const f = buildD1Filter(url, allowCols, base);
-  const explicitSort = (url.searchParams.get("sort") || "").toLowerCase();
-  let sortCol = explicitSort;
-  if (!f.filterable.has(sortCol)) sortCol = "id";
-  const order = /^asc$/i.test(url.searchParams.get("order") || "") ? "ASC" : "DESC";
+  // Sort — supports a SINGLE column (`sort=price&order=asc`) OR MULTIPLE, comma-
+  // separated with an optional per-column direction prefix: `sort=-price,created_at`
+  // (price DESC, created_at using the default). No prefix → the `order` param (default
+  // DESC). Each column is validated against the table's own columns; up to 4.
+  const globalDesc = !/^asc$/i.test(url.searchParams.get("order") || "");
+  const sortToks = (url.searchParams.get("sort") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
+  const orderCols = [];
+  for (const tk of sortToks) {
+    let dir = null, col = tk;
+    if (tk[0] === "-") { dir = "DESC"; col = tk.slice(1); }
+    else if (tk[0] === "+") { dir = "ASC"; col = tk.slice(1); }
+    if (!f.filterable.has(col)) continue;
+    orderCols.push(sqlIdent(col) + " " + (dir || (globalDesc ? "DESC" : "ASC")));
+  }
+  const hasExplicit = orderCols.length > 0;
   const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
   const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
   // Relevance ranking: with a free-text `q` and no explicit sort, order by how many
   // (term × column) pairs a row matches — best matches first — then by id.
-  let orderSql = sqlIdent(sortCol) + " " + order, rankParams = [];
-  if (f.terms && f.terms.length && allowCols.length && !f.filterable.has(explicitSort)) {
+  let orderSql = (hasExplicit ? orderCols.join(", ") : ("id " + (globalDesc ? "DESC" : "ASC"))), rankParams = [];
+  if (f.terms && f.terms.length && allowCols.length && !hasExplicit) {
     const parts = [];
     for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
     orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
@@ -6077,13 +6126,14 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr|restore))?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr|restore|tags)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
+        const isTags = dm[4] === "tags";
         const rowId = dm[3] && dm[3] !== "stats" && dm[3] !== "changes" ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6104,7 +6154,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); return rows; }; // ?expand=<fk> + ?children=<table> + ?authors=1 (row.author) + ?reactions=1 (row.reactions)
+          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); return rows; }; // ?expand + ?children + ?authors=1 + ?reactions=1 + ?tags=1
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
@@ -6127,6 +6177,45 @@ async function handleRequest(request, env, ctx) {
             }
             return await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, scopeSql, scopeParams);
           };
+
+          // Tags — `?tag=<x>` filters the list to rows carrying that tag; `?tags=1`
+          // attaches each row's tag array. Both need the _tags table.
+          const tagParam = cleanTag(url.searchParams.get("tag") || "");
+          const withTagFilter = (base) => {
+            if (!tagParam) return base;
+            const c = { clause: "id IN (SELECT row_id FROM _tags WHERE row_table=? AND tag=?)", params: [table, tagParam] };
+            if (!base || !base.clause) return c;
+            return { clause: base.clause + " AND " + c.clause, params: base.params.concat(c.params) };
+          };
+          if (tagParam || url.searchParams.get("tags") === "1") { try { await ensureTags(env, uuid); } catch {} }
+
+          // Tags sub-endpoints — GET /rows/<t>/<id>/tags (list, public), POST {tag}
+          // (add), DELETE /rows/<t>/<id>/tags/<tag> (remove). Add/remove follow the
+          // row's write scope (feed/user own row, admin any; display/collect via owner).
+          if (isTags) {
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (method === "GET") { if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|tgr", 300)) return tooMany(); return Response.json({ ok: true, tags: await tagsForRow(env, uuid, table, rowId) }); }
+            // mutating: authorize by the same rules as editing this row
+            if (access === "display" || access === "collect") return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (access === "feed" || access === "user") { const own = await cfD1Query(env, uuid, "SELECT 1 FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!own[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); }
+            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            await ensureTags(env, uuid);
+            if (method === "POST") {
+              let b = {}; try { b = await request.json(); } catch {}
+              const tag = cleanTag(b.tag || dm[5] || "");
+              if (!tag) return Response.json({ ok: false, error: "tag required" }, { status: 400 });
+              await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _tags (row_table,row_id,tag,created_at) VALUES (?,?,?,?)", [table, rowId, tag, new Date().toISOString()]);
+              return Response.json({ ok: true, tags: await tagsForRow(env, uuid, table, rowId) });
+            }
+            if (method === "DELETE") {
+              const tag = cleanTag(dm[5] || "");
+              if (!tag) return Response.json({ ok: false, error: "tag required" }, { status: 400 });
+              await cfD1Query(env, uuid, "DELETE FROM _tags WHERE row_table=? AND row_id=? AND tag=?", [table, rowId, tag]);
+              return Response.json({ ok: true, tags: await tagsForRow(env, uuid, table, rowId) });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
 
           // Restore a soft-deleted row — POST /rows/<t>/<id>/restore (trash tables only),
           // same write scope as delete (feed/user own-row, admin any).
@@ -6184,7 +6273,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
-            base = withTrash(base); // stats exclude trashed rows by default (respect ?withTrashed/?trashed)
+            base = withTagFilter(withTrash(base)); // stats respect trash + ?tag= filter
             const b = buildD1Stats(url, tn, allow, base);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCol) {
@@ -6227,7 +6316,7 @@ async function handleRequest(request, env, ctx) {
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, withTrash(null));
+            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6250,7 +6339,7 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTrash(null));
+              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6289,7 +6378,7 @@ async function handleRequest(request, env, ctx) {
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTrash(null));
+              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6327,7 +6416,7 @@ async function handleRequest(request, env, ctx) {
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); await doExpand(r); return Response.json({ ok: true, row: r[0] }); }
-            const b = buildD1List(url, tn, allow, withTrash({ clause: "owner_id=?", params: [userId] }));
+            const b = buildD1List(url, tn, allow, withTagFilter(withTrash({ clause: "owner_id=?", params: [userId] })));
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
