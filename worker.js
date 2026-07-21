@@ -3,7 +3,7 @@
 // call. Bundled by wrangler at deploy (see package.json).
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
-import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES } from "./builder/react-gen.mjs";
+import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -6024,12 +6024,12 @@ async function handleRequest(request, env, ctx) {
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, RB_MAX_OUT = 16000, RB_MAX_IMAGES = 6;
       const RB_IMG_CREDITS = Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
-      // Build model: Sonnet 5 is the default (best whole-project quality); a caller
-      // may request the cheaper Haiku 4.5 for a faster/cheaper draft. Allowlisted;
-      // per-model token rates so metering stays honest. The fix loop + schema repair
-      // in this build all use the SAME model.
-      const RB_MODEL = (rb.model === "haiku" || rb.model === "haiku-4.5" || rb.model === "claude-haiku-4-5") ? "claude-haiku-4-5" : "claude-sonnet-5";
-      const RATE_IN = RB_MODEL === "claude-haiku-4-5" ? 1e-6 : 3e-6, RATE_OUT = RB_MODEL === "claude-haiku-4-5" ? 5e-6 : 15e-6;
+      // Build model: always Sonnet 5 (owner's call 2026-07-21). Haiku was dropped from
+      // the builder — it mis-wired the backend API often enough to ship dead apps, so
+      // whole-app builds go through Sonnet for reliability. (Haiku is still used
+      // elsewhere for cheap director steps — this only removes it from react-build.)
+      const RB_MODEL = "claude-sonnet-5";
+      const RATE_IN = 3e-6, RATE_OUT = 15e-6; // Sonnet 5 token rates
       const rbCredits = (i, o) => Math.max(1, Math.ceil((i * RATE_IN + o * RATE_OUT) / CREDIT_USD));
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= rbCredits(2500, RB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
@@ -6115,6 +6115,35 @@ async function handleRequest(request, env, ctx) {
                   const sc = rbCredits(sg.usedIn, sg.usedOut); genCredits += sc; try { const b = await useCredits(auth, sc); if (b >= 0) balAfter = b; } catch {}
                 }
               } catch (e) { console.error("react-build schema repair failed:", e && (e.status || e.message)); }
+            }
+          }
+          // SAFETY NET #2: the app calls the backend but wired the URL WITHOUT the
+          // site slug (`/api/db/auth/…`, `/api/db/rows/…`, or `` `/api/db${x}` ``
+          // with no slug segment). The one true base is `/api/db/<slug>/…` where
+          // `<slug> = location.pathname.split('/')[2]`. This compiles fine, so the
+          // build loop never catches it — but every backend call 404s on the live
+          // site. Detect the broken shape directly (precise, low false-positive:
+          // correct code reads `/api/db/${slug}/…`, which none of these match) and
+          // hand the app back for a URL-only rewrite. Only when a backend is used.
+          {
+            const usesBackend2 = Object.values(files).some((src) => /\/auth\/(signup|login)\b/.test(String(src)) || /\/rows\/[a-z_][a-z0-9_]*/i.test(String(src)) || /\/api\/db\b/.test(String(src)));
+            const brokenWiring = Object.values(files).some((src) => {
+              const s = String(src);
+              return /\/api\/db\/(auth|rows)\b/.test(s)                              // "/api/db/auth…" or "/api/db/rows…" — slug missing
+                || /\/api\/db\$\{/.test(s)                                          // `/api/db${x}` — no "/<slug>" before the var
+                || /["'`]\/api\/db["'`]\s*\+\s*["'`]\/(auth|rows)/.test(s);         // "/api/db" + "/auth…"
+            });
+            const derivesSlug = Object.values(files).some((src) => /split\(\s*["']\/["']\s*\)\s*(\[\s*2\s*\]|\.at\(\s*2\s*\))/.test(String(src)));
+            if (usesBackend2 && brokenWiring && !derivesSlug) {
+              const dump = Object.entries(files).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+              try {
+                const wg = await streamGen(WIRING_REPAIR_RULES, "This project's backend calls are MISSING the site slug, so every /auth and /rows request 404s on the live site. Re-point EVERY backend call through `const API = '/api/db/' + (location.pathname.split('/')[2] || '')`. Return ONLY the corrected file(s).\n\nProject files:\n\n" + dump, null);
+                if (wg && wg.text) {
+                  const wf = parseGeneratedFiles(wg.text);
+                  for (const [p, v] of Object.entries(wf)) { if (p !== "isibi.schema.json") files[p] = v; } // URL-wiring only; never let it rewrite the schema
+                  const wc = rbCredits(wg.usedIn, wg.usedOut); genCredits += wc; try { const b = await useCredits(auth, wc); if (b >= 0) balAfter = b; } catch {}
+                }
+              } catch (e) { console.error("react-build wiring repair failed:", e && (e.status || e.message)); }
             }
           }
           // 2) Real images into the SOURCE, budgeted to the remaining balance.

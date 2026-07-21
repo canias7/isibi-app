@@ -10,6 +10,56 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — End-to-end platform test + a real bug caught (backend wiring) ⚠️→✅
+
+**Drove a real Haiku-built app ("Townsquare" community board, $0 fal, photo-free)
+end-to-end as a real user** — signup/login, feed posts, comments (relations),
+search, the AI suggest-title function, analytics — then checked every owner panel.
+
+**Platform backend: 22/22 checks PASSED.** Auth (+ first-user→admin role), feed
+writes (auth-gated, anon rejected), relations (`?children=comments` nested 3,
+`?expand=post_id` inlined the parent), search (`?q=coffee`→1; multi-term AND),
+**AI-as-a-primitive** (suggest-title → owner charged EXACTLY 1 credit, zero provider
+leak), analytics (owner panel showed EXACT counts: 22 total / view 16 / post 6),
+owner reads (posts, comments, members, admin role). Every DB point the platform
+exposes is solid.
+
+**THE BUG (in the GENERATOR, not the platform):** the Haiku build rendered a
+perfect UI but showed "Could not load posts" — because it wired EVERY backend call
+**without the site slug**. The rule mandates `const API = '/api/db/' +
+location.pathname.split('/')[2]`; Haiku ignored it, wrote its own helper
+`fetch(\`/api/db${'{'}t${'}'}\`)` and called `w("/rows/comments")` → `/api/db/rows/comments`
+(slug-less → 404). The string `townsquare-e7c3eb` appeared **0 times** in the whole
+bundle. Auth, posts, comments — all dead. **Why nothing caught it: the build +
+auto-fix loop only checks that the code COMPILES. This compiles fine; it's wired
+wrong at RUNTIME.** So a fully non-functional backend app can build clean, pass
+validation, and ship. Exactly what real e2e testing is for.
+
+**Important framing:** the bug was **Haiku-specific**, and the builder UI already
+sent NO model field → production builds were **already Sonnet-only**. The dead app
+only happened because the *test* forced Haiku via the raw API. So live users were
+almost certainly unaffected — but the Haiku code path existed and was reachable.
+
+**FIX — decided + shipped (code on the branch; not deployed — no PR to main yet):**
+1. **Haiku REMOVED from the builder** (owner's call 2026-07-21 — "just take haiku
+   out"). `RB_MODEL` in `/api/site/react-build` is now hardcoded `claude-sonnet-5`;
+   the `model:'haiku'` API path is gone. (Haiku is untouched everywhere else — it
+   still writes the cheap director steps. This only removes it from whole-app builds.)
+2. **Louder API-base rule** (`react-gen.mjs` BACKEND_RULES) — deriving the slug is now
+   a hard, explicit directive ("NEVER hardcode `/api/db/auth`… NEVER `/api/db${'{'}x${'}'}`…").
+3. **Post-build wiring guard + repair pass** (`worker.js`, mirrors schema-repair) — a
+   model-agnostic net in case even Sonnet ever mis-wires: if the app hits `/api/db`
+   with a slug-less shape and never derives the slug, a targeted URL-only rewrite pass
+   (`WIRING_REPAIR_RULES`) fixes it. One small extra LLM call only when the defect is
+   present. Detection **verified offline 9/9** (fires on the real broken bundle + 4
+   broken variants; silent on 3 correctly-wired variants + a static site).
+
+**Still pending:** a live Sonnet rebuild of a backend app to confirm end-to-end (needs
+a credit top-up — owner balance was 3). Test app `townsquare-e7c3eb` left UP as
+evidence; clean up after the next verified build.
+
+---
+
 ## 2026-07-20 — Phase 4a: React builder STREAMS (live code view) + auto-fix loop ✅
 
 `/api/site/react-build` is now an NDJSON stream (like the classic builder):
