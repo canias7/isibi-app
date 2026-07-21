@@ -413,9 +413,18 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
   (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
-  (#499)** · **Rate limiting ✅ (#500)**. Custom domains LAST (owner's call 2026-07-21 —
-  "all of them, leave custom domains for last"; it needs the owner to enable Cloudflare
-  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  (#499)** · **Rate limiting ✅ (#500)** · **Validation ✅ (#501)**. Custom domains LAST
+  (owner's call 2026-07-21 — "all of them, leave custom domains for last"; it needs the
+  owner to enable Cloudflare custom hostnames + SSL at the account level, so it's gated
+  on infra, not code).
+  · **Validation (#501) — server-side write validation, VERIFIED live 14/14.** A schema
+    column can declare `required:true`, `max:<n>`, or `format:email|url|number`; the data
+    API rejects bad writes with 400 + a message across EVERY write path (single POST,
+    batch, upsert, PATCH-present-fields). Required fires only on insert; a hard 100k-char
+    cap guards every field. Rules persist in the schema next to refs. **Proof (zero AI/
+    fal): 14/14** — missing/empty required → 400, bad email/number/url → 400, over-`max`
+    → 400, fully-valid + optional-omitted rows → 200, a batch with one bad email rejected
+    WHOLE (nothing landed), 100k field capped. Cleaned up.
   · **GAP-CLOSING PASS (owner 2026-07-21, "build all of them, skip dns"):** after the
     stack-category review, closing the real gaps — rate limiting ✅ (#500), then
     validation, full-text search, observability, backups/rollback. Email-key + custom

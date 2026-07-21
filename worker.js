@@ -2662,26 +2662,41 @@ function buildD1Filter(url, allowCols, base) {
     where.push(sqlIdent(col) + " " + op + " ?");
     params.push(op === "LIKE" ? "%" + m[3] + "%" : m[3]);
   }
+  // Free-text `q`: split into words and require EVERY word to appear in SOME declared
+  // column (AND of terms, OR across columns) — so "miami beach" matches rows containing
+  // both words in any order/field, not just the literal substring.
   const q = (url.searchParams.get("q") || "").trim();
-  if (q && allowCols.length) {
-    where.push("(" + allowCols.map((c) => sqlIdent(c) + " LIKE ?").join(" OR ") + ")");
-    for (let i = 0; i < allowCols.length; i++) params.push("%" + q + "%");
+  const terms = q ? q.split(/\s+/).filter(Boolean).slice(0, 6) : [];
+  if (terms.length && allowCols.length) {
+    for (const term of terms) {
+      where.push("(" + allowCols.map((c) => sqlIdent(c) + " LIKE ?").join(" OR ") + ")");
+      for (let i = 0; i < allowCols.length; i++) params.push("%" + term + "%");
+    }
   }
-  return { filterable, whereSql: where.length ? " WHERE " + where.join(" AND ") : "", params };
+  return { filterable, whereSql: where.length ? " WHERE " + where.join(" AND ") : "", params, terms };
 }
 // Build a filtered/sorted/paginated SELECT for a data-API list read: the filter above
 // plus `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`. Returns the row query + a
 // matching COUNT for {total}.
 function buildD1List(url, tn, allowCols, base) {
   const f = buildD1Filter(url, allowCols, base);
-  let sortCol = (url.searchParams.get("sort") || "").toLowerCase();
+  const explicitSort = (url.searchParams.get("sort") || "").toLowerCase();
+  let sortCol = explicitSort;
   if (!f.filterable.has(sortCol)) sortCol = "id";
   const order = /^asc$/i.test(url.searchParams.get("order") || "") ? "ASC" : "DESC";
   const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
   const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+  // Relevance ranking: with a free-text `q` and no explicit sort, order by how many
+  // (term × column) pairs a row matches — best matches first — then by id.
+  let orderSql = sqlIdent(sortCol) + " " + order, rankParams = [];
+  if (f.terms && f.terms.length && allowCols.length && !f.filterable.has(explicitSort)) {
+    const parts = [];
+    for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
+    orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
+  }
   return {
-    sql: "SELECT * FROM " + tn + f.whereSql + " ORDER BY " + sqlIdent(sortCol) + " " + order + " LIMIT ? OFFSET ?",
-    params: f.params.concat([lim, off]),
+    sql: "SELECT * FROM " + tn + f.whereSql + " ORDER BY " + orderSql + " LIMIT ? OFFSET ?",
+    params: f.params.concat(rankParams, [lim, off]),
     countSql: "SELECT COUNT(*) AS n FROM " + tn + f.whereSql,
     countParams: f.params.slice(),
   };
