@@ -411,9 +411,23 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   → this also delivers Payments + Email for React apps** (via a checkout/email
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
-  **Realtime ✅ (#494)**. Custom domains LAST (owner's call 2026-07-21 — "all of them,
-  leave custom domains for last"; it needs the owner to enable Cloudflare custom
-  hostnames + SSL at the account level, so it's gated on infra, not code).
+  **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
+  (#496)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
+  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
+  the account level, so it's gated on infra, not code).
+  · **Relations (#495 forward + #496 reverse) — linked tables, joined in ONE call,
+    VERIFIED live (10/10 forward + 9/9 reverse).** A schema column declares a foreign key with `ref`
+    (`{"name":"post_id","type":"integer","ref":"posts"}`). FORWARD: `?expand=<fk_col>`
+    (≤4) attaches each row's PARENT under the fk name minus `_id` (post_id → `post`).
+    REVERSE (#496): `?children=<child_table>` (≤3) attaches each parent's CHILDREN as an
+    array under the child table name (`posts?children=comments` → each post has a
+    `comments` array). Both batched (one grouped query each, no N+1; children capped
+    500 total / 50 per parent). FKs are metadata-only (D1 FKs stay off) — the platform
+    joins. **SAFETY (verified):** a table is joined ONLY if it's public-read (display/
+    feed/admin); expanding to a `user`/`collect` table is REFUSED so private rows never
+    leak. Forward proof 10/10 (comments→posts correct, single-row expands, no-expand
+    stays plain, bogus col ignored, user-table expand refused). So `GET /rows/posts/
+    <id>?children=comments` = a post + all its comments in one request. Cleaned up.
   · **Realtime (#494) — live updates with NO new infra, VERIFIED live 13/13.** No
     Durable Objects / WebSockets (would've meant new bindings + cost + hard-to-test);
     instead a cursor-poll primitive: `GET /api/db/<slug>/rows/<table>/changes?since=
