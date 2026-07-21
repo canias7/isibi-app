@@ -503,6 +503,15 @@ since], at:<now cursor>}` for full offline-first incremental sync (the existing 
 append endpoint is unchanged when `?sync` is absent or the table isn't sync). `tsFrag`/
 `listExtras` now honor `timestamps || sync`. Roadmap tally: ~77/93.
 
+## 2026-07-21 — Batch 52: Weighted full-text ranking (offline 6/6) ✅ built
+
+Table flag **`"searchWeights":{"title":5,"body":1}`** → the `q` relevance rank weights matches
+by column (only the weighted columns rank; the WHERE-side `q` filter still matches any column).
+A practical FTS without needing FTS5 (uncertain in D1). Implemented in the buildD1List rank
+block via `listOpts.searchWeights`; carried through coerceTable + norm. Also marked **inventory
+decrement** done — it's exactly the atomic incr with a floor: `POST /rows/<t>/<id>/incr
+{col:"stock", by:-1, min:0}`. Roadmap tally: ~79/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
