@@ -2868,6 +2868,56 @@ async function readAllCounters(env, uuid) {
   await ensureCounters(env, uuid);
   return await cfD1Query(env, uuid, "SELECT name,n FROM _counters ORDER BY n DESC LIMIT 500");
 }
+// Reactions — a first-class "one per user" primitive (likes, upvotes, RSVPs, emoji
+// reactions). Unlike a raw counter it's DEDUPED per (target,type,user) and knows
+// whether the CALLER reacted — the two things a like button needs. Stored in the
+// site's own D1 `_reactions`, ensured once per isolate. Reads are public (counts);
+// writes require login (so "one per user" is enforceable).
+const _reactionsReady = new Set();
+async function ensureReactions(env, uuid) {
+  if (_reactionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reactions (target TEXT NOT NULL, type TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (target, type, user_id))");
+  _reactionsReady.add(uuid);
+}
+// Toggle a reaction on/off for one user, returning {reacted, count}. `set` forces a
+// direction ("on"/"off"); otherwise it flips. Idempotent (the PK dedupes).
+async function toggleReaction(env, uuid, target, type, userId, set) {
+  await ensureReactions(env, uuid);
+  const existing = await cfD1Query(env, uuid, "SELECT 1 FROM _reactions WHERE target=? AND type=? AND user_id=?", [target, type, userId]);
+  const has = !!existing[0];
+  const want = set === "on" ? true : set === "off" ? false : !has; // default: flip
+  if (want && !has) await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _reactions (target,type,user_id,created_at) VALUES (?,?,?,?)", [target, type, userId, new Date().toISOString()]);
+  else if (!want && has) await cfD1Query(env, uuid, "DELETE FROM _reactions WHERE target=? AND type=? AND user_id=?", [target, type, userId]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _reactions WHERE target=? AND type=?", [target, type]);
+  return { reacted: want, count: (cnt[0] && cnt[0].n) || 0 };
+}
+// State for one target: {counts:{type:n}, mine:[types the caller reacted with]}.
+async function reactionState(env, uuid, target, userId) {
+  await ensureReactions(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT type, COUNT(*) AS n FROM _reactions WHERE target=? GROUP BY type", [target]);
+  const counts = {}; for (const r of rows) counts[r.type] = r.n;
+  let mine = [];
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT type FROM _reactions WHERE target=? AND user_id=?", [target, userId]); mine = m.map((x) => x.type); }
+  return { counts, mine };
+}
+// `?reactions=1` — attach each row's reaction state under `row.reactions`
+// ({counts,mine}) for target `<table>:<id>`, so a feed renders like buttons with
+// counts AND the caller's own state in ONE read. Batched: two grouped queries over
+// all row targets (no per-row N+1). userId (or null) drives the `mine` sets.
+async function attachReactions(env, uuid, table, rows, url, userId) {
+  if (url.searchParams.get("reactions") !== "1" || !rows.length) return rows;
+  await ensureReactions(env, uuid);
+  const targets = rows.map((r) => table + ":" + r.id);
+  const ph = targets.map(() => "?").join(",");
+  let counts = [], mine = [];
+  try { counts = await cfD1Query(env, uuid, "SELECT target, type, COUNT(*) AS n FROM _reactions WHERE target IN (" + ph + ") GROUP BY target, type", targets); } catch { return rows; }
+  if (userId) { try { mine = await cfD1Query(env, uuid, "SELECT target, type FROM _reactions WHERE user_id=? AND target IN (" + ph + ")", [userId, ...targets]); } catch {} }
+  const cMap = new Map(), mMap = new Map();
+  for (const c of counts) { if (!cMap.has(c.target)) cMap.set(c.target, {}); cMap.get(c.target)[c.type] = c.n; }
+  for (const m of mine) { if (!mMap.has(m.target)) mMap.set(m.target, []); mMap.get(m.target).push(m.type); }
+  for (const r of rows) { const t = table + ":" + r.id; r.reactions = { counts: cMap.get(t) || {}, mine: mMap.get(t) || [] }; }
+  return rows;
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5909,6 +5959,40 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "counter failed" }, { status: 502 });
         }
       }
+      // Reactions — one-per-user likes / upvotes / RSVPs / emoji. GET reads counts
+      // (+ the caller's own reactions if signed in); POST toggles the caller's
+      // reaction of a given type and returns {reacted, count}.
+      //   GET  /api/db/<slug>/react/<target>            → {counts, mine}
+      //   POST /api/db/<slug>/react/<target> {type,set} → {reacted, count}  (auth)
+      const xm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/react\/([a-z0-9_.:-]{1,80})$/i);
+      if (xm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = xm[1].toLowerCase(), target = xm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        // identify the signed-in visitor (optional for GET, required for POST)
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|xr", 300)) return tooMany();
+            return Response.json(Object.assign({ ok: true }, await reactionState(env, uuid, target, userId)));
+          }
+          // POST — toggle (requires login so "one per user" is real)
+          if (!userId) return Response.json({ ok: false, error: "sign in to react" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|xw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const type = String((body && body.type) || "like").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "like";
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, type }, await toggleReaction(env, uuid, target, type, userId, set)));
+        } catch (e) {
+          console.error("reaction failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "reaction failed" }, { status: 502 });
+        }
+      }
     }
     // Built-site password reset — step 2: set a new password with the token.
     {
@@ -5974,7 +6058,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids) + ?authors=1 (row.author profile)
+          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); return rows; }; // ?expand=<fk> + ?children=<table> + ?authors=1 (row.author) + ?reactions=1 (row.reactions)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
