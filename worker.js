@@ -2549,25 +2549,10 @@ async function cfD1Exec(env, uuid, sql, params) {
   const first = Array.isArray(d.result) ? d.result[0] : d.result;
   return { results: (first && first.results) || [], changes: (first && first.meta && typeof first.meta.changes === "number") ? first.meta.changes : null };
 }
-// Run several statements in ONE D1 /query call (semicolon-joined, params flattened in
-// order). D1 executes a single query() call as one unit of work, so this is the closest
-// to a transaction the HTTP API gives for dynamic per-site DBs — used for cascade delete
-// (parent + its children together). Returns the raw result array. Throws on any error.
-async function cfD1Batch(env, uuid, stmts) {
-  const list = (stmts || []).filter((s) => s && s.sql);
-  if (!list.length) return [];
-  const sql = list.map((s) => s.sql).join(";\n");
-  const params = [];
-  for (const s of list) for (const p of (Array.isArray(s.params) ? s.params : [])) params.push(p);
-  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/d1/database/${uuid}/query`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.CF_D1_API_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ sql, params: d1Params(params) }),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok || d.success === false) { const e = new Error("d1 batch failed"); e.detail = JSON.stringify(d.errors || d).slice(0, 400); throw e; }
-  return Array.isArray(d.result) ? d.result : [];
-}
+// NOTE: D1's HTTP /query API rejects multi-statement SQL and disallows BEGIN/COMMIT, so
+// true multi-write transactions aren't available for these dynamic per-site DBs. Cascade
+// runs SEQUENTIAL deletes children-FIRST — a mid-way failure can only leave a childless
+// parent (harmless, re-deletable), never an orphan child.
 // Direct child tables of <parentName>: the declared tables with a column whose `ref`
 // points back at it (used to cascade a delete so no orphan children are left behind).
 function childRefsOf(spec, parentName) {
@@ -2587,9 +2572,10 @@ async function cascadeDeleteRow(env, uuid, spec, table, tn, id, scopeSql, scopeP
   const sp = scopeParams || [];
   const check = await cfD1Query(env, uuid, "SELECT id FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
   if (!check[0]) return false;
-  const stmts = childRefsOf(spec, table).map((k) => ({ sql: "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", params: [id] }));
-  stmts.push({ sql: "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), params: [id].concat(sp) });
-  await cfD1Batch(env, uuid, stmts);
+  for (const k of childRefsOf(spec, table)) {
+    try { await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id]); } catch (e) { console.error("cascade child delete failed:", k.table, e && e.message); }
+  }
+  await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
   return true;
 }
 // Permanently delete a site's D1 database (idempotent — already-gone is fine).
