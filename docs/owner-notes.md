@@ -240,6 +240,17 @@ like Counters — new `_config (k,v,updated_at)` table per site D1:
 Helpers `ensureConfig`/`readConfig`/`writeConfig`/`parseConfigVal`. Subsumes "feature flags"
 (a config bool). BACKEND_RULES: one line (after FOLLOWS). Roadmap tally: ~42/93. On PR #552.
 
+## 2026-07-21 — Batch 24: NEW LAYER Bookmarks / saves (offline 13/13) ✅ built
+
+Mirrors Follows/Reactions but PRIVATE to each member. New `_bookmarks (user_id, target)`
+PK-deduped table:
+- `POST /api/db/<slug>/save/<table>:<id>` (auth) → toggle `{saved, count}`; `{on}` forces.
+- `GET …/save/<target>` → `{count, mine}` (Bearer → mine).
+- `GET …/saves[?table=<t>&limit=N]` (auth) → the caller's saved items `[{target, table, id,
+  created_at}]` newest-first; the app then loads rows via `?where=id:in:…`.
+Helpers ensureBookmarks/toggleBookmark/bookmarkState/bookmarkList. One BACKEND_RULES line.
+Roadmap tally: ~43/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~42 / 93)
+## DONE (~43 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24).
 
 ---
 
@@ -60,7 +60,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Soft "archive" state distinct from trash (status lifecycle helper)
 
 ### B. Client-facing app features (no keys)
-- [ ] Bookmarks/saves as a first-class primitive (or document reactions-as-save)
+- [x] Bookmarks/saves first-class primitive (/save, /saves) (Batch 24)
 - [ ] Mentions parsing (@user → notification)
 - [ ] Activity feed (aggregate of follows) 
 - [ ] Block another member

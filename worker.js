@@ -3126,6 +3126,42 @@ async function followList(env, uuid, targetId, dir, limit) {
   const byId = new Map(profs.map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
 }
+// Bookmarks / saves — a member saves any row (target `<table>:<id>`) to a private list
+// ("save for later", favourites, a reading list, a wishlist). Deduped per (member,target)
+// PK. Mirrors reactions but is PRIVATE to each member (their own saved list). Ensured once.
+const _bookmarksReady = new Set();
+async function ensureBookmarks(env, uuid) {
+  if (_bookmarksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bookmarks (user_id INTEGER NOT NULL, target TEXT NOT NULL, created_at TEXT, PRIMARY KEY (user_id, target))");
+  _bookmarksReady.add(uuid);
+}
+async function toggleBookmark(env, uuid, userId, target, set) {
+  await ensureBookmarks(env, uuid);
+  const existing = await cfD1Query(env, uuid, "SELECT 1 FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]);
+  const has = !!existing[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _bookmarks (user_id,target,created_at) VALUES (?,?,?)", [userId, target, new Date().toISOString()]);
+  else if (!want && has) await cfD1Query(env, uuid, "DELETE FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _bookmarks WHERE target=?", [target]);
+  return { saved: want, count: (cnt[0] && cnt[0].n) || 0 };
+}
+async function bookmarkState(env, uuid, target, userId) {
+  await ensureBookmarks(env, uuid);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _bookmarks WHERE target=?", [target]);
+  let mine = false;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]); mine = !!m[0]; }
+  return { count: (cnt[0] && cnt[0].n) || 0, mine };
+}
+// The caller's saved targets, newest-first, optionally filtered to one table. Returns
+// [{target, id, table, created_at}] so an app can fetch the rows (e.g. ?where=id:in:…).
+async function bookmarkList(env, uuid, userId, table, limit) {
+  await ensureBookmarks(env, uuid);
+  const lim = Math.min(500, Math.max(1, limit || 200));
+  const rows = table
+    ? await cfD1Query(env, uuid, "SELECT target, created_at FROM _bookmarks WHERE user_id=? AND target LIKE ? ORDER BY created_at DESC LIMIT ?", [userId, table + ":%", lim])
+    : await cfD1Query(env, uuid, "SELECT target, created_at FROM _bookmarks WHERE user_id=? ORDER BY created_at DESC LIMIT ?", [userId, lim]);
+  return rows.map((r) => { const i = String(r.target).indexOf(":"); return { target: r.target, table: i > 0 ? r.target.slice(0, i) : null, id: i > 0 ? parseInt(r.target.slice(i + 1), 10) : null, created_at: r.created_at }; });
+}
 // App settings / config — a per-app key→value store (theme, hero text, feature flags,
 // toggles). Publicly READABLE (the app renders from it), ADMIN-only writable (only the
 // built app's admin changes settings). Values are stored as JSON so booleans/numbers/
@@ -6584,6 +6620,52 @@ async function handleRequest(request, env, ctx) {
           console.error("follow failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
         }
+      }
+      // Bookmarks / saves — a member's private "saved" list over any row (`<table>:<id>`).
+      //   POST /api/db/<slug>/save/<target>  → toggle (auth) → {saved, count}
+      //   GET  /api/db/<slug>/save/<target>  → {count, mine} (Bearer → mine)
+      //   GET  /api/db/<slug>/saves[?table=<t>&limit=N] → the caller's saved items (auth)
+      const bl = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/saves$/i);
+      if (bl && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bl[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|svlr", 300)) return tooMany();
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const table = (url.searchParams.get("table") || "").toLowerCase().replace(/[^a-z0-9_]/g, "") || null;
+          const lim = parseInt(url.searchParams.get("limit") || "200", 10);
+          return Response.json({ ok: true, saves: await bookmarkList(env, uuid, userId, table, lim) });
+        } catch (e) { console.error("saves list failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "saves failed" }, { status: 502 }); }
+      }
+      const sm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/save\/([a-z0-9_.:-]{1,80})$/i);
+      if (sm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sm[1].toLowerCase(), target = sm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|svr", 300)) return tooMany();
+            return Response.json(Object.assign({ ok: true }, await bookmarkState(env, uuid, target, userId)));
+          }
+          if (!userId) return Response.json({ ok: false, error: "sign in to save" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|svw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
+        } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
