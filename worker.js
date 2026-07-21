@@ -6319,6 +6319,39 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, rows, cursor, count: rows.length });
           }
 
+          // BULK update / delete by filter — PATCH or DELETE to /rows/<t> with NO id.
+          // Powers "mark all read", "delete selected", "archive done tasks". SAFETY:
+          // a `where=` filter is REQUIRED (never an unfiltered mass mutation), the set
+          // is capped (≤1000 rows via an id-subquery LIMIT), and it's scoped exactly
+          // like single writes — feed/user touch only THEIR OWN rows, admin any,
+          // display/collect can't. Respects trash (won't touch already-trashed rows;
+          // a bulk DELETE on a trash table soft-deletes unless `?hard=1`).
+          if (rowId == null && (method === "PATCH" || method === "DELETE")) {
+            if (access === "display" || access === "collect") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!url.searchParams.getAll("where").length && !(url.searchParams.get("q") || "").trim() && !tagParam) return Response.json({ ok: false, error: "a where/q/tag filter is required for a bulk operation" }, { status: 400 });
+            let base = null;
+            if (access === "feed" || access === "user") base = { clause: "owner_id=?", params: [userId] };
+            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            const filt = buildD1Filter(url, allow, withTagFilter(withTrash(base)));
+            const idSub = "id IN (SELECT id FROM " + tn + filt.whereSql + " LIMIT 1000)";
+            if (method === "PATCH") {
+              const body = await readBody();
+              const use = pickCols(body);
+              if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              { const e = vErr(body, false); if (e) return badReq(e); }
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE " + idSub, use.map((c) => body[c]).concat(filt.params));
+              return Response.json({ ok: true, updated: ex.changes || 0 });
+            }
+            // bulk DELETE
+            if (trashOn && url.searchParams.get("hard") !== "1") {
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=? WHERE " + idSub, [new Date().toISOString()].concat(filt.params));
+              return Response.json({ ok: true, deleted: ex.changes || 0, soft: true });
+            }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE " + idSub, filt.params);
+            return Response.json({ ok: true, deleted: ex.changes || 0 });
+          }
+
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
