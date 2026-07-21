@@ -2766,6 +2766,24 @@ async function upsertRow(env, uuid, tn, allow, col, body, owner) {
   await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + cols.map(sqlIdent).join(",") + ") VALUES (" + cols.map(() => "?").join(",") + ")", vals);
   return { created: true };
 }
+// Batch insert — POST `{rows:[…]}` writes many rows in ONE statement (import a CSV,
+// seed a list, bulk actions). Uses the union of declared columns present across the
+// batch (missing cells → NULL); `owner` stamps every row (user/feed). Cap 100/call.
+async function insertMany(env, uuid, tn, allow, rowsArr, owner) {
+  const rows = (Array.isArray(rowsArr) ? rowsArr : []).slice(0, 100).filter((r) => r && typeof r === "object");
+  if (!rows.length) return { inserted: 0 };
+  const cols = allow.filter((c) => rows.some((r) => r[c] !== undefined));
+  if (!cols.length && owner == null) return { inserted: 0 };
+  const outCols = owner != null ? cols.concat(["owner_id"]) : cols;
+  const placeholders = [], params = [];
+  for (const r of rows) {
+    placeholders.push("(" + outCols.map(() => "?").join(",") + ")");
+    for (const c of cols) params.push(r[c] === undefined ? null : r[c]);
+    if (owner != null) params.push(owner);
+  }
+  await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + outCols.map(sqlIdent).join(",") + ") VALUES " + placeholders.join(","), params);
+  return { inserted: rows.length };
+}
 // Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
 // requested aggregate families are present).
 function shapeD1Stats(row, wanted) {
@@ -5299,7 +5317,9 @@ async function handleRequest(request, env, ctx) {
           }
           if (access === "collect") {
             if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
-            const body = await readBody(); const use = pickCols(body);
+            const body = await readBody();
+            if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null)));
+            const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
@@ -5318,7 +5338,9 @@ async function handleRequest(request, env, ctx) {
             }
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
             if (method === "POST") {
-              const body = await readBody(); const use = pickCols(body);
+              const body = await readBody();
+              if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId)));
+              const use = pickCols(body);
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
@@ -5354,7 +5376,9 @@ async function handleRequest(request, env, ctx) {
             const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
             if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
             if (method === "POST") {
-              const body = await readBody(); const use = pickCols(body);
+              const body = await readBody();
+              if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null)));
+              const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
@@ -5385,7 +5409,9 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, rows: r, total });
           }
           if (method === "POST") {
-            const body = await readBody(); const use = pickCols(body);
+            const body = await readBody();
+            if (Array.isArray(body.rows)) return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId)));
+            const use = pickCols(body);
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
