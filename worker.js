@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2789,6 +2789,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (slugFrom && !seen.has("slug")) { cols.push('"slug" TEXT'); colNames.push("slug"); seen.add("slug"); }
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
+    if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2799,6 +2800,7 @@ async function applySiteSchema(env, uuid, spec) {
     // backfills owner_id / deleted_at onto a pre-existing table.
     if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
     if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
+    if (t.version) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2830,7 +2832,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3366,6 +3368,18 @@ function validateRow(def, body, isInsert) {
 // default only the built-in `admin` role may write, but a table can declare
 // `writeRoles:["editor","admin"]` (RBAC) to let other custom roles write too — the
 // `admin` role is ALWAYS allowed (superuser). Returns true if this user may write.
+// Optimistic concurrency: on a table declared `version:true`, every row carries a
+// `_version` that bumps on each single-row PATCH. A client that read version N can send
+// `?ifVersion=N` (or an `If-Match: N` header) so its update only lands if nobody else
+// changed the row meanwhile — otherwise a 409 conflict, no silent lost update. Returns
+// the SQL fragments to splice into the UPDATE plus the requested version (if any).
+function versionBits(def, url, request) {
+  if (!def || !def.version) return { on: false, setFrag: "", guardSql: "", guardParams: [], want: null };
+  const raw = url.searchParams.get("ifVersion") || url.searchParams.get("ifversion") || ((request.headers.get("If-Match") || "").replace(/[^0-9]/g, ""));
+  const want = parseInt(raw, 10);
+  const hasWant = Number.isFinite(want) && want > 0;
+  return { on: true, setFrag: ', "_version"="_version"+1', guardSql: hasWant ? ' AND "_version"=?' : "", guardParams: hasWant ? [want] : [], want: hasWant ? want : null };
+}
 async function siteRoleAllows(env, uuid, userId, def) {
   if (!userId) return false;
   const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
@@ -6463,6 +6477,21 @@ async function handleRequest(request, env, ctx) {
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
           const vBatch = (arr) => { for (const rr of arr) { const e = vErr(rr, true); if (e) return e; } return null; };
+          // Single-row PATCH executor with optimistic-concurrency support. Bumps _version
+          // on version tables, honors ?ifVersion / If-Match, and distinguishes a stale-write
+          // conflict (row exists but version moved) from a genuine not-found/not-yours.
+          const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
+            const v = versionBits(def, url, request);
+            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag;
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?" + scopeSql + v.guardSql, use.map((c) => body[c]).concat([rowId], scopeParams, v.guardParams));
+            if (ex.changes > 0) { let version; if (v.on) { try { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?", [rowId]); version = r[0] && r[0].v; } catch {} } return { ok: true, version }; }
+            if (v.on && v.want != null) { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?" + scopeSql, [rowId].concat(scopeParams)); if (r[0]) return { conflict: r[0].v }; }
+            return { notFound: true };
+          };
+          const versionResp = (r) => r.conflict !== undefined
+            ? Response.json({ ok: false, error: "this record changed since you loaded it — reload and try again", code: "conflict", version: r.conflict }, { status: 409 })
+            : r.notFound ? Response.json({ ok: false, error: "not found" }, { status: 404 })
+              : Response.json({ ok: true, version: r.version });
 
           // Soft delete / trash — on tables declared with `trash:true`, DELETE hides a
           // row (sets deleted_at) instead of removing it; reads exclude trashed rows by
@@ -6764,9 +6793,7 @@ async function handleRequest(request, env, ctx) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
-              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 }); // not yours / gone
-              return Response.json({ ok: true });
+              return versionResp(await applyVersionedUpdate(use, body, " AND owner_id=?", [userId])); // own row only; optimistic-lock aware
             }
             if (method === "DELETE" && rowId != null) {
               if (!(await doDelete(" AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
@@ -6804,9 +6831,7 @@ async function handleRequest(request, env, ctx) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", use.map((c) => body[c]).concat([rowId]));
-              if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
-              return Response.json({ ok: true });
+              return versionResp(await applyVersionedUpdate(use, body, "", [])); // admin edits any row; optimistic-lock aware
             }
             if (method === "DELETE" && rowId != null) {
               if (!(await doDelete("", []))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
@@ -6853,12 +6878,11 @@ async function handleRequest(request, env, ctx) {
             const body = await readBody(); const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             { const e = vErr(body, false); if (e) return badReq(e); }
-            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",");
-            let ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=? AND owner_id=?", use.map((c) => body[c]).concat([rowId, userId]));
-            // A collaborator with EDIT-level share may also update the row (view-only cannot).
-            if (ex.changes === 0 && (await shareLevel(env, uuid, table, rowId, userId)) === "edit") ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?", use.map((c) => body[c]).concat([rowId]));
-            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
-            return Response.json({ ok: true });
+            // Owner may update their own row (optimistic-lock aware); if not the owner, an
+            // EDIT-level share collaborator may too (view-only cannot). Both honor ?ifVersion.
+            let r = await applyVersionedUpdate(use, body, " AND owner_id=?", [userId]);
+            if (r.notFound && (await shareLevel(env, uuid, table, rowId, userId)) === "edit") r = await applyVersionedUpdate(use, body, "", []);
+            return versionResp(r);
           }
           if (method === "DELETE" && rowId != null) {
             // Delete stays OWNER-only — a shared collaborator can edit content but never

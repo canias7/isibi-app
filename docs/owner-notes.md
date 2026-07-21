@@ -89,9 +89,18 @@ toward the end.
   New `_shares` table (PK row_table,row_id,user_id). Default owner-only reads unchanged
   (no leak) — sharing is purely additive.
 
+- **Batch 15 — optimistic concurrency / no lost updates** (PR #550): table `"version":true`
+  → a `_version` col that auto-bumps on each single-row PATCH and is returned on reads
+  (`row._version`). Client sends `?ifVersion=N` (or `If-Match`) → stale write refused with
+  409 `{code:'conflict', version}`; success returns `{version:new}`; omit to force last-writer-
+  wins. Wired into all 3 single-PATCH branches (feed/admin/user + the edit-share collaborator
+  path) via one `applyVersionedUpdate` helper. Completes the collaboration story (sharing +
+  RBAC made concurrent edits possible; this makes them safe). Scoped to single-row PATCH
+  (bulk/incr don't version). New table-key `version` threaded through normalizeSchema.
+
 Also a mid-run **security review** (PR #534) over batches' new code: no injection/
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
-~30 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+~31 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
 **Lesson (recurring):** any NEW table-level schema key must be forwarded in
 `normalizeSchema`/`coerceTable` (line ~2712) or it's silently dropped before
 `applySiteSchema` — column-level keys survive via `coerceCol`, table-level ones don't.
