@@ -574,6 +574,30 @@ the stored epoch -> old sessions die at the next guard (same model as block/veri
 stateless data API keeps a revoked token until expiry, which is the documented tradeoff). The
 login + /me SELECTs self-heal older sites lacking the column. Roadmap tally: ~91/93.
 
+## 2026-07-21 — Batch 59: API keys (app-to-app) + per-app rate config (offline 18/18) built
+
+Two owner/admin-facing layers, both offline-verified:
+
+- **API keys** — an ADMIN site-user mints `sk_<48hex>` keys (`POST /api/db/<slug>/apikeys
+  {label}`, returned ONCE), lists them prefix-only (`GET`), revokes (`DELETE /apikeys/<id>`).
+  Only the SHA-256 hash is stored in the site's own D1 `_apikeys` (like passwords). A caller
+  presents `X-API-Key: sk_…` to the data API and is authenticated as the MEMBER the key is
+  bound to (the minting admin), flowing through the SAME per-access authz — so it inherits
+  admin role, can read/write everything, no special-casing. Only consulted when there's no
+  Bearer token (a real login always wins). Revoked/malformed keys don't authenticate. Cap 50
+  active keys/site. `resolveApiKeyUser()` bumps `last_used` via waitUntil.
+- **Per-app rate-limit config** — a TOP-LEVEL schema `"rateLimits":{"read":300,"write":60}`
+  (req/IP/min; aliases rate/apiRateLimit, bare number = both) tunes the data-API per-IP caps
+  that previously were hardcoded 300/60. Threaded through `normalizeSchema` → persisted
+  `_meta.schema` (preserved across re-applies when unspecified) → read at request time from
+  the already-loaded spec (NO extra D1 read). The rate check moved INSIDE the try block so it
+  can see the spec. Absent config → the same generous defaults as before.
+
+Roadmap tally: ~93/93. Only two items remain and BOTH need a live environment I can't reach
+offline: **image resize/transform on upload** (needs live photon/wasm — the harness stubs it)
+and **OAuth social login** (needs the owner's Google/GitHub OAuth app credentials + a redirect
+round-trip). Everything else is delivered.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

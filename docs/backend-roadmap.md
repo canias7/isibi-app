@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~91 / 93)
+## DONE (~93 / 93 — only live-only OAuth + photon resize remain)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -48,7 +48,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] CSV/JSON export (GET /api/db/<slug>/export/<table>) (Batch 38)
 - [x] CSV import with column mapping (/import/<table>) (Batch 56)
 - [x] Data seeding (covered by batch insert POST {rows:[]}) (Batch 50)
-- [ ] Per-app rate-limit config (owner tunes the read/write caps)
+- [x] Per-app rate-limit config (top-level `rateLimits:{read,write}`) (Batch 59)
 - [x] Distinct values (covered by /facets: map values) (Batch 50)
 - [x] Cascade options per ref (`"onDelete"`: cascade/setNull/restrict) (Batch 42)
 - [x] Referential integrity (`"enforceRefs"`, reject fk to missing parent) (Batch 29)
@@ -89,7 +89,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Account lockout after N failed logins (already in login path)
 - [x] Session revoke / log out other devices (/auth/logout-all) (Batch 58)
 - [x] Per-member write rate limit (`"rateLimit"`) (Batch 43)
-- [ ] API keys for app-to-app access
+- [x] API keys for app-to-app access (/apikeys + X-API-Key) (Batch 59)
 - [x] Magic-link / OTP login (email step + code table pattern) 🔑 (Batch 57)
 - [x] Password reset (Phase-C /auth/reset-request + /auth/reset exist) (Batch 50)
 
