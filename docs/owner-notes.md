@@ -10,6 +10,28 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — NEW LAYER: Reactions (one-per-user likes/upvotes/RSVPs) ✅ live
+
+Counters tally anonymously but can't dedupe per user, so a like/upvote/RSVP button
+had to hand-roll a side table. New first-class primitive:
+
+- `POST /api/db/<slug>/react/<target> {type}` (auth) → TOGGLES the caller's reaction
+  (default type `like`), returns `{reacted, count}`; `{on:true|false}` forces a
+  direction (idempotent). `GET …/react/<target>` → `{counts:{type:n}, mine:[types]}`
+  (send Bearer for `mine`; anon gets counts only).
+- Dedup enforced by `PRIMARY KEY(target,type,user_id)` in the site D1 `_reactions`
+  (dropped with the DB). Writes require login so "one per user" is real.
+- **`?reactions=1`** on any list read inlines `row.reactions = {counts, mine}` for
+  target `<table>:<id>` (batched, caller-aware) — a feed renders like/upvote buttons
+  with counts + the user's own state in ONE request. Composes with `?authors=1`.
+- CONVENTION: react to `<tableName>:${id}` (e.g. `posts:${id}`) so manual reacts and
+  the `?reactions=1` shortcut agree — BACKEND_RULES now states this explicitly (a
+  singular-vs-plural mismatch would split the count).
+
+Shipped PR #528, deployed. **Verified live 14/14** — toggle on/off, auth guard, cross-
+user dedup, idempotent force on/off, counts+mine (auth-aware), multi-type (like+upvote),
+and the `?reactions=1` feed join (caller-aware + opt-in). Bare test backend, $0, deleted.
+
 ## 2026-07-21 — NEW LAYER: Profiles (public member identity) ✅ live
 
 Testing kept showing the same gap: generated apps (Townsquare, Parkbench) copied an
