@@ -1941,7 +1941,7 @@ async function decryptSecret(env, packed) {
 // bounded trigger→steps recipe), never arbitrary code. The Worker interprets the
 // spec against primitives we already own (collections, secrets, external fetch),
 // so nothing user-authored ever executes — there is no code to sandbox. ──
-const FN_ACTIONS = new Set(["read", "save", "fetch", "respond", "checkout", "email"]);
+const FN_ACTIONS = new Set(["read", "save", "fetch", "respond", "checkout", "email", "ai"]);
 const cleanColl = (s) => (typeof s === "string" ? s.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) : "");
 const cleanAs = (s) => (typeof s === "string" ? s.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : "");
 // Bound a spec value: keep template placeholders intact, cap strings/arrays/objects.
@@ -1977,6 +1977,10 @@ function normalizeFnSpec(spec) {
       const step = { do: "fetch", url, method, headers: cleanTempl(s.headers) || {}, as: cleanAs(s.as) || "response" };
       if (s.body != null) step.body = cleanTempl(s.body);
       steps.push(step);
+    } else if (op === "ai") {
+      const prompt = typeof s.prompt === "string" ? s.prompt.slice(0, 6000) : "";
+      if (!prompt) continue;
+      steps.push({ do: "ai", prompt, system: typeof s.system === "string" ? s.system.slice(0, 2000) : "", as: cleanAs(s.as) || "ai" });
     } else if (op === "respond") {
       steps.push({ do: "respond", data: cleanTempl(s.data != null ? s.data : s.body) });
     } else if (op === "checkout") {
@@ -2012,6 +2016,13 @@ function normalizeFnSpec(spec) {
   // Optional schedule: run on a timer from the cron. Clamp 5 min … 30 days.
   const em = spec.schedule && parseInt(spec.schedule.everyMinutes, 10);
   if (Number.isFinite(em) && em > 0) out.schedule = { everyMinutes: Math.min(43200, Math.max(5, em)) };
+  // Optional event trigger: run automatically when a row is inserted into a declared
+  // table. Accepts { on:{ insert:"table" } }, "on":"insert:table", or trigger:"insert:table".
+  let trig = null;
+  if (spec.on && typeof spec.on === "object" && typeof spec.on.insert === "string") trig = spec.on.insert;
+  else if (typeof spec.on === "string" && /^insert:/i.test(spec.on)) trig = spec.on.slice(7);
+  else if (typeof spec.trigger === "string" && /^insert:/i.test(spec.trigger)) trig = spec.trigger.slice(7);
+  if (trig) { const t = String(trig).replace(/[^a-z0-9_]/gi, "").slice(0, 41); if (t) out.on = { insert: t }; }
   return out;
 }
 // Pull declared <script type="application/isibi-fn" data-name="X">{spec}</script>
@@ -2117,6 +2128,34 @@ async function sendPlatformEmail(env, to, subject, html) {
 // Run one declared function against the live primitives. Every path is bounded
 // (≤8 steps, ≤2 fetches already enforced in the spec, 8s per network op, 32KB
 // response reads) and external fetches go through safeFetch (SSRF-guarded).
+// Event triggers: functions declared with on:{insert:<table>} run automatically when a
+// row is inserted into <table>. The per-slug trigger list is cached in-isolate (60s TTL)
+// so a normal insert pays at most one lookup per minute — sites with no triggers cache an
+// empty list. Fired via ctx.waitUntil so the visitor's write never waits on the function.
+const _trigCache = new Map();
+async function insertTriggersFor(env, slug) {
+  const c = _trigCache.get(slug);
+  if (c && (Date.now() - c.at) < 60000) return c.fns;
+  let fns = [];
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&enabled=is.true&select=owner_id,published_site_id,name,spec&limit=50`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(6000) });
+    const rows = await r.json().catch(() => []);
+    if (Array.isArray(rows)) fns = rows.filter((x) => x && x.spec && x.spec.on && x.spec.on.insert);
+  } catch {}
+  _trigCache.set(slug, { at: Date.now(), fns });
+  return fns;
+}
+function fireInsertTriggers(env, ctx, slug, table, rowData) {
+  if (!env.SUPABASE_SERVICE_KEY) return;
+  const run = async () => {
+    let fns; try { fns = await insertTriggersFor(env, slug); } catch { return; }
+    for (const f of fns) {
+      if (String(f.spec.on.insert).toLowerCase() !== String(table).toLowerCase()) continue;
+      try { await runSiteFunction(env, { owner_id: f.owner_id, published_site_id: f.published_site_id, spec: f.spec }, rowData || {}, slug); } catch {}
+    }
+  };
+  if (ctx && ctx.waitUntil) ctx.waitUntil(run()); else run();
+}
 async function runSiteFunction(env, row, input, slug) {
   const steps = Array.isArray(row.spec && row.spec.steps) ? row.spec.steps.slice(0, 8) : [];
   const data = { input: input && typeof input === "object" && !Array.isArray(input) ? input : {}, steps: {} };
@@ -5770,6 +5809,7 @@ async function handleRequest(request, env, ctx) {
             { const e = vErr(body, true); if (e) return badReq(e); }
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
+            fireInsertTriggers(env, ctx, slug, table, body);
             return Response.json({ ok: true });
           }
           if (access === "feed") {
@@ -5792,6 +5832,7 @@ async function handleRequest(request, env, ctx) {
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
+              fireInsertTriggers(env, ctx, slug, table, body);
               return Response.json({ ok: true });
             }
             if (method === "PATCH" && rowId != null) {
@@ -5832,6 +5873,7 @@ async function handleRequest(request, env, ctx) {
               { const e = vErr(body, true); if (e) return badReq(e); }
               if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
+              fireInsertTriggers(env, ctx, slug, table, body);
               return Response.json({ ok: true });
             }
             if (method === "PATCH" && rowId != null) {
@@ -5867,6 +5909,7 @@ async function handleRequest(request, env, ctx) {
             if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
+            fireInsertTriggers(env, ctx, slug, table, body);
             return Response.json({ ok: true });
           }
           if (method === "PATCH" && rowId != null) {
