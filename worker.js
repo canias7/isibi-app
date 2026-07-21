@@ -7507,6 +7507,59 @@ async function handleRequest(request, env, ctx) {
           return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="' + table + '.csv"' } });
         } catch (e) { console.error("export failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "export failed" }, { status: 502 }); }
       }
+      // CSV import (ADMIN) — bulk-load a spreadsheet into a table, with optional column
+      // mapping. Complements the export. Only declared columns are written; unknown/extra
+      // CSV columns are ignored; each row is validated. `mapping` maps CSV-header → table-col
+      // (default: headers that match a declared column auto-map).
+      //   POST /api/db/<slug>/import/<table> {csv, mapping?, hasHeader?} → {inserted, skipped}
+      const imm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/import\/([a-z_][a-z0-9_]{0,40})$/i);
+      if (imm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = imm[1].toLowerCase(), table = imm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          const spec = await loadSiteSchema(env, uuid); const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          if (!rateOk(slug + "|" + ip + "|impw", 20)) return tooMany();
+          const managed = new Set(["id", "created_at", "owner_id"]);
+          const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+          const allowByLC = new Map(allow.map((c) => [String(c).toLowerCase(), c]));
+          let bd; try { bd = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+          const csv = String(bd.csv || ""); if (!csv.trim()) return Response.json({ ok: false, error: "csv required" }, { status: 400 });
+          // RFC-4180 parse
+          const parseCsv = (text) => { const rows = []; let row = [], field = "", i = 0, inQ = false; while (i < text.length) { const ch = text[i]; if (inQ) { if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i += 2; continue; } inQ = false; i++; continue; } field += ch; i++; continue; } if (ch === '"') { inQ = true; i++; continue; } if (ch === ",") { row.push(field); field = ""; i++; continue; } if (ch === "\r") { i++; continue; } if (ch === "\n") { row.push(field); rows.push(row); row = []; field = ""; i++; continue; } field += ch; i++; } if (field.length || row.length) { row.push(field); rows.push(row); } return rows; };
+          const grid = parseCsv(csv);
+          if (!grid.length) return Response.json({ ok: false, error: "empty csv" }, { status: 400 });
+          const hasHeader = bd.hasHeader !== false;
+          const headers = hasHeader ? grid[0].map((s) => String(s).trim()) : allow.slice();
+          const dataRows = hasHeader ? grid.slice(1) : grid;
+          const mapping = (bd.mapping && typeof bd.mapping === "object") ? bd.mapping : null;
+          // resolve each source column index → target table column (or null to skip)
+          const target = headers.map((hdr) => { const mapped = mapping && mapping[hdr] != null ? String(mapping[hdr]) : hdr; return allowByLC.get(String(mapped).toLowerCase()) || null; });
+          if (!target.some(Boolean)) return Response.json({ ok: false, error: "no CSV columns match this table (send a mapping)" }, { status: 400 });
+          const owner = (def.access === "user" || def.access === "feed") ? userId : null;
+          const objs = []; let skipped = 0;
+          for (const r of dataRows.slice(0, 5000)) {
+            if (!r.length || (r.length === 1 && r[0].trim() === "")) { continue; }
+            const obj = {}; for (let ci = 0; ci < target.length; ci++) { const col = target[ci]; if (col && r[ci] !== undefined && r[ci] !== "") obj[col] = r[ci]; }
+            if (!Object.keys(obj).length) { skipped++; continue; }
+            if (validateRow(def, obj, true)) { skipped++; continue; }
+            objs.push(obj);
+          }
+          let inserted = 0;
+          for (let i = 0; i < objs.length; i += 100) { try { const res = await insertMany(env, uuid, sqlIdent(table), allow, objs.slice(i, i + 100), owner, def); inserted += (res && res.inserted) || 0; } catch { skipped += Math.min(100, objs.length - i); } }
+          return Response.json({ ok: true, inserted, skipped });
+        } catch (e) { console.error("import failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "import failed" }, { status: 502 }); }
+      }
       // Audit trail (ADMIN) — the write history of `audit:true` tables.
       //   GET /api/db/<slug>/audit[?table=<t>&action=insert|update|delete&limit=N]
       const aum = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit$/i);
