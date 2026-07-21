@@ -416,7 +416,7 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
   the account level, so it's gated on infra, not code).
   · **Relations (#495 forward + #496 reverse) — linked tables, joined in ONE call,
-    VERIFIED live (10/10 forward).** A schema column declares a foreign key with `ref`
+    VERIFIED live (10/10 forward + 9/9 reverse).** A schema column declares a foreign key with `ref`
     (`{"name":"post_id","type":"integer","ref":"posts"}`). FORWARD: `?expand=<fk_col>`
     (≤4) attaches each row's PARENT under the fk name minus `_id` (post_id → `post`).
     REVERSE (#496): `?children=<child_table>` (≤3) attaches each parent's CHILDREN as an
