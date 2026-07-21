@@ -358,6 +358,15 @@ DELETE across every access branch); reads unaffected. Carried via coerceTable + 
 Note: account **lockout** (8 failed logins → 15-min lock) was ALREADY implemented in the
 login path — marked done in the roadmap, no new code. Roadmap tally: ~56/93.
 
+## 2026-07-21 — Batch 36: NEW LAYER Block another member (offline 12/12) ✅ built
+
+`_blocks` PK(blocker_id, blocked_id): `POST /block/<userId>` toggle → `{blocking}` (also
+DELETEs any follow edge both ways), `GET /block/<userId>` → `{blocking}`, `GET /blocks` →
+your blocked ids. Teeth: **`?hideBlocked=1`** on a feed read excludes blocked authors
+(`owner_id NOT IN (…)`), composing with `?following=1` (refactored the feed audience filters
+into a composable list). Helpers ensureBlocks/toggleBlock/blockState/blockedIdList. One
+BACKEND_RULES line. Roadmap tally: ~57/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

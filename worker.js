@@ -3290,6 +3290,35 @@ async function unvotePoll(env, uuid, poll, userId) {
   await cfD1Query(env, uuid, "DELETE FROM _polls WHERE poll=? AND user_id=?", [poll, userId]);
   return pollState(env, uuid, poll, userId);
 }
+// Blocks — a member blocks another so they can hide that member's content (feed reads with
+// `?hideBlocked=1` exclude blocked authors) and sever any follow edges between them. Stored
+// in `_blocks` PK(blocker_id, blocked_id). Personal + private to each member. Ensured once.
+const _blocksReady = new Set();
+async function ensureBlocks(env, uuid) {
+  if (_blocksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _blocks (blocker_id INTEGER NOT NULL, blocked_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (blocker_id, blocked_id))");
+  _blocksReady.add(uuid);
+}
+async function toggleBlock(env, uuid, blocker, blocked, set) {
+  await ensureBlocks(env, uuid);
+  const has = !!(await cfD1Query(env, uuid, "SELECT 1 FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, blocked]))[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) {
+    await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?)", [blocker, blocked, new Date().toISOString()]);
+    try { await ensureFollows(env, uuid); await cfD1Query(env, uuid, "DELETE FROM _follows WHERE (follower_id=? AND followee_id=?) OR (follower_id=? AND followee_id=?)", [blocked, blocker, blocker, blocked]); } catch {}
+  } else if (!want && has) { await cfD1Query(env, uuid, "DELETE FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, blocked]); }
+  return { blocking: want };
+}
+async function blockState(env, uuid, blocker, target) {
+  await ensureBlocks(env, uuid);
+  const m = await cfD1Query(env, uuid, "SELECT 1 FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, target]);
+  return { blocking: !!m[0] };
+}
+async function blockedIdList(env, uuid, blocker) {
+  await ensureBlocks(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT blocked_id FROM _blocks WHERE blocker_id=? ORDER BY created_at DESC", [blocker]);
+  return rows.map((r) => r.blocked_id);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6913,6 +6942,33 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
       }
+      // Blocks — hide another member. `POST /block/<userId>` toggles, `GET /block/<userId>`
+      // → {blocking}, `GET /blocks` → your blocked ids. Then pass `?hideBlocked=1` on a feed
+      // read to drop blocked authors. All auth-only (a block is personal).
+      const blm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/block\/(\d+)$/i);
+      const bllm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/blocks$/i);
+      if ((blm || bllm) && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (blm || bllm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (bllm) { if (!rateOk(slug + "|" + ip + "|bkl", 300)) return tooMany(); return Response.json({ ok: true, blocked: await blockedIdList(env, uuid, userId) }); }
+          const target = parseInt(blm[2], 10) || 0;
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|bkr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, id: target }, await blockState(env, uuid, userId, target))); }
+          if (target === userId) return Response.json({ ok: false, error: "you can't block yourself" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|bkw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, id: target }, await toggleBlock(env, uuid, userId, target, set)));
+        } catch (e) { console.error("block failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "block failed" }, { status: 502 }); }
+      }
       // Content reports / flags + moderation queue.
       //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
       //   GET  /api/db/<slug>/report/<target>           → {count, mine}
@@ -7494,11 +7550,14 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              // Following feed (`?following=1`, auth) — the home-feed primitive: only rows
-              // authored by members the caller FOLLOWS (owner_id ∈ their followees). Composes
-              // with where/q/sort/pagination. Needs the Follows layer; ignored when signed out.
-              let fbase = null;
-              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); fbase = { clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }; }
+              // Feed audience filters (auth, composable): `?following=1` → only authors the
+              // caller follows (home feed); `?hideBlocked=1` → exclude authors the caller has
+              // blocked. Both AND together and compose with where/q/sort/pagination; ignored
+              // when signed out.
+              const audience = [];
+              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); audience.push({ clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }); }
+              if (url.searchParams.get("hideBlocked") === "1" && userId) { await ensureBlocks(env, uuid); audience.push({ clause: "owner_id NOT IN (SELECT blocked_id FROM _blocks WHERE blocker_id=?)", params: [userId] }); }
+              const fbase = audience.length ? { clause: audience.map((a) => a.clause).join(" AND "), params: audience.flatMap((a) => a.params) } : null;
               const b = buildD1List(url, tn, allow, withTagFilter(withVisible(fbase)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
