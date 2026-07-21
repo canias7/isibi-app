@@ -412,9 +412,24 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
-  (#496)** · **Upsert ✅ (#497)**. Custom domains LAST (owner's call 2026-07-21 — "all
-  of them, leave custom domains for last"; it needs the owner to enable Cloudflare
-  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)**. Custom domains LAST
+  (owner's call 2026-07-21 — "all of them, leave custom domains for last"; it needs the
+  owner to enable Cloudflare custom hostnames + SSL at the account level, so it's gated
+  on infra, not code).
+  · **PROMPT-BLOAT NOTE (flagged to owner 2026-07-21):** every layer appends to
+    BACKEND_RULES (fed to the AI on EVERY build), which is now long — costs input tokens
+    per build + can dilute the important rules. Owner chose "keep adding layers" anyway,
+    so I'm now favoring layers that are OWNER-FACING or AUTOMATIC (near-zero builder-
+    rules footprint) and keeping any new builder-rules text to one tight line. If build
+    quality/cost ever suffers, the fix is a BACKEND_RULES consolidation/compression pass
+    (parked option).
+  · **Batch insert (#498) — many rows in one call, VERIFIED live 12/12.** `POST {rows:
+    [{…},{…}]}` (array under `rows`, ≤100) to `/rows/<table>` inserts them all in one
+    statement (CSV import, seeding, bulk) → `{inserted:N}`. All write modes, same auth +
+    owner stamping; union of declared cols across the batch (missing → NULL). **Proof
+    (zero AI/fal): 12/12** — collect batch of 3, ragged rows (missing email → NULL), a
+    `user` batch stamped owner_id per row with A/B isolation, boolean coerced, and a
+    150-row payload capped to 100. Cleaned up.
   · **Upsert (#497) — create-or-update by a key, VERIFIED live 14/14.** `POST /rows/
     <table>?upsert=<col>` updates the row already matching `<col>` instead of inserting
     a duplicate, else inserts; response carries `{created}`. Powers per-user settings,
