@@ -2790,25 +2790,23 @@ async function flushSiteMetrics(env, slug, agg) {
     await cfD1Query(env, uuid, "INSERT INTO _metrics (day,reqs,errs) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET reqs=reqs+excluded.reqs, errs=errs+excluded.errs", [day, agg.reqs, agg.errs]);
   } catch {}
 }
-// Visitor analytics — a built app POSTs page views + custom events; buffered in-isolate
-// and batch-flushed into the site's own D1 `_analytics` as tiny (day,event,path) counter
-// rows (never raw per-event storage), so the owner sees traffic without bloating the DB.
-// Same approximate-by-design tradeoff as _metrics.
-const _anaBuf = new Map();
+// Visitor analytics — a built app POSTs page views + custom events. Each event is
+// written straight through as a tiny (day,event,path) counter upsert-increment in the
+// site's own D1 `_analytics` (never raw per-event storage), via ctx.waitUntil so the
+// visitor never waits. Written per-event (not buffered) so the counts are EXACT even at
+// low traffic — unlike ops `_metrics`, product view-counts need to be trustworthy. The
+// `_analytics` table is ensured once per isolate.
+const _anaReady = new Set();
 function recordVisit(env, ctx, slug, event, path) {
-  let b = _anaBuf.get(slug);
-  if (!b) { b = { total: 0, hits: new Map() }; _anaBuf.set(slug, b); }
-  const k = (event || "view") + "\n" + (path || "");
-  b.hits.set(k, (b.hits.get(k) || 0) + 1); b.total++;
-  if (b.total >= 20) { const hits = b.hits; _anaBuf.set(slug, { total: 0, hits: new Map() }); if (ctx && ctx.waitUntil) ctx.waitUntil(flushSiteAnalytics(env, slug, hits)); }
-}
-async function flushSiteAnalytics(env, slug, hits) {
-  try {
-    const uuid = await siteBackendBySlug(env, slug); if (!uuid || !hits || !hits.size) return;
-    const day = new Date().toISOString().slice(0, 10);
-    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _analytics (day TEXT, event TEXT, path TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(day,event,path))");
-    for (const [k, n] of hits) { const i = k.indexOf("\n"); await cfD1Query(env, uuid, "INSERT INTO _analytics (day,event,path,n) VALUES (?,?,?,?) ON CONFLICT(day,event,path) DO UPDATE SET n=n+excluded.n", [day, k.slice(0, i), k.slice(i + 1), n]); }
-  } catch {}
+  const day = new Date().toISOString().slice(0, 10);
+  const run = async () => {
+    try {
+      const uuid = await siteBackendBySlug(env, slug); if (!uuid) return;
+      if (!_anaReady.has(uuid)) { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _analytics (day TEXT, event TEXT, path TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(day,event,path))"); _anaReady.add(uuid); }
+      await cfD1Query(env, uuid, "INSERT INTO _analytics (day,event,path,n) VALUES (?,?,?,1) ON CONFLICT(day,event,path) DO UPDATE SET n=n+1", [day, event || "view", path || ""]);
+    } catch {}
+  };
+  if (ctx && ctx.waitUntil) ctx.waitUntil(run()); else run();
 }
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
@@ -5347,7 +5345,6 @@ async function handleRequest(request, env, ctx) {
       try {
         const uuid = await siteBackendForOwner(env, slug, u.id);
         if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
-        const b = _anaBuf.get(slug); if (b && b.total) { const hits = b.hits; _anaBuf.set(slug, { total: 0, hits: new Map() }); await flushSiteAnalytics(env, slug, hits); }
         let rows = [];
         try { rows = await cfD1Query(env, uuid, "SELECT day,event,path,n FROM _analytics WHERE day >= date('now', ?) ORDER BY day DESC, n DESC LIMIT 2000", ["-" + days + " days"]); } catch {}
         let total = 0; const byEvent = {}, byPath = {}, byDay = {};
