@@ -414,9 +414,22 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
   (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
   (#499)** · **Rate limiting ✅ (#500)** · **Validation ✅ (#501)** · **Multi-word search
-  ✅ (#502)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
-  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
-  the account level, so it's gated on infra, not code).
+  ✅ (#502)** · **Observability ✅ (#503)**. Custom domains LAST (owner's call 2026-07-21
+  — "all of them, leave custom domains for last"; it needs the owner to enable Cloudflare
+  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  · **Observability (#503) — per-app request/error counts, VERIFIED live 9/10.** Every
+    `/api/db/<slug>/*` response status is captured at the top-level handler, buffered
+    in-isolate, batch-flushed (~every 10 hits) into the site's own D1 `_metrics` table
+    as daily `{reqs,errs}` totals — durable usage WITHOUT a write-per-request. Owner
+    endpoint `GET /api/site/backend/metrics?slug=&days=` → the daily series + totals
+    (flushes the live buffer first). Owner-facing, no build-prompt change. **Approximate
+    BY DESIGN** (per-isolate buffering: counts stranded in another isolate's sub-
+    threshold buffer are missed until it flushes). **Proof (zero AI/fal): 9/10** —
+    baseline 0, then ~23/26 reqs + 3/6 errs counted (the shortfall IS the documented
+    per-isolate approximation, NOT a bug), errs<reqs, a dated day-row persisted, totals
+    grew with more traffic, no-auth→401, and the public API can't reach `_metrics`
+    (404). For exact counts we'd need Analytics Engine / a durable counter (scale
+    upgrade). Cleaned up.
   · **Search upgrade (#502) — multi-word + relevance ranking, VERIFIED live 10/10.** `q=`
     was a literal substring match; now it splits into words and requires EVERY word to
     appear in SOME declared column (AND of terms, OR across columns) — `q=miami beach`

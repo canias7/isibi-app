@@ -5027,9 +5027,10 @@ async function handleRequest(request, env, ctx) {
         try { await fetch(`${SUPABASE_URL}/rest/v1/site_secrets?slug=eq.${encodeURIComponent(slug)}&owner_id=eq.${u.id}`, { method: "DELETE", headers: svcH }); } catch {}
         try { await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&owner_id=eq.${u.id}`, { method: "DELETE", headers: svcH }); } catch {}
       }
-      // 2) R2: published dist, uploads, and the generated source
+      // 2) R2: published dist, uploads, backups, and the generated source
       try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+      try { const l = await env.SITES_BUCKET.list({ prefix: "backups/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
       return Response.json({ ok: true });
     }
@@ -5044,6 +5045,7 @@ async function handleRequest(request, env, ctx) {
       const wipeR2 = async (slug) => {
         try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
         try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+        try { const l = await env.SITES_BUCKET.list({ prefix: "backups/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
         try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
       };
       const done = new Set();
@@ -5158,6 +5160,93 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner metrics failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
+    // Owner data backup: snapshot ALL of a built app's declared data tables into a
+    // single JSON in R2 (backups/<slug>/<ts>.json). isibi-authed + owner-scoped. Covers
+    // the app's own content tables (not _users — visitor accounts are excluded on
+    // purpose so a restore can never wipe/expose logins).
+    if (url.pathname === "/api/site/backend/backup" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = await request.json(); } catch { bb = {}; }
+      const slug = ((bb.slug || "") + "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        const tables = {}; let total = 0;
+        for (const t of (spec.tables || [])) {
+          if (!t || !t.name) continue;
+          try { const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(t.name) + " ORDER BY id ASC LIMIT 5000"); tables[t.name] = rows; total += rows.length; } catch {}
+        }
+        const now = new Date();
+        const ts = now.toISOString().replace(/[:.]/g, "-");
+        const key = "backups/" + slug + "/" + ts + ".json";
+        const bodyStr = JSON.stringify({ createdAt: now.toISOString(), slug, tables });
+        await env.SITES_BUCKET.put(key, bodyStr, { httpMetadata: { contentType: "application/json" } });
+        return Response.json({ ok: true, key, tables: Object.keys(tables), rows: total, size: bodyStr.length });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner backup failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "backup failed" }, { status: 502 });
+      }
+    }
+    // Owner: list a built app's backups (newest first).
+    if (url.pathname === "/api/site/backend/backups" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id); // ownership check
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const l = await env.SITES_BUCKET.list({ prefix: "backups/" + slug + "/" });
+        const backups = (l.objects || []).map((o) => ({ key: o.key, size: o.size, uploaded: o.uploaded })).sort((a, b) => (a.key < b.key ? 1 : -1));
+        return Response.json({ ok: true, backups });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner backups list failed:", e && e.message);
+        return Response.json({ ok: false, error: "list failed" }, { status: 502 });
+      }
+    }
+    // Owner restore: replace a built app's declared data tables with the contents of a
+    // backup snapshot. Row ids are preserved (so relations survive). _users is never
+    // touched. isibi-authed + owner-scoped; the key must belong to this slug's backups.
+    if (url.pathname === "/api/site/backend/restore" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = await request.json(); } catch { bb = {}; }
+      const slug = ((bb.slug || "") + "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const key = (bb.key || "") + "";
+      if (!slug || !key) return Response.json({ ok: false, error: "missing slug or key" }, { status: 400 });
+      if (!key.startsWith("backups/" + slug + "/")) return Response.json({ ok: false, error: "bad key" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const obj = await env.SITES_BUCKET.get(key);
+        if (!obj) return Response.json({ ok: false, error: "backup not found" }, { status: 404 });
+        const snap = JSON.parse(await obj.text());
+        const spec = await loadSiteSchema(env, uuid);
+        let restored = 0; const done = [];
+        for (const [name, rows] of Object.entries(snap.tables || {})) {
+          if (!tableDef(spec, name)) continue; // only currently-declared tables
+          const tn = sqlIdent(name);
+          await cfD1Query(env, uuid, "DELETE FROM " + tn);
+          for (const row of (Array.isArray(rows) ? rows : [])) {
+            const cols = Object.keys(row).filter((k) => SAFE_IDENT.test(k));
+            if (!cols.length) continue;
+            await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + cols.map(sqlIdent).join(",") + ") VALUES (" + cols.map(() => "?").join(",") + ")", cols.map((c) => row[c]));
+            restored++;
+          }
+          done.push(name);
+        }
+        return Response.json({ ok: true, restored, tables: done });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner restore failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "restore failed" }, { status: 502 });
       }
     }
     // Owner content editor: add / edit / delete a row in one of the OWNER's own
