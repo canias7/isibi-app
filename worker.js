@@ -1687,7 +1687,9 @@ function agentSystemPrompt(connected) {
 
 export default {
   async fetch(request, env, ctx) {
-    return harden(await handleRequest(request, env, ctx), request);
+    const resp = harden(await handleRequest(request, env, ctx), request);
+    try { const m = new URL(request.url).pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\//); if (m) recordSiteHit(env, ctx, m[1].toLowerCase(), resp.status); } catch {}
+    return resp;
   },
   // Cron trigger (see wrangler.jsonc): drive the DM auto-reply engine.
   async scheduled(event, env, ctx) {
@@ -2643,6 +2645,26 @@ function rateOk(key, limit) {
   return n <= limit;
 }
 function tooMany(msg) { return Response.json({ ok: false, error: msg || "Too many requests — please slow down." }, { status: 429, headers: { "Retry-After": "30" } }); }
+// Per-app observability — count data-API requests + errors per site, buffered in the
+// isolate and batch-flushed (every ~10 hits) into the site's own D1 `_metrics` table
+// as daily totals, so the owner gets a durable usage view without a write-per-request.
+// Approximate by design (a few counts can be lost on isolate recycle); accurate enough
+// for "how much traffic / how many errors is my app seeing."
+const _metBuf = new Map();
+function recordSiteHit(env, ctx, slug, status) {
+  let b = _metBuf.get(slug);
+  if (!b) { b = { reqs: 0, errs: 0 }; _metBuf.set(slug, b); }
+  b.reqs++; if (status >= 400) b.errs++;
+  if (b.reqs >= 10) { const agg = { reqs: b.reqs, errs: b.errs }; _metBuf.set(slug, { reqs: 0, errs: 0 }); if (ctx && ctx.waitUntil) ctx.waitUntil(flushSiteMetrics(env, slug, agg)); }
+}
+async function flushSiteMetrics(env, slug, agg) {
+  try {
+    const uuid = await siteBackendBySlug(env, slug); if (!uuid) return;
+    const day = new Date().toISOString().slice(0, 10);
+    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _metrics (day TEXT PRIMARY KEY, reqs INTEGER DEFAULT 0, errs INTEGER DEFAULT 0)");
+    await cfD1Query(env, uuid, "INSERT INTO _metrics (day,reqs,errs) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET reqs=reqs+excluded.reqs, errs=errs+excluded.errs", [day, agg.reqs, agg.errs]);
+  } catch {}
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5113,6 +5135,29 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner export failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "export failed" }, { status: 502 });
+      }
+    }
+    // Owner observability: daily request + error counts for one of the owner's built
+    // apps (last N days). isibi-authed + owner-scoped. Flushes this isolate's buffered
+    // counts first so the view is current.
+    if (url.pathname === "/api/site/backend/metrics" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get("days") || "14", 10) || 14));
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const b = _metBuf.get(slug); if (b && b.reqs) { _metBuf.set(slug, { reqs: 0, errs: 0 }); await flushSiteMetrics(env, slug, { reqs: b.reqs, errs: b.errs }); }
+        let rows = [];
+        try { rows = await cfD1Query(env, uuid, "SELECT day,reqs,errs FROM _metrics ORDER BY day DESC LIMIT ?", [days]); } catch {}
+        const totals = rows.reduce((a, r) => ({ reqs: a.reqs + (r.reqs || 0), errs: a.errs + (r.errs || 0) }), { reqs: 0, errs: 0 });
+        return Response.json({ ok: true, days: rows, totals });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner metrics failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "read failed" }, { status: 502 });
       }
     }
     // Owner content editor: add / edit / delete a row in one of the OWNER's own

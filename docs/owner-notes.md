@@ -413,10 +413,19 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
   (#496)** · **Upsert ✅ (#497)** · **Batch insert ✅ (#498)** · **Data export ✅
-  (#499)** · **Rate limiting ✅ (#500)** · **Validation ✅ (#501)**. Custom domains LAST
-  (owner's call 2026-07-21 — "all of them, leave custom domains for last"; it needs the
-  owner to enable Cloudflare custom hostnames + SSL at the account level, so it's gated
-  on infra, not code).
+  (#499)** · **Rate limiting ✅ (#500)** · **Validation ✅ (#501)** · **Multi-word search
+  ✅ (#502)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
+  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
+  the account level, so it's gated on infra, not code).
+  · **Search upgrade (#502) — multi-word + relevance ranking, VERIFIED live 10/10.** `q=`
+    was a literal substring match; now it splits into words and requires EVERY word to
+    appear in SOME declared column (AND of terms, OR across columns) — `q=miami beach`
+    matches rows with both words in any field/order. With `q` and no explicit sort,
+    results rank by relevance (how many term×column pairs hit), best first. True FTS5
+    (stemming/prefix) stays the scale upgrade (like Durable Objects for realtime).
+    **Proof (zero AI/fal): 10/10** — "miami beach"→only the both-words row, "beach
+    austin"→0, reversed "loft miami" still matched, a city-only "miami" match ranked
+    LAST, `sort=title` overrode ranking, and it combined with `where`+`total`. Cleaned.
   · **Validation (#501) — server-side write validation, VERIFIED live 14/14.** A schema
     column can declare `required:true`, `max:<n>`, or `format:email|url|number`; the data
     API rejects bad writes with 400 + a message across EVERY write path (single POST,
