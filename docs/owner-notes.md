@@ -531,6 +531,23 @@ LOGIN now checks TOTP when enabled — right password but missing/wrong code →
 `{need:'2fa'}` (the login SELECT self-heals older sites lacking the columns). Offline-tested by
 replicating the TOTP algorithm in the harness test. Roadmap tally: ~81/93.
 
+## 2026-07-21 — Batch 55: NEW LAYER Cart + Orders pattern (offline 10/10) ✅ built
+
+Shopping cart `_cart (user_id, item, qty, PK(user_id,item))` (item = `<table>:<id>`): `POST
+/cart/<item> {qty}` (qty≤0 removes), `GET /cart` → {cart, count}, `DELETE /cart/<item>`,
+`DELETE /cart` (empty). Private per member. Helpers ensureCart/setCartItem/getCart/clearCart.
+**Orders** marked done as a documented PATTERN (a `user` orders table + server-side pricing +
+atomic stock incr + coupon redeem + cart clear; Stripe checkout is the 🔑 function step).
+Roadmap tally: ~83/93.
+
+## 2026-07-21 — Batch 56: CSV import with column mapping (offline 11/11) ✅ built
+
+`POST /api/db/<slug>/import/<table> {csv, mapping?, hasHeader?}` (admin) — RFC-4180 CSV parse
+(quotes/commas/newlines), header→column auto-map (or explicit `mapping`), only declared columns
+written, each row validated (validateRow), owner stamped on user/feed, chunked through
+insertMany (100/call, ≤5000 rows) → `{inserted, skipped}`. Complements the Batch-38 export.
+Roadmap tally: ~84/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
