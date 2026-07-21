@@ -7319,6 +7319,42 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "config failed" }, { status: 502 });
         }
       }
+      // Mentions → notifications — a member @mentions others in a post/comment; the app
+      // detects the handles client-side and calls this with the mentioned user ids, which
+      // drops a "mention" notification into each one's inbox. Capped (≤10/call), rate-limited,
+      // and deduped per (recipient, target) within an hour so it can't be used to spam.
+      //   POST /api/db/<slug>/mention {target, users:[ids], text?}  (auth) → {notified}
+      const mnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mention$/i);
+      if (mnm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mnm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        if (!rateOk(slug + "|" + ip + "|mnw", 20)) return tooMany();
+        try {
+          let body = {}; try { body = await request.json(); } catch {}
+          const target = String(body.target || "").slice(0, 400);
+          const text = String(body.text || "mentioned you").replace(/[\r\n]+/g, " ").slice(0, 300);
+          const ids = [...new Set((Array.isArray(body.users) ? body.users : []).map((x) => parseInt(x, 10)).filter((n) => n > 0 && n !== userId))].slice(0, 10);
+          if (!ids.length) return Response.json({ ok: false, error: "no valid users to notify" }, { status: 400 });
+          await ensureNotifications(env, uuid);
+          let notified = 0;
+          for (const uid of ids) {
+            if (target) { try { const dup = await cfD1Query(env, uuid, "SELECT 1 FROM _notifications WHERE user_id=? AND type='mention' AND link=? AND datetime(created_at) > datetime('now','-1 hour') LIMIT 1", [uid, target]); if (dup[0]) continue; } catch {} }
+            // only notify real members
+            const exists = await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [uid]);
+            if (!exists[0]) continue;
+            if (await createNotification(env, uuid, uid, { type: "mention", text, link: target })) notified++;
+          }
+          return Response.json({ ok: true, notified });
+        } catch (e) { console.error("mention failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mention failed" }, { status: 502 }); }
+      }
       // In-app notification inbox (the signed-in member's OWN notifications):
       //   GET  /api/db/<slug>/notifications[?unread=1&limit=N] → {rows, unread}
       //   POST /api/db/<slug>/notifications/<id>/read           → mark one read
