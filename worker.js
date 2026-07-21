@@ -2571,8 +2571,8 @@ async function cfD1Exec(env, uuid, sql, params) {
 function childRefsOf(spec, parentName) {
   const out = []; const pn = String(parentName).toLowerCase();
   for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
-    const refs = (t && t.refs) || {};
-    for (const col of Object.keys(refs)) if (String(refs[col]).toLowerCase() === pn) out.push({ table: t.name, col });
+    const refs = (t && t.refs) || {}; const modes = (t && t.refModes) || {};
+    for (const col of Object.keys(refs)) if (String(refs[col]).toLowerCase() === pn) out.push({ table: t.name, col, mode: modes[col] || "cascade" });
   }
   return out;
 }
@@ -2585,8 +2585,19 @@ async function cascadeDeleteRow(env, uuid, spec, table, tn, id, scopeSql, scopeP
   const sp = scopeParams || [];
   const check = await cfD1Query(env, uuid, "SELECT id FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
   if (!check[0]) return false;
-  for (const k of childRefsOf(spec, table)) {
-    try { await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id]); } catch (e) { console.error("cascade child delete failed:", k.table, e && e.message); }
+  const kids = childRefsOf(spec, table);
+  // RESTRICT: if any restricted child still points here, refuse the delete (throw → 409).
+  for (const k of kids.filter((k) => k.mode === "restrict")) {
+    const ex = await cfD1Query(env, uuid, "SELECT 1 FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=? LIMIT 1", [id]);
+    if (ex[0]) throw Object.assign(new Error("delete restricted: related rows in " + k.table), { restrict: true });
+  }
+  // Then unlink (setNull) or remove (cascade, default) the rest.
+  for (const k of kids) {
+    if (k.mode === "restrict") continue;
+    try {
+      if (k.mode === "setnull") await cfD1Query(env, uuid, "UPDATE " + sqlIdent(k.table) + " SET " + sqlIdent(k.col) + "=NULL WHERE " + sqlIdent(k.col) + "=?", [id]);
+      else await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id]);
+    } catch (e) { console.error("cascade child (" + k.mode + ") failed:", k.table, e && e.message); }
   }
   await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
   return true;
@@ -2715,7 +2726,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce) };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce), onDelete: (() => { const m = String(c.onDelete || c.on_delete || c.onDeleteAction || "").toLowerCase().replace(/[^a-z]/g, ""); return (m === "setnull" || m === "cascade" || m === "restrict") ? m : null; })() };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2747,7 +2758,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
-    const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const rules = {};
+    const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const refModes = {}; const rules = {};
     // Auto-slug config: table-level `"slug":"title"` or `{"from":"title"}` → the platform
     // adds+fills a unique url-safe `slug` column derived from that source column on insert.
     let slugFrom = null;
@@ -2796,7 +2807,7 @@ async function applySiteSchema(env, uuid, spec) {
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
-      if (c.ref && SAFE_IDENT.test(String(c.ref))) refs[low] = String(c.ref);
+      if (c.ref && SAFE_IDENT.test(String(c.ref))) { refs[low] = String(c.ref); if (c.onDelete) refModes[low] = c.onDelete; } // onDelete: setnull|cascade(default)|restrict
       // validation rules (enforced on writes): required, length/value bounds, format,
       // allowed-set (enum) and regex pattern.
       const rule = {};
@@ -2952,7 +2963,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3368,6 +3379,34 @@ async function presenceOf(env, uuid, userId, within) {
   if (!r[0]) return { online: false, last_seen: null };
   const on = await cfD1Query(env, uuid, "SELECT 1 AS y FROM _presence WHERE user_id=? AND datetime(at) > datetime('now', ?)", [userId, "-" + within + " minutes"]);
   return { online: !!on[0], last_seen: r[0].at };
+}
+// Saved views / filters — a member saves a NAMED query config (a filter set, a saved search,
+// a custom dashboard layout) as arbitrary JSON, and lists/loads them later. Private per
+// member, keyed (user_id, name) in `_views`. Ensured once per isolate.
+const _viewsReady = new Set();
+async function ensureViews(env, uuid) {
+  if (_viewsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _views (user_id INTEGER NOT NULL, name TEXT NOT NULL, spec TEXT, created_at TEXT, PRIMARY KEY (user_id, name))");
+  _viewsReady.add(uuid);
+}
+const _parseView = (v) => { try { return JSON.parse(v); } catch { return v; } };
+async function saveView(env, uuid, userId, name, spec) {
+  await ensureViews(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _views (user_id,name,spec,created_at) VALUES (?,?,?,?) ON CONFLICT(user_id,name) DO UPDATE SET spec=excluded.spec, created_at=excluded.created_at", [userId, name, JSON.stringify(spec === undefined ? null : spec), new Date().toISOString()]);
+}
+async function listViews(env, uuid, userId) {
+  await ensureViews(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT name, spec, created_at FROM _views WHERE user_id=? ORDER BY name", [userId]);
+  return rows.map((r) => ({ name: r.name, spec: _parseView(r.spec), created_at: r.created_at }));
+}
+async function getView(env, uuid, userId, name) {
+  await ensureViews(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT spec FROM _views WHERE user_id=? AND name=?", [userId, name]);
+  return r[0] ? _parseView(r[0].spec) : null;
+}
+async function deleteView(env, uuid, userId, name) {
+  await ensureViews(env, uuid);
+  await cfD1Query(env, uuid, "DELETE FROM _views WHERE user_id=? AND name=?", [userId, name]);
 }
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
@@ -6992,6 +7031,34 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
       }
+      // Saved views / filters (private per member) — a named JSON query config.
+      //   GET    /api/db/<slug>/views          → the caller's saved views
+      //   GET    /api/db/<slug>/views/<name>   → one view's spec
+      //   POST   /api/db/<slug>/views/<name> {spec}  → save/update
+      //   DELETE /api/db/<slug>/views/<name>   → remove
+      const vwm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/views(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (vwm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = vwm[1].toLowerCase(), name = (vwm[2] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|vwr", 300)) return tooMany(); if (name) return Response.json({ ok: true, name, spec: await getView(env, uuid, userId, name) }); return Response.json({ ok: true, views: await listViews(env, uuid, userId) }); }
+          if (!name) return Response.json({ ok: false, error: "view name required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|vww", 120)) return tooMany();
+          if (request.method === "DELETE") { await deleteView(env, uuid, userId, name); return Response.json({ ok: true, name, deleted: true }); }
+          let body = {}; try { body = await request.json(); } catch {}
+          const spec = body && Object.prototype.hasOwnProperty.call(body, "spec") ? body.spec : body;
+          await saveView(env, uuid, userId, name, spec);
+          return Response.json({ ok: true, name, spec: await getView(env, uuid, userId, name) });
+        } catch (e) { console.error("views failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "views failed" }, { status: 502 }); }
+      }
       // Presence / who's-online.
       //   POST /api/db/<slug>/presence            → ping "I'm here" (auth) → {ok}
       //   GET  /api/db/<slug>/presence[?within=5] → members online in the last N min (profiles)
@@ -7869,6 +7936,8 @@ async function handleRequest(request, env, ctx) {
           if (/row limit reached/i.test(emsg)) return Response.json({ ok: false, error: "row limit reached", code: "limit" }, { status: 409 });
           // A referential-integrity trigger aborted (fk → missing parent) → a clean 400.
           if (/missing parent/i.test(emsg)) return Response.json({ ok: false, error: "referenced record not found", code: "ref" }, { status: 400 });
+          // A RESTRICT foreign key blocked a delete (related rows still exist) → a clean 409.
+          if (e && e.restrict) return Response.json({ ok: false, error: "can't delete — related records still exist", code: "restrict" }, { status: 409 });
           console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
