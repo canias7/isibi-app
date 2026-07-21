@@ -2654,7 +2654,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2709,6 +2709,30 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
+    // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
+    // by a real UNIQUE INDEX in D1; a violation surfaces to the data API as a 409).
+    //   unique: [...]      → a group of columns that must be globally unique
+    //   oncePerUser: [...] → unique PER author on user/feed tables (owner_id + cols):
+    //                        "one review per member per product", "one RSVP per event".
+    // Accepts a single group ["a","b"] or many [["a"],["b","c"]].
+    {
+      const hasOwner = (access === "user" || access === "feed");
+      const colSet = new Set(colNames.map((n) => String(n).toLowerCase()));
+      const mkIndexes = async (groups, perUser) => {
+        const raw = Array.isArray(groups) ? groups : (groups ? [groups] : []);
+        const many = raw.length && Array.isArray(raw[0]) ? raw : (raw.length ? [raw] : []);
+        let gi = 0;
+        for (const g of many) {
+          const gcols = (Array.isArray(g) ? g : [g]).map((c) => String(c).toLowerCase()).filter((c) => colSet.has(c));
+          if (!gcols.length) continue;
+          const idxCols = (perUser && hasOwner ? ["owner_id"] : []).concat(gcols);
+          const idxName = sqlIdent("ux_" + t.name + "_" + (perUser ? "u" : "g") + "_" + (gi++));
+          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + idxName + " ON " + tn + " (" + idxCols.map(sqlIdent).join(",") + ")"); } catch (e) { console.error("unique index failed:", t.name, e && e.detail); }
+        }
+      };
+      await mkIndexes(t.unique, false);
+      await mkIndexes(t.oncePerUser, true);
+    }
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames, refs, rules });
   }
@@ -6246,6 +6270,10 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
         } catch (e) {
           if (e && e.bad) return Response.json({ ok: false, error: "invalid request" }, { status: 400 });
+          // A declared UNIQUE constraint was violated (e.g. a member reviewing the same
+          // product twice) → a clean 409 the app can show ("you've already done this"),
+          // not a scary 502.
+          if (/UNIQUE constraint failed/i.test((e && (e.detail || e.message)) || "")) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
           console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
