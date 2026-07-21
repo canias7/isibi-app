@@ -10,6 +10,33 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — BACKEND ROADMAP: building the "100 more" list (AI parked)
+
+Owner wants the whole 100-item backend roadmap built (AI category skipped for now).
+Shipping in cohesive batches, each verified live at $0 (bare `ensure`+`schema`
+backends, deleted after). A roadmap artifact was produced (100 items, categorized,
+effort/value tagged). Running tally:
+
+- **Batch 1 — validation & integrity** (PR #533, live 16/16): column `default`,
+  `enum`, `min`/`max` (numeric bounds / text length), `pattern` regex — all enforced
+  server-side (bad value → 400). **Atomic column increment** `POST /rows/<t>/<id>/incr
+  {col,by,min?}` (race-free, floor optional, own-row/admin scope).
+- **Security review** (PR #534): adversarial 5-finder workflow + verify over ALL the
+  session's new layers. No injection / authz / leak / critical found. Two low-sev fixes:
+  `coerceCol` dropped `max:0` via `||` falsiness (now `!== undefined`); feed/user POST
+  now reject empty/junk-only bodies (matches collect/admin).
+- **Batch 2 — soft-delete / trash / restore** (PR #535, live 17/17): table `"trash":true`
+  → `deleted_at`; DELETE soft-hides (`?hard=1` = permanent), reads exclude trashed by
+  default (`?trashed=1` / `?withTrashed=1`), `POST /rows/<t>/<id>/restore`. Threaded
+  through list + get-by-id + stats + scoped delete/restore.
+- **Batch 3 — query power + tags** (this PR): multi-column sort (`sort=-price,name`),
+  where operators `startswith|endswith|in|nin|isnull|notnull`, and **Tags** (`_tags`:
+  add/remove/list per row, `?tag=` filter, `?tags=1` attach — same write scope as the row).
+
+Progress: ~8 of 93 roadmap items shipped. 🔑-flagged items (OAuth, SMS, web push,
+Stripe extensions) will need the owner's provider keys for live verification — batched
+toward the end.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
