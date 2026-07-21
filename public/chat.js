@@ -3110,6 +3110,10 @@ function renderThread() {
 function toggleHomeHero(show) {
   const hero = document.getElementById('homeHero');
   if (hero) hero.classList.toggle('gone', !show);
+  // Flag the empty new-chat state on the view root so the composer can center
+  // itself under the greeting (Claude Focus layout); it drops back to the
+  // bottom-docked chat layout the moment a message exists.
+  document.getElementById('viewHome')?.classList.toggle('home-empty', show);
 }
 
 function renderChatList() {
