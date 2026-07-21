@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~49 / 93)
+## DONE (~52 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32).
 
 ---
 
@@ -52,7 +52,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Aggregate "distinct values" endpoint niceties (facets exist — add plain distinct)
 - [ ] Cascade options (set-null vs delete) per ref
 - [x] Referential integrity (`"enforceRefs"`, reject fk to missing parent) (Batch 29)
-- [ ] Computed/derived read columns (e.g. full_name = first || last)
+- [x] Computed/derived read columns (`"computed"`) (Batch 32)
 - [x] Unique case-insensitive constraint (`"uniqueCI"`) (Batch 27)
 - [x] Cross-field validation rules (`"checks"`) (Batch 28)
 - [x] Default sort per table (`"defaultSort"`) (Batch 22)
@@ -68,7 +68,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Polls (first-class, built on counters + one-per-user)
 - [ ] Comment threading depth helper (relations exist — add depth/tree read)
 - [ ] Many-to-many join helper (declare a link table + `?via=`)
-- [ ] Reverse-relation counts already done via `?count`; add `?sum`/`?avg` rollups on children
+- [x] Reverse-relation rollups (`?rollup=child:agg:col`) (Batch 30)
 - [ ] Nearby / geo search (lat,lng radius)
 - [ ] Presence / who's-online
 - [ ] Realtime edits+deletes diff (changes covers appends — add updates)

@@ -2639,6 +2639,22 @@ function parseJsonRows(def, rows) {
   for (const r of rows) { if (!r) continue; for (const c of jc) { const v = r[c]; if (typeof v === "string" && (v[0] === "{" || v[0] === "[")) { try { r[c] = JSON.parse(v); } catch {} } } }
   return rows;
 }
+// Computed / derived read columns — `computed:{full_name:["first_name"," ","last_name"]}`.
+// On READ, each template token that matches a declared column name is replaced by that
+// row's value; anything else is a literal. Assembled in JS (no SQL, so no injection); the
+// value is attached under the computed name. Read-only (never written/queried). NULLs → "".
+function attachComputed(def, rows) {
+  const comp = def && def.computed;
+  if (!comp || !Array.isArray(rows) || !rows.length) return rows;
+  const colSet = new Set([].concat((Array.isArray(def.columns) ? def.columns : []).map((c) => String(c).toLowerCase()), ["id", "created_at", "owner_id", "updated_at", "slug", "position", "pinned"]));
+  for (const [name, toks] of Object.entries(comp)) {
+    for (const r of rows) {
+      if (!r) continue;
+      r[name] = toks.map((tok) => { const isCol = colSet.has(String(tok).toLowerCase()); return isCol ? (r[tok] != null ? String(r[tok]) : "") : String(tok); }).join("");
+    }
+  }
+  return rows;
+}
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 // Auto-slug: a url-safe, lowercase, dash-joined key derived from a source column
@@ -2709,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2910,7 +2926,7 @@ async function applySiteSchema(env, uuid, spec) {
       }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3223,6 +3239,28 @@ async function readConfig(env, uuid, key) {
 async function writeConfig(env, uuid, key, value) {
   await ensureConfig(env, uuid);
   await cfD1Query(env, uuid, "INSERT INTO _config (k,v,updated_at) VALUES (?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=excluded.updated_at", [key, JSON.stringify(value === undefined ? null : value), new Date().toISOString()]);
+}
+// Content reports / flags → a moderation queue. A member flags a row (target `<table>:<id>`)
+// with a reason; the app's ADMIN reviews the queue and resolves/dismisses. Deduped per
+// (target, reporter) so one flag each. Stored in the site's own D1 `_reports`, ensured once.
+const _reportsReady = new Set();
+async function ensureReports(env, uuid) {
+  if (_reportsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reports (id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL, reporter_id INTEGER NOT NULL, reason TEXT, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, UNIQUE(target, reporter_id))");
+  _reportsReady.add(uuid);
+}
+async function createReport(env, uuid, target, reporterId, reason) {
+  await ensureReports(env, uuid);
+  await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _reports (target,reporter_id,reason,status,created_at) VALUES (?,?,?, 'open', ?)", [target, reporterId, String(reason || "").slice(0, 500), new Date().toISOString()]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _reports WHERE target=?", [target]);
+  return { reported: true, count: (cnt[0] && cnt[0].n) || 0 };
+}
+async function reportState(env, uuid, target, userId) {
+  await ensureReports(env, uuid);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _reports WHERE target=?", [target]);
+  let mine = false;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
+  return { count: (cnt[0] && cnt[0].n) || 0, mine };
 }
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
@@ -3548,6 +3586,43 @@ async function attachCounts(env, uuid, spec, def, rows, url) {
     try { counts = await cfD1Query(env, uuid, "SELECT " + sqlIdent(fkCol) + " AS pid, COUNT(*) AS n FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ")" + (cdef.trash ? " AND deleted_at IS NULL" : "") + " GROUP BY " + sqlIdent(fkCol), parentIds); } catch { continue; }
     const byPid = new Map(counts.map((c) => [c.pid, Number(c.n) || 0]));
     for (const r of rows) { if (!r._counts) r._counts = {}; r._counts[childName] = byPid.get(r.id) || 0; }
+  }
+  return rows;
+}
+// `?rollup=<child>:<agg>:<col>` (comma-list) — aggregate a child column up onto each parent
+// row WITHOUT fetching the children: order total (`line_items:sum:amount`), average rating
+// (`reviews:avg:rating`), highest bid, etc. `agg` ∈ sum/avg/min/max/count. Attaches
+// `row._rollups.<child>.<agg>.<col>` (count → `row._rollups.<child>.count`). Batched grouped
+// aggregate per spec (no N+1), public-read children only, trash-aware. Peer of ?count.
+async function attachRollups(env, uuid, spec, def, rows, url) {
+  const specs = String(url.searchParams.get("rollup") || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  if (!specs.length || !rows.length) return rows;
+  const parentIds = [...new Set(rows.map((r) => r.id).filter((v) => v != null))].slice(0, 200);
+  if (!parentIds.length) return rows;
+  const thisName = String(def.name).toLowerCase();
+  const AGG = { sum: "SUM", avg: "AVG", min: "MIN", max: "MAX", count: "COUNT" };
+  for (const one of specs) {
+    const parts = one.toLowerCase().split(":");
+    const childName = parts[0], aggName = parts[1], colName = parts[2];
+    const agg = AGG[aggName]; if (!agg) continue;
+    const cdef = tableDef(spec, childName); if (!cdef) continue;
+    if (!["display", "feed", "admin"].includes(cdef.access || "collect")) continue; // don't leak private children
+    const crefs = cdef.refs || {};
+    const fkCol = Object.keys(crefs).find((c) => String(crefs[c]).toLowerCase() === thisName);
+    if (!fkCol) continue;
+    let col = colName;
+    if (agg === "COUNT") col = "*";
+    else { const cols = new Set((cdef.columns || []).map((x) => String(x).toLowerCase())); if (!cols.has(col)) continue; }
+    const expr = agg + "(" + (col === "*" ? "*" : sqlIdent(col)) + ")";
+    let out = [];
+    try { out = await cfD1Query(env, uuid, "SELECT " + sqlIdent(fkCol) + " AS pid, " + expr + " AS v FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ")" + (cdef.trash ? " AND deleted_at IS NULL" : "") + " GROUP BY " + sqlIdent(fkCol), parentIds); } catch { continue; }
+    const byPid = new Map(out.map((o) => [o.pid, o.v]));
+    for (const r of rows) {
+      if (!r._rollups) r._rollups = {};
+      if (!r._rollups[childName]) r._rollups[childName] = {};
+      if (agg === "COUNT") { r._rollups[childName].count = Number(byPid.get(r.id)) || 0; }
+      else { if (!r._rollups[childName][aggName]) r._rollups[childName][aggName] = {}; r._rollups[childName][aggName][col] = byPid.has(r.id) ? byPid.get(r.id) : null; }
+    }
   }
   return rows;
 }
@@ -6723,6 +6798,57 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
         } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
       }
+      // Content reports / flags + moderation queue.
+      //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
+      //   GET  /api/db/<slug>/report/<target>           → {count, mine}
+      //   GET  /api/db/<slug>/reports[?status=open]     → the moderation queue (ADMIN)
+      //   POST /api/db/<slug>/reports/<id> {action}     → resolve|dismiss (ADMIN)
+      const rpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/report\/([a-z0-9_.:-]{1,80})$/i);
+      const rqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reports(?:\/(\d+))?$/i);
+      if ((rpm || rqm) && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (rpm || rqm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (rpm) { // member: flag a target / read its report state
+            const target = rpm[2].toLowerCase();
+            if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|rpr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true }, await reportState(env, uuid, target, userId))); }
+            if (!userId) return Response.json({ ok: false, error: "sign in to report" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rpw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            return Response.json(Object.assign({ ok: true, target }, await createReport(env, uuid, target, userId, body && body.reason)));
+          }
+          // admin: the moderation queue
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureReports(env, uuid);
+          const rid = rqm[2] ? parseInt(rqm[2], 10) : null;
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|rqr", 300)) return tooMany();
+            const status = (url.searchParams.get("status") || "open").toLowerCase().replace(/[^a-z]/g, "").slice(0, 12);
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT r.id, r.target, r.reporter_id, r.reason, r.status, r.created_at, u.display_name AS reporter_name FROM _reports r LEFT JOIN _users u ON u.id=r.reporter_id" + (status && status !== "all" ? " WHERE r.status=?" : "") + " ORDER BY r.id DESC LIMIT ?", (status && status !== "all") ? [status, lim] : [lim]);
+            return Response.json({ ok: true, reports: rows });
+          }
+          // POST /reports/<id> {action: resolve|dismiss|reopen}
+          if (!rid) return Response.json({ ok: false, error: "report id required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|rqw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const action = String(body && body.action || "").toLowerCase();
+          const status = action === "resolve" ? "resolved" : action === "dismiss" ? "dismissed" : action === "reopen" ? "open" : null;
+          if (!status) return Response.json({ ok: false, error: "action must be resolve|dismiss|reopen" }, { status: 400 });
+          const ex = await cfD1Exec(env, uuid, "UPDATE _reports SET status=? WHERE id=?", [status, rid]);
+          if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+          return Response.json({ ok: true, id: rid, status });
+        } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
+      }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
       //   GET    /api/db/<slug>/config/<key>    → {key, value}
@@ -6880,7 +7006,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
+          const doExpand = async (rows) => { parseJsonRows(def, rows); attachComputed(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachRollups(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null

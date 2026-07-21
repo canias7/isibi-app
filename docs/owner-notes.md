@@ -299,6 +299,34 @@ column that RAISEs when the fk is set but the parent id doesn't exist; abort map
 delete-time cascade. Trigger-based (no write-path plumbing); carried via coerceTable. Roadmap
 tally: ~49/93.
 
+## 2026-07-21 — Batch 30: Reverse-relation rollups (?rollup=child:agg:col) (offline 10/10) ✅ built
+
+Extends `?count` (Batch 16) to AGGREGATE a child column onto each parent without fetching the
+children: `?rollup=line_items:sum:amount,reviews:avg:rating` → `row._rollups.line_items.sum.amount`,
+`row._rollups.reviews.avg.rating` (count → `._rollups.<child>.count`). agg ∈ sum/avg/min/max/
+count. `attachRollups` beside `attachCounts` in `doExpand`; batched grouped aggregate per spec,
+public-read children only, trash-aware, invalid specs ignored. Roadmap tally: ~50/93.
+
+## 2026-07-21 — Batch 31: NEW LAYER Reports / flags + moderation queue (offline 15/15) ✅ built
+
+UGC safety: members flag content, the app admin reviews. New `_reports (id, target,
+reporter_id, reason, status, UNIQUE(target,reporter_id))`:
+- `POST /api/db/<slug>/report/<table>:<id> {reason}` (auth) → flag, deduped per member →
+  `{reported, count}`; `GET …/report/<target>` → `{count, mine}`.
+- `GET …/reports[?status=open|all]` (ADMIN role) → the moderation queue with reporter names;
+  `POST …/reports/<id> {action:resolve|dismiss|reopen}` (admin) updates status.
+Helpers ensureReports/createReport/reportState. Admin gate = inline role check (like config).
+One BACKEND_RULES line. Roadmap tally: ~51/93.
+
+## 2026-07-21 — Batch 32: Computed / derived read columns (offline 7/7) ✅ built
+
+Table-level **`"computed":{"full_name":["first_name"," ","last_name"]}`** → on READ each
+template token that names a column (declared OR managed: id/created_at/owner_id/updated_at/
+slug/position/pinned) becomes that row's value; anything else is a literal. Assembled in JS
+(`attachComputed` in doExpand, after parseJsonRows) — no SQL, no injection; read-only (a
+written value of that name is ignored, always recomputed). NULLs → "". Carried via
+coerceTable + norm. Roadmap tally: ~52/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
