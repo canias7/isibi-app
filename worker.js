@@ -2624,7 +2624,21 @@ async function ensureSiteBackend(env, slug, uid) {
 // site's own D1 database. Every identifier is strictly validated + double-quoted so
 // a declared name can never inject SQL; types are whitelisted. Each table always
 // gets an auto `id` PK and a `created_at`. Idempotent (CREATE TABLE IF NOT EXISTS).
-const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER" };
+const D1_TYPES = { text: "TEXT", string: "TEXT", integer: "INTEGER", int: "INTEGER", real: "REAL", float: "REAL", number: "REAL", numeric: "NUMERIC", blob: "BLOB", boolean: "INTEGER", bool: "INTEGER", json: "TEXT", array: "TEXT", object: "TEXT" };
+// JSON/array columns store as TEXT: an object/array value is JSON-stringified on write
+// and re-parsed on read, so an app can keep nested/flexible data in one column.
+function jsonizeRow(def, obj) {
+  const jc = (def && Array.isArray(def.json)) ? def.json : null;
+  if (!jc || !jc.length || !obj || typeof obj !== "object") return obj;
+  for (const c of jc) { const v = obj[c]; if (v !== undefined && v !== null && typeof v === "object") { try { obj[c] = JSON.stringify(v); } catch {} } }
+  return obj;
+}
+function parseJsonRows(def, rows) {
+  const jc = (def && Array.isArray(def.json)) ? def.json : null;
+  if (!jc || !jc.length || !Array.isArray(rows)) return rows;
+  for (const r of rows) { if (!r) continue; for (const c of jc) { const v = r[c]; if (typeof v === "string" && (v[0] === "{" || v[0] === "[")) { try { r[c] = JSON.parse(v); } catch {} } } }
+  return rows;
+}
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 // Minimal RFC-4180-ish CSV parser → array of string arrays. Handles quoted fields,
@@ -2689,7 +2703,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
-    const colNames = []; const numCols = []; const seen = new Set(); const refs = {}; const rules = {};
+    const colNames = []; const numCols = []; const jsonCols = []; const seen = new Set(); const refs = {}; const rules = {};
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2704,6 +2718,7 @@ async function applySiteSchema(env, uuid, spec) {
       const ctype = String(c.type || "text").toLowerCase();
       const ty = D1_TYPES[ctype] || "TEXT";
       const isNum = ["integer", "int", "real", "float", "number", "numeric"].includes(ctype);
+      const isJson = ["json", "array", "object"].includes(ctype);
       let def = cn + " " + ty;
       if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " AUTOINCREMENT"; hasPk = true; }
       if (c.notnull || c.required) def += " NOT NULL";
@@ -2717,7 +2732,7 @@ async function applySiteSchema(env, uuid, spec) {
         else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
         if (dl != null) def += " DEFAULT " + dl;
       }
-      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase());
+      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase()); if (isJson) jsonCols.push(String(c.name).toLowerCase());
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
@@ -2763,7 +2778,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, trash: !!t.trash });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3273,8 +3288,8 @@ function validateRow(def, body, isInsert) {
 // Batch insert — POST `{rows:[…]}` writes many rows in ONE statement (import a CSV,
 // seed a list, bulk actions). Uses the union of declared columns present across the
 // batch (missing cells → NULL); `owner` stamps every row (user/feed). Cap 100/call.
-async function insertMany(env, uuid, tn, allow, rowsArr, owner) {
-  const rows = (Array.isArray(rowsArr) ? rowsArr : []).slice(0, 100).filter((r) => r && typeof r === "object");
+async function insertMany(env, uuid, tn, allow, rowsArr, owner, def) {
+  const rows = (Array.isArray(rowsArr) ? rowsArr : []).slice(0, 100).filter((r) => r && typeof r === "object").map((r) => jsonizeRow(def, r));
   if (!rows.length) return { inserted: 0 };
   const cols = allow.filter((c) => rows.some((r) => r[c] !== undefined));
   if (!cols.length && owner == null) return { inserted: 0 };
@@ -6345,9 +6360,9 @@ async function handleRequest(request, env, ctx) {
           let userId = null;
           const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
-          const readBody = async () => { try { return await request.json(); } catch { return {}; } };
+          const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); return rows; }; // ?expand + ?children + ?authors=1 + ?reactions=1 + ?tags=1
+          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); return rows; }; // JSON cols parsed + ?expand + ?children + ?authors=1 + ?reactions=1 + ?tags=1
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
@@ -6502,6 +6517,7 @@ async function handleRequest(request, env, ctx) {
                 rows = await runOnce();
               }
             }
+            parseJsonRows(def, rows); // realtime path bypasses doExpand → parse JSON cols here
             const cursor = rows.length ? rows[rows.length - 1].id : since;
             return Response.json({ ok: true, rows, cursor, count: rows.length });
           }
@@ -6551,7 +6567,7 @@ async function handleRequest(request, env, ctx) {
           if (access === "collect") {
             if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
             const body = await readBody();
-            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null))); }
+            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null, def))); }
             const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
             { const e = vErr(body, true); if (e) return badReq(e); }
@@ -6574,7 +6590,7 @@ async function handleRequest(request, env, ctx) {
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
             if (method === "POST") {
               const body = await readBody();
-              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
+              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId, def))); }
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
               { const e = vErr(body, true); if (e) return badReq(e); }
@@ -6615,7 +6631,7 @@ async function handleRequest(request, env, ctx) {
             if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
             if (method === "POST") {
               const body = await readBody();
-              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null))); }
+              if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, null, def))); }
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, true); if (e) return badReq(e); }
@@ -6650,7 +6666,7 @@ async function handleRequest(request, env, ctx) {
           }
           if (method === "POST") {
             const body = await readBody();
-            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId))); }
+            if (Array.isArray(body.rows)) { const e = vBatch(body.rows); if (e) return badReq(e); return Response.json(Object.assign({ ok: true }, await insertMany(env, uuid, tn, allow, body.rows, userId, def))); }
             const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 }); // reject empty/junk-only bodies (matches collect/admin)
             { const e = vErr(body, true); if (e) return badReq(e); }
