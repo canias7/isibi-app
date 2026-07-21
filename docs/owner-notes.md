@@ -598,6 +598,25 @@ offline: **image resize/transform on upload** (needs live photon/wasm — the ha
 and **OAuth social login** (needs the owner's Google/GitHub OAuth app credentials + a redirect
 round-trip). Everything else is delivered.
 
+## 2026-07-21 — Batch 60: server-side image resize / transform on upload (offline 8/8) built
+
+`/api/db/<slug>/upload` now takes an optional `resize:{max|w|h,format,quality}` (or
+top-level `max`/`w`/`h`/`format`/`quality`) and runs the bytes through photon before
+storing: `max` bounds the longest side (downscale-only, keeps aspect), `w`/`h` set
+exact/one-side dims, `format` (jpeg|webp|png, +quality for jpeg) re-encodes. The
+response `{url,type,size}` reflect the transformed file. New helper
+`transformImageBytes(bytes,mime,spec)` — PNG/JPEG/WEBP only (GIF/PDF pass through),
+and it FALLS BACK to the original bytes on any decode/encode failure or no-op spec, so
+a bad transform can never lose the upload. **photon is wasm — NOT runnable offline**;
+the test harness stub was enriched (get_width/get_height + non-empty encode output) so
+the offline test (8/8) exercises the request plumbing + format/ext selection, but the
+real pixel resize needs the OWNER's live pass. Roadmap: ~93/93.
+
+Only ONE roadmap item now genuinely remains: **OAuth social login (Google/GitHub)** —
+it needs the owner to register an OAuth app and provide client id/secret + a redirect
+round-trip, so it can't be built+verified without owner credentials. Everything else
+is delivered.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
