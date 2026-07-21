@@ -2591,6 +2591,12 @@ async function loadSiteSchema(env, uuid) {
   return { tables: [] };
 }
 function tableDef(spec, name) { return (spec && Array.isArray(spec.tables)) ? spec.tables.find((t) => t && String(t.name).toLowerCase() === String(name).toLowerCase()) : null; }
+// Does this isibi user own the React site <slug>? Proven from the generated source's
+// stored uid (sitesrc/<slug>.json), falling back to the D1 backend ledger.
+async function ownsReactSite(env, slug, uid) {
+  try { const o = await env.SITES_BUCKET.get("sitesrc/" + slug + ".json"); if (o) { const j = JSON.parse(await o.text()); if (j && j.uid) return j.uid === uid; } } catch {}
+  try { return !!(await siteBackendForOwner(env, slug, uid)); } catch { return false; }
+}
 // Read-only lookup of a site's D1 for its OWNER (isibi user) — never creates.
 async function siteBackendForOwner(env, slug, uid) {
   const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid,uid`, {
@@ -2974,6 +2980,33 @@ async function siteBackendBySlug(env, slug) {
 }
 // Content-type for a served R2 object by its extension (React dist assets + pages).
 const R2_MIME = { js: "text/javascript", mjs: "text/javascript", css: "text/css", svg: "image/svg+xml", json: "application/json", map: "application/json", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", ico: "image/x-icon", woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", txt: "text/plain", xml: "application/xml", webmanifest: "application/manifest+json", html: "text/html; charset=utf-8" };
+// Keep the last few PUBLISHED builds so a bad deploy can be rolled back: each publish
+// snapshots its whole dist as one JSON (builds/<slug>/<ts>.json); keep the newest 5,
+// prune older. Best-effort — never blocks a publish.
+async function archiveBuild(env, slug, dist) {
+  try {
+    const now = new Date();
+    await env.SITES_BUCKET.put("builds/" + slug + "/" + now.toISOString().replace(/[:.]/g, "-") + ".json", JSON.stringify({ createdAt: now.toISOString(), dist }), { httpMetadata: { contentType: "application/json" } });
+    const l = await env.SITES_BUCKET.list({ prefix: "builds/" + slug + "/" });
+    const keys = (l.objects || []).map((o) => o.key).sort(); // ascending by ts
+    while (keys.length > 5) { const k = keys.shift(); try { await env.SITES_BUCKET.delete(k); } catch {} }
+  } catch (e) { console.error("archiveBuild failed:", e && e.message); }
+}
+// Write a dist map (rel → {t:text}|{b:base64}) to sites/<slug>/, wiping stale objects
+// first. Used by rollback (mirrors the inline publish in build/revise).
+async function writeDistToR2(env, slug, dist) {
+  try { const old = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (old.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+  for (const [rel, v] of Object.entries(dist || {})) {
+    const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+    const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+    const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+    let bodyOut;
+    if (v && typeof v.t === "string") bodyOut = v.t;
+    else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+    else continue;
+    await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+  }
+}
 
 // Cheap, high-precision defect scan on a generated page — no JS execution, so it
 // only flags things we're SURE are wrong: a truncated document, leftover lorem,
@@ -5031,6 +5064,7 @@ async function handleRequest(request, env, ctx) {
       try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { const l = await env.SITES_BUCKET.list({ prefix: "backups/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+      try { const l = await env.SITES_BUCKET.list({ prefix: "builds/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
       try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
       return Response.json({ ok: true });
     }
@@ -5046,6 +5080,7 @@ async function handleRequest(request, env, ctx) {
         try { const l = await env.SITES_BUCKET.list({ prefix: "sites/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
         try { const l = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
         try { const l = await env.SITES_BUCKET.list({ prefix: "backups/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+        try { const l = await env.SITES_BUCKET.list({ prefix: "builds/" + slug + "/" }); for (const o of (l.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
         try { await env.SITES_BUCKET.delete("sitesrc/" + slug + ".json"); } catch {}
       };
       const done = new Set();
@@ -5247,6 +5282,46 @@ async function handleRequest(request, env, ctx) {
         if (e && e.forbidden) return UNAUTHED();
         console.error("owner restore failed:", e && e.message, e && e.detail);
         return Response.json({ ok: false, error: "restore failed" }, { status: 502 });
+      }
+    }
+    // Owner: list the recent published builds of a React site (newest first) for
+    // rollback. isibi-authed + owner-scoped (via the generated source's uid).
+    if (url.pathname === "/api/site/backend/builds" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      if (!(await ownsReactSite(env, slug, u.id))) return UNAUTHED();
+      try {
+        const l = await env.SITES_BUCKET.list({ prefix: "builds/" + slug + "/" });
+        const builds = (l.objects || []).map((o) => ({ key: o.key, size: o.size, uploaded: o.uploaded })).sort((a, b) => (a.key < b.key ? 1 : -1));
+        return Response.json({ ok: true, builds });
+      } catch (e) {
+        console.error("builds list failed:", e && e.message);
+        return Response.json({ ok: false, error: "list failed" }, { status: 502 });
+      }
+    }
+    // Owner: roll the LIVE site back to a prior published build (one click). isibi-authed
+    // + owner-scoped; the key must belong to this slug's builds. Reverts what SERVES —
+    // the generated source is unchanged, so a later AI edit rebuilds from the newest
+    // source (i.e. editing after a rollback rolls forward).
+    if (url.pathname === "/api/site/backend/rollback" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      let bb; try { bb = await request.json(); } catch { bb = {}; }
+      const slug = ((bb.slug || "") + "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const key = (bb.key || "") + "";
+      if (!slug || !key) return Response.json({ ok: false, error: "missing slug or key" }, { status: 400 });
+      if (!key.startsWith("builds/" + slug + "/")) return Response.json({ ok: false, error: "bad key" }, { status: 400 });
+      if (!(await ownsReactSite(env, slug, u.id))) return UNAUTHED();
+      try {
+        const obj = await env.SITES_BUCKET.get(key);
+        if (!obj) return Response.json({ ok: false, error: "build not found" }, { status: 404 });
+        const snap = JSON.parse(await obj.text());
+        if (!snap.dist || !snap.dist["index.html"]) return Response.json({ ok: false, error: "that snapshot has no page" }, { status: 422 });
+        await writeDistToR2(env, slug, snap.dist);
+        return Response.json({ ok: true, restored: key, files: Object.keys(snap.dist).length });
+      } catch (e) {
+        console.error("rollback failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "rollback failed" }, { status: 502 });
       }
     }
     // Owner content editor: add / edit / delete a row in one of the OWNER's own
@@ -5838,6 +5913,7 @@ async function handleRequest(request, env, ctx) {
           // Persist the GENERATED SOURCE (not the dist) so a later chat revise can
           // load it, edit it, and rebuild. Stored under a private key, never served.
           try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rbUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch (e) { console.error("react-build src persist failed:", e && e.message); }
+          await archiveBuild(env, slug, dist); // keep a rollback snapshot of this build
           // If the site declared a backend, provision its own D1 + create the tables
           // (non-fatal: the site still ships if this fails; data just won't work).
           let backend = false;
@@ -5987,6 +6063,7 @@ async function handleRequest(request, env, ctx) {
             await env.SITES_BUCKET.put("sites/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
           }
           try { await env.SITES_BUCKET.put("sitesrc/" + slug + ".json", JSON.stringify({ files, uid: rvUser.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          await archiveBuild(env, slug, dist); // keep a rollback snapshot of this revision
           let backend = false;
           if (schemaSpec && d1Configured(env)) {
             emit({ ev: "phase", phase: "database" });
