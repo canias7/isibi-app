@@ -2774,6 +2774,21 @@ async function initSiteAuth(env, uuid) {
   const r2 = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='auth_secret'");
   return (r2[0] && r2[0].v) || secret;
 }
+// Email a built-site visitor a signed 24h "verify your email" link (→ /verify). Sent
+// through the platform mailer; fire-and-forget so signup/login never block on it. The
+// mailer no-ops until GO_FARTHER_API_KEY is set as a Worker secret (same as reset).
+async function sendVerifyEmail(env, ctx, secret, slug, uid, email) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    const token = await signSiteUserToken(secret, { sub: uid, slug, email, purpose: "verify", iat: now, exp: now + 60 * 60 * 24 });
+    const link = "https://isibi.ai/verify?slug=" + encodeURIComponent(slug) + "&token=" + encodeURIComponent(token);
+    const html = "<p>Thanks for signing up! Please confirm your email address to finish setting up your account:</p>" +
+      "<p><a href=\"" + link + "\">Verify my email</a></p>" +
+      "<p>This link expires in 24 hours. If you didn't create this account, you can safely ignore this email.</p>";
+    const send = sendPlatformEmail(env, email, "Verify your email", html);
+    if (ctx && ctx.waitUntil) ctx.waitUntil(send); else { try { await send; } catch {} }
+  } catch (e) { console.error("verify email failed:", e && e.message); }
+}
 // Look up a site's D1 UUID by slug (public, no owner check — used by visitor auth).
 async function siteBackendBySlug(env, slug) {
   const g = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(slug)}&select=d1_uuid`, {
@@ -3000,6 +3015,37 @@ async function handleRequest(request, env, ctx) {
         })();
       </script></body></html>`;
       return new Response(page, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+    }
+    // Email-verification landing: a built-site visitor clicks the link we emailed on
+    // signup → we verify the signed token and flip their `verified` flag, then show a
+    // small on-brand confirmation. Idempotent (clicking twice is fine).
+    if (url.pathname === "/verify" && request.method === "GET") {
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const token = url.searchParams.get("token") || "";
+      const card = (heading, body, ok, back) =>
+        `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${heading}</title><style>
+        :root{--bg:#08070c;--panel:rgba(255,255,255,.04);--line:rgba(255,255,255,.12);--text:#edeaf3;--muted:rgba(237,234,243,.55);--split:linear-gradient(120deg,#ff79c6,#ffb84d)}
+        *{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',system-ui,-apple-system,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;text-align:center}
+        .card{width:min(420px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:2.4rem 1.8rem;box-shadow:0 30px 70px -20px rgba(0,0,0,.7)}
+        .badge{width:54px;height:54px;border-radius:50%;margin:0 auto 1.1rem;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:var(--split);color:#0b0a10}
+        .badge.bad{background:rgba(255,138,138,.16);color:#ff8a8a}
+        h1{font-size:1.35rem;margin-bottom:.5rem}p{color:var(--muted);font-size:.92rem;line-height:1.55}
+        a.back{display:inline-block;margin-top:1.3rem;color:#ffb84d;text-decoration:none;font-weight:600}
+      </style></head><body><div class="card"><div class="badge${ok ? "" : " bad"}">${ok ? "&#10003;" : "!"}</div><h1>${heading}</h1><p>${body}</p>${back ? `<a class="back" href="${back}">Go to the app &#8594;</a>` : ""}</div></body></html>`;
+      const page = (h, b, ok, back) => new Response(card(h, b, ok, back), { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
+      if (!slug || !token || !env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return page("Invalid link", "This verification link is invalid. Try requesting a new one from the app.", false);
+      try {
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return page("Invalid link", "This verification link is invalid or has expired.", false);
+        const secret = await initSiteAuth(env, uuid);
+        const p = await verifySiteUserToken(secret, token);
+        if (!p || p.purpose !== "verify" || p.slug !== slug || !p.sub) return page("Link expired", "This verification link is invalid or has expired. Request a new one from the app.", false);
+        await cfD1Query(env, uuid, "UPDATE _users SET verified=1, verify_token=NULL, verify_exp=NULL WHERE id=?", [p.sub]);
+        return page("Email verified", "Your email is confirmed — you're all set. You can close this tab and head back to the app.", true, "/s/" + slug + "/");
+      } catch (e) {
+        console.error("verify failed:", e && e.message, e && e.detail);
+        return page("Something went wrong", "We couldn't verify your email just now. Try the link again in a moment.", false);
+      }
     }
 
     // Serve a PUBLISHED Website-Builder site from R2: isibi.ai/s/<slug>/<page>.
@@ -4873,7 +4919,8 @@ async function handleRequest(request, env, ctx) {
         const spec = await loadSiteSchema(env, uuid);
         if (!table) return Response.json({ ok: true, tables: (spec.tables || []).map((t) => ({ name: t.name, access: t.access, columns: (t.columns || []) })) });
         if (!tableDef(spec, table) && table !== "_users") return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
-        const cols = table === "_users" ? "id,email,created_at" : "*"; // never expose password hashes
+        if (table === "_users") await initSiteAuth(env, uuid); // ensure role/verified columns exist on older sites
+        const cols = table === "_users" ? "id,email,role,verified,created_at" : "*"; // never expose password hashes
         const r = await cfD1Query(env, uuid, "SELECT " + cols + " FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT 500");
         return Response.json({ ok: true, rows: r });
       } catch (e) {
@@ -4968,6 +5015,7 @@ async function handleRequest(request, env, ctx) {
             await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role) VALUES (?,?,?,?)", [email, salt, hash, role]);
             const rows = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [email]);
             const uid = rows[0] && rows[0].id;
+            await sendVerifyEmail(env, ctx, secret, slug, uid, email); // fire-and-forget confirm-your-email
             return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0 } });
           }
           // login
@@ -5022,6 +5070,31 @@ async function handleRequest(request, env, ctx) {
             if (ctx && ctx.waitUntil) ctx.waitUntil(send); else { try { await send; } catch {} }
           }
         } catch (e) { console.error("site reset-request failed:", e && e.message); }
+        return okResp();
+      }
+      // Resend the email-verification link. Neutral response (never reveals whether an
+      // account exists / is already verified). Identifies the user by a Bearer token
+      // (logged-in) or by {email}. Already-verified users get nothing sent.
+      const vm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/verify-request$/i);
+      if (vm && request.method === "POST") {
+        const okResp = () => Response.json({ ok: true });
+        const slug = vm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return okResp();
+        let body; try { body = await request.json(); } catch { body = {}; }
+        if (body && (body._hp || body.hp)) return okResp(); // honeypot
+        try {
+          const uuid = await siteBackendBySlug(env, slug);
+          if (!uuid) return okResp();
+          const secret = await initSiteAuth(env, uuid);
+          let uid = null, email = null, verified = 0;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug && p.sub) { const rows = await cfD1Query(env, uuid, "SELECT id,email,verified FROM _users WHERE id=?", [p.sub]); if (rows[0]) { uid = rows[0].id; email = rows[0].email; verified = rows[0].verified; } } } catch {} }
+          if (!uid && body && body.email) {
+            const em = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { const rows = await cfD1Query(env, uuid, "SELECT id,email,verified FROM _users WHERE email=?", [em]); if (rows[0]) { uid = rows[0].id; email = rows[0].email; verified = rows[0].verified; } }
+          }
+          if (uid && email && !verified) await sendVerifyEmail(env, ctx, secret, slug, uid, email);
+        } catch (e) { console.error("site verify-request failed:", e && e.message); }
         return okResp();
       }
     }
