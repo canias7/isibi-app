@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~44 / 93)
+## DONE (~45 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26).
 
 ---
 
@@ -62,7 +62,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 ### B. Client-facing app features (no keys)
 - [x] Bookmarks/saves first-class primitive (/save, /saves) (Batch 24)
 - [ ] Mentions parsing (@user → notification)
-- [ ] Activity feed (aggregate of follows) 
+- [x] Following/home feed (?following=1 on feed reads) (Batch 26)
 - [ ] Block another member
 - [ ] Report/flag content → moderation queue (owner review)
 - [ ] Polls (first-class, built on counters + one-per-user)

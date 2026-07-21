@@ -7193,7 +7193,12 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras, listOpts);
+              // Following feed (`?following=1`, auth) — the home-feed primitive: only rows
+              // authored by members the caller FOLLOWS (owner_id ∈ their followees). Composes
+              // with where/q/sort/pagination. Needs the Follows layer; ignored when signed out.
+              let fbase = null;
+              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); fbase = { clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }; }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(fbase)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
