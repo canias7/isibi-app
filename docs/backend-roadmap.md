@@ -28,16 +28,17 @@ pagination (8) · JSON columns (9) · faceted filters + counts (10) · schema-ev
 backfill (11) · auto-slugs (12) · custom roles/RBAC (13) · per-row sharing/ACL (14) ·
 optimistic concurrency (15).
 
-**Batches 16–19 (this session):** updated_at timestamps + `?fields` + `?count` (16) ·
+**Batches 16–20 (this session):** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
-graph (18) · `between` operator + `sort=random` (19).
+graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
+`/move` reorder (20, also made `position`/`updated_at`/`_version` sortable).
 
 ---
 
 ## REMAINING (~56, ordered by build priority)
 
 ### A. Automatic / owner-facing (no keys) — do first
-- [ ] Ordered lists / manual positions (`"ordered":true` + `/move` reorder) — kanban, todo order
+- [x] Ordered lists / manual positions (`"ordered":true` + `/move` reorder) — kanban, todo order (Batch 20)
 - [ ] Row `pin`/`feature` flag + pinned-first ordering
 - [ ] Expiring rows / TTL (`expires_at` auto-hidden past its time) — sales, stories, tokens
 - [ ] Audit log (owner-facing `_audit` of writes; `GET /api/site/backend/audit`)

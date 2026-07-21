@@ -187,6 +187,23 @@ facets/bulk, all access modes) gets them for free — one-place, low-risk change
   pagination (each page reshuffles).
 BACKEND_RULES: folded into the existing QUERY line. Roadmap tally: ~37/93.
 
+## 2026-07-21 — Batch 20: NEW LAYER Ordered lists / manual positions (offline 11/11) ✅ built, PR
+
+Drag-to-reorder (todos, kanban, playlists, galleries):
+- Table flag **`"ordered":true`** (aliases position/sortable/reorderable) → adds a `position`
+  REAL column, auto-assigned to the END of its scope on insert by an **AFTER INSERT trigger**
+  (`trg_<t>_pos`, per-owner on user/feed via `owner_id IS NEW.owner_id`, global otherwise) —
+  zero insert-path plumbing. Existing rows backfilled `position=id`.
+- **`POST …/rows/<t>/<id>/move`** with `{after:<id>}` / `{before:<id>}` (midpoint between the
+  neighbour and the next row on that side — REAL, so no renumber) or `{to:<n>}` (absolute).
+  Scoped like writes (feed/user own rows, admin any, display/collect 403). Added `move` to the
+  rows sub-route regex.
+- Apps read with `?sort=position`. **Bonus fix:** auto-managed columns (`position`,
+  `updated_at`, `_version`) weren't in the sortable/filterable set — added a `listExtras`
+  param threaded into `buildD1Filter`/`buildD1List` so `?sort=position|updated_at|_version`
+  now works (this was needed for ordered lists to be visible, and helps Batches 15/16 too).
+BACKEND_RULES: one new line (after TRASH). Roadmap tally: ~38/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

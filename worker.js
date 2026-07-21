@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2800,6 +2800,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
+    if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2816,6 +2817,23 @@ async function applySiteSchema(env, uuid, spec) {
     // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
     // default above, so the common path is fully automatic).
     if (t.timestamps) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
+    // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
+    // never manages positions itself; rows are reordered by the /move endpoint (midpoints,
+    // REAL, so no renumber). Backfill existing rows to a stable initial order (by id).
+    if (t.ordered) {
+      try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "position" REAL'); } catch {}
+      try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
+      const scoped = (access === "user" || access === "feed");
+      const trg = sqlIdent("trg_" + t.name + "_pos");
+      const maxScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      try {
+        await cfD1Query(env, uuid,
+          "CREATE TRIGGER IF NOT EXISTS " + trg + " AFTER INSERT ON " + tn + ' WHEN NEW."position" IS NULL BEGIN' +
+          ' UPDATE ' + tn + ' SET "position"=(SELECT COALESCE(MAX("position"),0)+1 FROM ' + tn + maxScope + ") WHERE id=NEW.id;" +
+          " END");
+      } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
+    }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2847,7 +2865,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3195,8 +3213,10 @@ async function consumeInvite(env, uuid, code) {
 // and double-quoted; every value is parameterized. `base` prepends a scope clause
 // (owner_id for a `user` table). Returns the WHERE fragment + its params + the set of
 // columns that are legal to reference (for sort/group validation upstream).
-function buildD1Filter(url, allowCols, base) {
-  const filterable = new Set(allowCols.concat(["id", "created_at"]).map((c) => String(c).toLowerCase()));
+function buildD1Filter(url, allowCols, base, extra) {
+  // `extra` = auto-managed columns this table actually has (position/updated_at/_version),
+  // so where/sort can target them without them being app-declared columns.
+  const filterable = new Set(allowCols.concat(["id", "created_at"], extra || []).map((c) => String(c).toLowerCase()));
   const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE", startswith: "LIKE", endswith: "LIKE" };
   const where = [], params = [];
   if (base && base.clause) { where.push(base.clause); params.push(...base.params); }
@@ -3244,8 +3264,8 @@ function buildD1Filter(url, allowCols, base) {
 // Build a filtered/sorted/paginated SELECT for a data-API list read: the filter above
 // plus `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`. Returns the row query + a
 // matching COUNT for {total}.
-function buildD1List(url, tn, allowCols, base) {
-  const f = buildD1Filter(url, allowCols, base);
+function buildD1List(url, tn, allowCols, base, extra) {
+  const f = buildD1Filter(url, allowCols, base, extra);
   // Sort — supports a SINGLE column (`sort=price&order=asc`) OR MULTIPLE, comma-
   // separated with an optional per-column direction prefix: `sort=-price,created_at`
   // (price DESC, created_at using the default). No prefix → the `order` param (default
@@ -6608,7 +6628,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share|move)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -6618,6 +6638,7 @@ async function handleRequest(request, env, ctx) {
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
         const isShare = dm[4] === "share";
+        const isMove = dm[4] === "move";
         const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6649,6 +6670,10 @@ async function handleRequest(request, env, ctx) {
           // Auto edit-timestamp fragment — on a `timestamps:true` table every UPDATE also
           // bumps updated_at to now (spliced into the SET clause of single/bulk PATCH + incr).
           const tsFrag = def.timestamps ? ", \"updated_at\"=datetime('now')" : "";
+          // Auto-managed columns this table has that are legitimately sortable/filterable
+          // (so `?sort=position`, `?sort=updated_at`, `?sort=_version` work even though they
+          // aren't app-declared columns).
+          const listExtras = [].concat(def.ordered ? ["position"] : [], def.timestamps ? ["updated_at"] : [], def.version ? ["_version"] : []);
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
             const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
@@ -6802,6 +6827,44 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
           }
 
+          // Reorder — POST /rows/<t>/<id>/move {after|before:<refId>} | {to:<n>}. On an
+          // `ordered:true` table, sets this row's `position` to the MIDPOINT between the
+          // named neighbour and the next row on that side (REAL positions → no renumber),
+          // so a drag-and-drop list persists its order in one call. Same write scope as the
+          // table (feed/user → your own rows; admin → any; display/collect can't).
+          if (isMove) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!def.ordered) return badReq("this table isn't ordered (declare \"ordered\":true)");
+            let scope = "", scopeParams = [];
+            if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; scopeParams = [userId]; }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
+            else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
+            // the moving row must exist within scope
+            const self = await cfD1Query(env, uuid, "SELECT position FROM " + tn + " WHERE id=?" + scope, [rowId].concat(scopeParams));
+            if (!self[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const body = await readBody();
+            let newPos = null;
+            if (body.to !== undefined && Number.isFinite(Number(body.to))) {
+              newPos = Number(body.to);
+            } else {
+              const refId = parseInt(body.after !== undefined ? body.after : body.before, 10);
+              const isAfter = body.after !== undefined;
+              if (!(refId > 0)) return badReq("move needs {after|before:<id>} or {to:<number>}");
+              const ref = await cfD1Query(env, uuid, "SELECT position FROM " + tn + " WHERE id=?" + scope, [refId].concat(scopeParams));
+              if (!ref[0]) return Response.json({ ok: false, error: "reference row not found" }, { status: 404 });
+              const rp = Number(ref[0].position) || 0;
+              // the neighbour just beyond the reference on the requested side (within scope)
+              const nb = isAfter
+                ? await cfD1Query(env, uuid, "SELECT MIN(position) AS p FROM " + tn + " WHERE position > ?" + scope, [rp].concat(scopeParams))
+                : await cfD1Query(env, uuid, "SELECT MAX(position) AS p FROM " + tn + " WHERE position < ?" + scope, [rp].concat(scopeParams));
+              const np = nb[0] && nb[0].p != null ? Number(nb[0].p) : null;
+              newPos = np != null ? (rp + np) / 2 : (isAfter ? rp + 1 : rp - 1);
+            }
+            await cfD1Exec(env, uuid, "UPDATE " + tn + ' SET "position"=?' + tsFrag + " WHERE id=?" + scope, [newPos, rowId].concat(scopeParams));
+            return Response.json({ ok: true, id: rowId, position: newPos });
+          }
+
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
           // display/feed aggregate publicly over ALL rows; `user` aggregates only the
@@ -6915,7 +6978,7 @@ async function handleRequest(request, env, ctx) {
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
             if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6939,7 +7002,7 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6977,7 +7040,7 @@ async function handleRequest(request, env, ctx) {
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -7025,7 +7088,7 @@ async function handleRequest(request, env, ctx) {
               if (!ids.length) return Response.json({ ok: true, rows: [], total: 0 });
               base = { clause: "id IN (" + ids.map(() => "?").join(",") + ")", params: ids };
             } else base = { clause: "owner_id=?", params: [userId] };
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(base)));
+            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(base)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
