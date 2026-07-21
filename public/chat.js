@@ -825,9 +825,10 @@ function renderAttach(kind) {
     const clr = btn.querySelector('.x'); if (clr) clr.onclick = (e) => clearAttach(e, kind);
   } else {
     btn.classList.remove('has');
-    // Inside the combined Reference row the clip slot reads "Video" (it's a
-    // reference, not the old Video-clip row).
-    btn.innerHTML = kind === 'clip' && vxAllowed()
+    // The clip drop-slot reads plain "Video" where the row's verb lives in its
+    // header: inside Seedance's combined Reference row (it's a reference), and
+    // on Gemini Omni Flash (the row is "Video edit"). Elsewhere it's "Video clip".
+    btn.innerHTML = kind === 'clip' && (vxAllowed() || /gemini-omni/.test(model))
       ? '<span class="plus-big">+</span><span class="slot-lab">Video</span>'
       : ATTACH_LABELS[kind];
   }
@@ -1024,10 +1025,11 @@ function updateAttachVisibility() {
   // frame (merged row, owner 2026-07-21), else plain "Image to video".
   if (ti) ti.textContent = mode === 'image' ? 'Edit image' : (mergedFlf() ? 'First and last frame' : 'Image to video');
   // The clip row means different things per family — say the right verb
-  // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Kling o3
-  // / Gemini re-render it (edit); Seedance uses it as a motion reference.
+  // (owner 2026-07-16): Veo CONTINUES the clip (extend-video); Gemini rewrites
+  // it (conversational edit → the /edit endpoint, owner 2026-07-21); Kling o3
+  // re-renders it; Seedance uses it as a motion reference.
   const tc = document.getElementById('titleClip');
-  if (tc) tc.textContent = /veo/.test(model) ? 'Extend clip' : 'Video clip';
+  if (tc) tc.textContent = /veo/.test(model) ? 'Extend clip' : (/gemini-omni/.test(model) ? 'Video edit' : 'Video clip');
   renderExtraImages();
   renderMaskState(); // the GPT inpainting button depends on model + single image
   updateApCounts();
@@ -1048,6 +1050,7 @@ const AP_INFO = {
   avatar: 'Avatar: attach a face or character the model keeps looking consistent across the video.',
   audio: 'Audio: attach a voice or music track — used as the soundtrack or lip-sync source.',
   clip: 'Video clip: attach a video to extend, restyle, or use as motion reference.',
+  clipEdit: 'Video edit: attach a video and describe the change — the model rewrites it (swap objects, relight, change the background) while keeping the scene coherent.',
   end: 'End frame: pin the final frame — the model animates from your image toward it.',
   flf: 'First & last frame: pin the opening and closing frames — the model fills in the motion between them.',
   ref: 'Reference to video: images that keep a character or subject looking consistent in a new scene you describe.',
@@ -1056,8 +1059,11 @@ const AP_INFO = {
 function showApInfo(kind, ev, el) {
   const pop = document.getElementById('apInfoPop');
   if (!pop) return;
-  // The Image row means image-to-video in video mode, but image editing in image mode.
-  const key = kind === 'image' ? (mode === 'image' ? 'imageEdit' : (mergedFlf() ? 'imageFlf' : 'imageVideo')) : kind;
+  // The Image row means image-to-video in video mode, but image editing in image
+  // mode; the clip row is a conversational edit on Gemini Omni Flash.
+  let key = kind;
+  if (kind === 'image') key = mode === 'image' ? 'imageEdit' : (mergedFlf() ? 'imageFlf' : 'imageVideo');
+  else if (kind === 'clip' && /gemini-omni/.test(model)) key = 'clipEdit';
   let txt = AP_INFO[key];
   if (!txt) return;
   // The reference cap is per-model (Nano 14, GPT 16) — fill it in live.
