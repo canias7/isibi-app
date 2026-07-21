@@ -2639,6 +2639,22 @@ function parseJsonRows(def, rows) {
   for (const r of rows) { if (!r) continue; for (const c of jc) { const v = r[c]; if (typeof v === "string" && (v[0] === "{" || v[0] === "[")) { try { r[c] = JSON.parse(v); } catch {} } } }
   return rows;
 }
+// Computed / derived read columns — `computed:{full_name:["first_name"," ","last_name"]}`.
+// On READ, each template token that matches a declared column name is replaced by that
+// row's value; anything else is a literal. Assembled in JS (no SQL, so no injection); the
+// value is attached under the computed name. Read-only (never written/queried). NULLs → "".
+function attachComputed(def, rows) {
+  const comp = def && def.computed;
+  if (!comp || !Array.isArray(rows) || !rows.length) return rows;
+  const colSet = new Set([].concat((Array.isArray(def.columns) ? def.columns : []).map((c) => String(c).toLowerCase()), ["id", "created_at", "owner_id", "updated_at", "slug", "position", "pinned"]));
+  for (const [name, toks] of Object.entries(comp)) {
+    for (const r of rows) {
+      if (!r) continue;
+      r[name] = toks.map((tok) => { const isCol = colSet.has(String(tok).toLowerCase()); return isCol ? (r[tok] != null ? String(r[tok]) : "") : String(tok); }).join("");
+    }
+  }
+  return rows;
+}
 const SAFE_IDENT = /^[a-z_][a-z0-9_]{0,40}$/i;
 function sqlIdent(name) { if (!SAFE_IDENT.test(String(name || ""))) throw Object.assign(new Error("bad identifier: " + name), { bad: true }); return '"' + name + '"'; }
 // Auto-slug: a url-safe, lowercase, dash-joined key derived from a source column
@@ -2709,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2910,7 +2926,7 @@ async function applySiteSchema(env, uuid, spec) {
       }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -6990,7 +7006,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachRollups(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
+          const doExpand = async (rows) => { parseJsonRows(def, rows); attachComputed(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachRollups(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
