@@ -421,6 +421,18 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     (real Haiku replied "OK" / "Hi there, friend!"; owner charged EXACTLY 1 credit per
     call, 20→19→18). Owner approved the ~$0.006 test spend. Builder rules document both
     forms. **This is the AI-native differentiator — apps ship AI features out of the box.**
+  · **Visitor analytics (#512, accuracy fix #513) — page views + events, VERIFIED live
+    12/12.** A built app fire-and-forgets `POST /api/db/<slug>/track {event,path}` on
+    page views + key actions (signup/purchase); the owner reads `GET /api/site/backend/
+    analytics?slug=&days=` → `{total, byEvent, byPath, byDay, rows}`. Stored as tiny
+    (day,event,path) counter upserts in the site's own D1 `_analytics` — never raw per-
+    event rows, so no DB bloat. PRODUCT analytics, distinct from ops `_metrics` (which
+    counts API requests). **#513 note:** first shipped buffered (flush-at-20) like
+    _metrics but that under-counted at low traffic (13/25 — events stranded in sub-
+    threshold isolate buffers); fixed to write EACH event through immediately (per-event
+    upsert via waitUntil, table ensured once/isolate) so view-counts are EXACT — re-test
+    12/12 total=25, view=20/signup=4/purchase=1, /pricing=11, no-auth→401, XSS event/
+    path sanitized. Rate-limited 300/min per visitor. Builder rules document /track.
   · **Event triggers (#511) — on-insert → function, VERIFIED live 6/6.** A function can
     declare `"on":{"insert":"<table>"}` (sibling of steps) to run AUTOMATICALLY after a
     row is inserted into that table (new order → email me · new signup → notify Slack ·
