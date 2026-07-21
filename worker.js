@@ -3333,6 +3333,30 @@ async function blockedIdList(env, uuid, blocker) {
   const rows = await cfD1Query(env, uuid, "SELECT blocked_id FROM _blocks WHERE blocker_id=? ORDER BY created_at DESC", [blocker]);
   return rows.map((r) => r.blocked_id);
 }
+// Presence / who's-online — a member pings while active; the app shows who's online now
+// (chat, a collab room, a member directory). One last-seen row per member in `_presence`;
+// "online" = pinged within the last N minutes. Ensured once per isolate.
+const _presenceReady = new Set();
+async function ensurePresence(env, uuid) {
+  if (_presenceReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _presence (user_id INTEGER PRIMARY KEY, at TEXT)");
+  _presenceReady.add(uuid);
+}
+async function touchPresence(env, uuid, userId) {
+  await ensurePresence(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _presence (user_id,at) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET at=excluded.at", [userId, new Date().toISOString()]);
+}
+async function onlineList(env, uuid, within) {
+  await ensurePresence(env, uuid);
+  return cfD1Query(env, uuid, "SELECT p.user_id AS id, p.at AS last_seen, u.display_name, u.avatar_url FROM _presence p LEFT JOIN _users u ON u.id=p.user_id WHERE datetime(p.at) > datetime('now', ?) ORDER BY p.at DESC LIMIT 500", ["-" + within + " minutes"]);
+}
+async function presenceOf(env, uuid, userId, within) {
+  await ensurePresence(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT at FROM _presence WHERE user_id=?", [userId]);
+  if (!r[0]) return { online: false, last_seen: null };
+  const on = await cfD1Query(env, uuid, "SELECT 1 AS y FROM _presence WHERE user_id=? AND datetime(at) > datetime('now', ?)", [userId, "-" + within + " minutes"]);
+  return { online: !!on[0], last_seen: r[0].at };
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6955,6 +6979,34 @@ async function handleRequest(request, env, ctx) {
           if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
+      // Presence / who's-online.
+      //   POST /api/db/<slug>/presence            → ping "I'm here" (auth) → {ok}
+      //   GET  /api/db/<slug>/presence[?within=5] → members online in the last N min (profiles)
+      //   GET  /api/db/<slug>/presence/<userId>   → {online, last_seen} for one member
+      const prm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/presence(?:\/(\d+))?$/i);
+      if (prm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = prm[1].toLowerCase(), who = prm[2] ? parseInt(prm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        const within = Math.min(60, Math.max(1, parseInt(url.searchParams.get("within") || "5", 10) || 5));
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|prr", 300)) return tooMany();
+            if (who) return Response.json(Object.assign({ ok: true, id: who }, await presenceOf(env, uuid, who, within)));
+            return Response.json({ ok: true, within, online: await onlineList(env, uuid, within) });
+          }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|prw", 120)) return tooMany();
+          await touchPresence(env, uuid, userId);
+          return Response.json({ ok: true });
+        } catch (e) { console.error("presence failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "presence failed" }, { status: 502 }); }
       }
       // Blocks — hide another member. `POST /block/<userId>` toggles, `GET /block/<userId>`
       // → {blocking}, `GET /blocks` → your blocked ids. Then pass `?hideBlocked=1` on a feed

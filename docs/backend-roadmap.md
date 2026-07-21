@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~59 / 93)
+## DONE (~60 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39).
 
 ---
 
@@ -70,7 +70,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Many-to-many join helper (declare a link table + `?via=`)
 - [x] Reverse-relation rollups (`?rollup=child:agg:col`) (Batch 30)
 - [ ] Nearby / geo search (lat,lng radius)
-- [ ] Presence / who's-online
+- [x] Presence / who's-online (/presence) (Batch 39)
 - [ ] Realtime edits+deletes diff (changes covers appends — add updates)
 - [ ] File upload to R2 per app (`/api/db/<slug>/upload`) + metadata
 - [ ] Signed upload URLs
