@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~63 / 93)
+## DONE (~64 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42) · per-member rate limit (43).
 
 ---
 
@@ -64,7 +64,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Mentions parsing (@user → notification)
 - [x] Following/home feed (?following=1 on feed reads) (Batch 26)
 - [x] Block another member (/block, ?hideBlocked=1) (Batch 36)
-- [ ] Report/flag content → moderation queue (owner review)
+- [x] Report/flag content + moderation queue (Batch 31)
 - [x] Polls (first-class, one-per-user) (Batch 33)
 - [ ] Comment threading depth helper (relations exist — add depth/tree read)
 - [ ] Many-to-many join helper (declare a link table + `?via=`)
@@ -85,10 +85,10 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Change password (self-serve) (Batch 34)
 - [x] Change email (self-serve) (Batch 34)
 - [x] Delete own account (Batch 34)
-- [ ] Email verification enforcement (columns + link exist — add gate)
-- [ ] Account lockout after N failed logins (columns exist — wire it)
+- [x] Email verification enforcement ("requireVerified") (Batch 35)
+- [x] Account lockout after N failed logins (already in login path)
 - [ ] Session list + revoke ("log out other devices")
-- [ ] Per-user rate limiting / throttle
+- [x] Per-member write rate limit (`"rateLimit"`) (Batch 43)
 - [ ] API keys for app-to-app access
 - [ ] Magic-link / OTP login 🔑 (needs mailer — mailer exists)
 - [ ] Password reset polish (exists — confirm + document)

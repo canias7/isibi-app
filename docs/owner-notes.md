@@ -417,6 +417,13 @@ children, null their fk), `restrict` (block the parent delete while children exi
 returns the mode → `cascadeDeleteRow` unlinks/deletes/refuses accordingly; restrict throws a
 tagged error mapped to 409 in the data-api catch. Roadmap tally: ~63/93.
 
+## 2026-07-21 — Batch 43: Per-member write rate limit (offline 8/8) ✅ built
+
+Table flag **`"rateLimit":N`** (aliases writeLimit/throttle/maxPerMinute) → each member may
+make at most N writes/min to that table (anti-spam). Single choke point beside the
+requireVerified gate (POST/PATCH/DELETE, keyed `slug|urate|table|userId` through the existing
+`rateOk`); over the cap → 429. Carried via coerceTable + norm. Roadmap tally: ~64/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
