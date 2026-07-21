@@ -40,7 +40,7 @@ sent NO model field → production builds were **already Sonnet-only**. The dead
 only happened because the *test* forced Haiku via the raw API. So live users were
 almost certainly unaffected — but the Haiku code path existed and was reachable.
 
-**FIX — decided + shipped (code on the branch; not deployed — no PR to main yet):**
+**FIX — shipped + DEPLOYED (PR #523 merged to main + live on isibi.ai 2026-07-21):**
 1. **Haiku REMOVED from the builder** (owner's call 2026-07-21 — "just take haiku
    out"). `RB_MODEL` in `/api/site/react-build` is now hardcoded `claude-sonnet-5`;
    the `model:'haiku'` API path is gone. (Haiku is untouched everywhere else — it
@@ -54,9 +54,18 @@ almost certainly unaffected — but the Haiku code path existed and was reachabl
    present. Detection **verified offline 9/9** (fires on the real broken bundle + 4
    broken variants; silent on 3 correctly-wired variants + a static site).
 
-**Still pending:** a live Sonnet rebuild of a backend app to confirm end-to-end (needs
-a credit top-up — owner balance was 3). Test app `townsquare-e7c3eb` left UP as
-evidence; clean up after the next verified build.
+**VERIFIED LIVE (2026-07-21, after deploy):** built a fresh backend app ("Parkbench",
+same brief) on the live builder with no model field → came back `model: claude-sonnet-5`,
+`backend:true`, `fixed:0`. Inspected the served bundle: **4/4 wiring checks pass** —
+derives the slug via `split("/")[2]`, ZERO slug-less `/api/db/auth|rows` literals, ZERO
+`/api/db${'{'}x${'}'}` templates. Drove it end-to-end: signup → post (auth-gated feed) →
+public read → comment → `?children=comments` nested = all ✅. (Also re-confirmed the
+validation layer: a post missing the required `author_name` was correctly rejected.)
+**Haiku's app was dead; the Sonnet app works.** First generation attempt returned a
+transient "came out incomplete" (generic message, no provider leak — good); a retry
+succeeded, so keep an eye on occasional Sonnet stream-truncation on complex briefs.
+Both test apps (`townsquare-e7c3eb`, `parkbench-d78597`) deleted; test-account credits
+reset. (This note is a follow-up commit after the #523 squash-merge — not new code.)
 
 ---
 
