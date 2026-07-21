@@ -5137,11 +5137,12 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats))?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes))?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
-        const rowId = dm[3] && dm[3] !== "stats" ? parseInt(dm[3], 10) : null;
+        const isChanges = dm[3] === "changes";
+        const rowId = dm[3] && dm[3] !== "stats" && dm[3] !== "changes" ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -5176,6 +5177,36 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true, group: b.groupCol, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted)));
+          }
+
+          // Realtime feed — return only rows NEWER than the caller's cursor (`since`
+          // = the last id they've seen), ascending, so an app can poll for live
+          // updates (chat, a live feed, comments) instead of re-fetching everything.
+          // `wait=1` long-polls up to ~20s (returns the moment a new row lands), which
+          // makes updates feel instant with far fewer requests. Response carries a
+          // fresh `cursor` (the newest id) to pass to the next call. Same read
+          // visibility as the table (collect exposes nothing; user sees only its own).
+          // (Appends only — edits/deletes aren't diffed; re-list to reconcile those.)
+          if (isChanges) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no read" }, { status: 403 });
+            let scope = "";
+            const params = [];
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; }
+            const since = Math.max(0, parseInt(url.searchParams.get("since") || "0", 10) || 0);
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const sql = "SELECT * FROM " + tn + " WHERE id > ?" + scope + " ORDER BY id ASC LIMIT " + lim;
+            const runOnce = () => cfD1Query(env, uuid, sql, access === "user" ? [since, userId] : [since]);
+            let rows = await runOnce();
+            if (!rows.length && url.searchParams.get("wait") === "1") {
+              const deadline = Date.now() + 20000;
+              while (!rows.length && Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 2000));
+                rows = await runOnce();
+              }
+            }
+            const cursor = rows.length ? rows[rows.length - 1].id : since;
+            return Response.json({ ok: true, rows, cursor, count: rows.length });
           }
 
           if (access === "display") {
