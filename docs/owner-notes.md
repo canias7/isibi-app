@@ -410,10 +410,24 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
-  (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)**.
-  Realtime next; custom domains LAST (owner's call 2026-07-21 — "all of them, leave
-  custom domains for last"; it needs the owner to enable Cloudflare custom hostnames
-  + SSL at the account level, so it's gated on infra, not code).
+  (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
+  **Realtime ✅ (#494)**. Custom domains LAST (owner's call 2026-07-21 — "all of them,
+  leave custom domains for last"; it needs the owner to enable Cloudflare custom
+  hostnames + SSL at the account level, so it's gated on infra, not code).
+  · **Realtime (#494) — live updates with NO new infra, VERIFIED live 13/13.** No
+    Durable Objects / WebSockets (would've meant new bindings + cost + hard-to-test);
+    instead a cursor-poll primitive: `GET /api/db/<slug>/rows/<table>/changes?since=
+    <id>` returns only rows NEWER than the caller's cursor (ascending) + a fresh
+    `{cursor}` + `{count}`. `&wait=1` LONG-POLLS up to ~20s (2s D1 checks), returning
+    the instant a new row lands — near-instant chat/feeds with ~10× fewer requests, no
+    push infra. Visibility mirrors the table (collect no-read; user sees only its own
+    new rows). Appends-only (edits/deletes reconcile via a re-list). Builder rules give
+    the chat loop (seed cursor from a DESC list, then poll changes?since=cursor&wait=1).
+    **Proof (zero AI/fal): 13/13** on feed+user+collect — since=0 tail, incremental
+    since=cursor returns only newer rows w/ advancing cursor, empty when caught up; the
+    `wait=1` long-poll BLOCKED then RETURNED a row written mid-wait in **4.3s** (real
+    push feel, not instant, not the full 20s); a `user` table surfaced only the
+    caller's own new rows (401 without login); a `collect` table 403'd. Cleaned up.
   · **Roles/permissions (#492) — VERIFIED live 17/17.** Built-site users now carry a
     `role`; the FIRST person to sign up becomes `'admin'` automatically (owns the
     app), everyone after is `'user'`. signup/login/me return `role` (+`verified`) and
