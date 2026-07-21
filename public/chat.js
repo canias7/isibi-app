@@ -9706,6 +9706,9 @@ function moreCloud(site) {
     ['users', 'Members', dataLive ? 'Accounts that sign up in your app' : (isReact ? 'Add a login to your app to collect members' : 'Publish to enable member accounts'), dataLive, 'members'],
     ['inbox', 'Submissions', dataLive ? 'Form entries from your visitors' : (isReact ? 'Add a form to your app to collect entries' : 'Publish to collect submissions'), dataLive, 'inbox'],
     ['database', 'Database', dataLive ? 'Your app’s tables + rows' : (isReact ? 'Add data to your app to see it here' : 'Publish to enable collections'), dataLive, 'database'],
+    ['chart', 'Insights', dataLive ? 'Traffic, top pages + error rate' : (isReact ? 'Add data/traffic to see insights' : 'Publish to see insights'), dataLive, 'insights'],
+    ['download', 'Backups', dataLive ? 'Snapshot + restore your app’s data' : (isReact ? 'Add data to enable backups' : 'Publish to enable backups'), dataLive, 'backups'],
+    ['history', 'Versions', (isReact && !!site.slug) ? 'Roll back to a previous build' : (isReact ? 'Publish to enable versions' : 'React sites only'), (isReact && !!site.slug), 'versions'],
     ['key', 'Secrets', isReact ? 'API keys for payments, email + integrations (kept server-side)' : 'Encrypted keys for server-side features', fnLive, 'secrets'],
     ['zap', 'Edge functions', 'Custom server logic your app builds', fnLive, 'functions'],
     ['mail', 'Emails', 'Send email from your own provider', auxLive, 'emails'],
@@ -9975,6 +9978,9 @@ function renderSiteWorkspace(view, site) {
   view.querySelectorAll('[data-cloud]').forEach((b) => b.onclick = () => {
     if (b.dataset.cloud === 'members') siteMembers(site);
     else if (b.dataset.cloud === 'database') siteDatabase(site);
+    else if (b.dataset.cloud === 'insights') siteInsights(site);
+    else if (b.dataset.cloud === 'backups') siteBackups(site);
+    else if (b.dataset.cloud === 'versions') siteVersions(site);
     else if (b.dataset.cloud === 'secrets') siteSecrets(site);
     else if (b.dataset.cloud === 'functions') siteFunctions(site);
     else if (b.dataset.cloud === 'files') siteFiles(site);
@@ -10528,6 +10534,86 @@ async function siteMembers(site) {
       '<div class="si-row"><span class="si-k">last login</span><span class="si-v">' + esc(fmt(m.last_login_at)) + '</span></div></div>'
     ).join('');
   } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load members just now — try again.</div>'; }
+}
+
+// Shared: derive the slug + build a Cloud modal shell; returns {box, bodyEl, close}.
+function stCloudModal(id, title) {
+  let box = document.getElementById(id); if (box) box.remove();
+  box = document.createElement('div'); box.id = id; box.className = 'si-modal';
+  box.innerHTML = '<div class="si-card"><div class="si-head"><b>' + esc(title) + '</b><button type="button" class="si-x" aria-label="Close">×</button></div><div class="si-body">Loading…</div></div>';
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.querySelector('.si-x').onclick = close;
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  return { box, bodyEl: box.querySelector('.si-body'), close };
+}
+function stFmtTime(t) { try { if (!t) return '—'; const iso = /^\d{4}-\d\d-\d\d \d\d:/.test(String(t)) ? String(t).replace(' ', 'T') + 'Z' : t; return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (e) { return '—'; } }
+
+// Insights — visitor traffic (page views + key actions) and the app's API request/error
+// counts. Read-only; owner-scoped.
+async function siteInsights(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — insights show up here.'); return; }
+  const { bodyEl } = stCloudModal('siteInsightsModal', 'Insights');
+  try {
+    const [ar, mr] = await Promise.all([
+      apiFetch('/api/site/backend/analytics?slug=' + encodeURIComponent(slug) + '&days=30'),
+      apiFetch('/api/site/backend/metrics?slug=' + encodeURIComponent(slug) + '&days=30'),
+    ]);
+    const a = await ar.json().catch(() => ({})); const m = await mr.json().catch(() => ({}));
+    const evRows = Object.entries(a.byEvent || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
+    const pathRows = Object.entries(a.byPath || {}).sort((x, y) => y[1] - x[1]).slice(0, 8);
+    const reqs = (m.totals && m.totals.reqs) || 0, errs = (m.totals && m.totals.errs) || 0;
+    const bar = (rows) => rows.length ? rows.map(([k, v]) => '<div class="si-bar"><span class="si-bar-k">' + esc(k || '—') + '</span><span class="si-bar-t"><i style="width:' + Math.max(4, Math.round(v / (rows[0][1] || 1) * 100)) + '%"></i></span><span class="si-bar-v">' + v + '</span></div>').join('') : '<div class="si-empty">No data yet.</div>';
+    bodyEl.innerHTML =
+      '<div class="si-stat-row"><div class="si-stat"><b>' + ((a.total) || 0) + '</b><span>views / actions · 30d</span></div>' +
+      '<div class="si-stat"><b>' + reqs + '</b><span>API requests</span></div>' +
+      '<div class="si-stat"><b>' + errs + '</b><span>errors</span></div></div>' +
+      '<div class="si-panel-sub">By event</div>' + bar(evRows) +
+      '<div class="si-panel-sub">Top pages</div>' + bar(pathRows) +
+      '<div class="si-note">Traffic is recorded when your app tracks views/actions. API counts are approximate.</div>';
+  } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load insights just now — try again.</div>'; }
+}
+
+// Backups — snapshot the app's data to restore later. Owner-scoped. _users (logins) are
+// intentionally excluded from a snapshot, so a restore can never wipe accounts.
+async function siteBackups(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — then back up your data.'); return; }
+  const { bodyEl } = stCloudModal('siteBackupsModal', 'Backups');
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/backend/backups?slug=' + encodeURIComponent(slug));
+      const d = await r.json().catch(() => ({}));
+      const list = (d && d.backups) || [];
+      bodyEl.innerHTML = '<button type="button" class="st-publish" id="bkNow">Back up now</button>' +
+        (list.length ? '<div class="si-panel-sub">' + list.length + ' backup' + (list.length === 1 ? '' : 's') + '</div>' + list.map((b) =>
+          '<div class="si-item"><div class="si-item-top"><span class="si-form">' + esc(stFmtTime(b.uploaded)) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div><button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Restore</button></div>').join('')
+          : '<div class="si-empty">No backups yet. Snapshot your data anytime — it’s kept safe.</div>');
+      const nb = bodyEl.querySelector('#bkNow'); if (nb) nb.onclick = async () => { nb.disabled = true; nb.textContent = 'Backing up…'; try { const rr = await apiFetch('/api/site/backend/backup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Backed up ' + (rd.rows || 0) + ' rows.') : 'Backup failed.'); } catch (e) { } load(); };
+      bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Restore this backup? It replaces your current data with the snapshot (member logins are untouched).')) return; el.disabled = true; el.textContent = 'Restoring…'; try { const rr = await apiFetch('/api/site/backend/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? ('Restored ' + (rd.restored || 0) + ' rows.') : 'Restore failed.'); } catch (e) { } load(); });
+    } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load backups — try again.</div>'; }
+  };
+  load();
+}
+
+// Versions — every publish archives its build; roll the LIVE site back to a prior one.
+async function siteVersions(site) {
+  const slug = site.slug || (site.liveUrl || '').split('/s/')[1] || '';
+  if (!slug) { if (typeof sbToast === 'function') sbToast('Publish the site first — versions show up here.'); return; }
+  const { bodyEl } = stCloudModal('siteVersionsModal', 'Versions');
+  const load = async () => {
+    try {
+      const r = await apiFetch('/api/site/backend/builds?slug=' + encodeURIComponent(slug));
+      const d = await r.json().catch(() => ({}));
+      const list = (d && d.builds) || [];
+      bodyEl.innerHTML = list.length ? '<div class="si-panel-sub">' + list.length + ' saved build' + (list.length === 1 ? '' : 's') + ' · newest first</div>' + list.map((b, i) =>
+        '<div class="si-item"><div class="si-item-top"><span class="si-form">' + (i === 0 ? 'Current version' : esc(stFmtTime(b.uploaded))) + '</span><span class="si-when">' + Math.max(1, Math.round((b.size || 0) / 1024)) + ' KB</span></div>' + (i === 0 ? '' : '<button type="button" class="st-hi-restore" data-key="' + esc(b.key) + '">Roll back</button>') + '</div>').join('')
+        : '<div class="si-empty">No saved builds yet. Each publish archives a version you can roll back to.</div>';
+      bodyEl.querySelectorAll('[data-key]').forEach((el) => el.onclick = async () => { if (!confirm('Roll the live site back to this build?')) return; el.disabled = true; el.textContent = 'Rolling back…'; try { const rr = await apiFetch('/api/site/backend/rollback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, key: el.dataset.key }) }); const rd = await rr.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(rd.ok ? 'Rolled back — your live site is updated.' : 'Roll back failed.'); } catch (e) { } load(); });
+    } catch (e) { bodyEl.innerHTML = '<div class="si-empty">Couldn’t load versions — try again.</div>'; }
+  };
+  load();
 }
 
 // Database — the site's collections (public records it saves + shows). Owner view,

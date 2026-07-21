@@ -1387,6 +1387,21 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .si-count { font-size: .78rem; color: var(--dim, var(--muted)); margin-bottom: .7rem; letter-spacing: .02em; }
 .si-item { border: 1px solid var(--line); border-radius: 11px; padding: .7rem .85rem; margin-bottom: .6rem; }
 .si-item-top { display: flex; align-items: baseline; justify-content: space-between; gap: .8rem; margin-bottom: .5rem; }
+/* Cloud Insights / Backups / Versions panels */
+.si-panel-sub { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 1.1rem 0 .55rem; }
+.si-panel-sub:first-child { margin-top: 0; }
+.si-note { font-size: .76rem; color: var(--muted); margin-top: 1rem; line-height: 1.5; border-top: 1px solid var(--line); padding-top: .8rem; }
+.si-stat-row { display: flex; gap: .6rem; margin-bottom: .4rem; }
+.si-stat { flex: 1; background: rgba(255,255,255,.035); border: 1px solid var(--line); border-radius: 12px; padding: .7rem .8rem; }
+.si-stat b { display: block; font-size: 1.35rem; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.si-stat span { font-size: .68rem; color: var(--muted); line-height: 1.3; display: block; margin-top: .15rem; }
+.si-bar { display: flex; align-items: center; gap: .6rem; padding: .28rem 0; font-size: .82rem; }
+.si-bar-k { flex: 0 0 34%; color: var(--text, #edeaf3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.si-bar-t { flex: 1; height: 8px; background: rgba(255,255,255,.06); border-radius: 6px; overflow: hidden; }
+.si-bar-t i { display: block; height: 100%; background: var(--split); border-radius: 6px; }
+.si-bar-v { flex: 0 0 auto; min-width: 30px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .78rem; }
+.si-body > .st-publish { width: 100%; margin-bottom: .4rem; }
+.si-item > .st-hi-restore { margin-top: .1rem; }
 .si-form { font-weight: 700; font-size: .82rem; text-transform: capitalize; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .si-when { font-size: .72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .si-row { display: flex; gap: .8rem; padding: .2rem 0; font-size: .86rem; }
