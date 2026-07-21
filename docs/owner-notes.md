@@ -102,8 +102,120 @@ Also a mid-run **security review** (PR #534) over batches' new code: no injectio
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
 ~31 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
 **Lesson (recurring):** any NEW table-level schema key must be forwarded in
-`normalizeSchema`/`coerceTable` (line ~2712) or it's silently dropped before
-`applySiteSchema` — column-level keys survive via `coerceCol`, table-level ones don't.
+`normalizeSchema`/`coerceTable` (line ~2712) AND in the persisted `norm.push({…})`
+(line ~2841) or it's silently dropped before `applySiteSchema` (the second half of the
+lesson: even if it reaches `applySiteSchema` and creates the column, the request-time
+`def` is loaded from `_meta` and won't carry the flag unless `norm` includes it) —
+column-level keys survive via `coerceCol`, table-level ones don't.
+
+## 2026-07-21 — CONTINUING THE ROADMAP (session picked up "keep going until 93")
+
+Owner: finish the backend roadmap (~31 → 93). Original 100-item artifact was never
+committed (lived in a prior session), so remaining items are being reconstructed from
+the shipped tally + standard backend primitives, favoring OWNER-FACING/AUTOMATIC layers
+(near-zero builder-prompt cost) first, then client-facing, then 🔑 key-gated (Stripe/
+OAuth/SMS/push) last. This session CAN'T live-verify (no deployed test backend + auth
+token), so batches are shipped **branch + PR for the owner to verify/merge** (owner's
+call), each **offline-verified** against a new harness instead of live.
+
+**NEW: offline backend harness** (`scratchpad/bh/` this session — consider committing to
+`test/backend/` if it keeps proving useful). Imports the REAL `worker.js` default fetch
+handler unmodified (an ESM loader stubs the two native deps `@cf-wasm/photon` +
+`@cloudflare/containers`) and backs Cloudflare D1 with in-memory `node:sqlite`, plus a
+fetch mock for the `site_backends` slug→uuid ledger and owner auth. So `ensure`→`schema`
+→signup→auth'd insert→list→patch all run the actual route code end-to-end offline. This
+is the quality gate now; the owner still does the real live pass before merge.
+
+## 2026-07-21 — Batch 16: edit-tracking + read-shaping (offline 17/17 + reg 5/5) ✅ built, PR
+
+Three additive, mostly-automatic primitives (PR on `claude/chat-session-xy6jwe`):
+- **`"timestamps":true`** (table flag; aliases updatedAt/updated_at/timestamp) → auto
+  `updated_at` column, set on insert (= created) via CREATE default, **bumped to now on
+  EVERY edit** — single PATCH (via `applyVersionedUpdate`, so it also covers the
+  share-edit collaborator path), bulk PATCH, and incr. Returned on reads. Fully automatic,
+  zero app code. Threaded through `normalizeSchema` + `norm` + CREATE/ALTER (ALTER can't
+  carry a `datetime()` default, so existing rows are backfilled `= created_at`; the only
+  caveat is a NEW insert on a table REVISED to add timestamps gets `updated_at` on its
+  first edit — fresh tables are perfect).
+- **`?fields=a,b`** — sparse field selection on any list/get: returns only those columns
+  (plus `id`, always). Applied LAST after all joins, so opt-in attached objects
+  (author/children/_counts/expanded refs/reactions/tags) are always kept; it only trims
+  the row's own columns. Unknown names ignored.
+- **`?count=<child>`** — attaches `row._counts.<child>` = how many children reference each
+  row, WITHOUT fetching them (feed shows "12 comments" cheaply). Batched grouped COUNT,
+  public-read children only (no private leak), trash-aware. Peer of `?children`.
+BACKEND_RULES got ONE tight combined line (prompt-bloat-aware). Roadmap tally: ~32/93.
+
+## 2026-07-21 — Batch 17: write integrity — immutable fields + computed defaults (offline 13/13) ✅ built, PR
+
+Two cohesive write-integrity primitives (same PR/branch):
+- **`"immutable":true`** (column flag; aliases readonly/readOnly/writeOnce) → write-once: a
+  field is settable on INSERT but any later edit that includes it → 400 "can't be changed".
+  Enforced in `validateRow` on `!isInsert` (covers single + bulk PATCH, both call it) and
+  in the `incr` path (an immutable numeric can't be incremented). Threaded via `coerceCol`
+  → `rules[col].immutable`. Use for an email, a created price, an order number.
+- **Computed default tokens** — a column `"default"` of `"@now"`/`"now"`/`"timestamp"` →
+  `datetime('now')`, `"@today"`/`"today"` → `date('now')`, `"@uuid"`/`"uuid"` → a random
+  uuid-shaped id. Emitted as a SQL DEFAULT *expression* in CREATE TABLE, so the DB fills it
+  when the writer omits the field — NO insert-path plumbing. A provided value still wins;
+  a plain literal default is unchanged (these words are reserved when used as a default).
+  Same ALTER caveat as updated_at (a table REVISED to add one gets it only on fresh CREATE).
+BACKEND_RULES: folded into the existing schema-column-rules line (no new bullet).
+Roadmap tally: ~34/93.
+
+## 2026-07-21 — Batch 18: NEW LAYER Follows (member social graph) (offline 12/12) ✅ built, PR
+
+Mirrors the proven Reactions primitive but over the MEMBER graph (not rows), so risk is
+low. New `_follows (follower_id, followee_id)` PK-deduped table in each site D1:
+- `POST /api/db/<slug>/follow/<userId>` (auth) → toggles, `{following, followers}`
+  (`{on:true|false}` forces). Can't follow yourself. Idempotent (PK).
+- `GET …/follow/<userId>` → `{followers, following, mine}` (Bearer → `mine`).
+- `GET …/follow/<userId>/followers` and `/following` → arrays of public profiles
+  (batched, safe columns) for "Followers"/"Following" pages.
+Helpers `ensureFollows`/`toggleFollow`/`followState`/`followList` sit beside the reactions
+helpers. BACKEND_RULES: one new social line (after PROFILES). Roadmap tally: ~35/93.
+
+## 2026-07-21 — Batch 19: query power II — `between` + `sort=random` (offline 7/7) ✅ built, PR
+
+Both live inside the shared `buildD1Filter`/`buildD1List`, so EVERY read path (list/stats/
+facets/bulk, all access modes) gets them for free — one-place, low-risk changes:
+- **`where=<col>:between:lo:hi`** (also `lo,hi`) → inclusive range `col >= lo AND col <= hi`
+  (price bands, date windows, score ranges). Both bounds required else the clause is ignored;
+  values bind as-is (SQLite affinity handles numeric vs text). Added to the operator regex.
+- **`sort=random`** (aliases `rand`/`shuffle`) → `ORDER BY RANDOM()`, for discover/featured/
+  shuffle surfaces (pair with a small `limit`). Overrides relevance/explicit sort; not for
+  pagination (each page reshuffles).
+BACKEND_RULES: folded into the existing QUERY line. Roadmap tally: ~37/93.
+
+## 2026-07-21 — Batch 20: NEW LAYER Ordered lists / manual positions (offline 11/11) ✅ built, PR
+
+Drag-to-reorder (todos, kanban, playlists, galleries):
+- Table flag **`"ordered":true`** (aliases position/sortable/reorderable) → adds a `position`
+  REAL column, auto-assigned to the END of its scope on insert by an **AFTER INSERT trigger**
+  (`trg_<t>_pos`, per-owner on user/feed via `owner_id IS NEW.owner_id`, global otherwise) —
+  zero insert-path plumbing. Existing rows backfilled `position=id`.
+- **`POST …/rows/<t>/<id>/move`** with `{after:<id>}` / `{before:<id>}` (midpoint between the
+  neighbour and the next row on that side — REAL, so no renumber) or `{to:<n>}` (absolute).
+  Scoped like writes (feed/user own rows, admin any, display/collect 403). Added `move` to the
+  rows sub-route regex.
+- Apps read with `?sort=position`. **Bonus fix:** auto-managed columns (`position`,
+  `updated_at`, `_version`) weren't in the sortable/filterable set — added a `listExtras`
+  param threaded into `buildD1Filter`/`buildD1List` so `?sort=position|updated_at|_version`
+  now works (this was needed for ordered lists to be visible, and helps Batches 15/16 too).
+BACKEND_RULES: one new line (after TRASH). Roadmap tally: ~38/93.
+
+## 2026-07-21 — Batch 21: NEW LAYER Expiring rows / TTL (offline 8/8 + trash reg 4/4) ✅ built, PR
+
+Flash sales, 24h stories, one-time invites, temp share links:
+- Table flag **`"expires":true`** (aliases ttl/expiry/expiring) → adds `expires_at` (app-set,
+  so it's added to the writable/queryable/sortable `allow` list). Reads hide rows past their
+  `expires_at`; NULL = never. `?expired=1` / `?withExpired=1` mirror trashed/withTrashed.
+  Comparison via SQLite `datetime()` (normalizes ISO vs 'YYYY-MM-DD HH:MM:SS', no bound param).
+  Renew by PATCHing expires_at later. Hidden not deleted (sweep via a scheduled function).
+- **Mechanism refactor:** folded expiry into the trash-visibility path — `trashClause` +
+  new param-free `expiresClause` compose into `visClause`; `withTrash` → **`withVisible`**
+  (covers list/stats/facets/bulk/single-GET at once). Trash behavior unchanged (reg 4/4).
+BACKEND_RULES: one new line (after ORDERED LISTS). Roadmap tally: ~39/93.
 
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 

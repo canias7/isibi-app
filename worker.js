@@ -2699,7 +2699,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue) };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: (c.max !== undefined ? c.max : (c.maxLength !== undefined ? c.maxLength : c.maxlength)), min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue), immutable: !!(c.immutable || c.readonly || c.readOnly || c.writeOnce) };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2763,7 +2763,15 @@ async function applySiteSchema(env, uuid, spec) {
       // Safely literalized: numbers as-is, booleans as 0/1, strings single-quote-escaped.
       if (c.default !== undefined && c.default !== null && !c.pk) {
         let dl = null;
-        if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
+        // Computed default tokens (dynamic per-insert): `@now`/`now`/`timestamp` →
+        // current datetime, `@today`/`today` → current date, `@uuid`/`uuid` → a random
+        // uuid-shaped id. Emitted as a SQL DEFAULT expression so the DB fills it when the
+        // writer omits the field (no insert-path plumbing). A bare literal string default
+        // still works for anything that isn't one of these reserved words.
+        const COMPUTED = { now: "(datetime('now'))", timestamp: "(datetime('now'))", today: "(date('now'))", uuid: "(lower(hex(randomblob(4))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(2))||'-'||hex(randomblob(6))))" };
+        const tok = typeof c.default === "string" ? c.default.trim().toLowerCase().replace(/^@/, "") : null;
+        if (tok && COMPUTED[tok]) dl = COMPUTED[tok];
+        else if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
         else if (typeof c.default === "boolean") dl = c.default ? "1" : "0";
         else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
         if (dl != null) def += " DEFAULT " + dl;
@@ -2782,6 +2790,7 @@ async function applySiteSchema(env, uuid, spec) {
       const fmt = String(c.format || "").toLowerCase(); if (["email", "url", "number"].includes(fmt)) rule.format = fmt;
       if (Array.isArray(c.enum) && c.enum.length) rule.enum = c.enum.map((x) => String(x)).slice(0, 100);
       if (typeof c.pattern === "string" && c.pattern.length && c.pattern.length <= 300) rule.pattern = c.pattern;
+      if (c.immutable) rule.immutable = true; // write-once: set on insert, rejected on any later edit
       if (Object.keys(rule).length) rules[low] = rule;
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
@@ -2790,6 +2799,9 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
     if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
+    if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
+    if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
+    if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2801,6 +2813,29 @@ async function applySiteSchema(env, uuid, spec) {
     if (access === "user" || access === "feed") { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "owner_id" INTEGER'); } catch {} }
     if (t.trash) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "deleted_at" TEXT'); } catch {} }
     if (t.version) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "_version" INTEGER NOT NULL DEFAULT 1'); } catch {} }
+    // Auto updated_at backfill on a pre-existing table (ALTER ADD COLUMN can't carry a
+    // datetime() default, so seed existing rows to created_at; new inserts on a table
+    // revised THIS way get updated_at on their first edit — fresh tables get the CREATE
+    // default above, so the common path is fully automatic).
+    if (t.timestamps) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "updated_at" TEXT'); } catch {} try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "updated_at"=created_at WHERE "updated_at" IS NULL'); } catch {} }
+    // Manual ordering: a `position` column auto-assigned to the END of its scope on insert
+    // (per-owner on user/feed, global otherwise) by an AFTER INSERT trigger, so the app
+    // never manages positions itself; rows are reordered by the /move endpoint (midpoints,
+    // REAL, so no renumber). Backfill existing rows to a stable initial order (by id).
+    if (t.ordered) {
+      try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "position" REAL'); } catch {}
+      try { await cfD1Query(env, uuid, "UPDATE " + tn + ' SET "position"=id WHERE "position" IS NULL'); } catch {}
+      const scoped = (access === "user" || access === "feed");
+      const trg = sqlIdent("trg_" + t.name + "_pos");
+      const maxScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      try {
+        await cfD1Query(env, uuid,
+          "CREATE TRIGGER IF NOT EXISTS " + trg + " AFTER INSERT ON " + tn + ' WHEN NEW."position" IS NULL BEGIN' +
+          ' UPDATE ' + tn + ' SET "position"=(SELECT COALESCE(MAX("position"),0)+1 FROM ' + tn + maxScope + ") WHERE id=NEW.id;" +
+          " END");
+      } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
+    }
+    if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2832,7 +2867,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3040,6 +3075,55 @@ async function attachReactions(env, uuid, table, rows, url, userId) {
   for (const r of rows) { const t = table + ":" + r.id; r.reactions = { counts: cMap.get(t) || {}, mine: mMap.get(t) || [] }; }
   return rows;
 }
+// Follows — a member follows another member (social graph): followers/following counts,
+// "Followers"/"Following" lists, and whether the caller follows a given member. Stored in
+// the site's own D1 `_follows` (follower_id, followee_id) with a PK that dedupes, so
+// "follow" is idempotent and one-per-pair — mirrors the reactions primitive but over the
+// member graph rather than rows. Ensured once per warm isolate.
+const _followsReady = new Set();
+async function ensureFollows(env, uuid) {
+  if (_followsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _follows (follower_id INTEGER NOT NULL, followee_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (follower_id, followee_id))");
+  _followsReady.add(uuid);
+}
+// Toggle whether `follower` follows `followee`. `set` forces on/off; otherwise flips.
+// Returns {following, followers} (the caller's new state + followee's follower count).
+async function toggleFollow(env, uuid, follower, followee, set) {
+  await ensureFollows(env, uuid);
+  const existing = await cfD1Query(env, uuid, "SELECT 1 FROM _follows WHERE follower_id=? AND followee_id=?", [follower, followee]);
+  const has = !!existing[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _follows (follower_id,followee_id,created_at) VALUES (?,?,?)", [follower, followee, new Date().toISOString()]);
+  else if (!want && has) await cfD1Query(env, uuid, "DELETE FROM _follows WHERE follower_id=? AND followee_id=?", [follower, followee]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE followee_id=?", [followee]);
+  return { following: want, followers: (cnt[0] && cnt[0].n) || 0 };
+}
+// Counts for one member: {followers, following, mine} — how many follow this member, how
+// many they follow, and whether the (optional) viewer follows them.
+async function followState(env, uuid, targetId, viewerId) {
+  await ensureFollows(env, uuid);
+  const fr = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE followee_id=?", [targetId]);
+  const fg = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE follower_id=?", [targetId]);
+  let mine = false;
+  if (viewerId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _follows WHERE follower_id=? AND followee_id=?", [viewerId, targetId]); mine = !!m[0]; }
+  return { followers: (fr[0] && fr[0].n) || 0, following: (fg[0] && fg[0].n) || 0, mine };
+}
+// The follower (or followee) member profiles for a "Followers"/"Following" page. `dir`
+// "followers" → members who follow <id>; "following" → members <id> follows. Batched,
+// public-safe profile columns only, newest-first, capped.
+async function followList(env, uuid, targetId, dir, limit) {
+  await ensureFollows(env, uuid);
+  const col = dir === "following" ? "follower_id" : "followee_id";
+  const pick = dir === "following" ? "followee_id" : "follower_id";
+  const lim = Math.min(200, Math.max(1, limit || 100));
+  const rows = await cfD1Query(env, uuid, "SELECT " + pick + " AS uid FROM _follows WHERE " + col + "=? ORDER BY created_at DESC LIMIT ?", [targetId, lim]);
+  const ids = [...new Set(rows.map((r) => r.uid).filter((v) => v != null))];
+  if (!ids.length) return [];
+  let profs = [];
+  try { profs = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url,bio FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { return []; }
+  const byId = new Map(profs.map((p) => [p.id, p]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -3131,18 +3215,30 @@ async function consumeInvite(env, uuid, code) {
 // and double-quoted; every value is parameterized. `base` prepends a scope clause
 // (owner_id for a `user` table). Returns the WHERE fragment + its params + the set of
 // columns that are legal to reference (for sort/group validation upstream).
-function buildD1Filter(url, allowCols, base) {
-  const filterable = new Set(allowCols.concat(["id", "created_at"]).map((c) => String(c).toLowerCase()));
+function buildD1Filter(url, allowCols, base, extra) {
+  // `extra` = auto-managed columns this table actually has (position/updated_at/_version),
+  // so where/sort can target them without them being app-declared columns.
+  const filterable = new Set(allowCols.concat(["id", "created_at"], extra || []).map((c) => String(c).toLowerCase()));
   const OPS = { eq: "=", ne: "!=", lt: "<", lte: "<=", gt: ">", gte: ">=", contains: "LIKE", startswith: "LIKE", endswith: "LIKE" };
   const where = [], params = [];
   if (base && base.clause) { where.push(base.clause); params.push(...base.params); }
   for (const raw of url.searchParams.getAll("where").slice(0, 12)) {
-    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|isnull|notnull):([\s\S]*)$/i);
+    const m = String(raw).match(/^([a-z_][a-z0-9_]{0,40}):(eq|ne|lt|lte|gt|gte|contains|startswith|endswith|in|nin|between|isnull|notnull):([\s\S]*)$/i);
     if (!m) continue;
     const col = m[1].toLowerCase(); if (!filterable.has(col)) continue;
     const opName = m[2].toLowerCase(), val = m[3];
     if (opName === "isnull") { where.push(sqlIdent(col) + " IS NULL"); continue; }
     if (opName === "notnull") { where.push(sqlIdent(col) + " IS NOT NULL"); continue; }
+    // Inclusive range: `col:between:lo:hi` (or `lo,hi`) → col >= lo AND col <= hi. Good for
+    // price bands, date windows, score ranges. Both bounds required; values bind as-is
+    // (SQLite column affinity handles numeric vs text comparison).
+    if (opName === "between") {
+      const parts = String(val).split(/[:,]/).map((x) => x.trim());
+      if (parts.length < 2 || parts[0] === "" || parts[1] === "") continue;
+      where.push("(" + sqlIdent(col) + " >= ? AND " + sqlIdent(col) + " <= ?)");
+      params.push(parts[0], parts[1]);
+      continue;
+    }
     if (opName === "in" || opName === "nin") {
       const vals = String(val).split(",").map((x) => x.trim()).filter((x) => x !== "").slice(0, 100);
       if (!vals.length) continue;
@@ -3170,8 +3266,8 @@ function buildD1Filter(url, allowCols, base) {
 // Build a filtered/sorted/paginated SELECT for a data-API list read: the filter above
 // plus `sort=<col>&order=asc|desc`, `limit`(≤200)+`offset`. Returns the row query + a
 // matching COUNT for {total}.
-function buildD1List(url, tn, allowCols, base) {
-  const f = buildD1Filter(url, allowCols, base);
+function buildD1List(url, tn, allowCols, base, extra) {
+  const f = buildD1Filter(url, allowCols, base, extra);
   // Sort — supports a SINGLE column (`sort=price&order=asc`) OR MULTIPLE, comma-
   // separated with an optional per-column direction prefix: `sort=-price,created_at`
   // (price DESC, created_at using the default). No prefix → the `order` param (default
@@ -3203,6 +3299,10 @@ function buildD1List(url, tn, allowCols, base) {
     for (const t of f.terms) for (const c of allowCols) { parts.push("(" + sqlIdent(c) + " LIKE ?)"); rankParams.push("%" + t + "%"); }
     orderSql = "(" + parts.join(" + ") + ") DESC, id DESC";
   }
+  // `sort=random` (aliases rand/shuffle) → random order, for "discover"/"featured"/
+  // "shuffle" surfaces. Overrides relevance/explicit sort. Not for pagination (each page
+  // reshuffles) — pair with a small `limit` to pick N random rows.
+  if (/^(random|rand|shuffle)$/i.test((url.searchParams.get("sort") || "").trim())) orderSql = "RANDOM()";
   // Keyset (cursor) pagination for endless "load more" over big/growing lists —
   // stable and faster than large OFFSETs. `?after=<id>` returns rows OLDER than that
   // id (id < after — pairs with the default newest-first order); `?before=<id>` the
@@ -3316,6 +3416,54 @@ async function attachAuthors(env, uuid, rows, url) {
   for (const r of rows) if (r.owner_id != null) r.author = byId.get(r.owner_id) || null;
   return rows;
 }
+// `?count=<child>[,<child>]` — attach how many rows each child table has pointing back
+// at THIS row, WITHOUT fetching them, under `row._counts` ({comments: 12}). A feed shows
+// "12 comments" in one list request. Batched (one grouped COUNT per child, no N+1), only
+// PUBLIC-READ child tables (never leaks private counts), trash-aware. Peer of ?children.
+async function attachCounts(env, uuid, spec, def, rows, url) {
+  const want = String(url.searchParams.get("count") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 4);
+  if (!want.length || !rows.length) return rows;
+  const parentIds = [...new Set(rows.map((r) => r.id).filter((v) => v != null))].slice(0, 200);
+  if (!parentIds.length) return rows;
+  const thisName = String(def.name).toLowerCase();
+  for (const childName of want) {
+    const cdef = tableDef(spec, childName);
+    if (!cdef) continue;
+    if (!["display", "feed", "admin"].includes(cdef.access || "collect")) continue; // don't leak private counts
+    const crefs = cdef.refs || {};
+    const fkCol = Object.keys(crefs).find((c) => String(crefs[c]).toLowerCase() === thisName);
+    if (!fkCol) continue; // this child doesn't reference us
+    let counts = [];
+    try { counts = await cfD1Query(env, uuid, "SELECT " + sqlIdent(fkCol) + " AS pid, COUNT(*) AS n FROM " + sqlIdent(childName) + " WHERE " + sqlIdent(fkCol) + " IN (" + parentIds.map(() => "?").join(",") + ")" + (cdef.trash ? " AND deleted_at IS NULL" : "") + " GROUP BY " + sqlIdent(fkCol), parentIds); } catch { continue; }
+    const byPid = new Map(counts.map((c) => [c.pid, Number(c.n) || 0]));
+    for (const r of rows) { if (!r._counts) r._counts = {}; r._counts[childName] = byPid.get(r.id) || 0; }
+  }
+  return rows;
+}
+// `?fields=a,b` — sparse field selection: return only the named columns (plus id, always,
+// which clients need for keys/links), trimming payload on big lists. Applied LAST, after
+// all joins, so opt-in attached objects (author, children, _counts, expanded refs,
+// reactions, tags) are always kept — the projection only controls the row's OWN columns.
+// Unknown/undeclared field names are ignored. No-op when the param is absent.
+function projectFields(rows, url, allow) {
+  const raw = url.searchParams.get("fields");
+  if (!raw || !rows.length) return rows;
+  const allowSet = new Set((allow || []).map((c) => String(c).toLowerCase()));
+  const selectable = new Set(["id", "owner_id", "created_at", "updated_at", "slug", ...allowSet]);
+  const baseCols = new Set(["id", "owner_id", "created_at", "updated_at", "deleted_at", "_version", "slug", ...allowSet]);
+  const keep = new Set(raw.toLowerCase().split(",").map((s) => s.trim()).filter((c) => selectable.has(c)));
+  keep.add("id"); // id is always retained
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]; const out = {};
+    for (const k of Object.keys(row)) {
+      const lk = k.toLowerCase();
+      if (!baseCols.has(lk)) { out[k] = row[k]; continue; } // an attached join key → always keep
+      if (keep.has(lk)) out[k] = row[k];
+    }
+    rows[i] = out;
+  }
+  return rows;
+}
 // Create-or-update by a key column (`?upsert=<col>`): find an existing row whose
 // <col> matches (within the owner scope when given), UPDATE it, else INSERT. Powers
 // settings singletons, likes/toggles, idempotent saves. No DB-level UNIQUE is required
@@ -3352,6 +3500,9 @@ function validateRow(def, body, isInsert) {
     const v = body ? body[col] : undefined;
     const present = v !== undefined && v !== null && !(typeof v === "string" && v.trim() === "");
     if (rule.required && isInsert && !present) return col + " is required";
+    // Write-once / immutable: settable on insert, but any UPDATE that carries the field
+    // is rejected (a client trying to change a locked value — an email, a created price).
+    if (rule.immutable && !isInsert && v !== undefined) return col + " can't be changed";
     if (!present) continue;
     if (rule.max && typeof v === "string" && v.length > rule.max) return col + " is too long (max " + rule.max + ")";
     if (rule.minLen && typeof v === "string" && v.length < rule.minLen) return col + " is too short (min " + rule.minLen + ")";
@@ -6363,6 +6514,43 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "reaction failed" }, { status: 502 });
         }
       }
+      // Follows — the member social graph. Toggle a follow, read a member's
+      // followers/following counts (+ whether the caller follows them), and list either
+      // side for a "Followers"/"Following" page.
+      //   POST /api/db/<slug>/follow/<userId> {on?}      → toggle (auth) → {following, followers}
+      //   GET  /api/db/<slug>/follow/<userId>            → {followers, following, mine}
+      //   GET  /api/db/<slug>/follow/<userId>/followers  → [profiles who follow them]
+      //   GET  /api/db/<slug>/follow/<userId>/following  → [profiles they follow]
+      const fm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/follow\/(\d+)(?:\/(followers|following))?$/i);
+      if (fm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fm[1].toLowerCase(), targetId = parseInt(fm[2], 10) || 0, dir = fm[3] || "";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|flr", 300)) return tooMany();
+            if (dir) { const lim = parseInt(url.searchParams.get("limit") || "100", 10); return Response.json({ ok: true, dir, users: await followList(env, uuid, targetId, dir, lim) }); }
+            return Response.json(Object.assign({ ok: true, id: targetId }, await followState(env, uuid, targetId, userId)));
+          }
+          // POST — toggle follow (requires login; can't follow yourself)
+          if (!userId) return Response.json({ ok: false, error: "sign in to follow" }, { status: 401 });
+          if (dir) return Response.json({ ok: false, error: "use GET for lists" }, { status: 405 });
+          if (targetId === userId) return Response.json({ ok: false, error: "you can't follow yourself" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|flw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, id: targetId }, await toggleFollow(env, uuid, userId, targetId, set)));
+        } catch (e) {
+          console.error("follow failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
+        }
+      }
       // In-app notification inbox (the signed-in member's OWN notifications):
       //   GET  /api/db/<slug>/notifications[?unread=1&limit=N] → {rows, unread}
       //   POST /api/db/<slug>/notifications/<id>/read           → mark one read
@@ -6442,7 +6630,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share|move)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -6452,6 +6640,7 @@ async function handleRequest(request, env, ctx) {
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
         const isShare = dm[4] === "share";
+        const isMove = dm[4] === "move";
         const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6465,6 +6654,9 @@ async function handleRequest(request, env, ctx) {
           const access = def.access || "collect";
           const managed = new Set(["id", "created_at", "owner_id"]);
           const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+          // `expires_at` is platform-added but APP-SET (the app chooses when a row expires),
+          // so it's writable + queryable + sortable like a normal column on expiring tables.
+          if (def.expires && !allow.some((c) => String(c).toLowerCase() === "expires_at")) allow.push("expires_at");
           const tn = sqlIdent(table);
           // Identify the logged-in visitor (site-user token), if any.
           let userId = null;
@@ -6472,7 +6664,7 @@ async function handleRequest(request, env, ctx) {
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
-          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); return rows; }; // JSON cols parsed + ?expand + ?children + ?authors=1 + ?reactions=1 + ?tags=1
+          const doExpand = async (rows) => { parseJsonRows(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
           const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
@@ -6480,9 +6672,16 @@ async function handleRequest(request, env, ctx) {
           // Single-row PATCH executor with optimistic-concurrency support. Bumps _version
           // on version tables, honors ?ifVersion / If-Match, and distinguishes a stale-write
           // conflict (row exists but version moved) from a genuine not-found/not-yours.
+          // Auto edit-timestamp fragment — on a `timestamps:true` table every UPDATE also
+          // bumps updated_at to now (spliced into the SET clause of single/bulk PATCH + incr).
+          const tsFrag = def.timestamps ? ", \"updated_at\"=datetime('now')" : "";
+          // Auto-managed columns this table has that are legitimately sortable/filterable
+          // (so `?sort=position`, `?sort=updated_at`, `?sort=_version` work even though they
+          // aren't app-declared columns).
+          const listExtras = [].concat(def.ordered ? ["position"] : [], def.timestamps ? ["updated_at"] : [], def.version ? ["_version"] : []);
           const applyVersionedUpdate = async (use, body, scopeSql, scopeParams) => {
             const v = versionBits(def, url, request);
-            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag;
+            const setSql = use.map((c) => sqlIdent(c) + "=?").join(",") + v.setFrag + tsFrag;
             const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id=?" + scopeSql + v.guardSql, use.map((c) => body[c]).concat([rowId], scopeParams, v.guardParams));
             if (ex.changes > 0) { let version; if (v.on) { try { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?", [rowId]); version = r[0] && r[0].v; } catch {} } return { ok: true, version }; }
             if (v.on && v.want != null) { const r = await cfD1Query(env, uuid, 'SELECT "_version" AS v FROM ' + tn + " WHERE id=?" + scopeSql, [rowId].concat(scopeParams)); if (r[0]) return { conflict: r[0].v }; }
@@ -6500,7 +6699,19 @@ async function handleRequest(request, env, ctx) {
           const trashClause = trashOn
             ? (url.searchParams.get("withTrashed") === "1" ? "" : url.searchParams.get("trashed") === "1" ? "deleted_at IS NOT NULL" : "deleted_at IS NULL")
             : "";
-          const withTrash = (base) => { if (!trashClause) return base; const c = base && base.clause ? base.clause + " AND " + trashClause : trashClause; return { clause: c, params: base ? base.params.slice() : [] }; };
+          // Expiring rows / TTL — on tables declared with `expires:true`, reads hide rows
+          // whose `expires_at` is in the past (a flash sale, a story, a temp invite). The
+          // app sets expires_at (any datetime/ISO string); comparison via SQLite datetime()
+          // normalizes formats and needs no bound param. `?expired=1` lists only expired,
+          // `?withExpired=1` lists everything. NULL expires_at = never expires.
+          const expiresOn = !!def.expires;
+          const expiresClause = expiresOn
+            ? (url.searchParams.get("withExpired") === "1" ? "" : url.searchParams.get("expired") === "1" ? "(expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now'))" : "(expires_at IS NULL OR datetime(expires_at) > datetime('now'))")
+            : "";
+          // Combined default row visibility (trash + expiry). Both clauses are param-free, so
+          // they compose into one AND-ed suffix shared by list, single-GET, stats, and bulk.
+          const visClause = [trashClause, expiresClause].filter(Boolean).join(" AND ");
+          const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
           const doDelete = async (scopeSql, scopeParams) => {
@@ -6615,6 +6826,7 @@ async function handleRequest(request, env, ctx) {
             const col = String(body.col || "").toLowerCase();
             if (!col || !allow.map((a) => String(a).toLowerCase()).includes(col)) return badReq("unknown column");
             if (!numSet.has(col)) return badReq("column is not numeric");
+            if (def.rules && def.rules[col] && def.rules[col].immutable) return badReq(col + " can't be changed");
             let by = Number(body.by); if (!Number.isFinite(by)) by = 1; by = Math.max(-1e9, Math.min(1e9, by));
             const hasFloor = body.min !== undefined && Number.isFinite(Number(body.min));
             const floor = hasFloor ? Number(body.min) : 0;
@@ -6626,10 +6838,48 @@ async function handleRequest(request, env, ctx) {
             else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
             params = hasFloor ? [floor, by] : [by];
             const where = [rowId].concat(scope ? [userId] : []);
-            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cq + "=" + expr + " WHERE id=?" + scope, params.concat(where));
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cq + "=" + expr + tsFrag + " WHERE id=?" + scope, params.concat(where));
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             const r = await cfD1Query(env, uuid, "SELECT " + cq + " AS v FROM " + tn + " WHERE id=?", [rowId]);
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
+          }
+
+          // Reorder — POST /rows/<t>/<id>/move {after|before:<refId>} | {to:<n>}. On an
+          // `ordered:true` table, sets this row's `position` to the MIDPOINT between the
+          // named neighbour and the next row on that side (REAL positions → no renumber),
+          // so a drag-and-drop list persists its order in one call. Same write scope as the
+          // table (feed/user → your own rows; admin → any; display/collect can't).
+          if (isMove) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!def.ordered) return badReq("this table isn't ordered (declare \"ordered\":true)");
+            let scope = "", scopeParams = [];
+            if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; scopeParams = [userId]; }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
+            else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
+            // the moving row must exist within scope
+            const self = await cfD1Query(env, uuid, "SELECT position FROM " + tn + " WHERE id=?" + scope, [rowId].concat(scopeParams));
+            if (!self[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const body = await readBody();
+            let newPos = null;
+            if (body.to !== undefined && Number.isFinite(Number(body.to))) {
+              newPos = Number(body.to);
+            } else {
+              const refId = parseInt(body.after !== undefined ? body.after : body.before, 10);
+              const isAfter = body.after !== undefined;
+              if (!(refId > 0)) return badReq("move needs {after|before:<id>} or {to:<number>}");
+              const ref = await cfD1Query(env, uuid, "SELECT position FROM " + tn + " WHERE id=?" + scope, [refId].concat(scopeParams));
+              if (!ref[0]) return Response.json({ ok: false, error: "reference row not found" }, { status: 404 });
+              const rp = Number(ref[0].position) || 0;
+              // the neighbour just beyond the reference on the requested side (within scope)
+              const nb = isAfter
+                ? await cfD1Query(env, uuid, "SELECT MIN(position) AS p FROM " + tn + " WHERE position > ?" + scope, [rp].concat(scopeParams))
+                : await cfD1Query(env, uuid, "SELECT MAX(position) AS p FROM " + tn + " WHERE position < ?" + scope, [rp].concat(scopeParams));
+              const np = nb[0] && nb[0].p != null ? Number(nb[0].p) : null;
+              newPos = np != null ? (rp + np) / 2 : (isAfter ? rp + 1 : rp - 1);
+            }
+            await cfD1Exec(env, uuid, "UPDATE " + tn + ' SET "position"=?' + tsFrag + " WHERE id=?" + scope, [newPos, rowId].concat(scopeParams));
+            return Response.json({ ok: true, id: rowId, position: newPos });
           }
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
@@ -6641,7 +6891,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
-            base = withTagFilter(withTrash(base)); // stats respect trash + ?tag= filter
+            base = withTagFilter(withVisible(base)); // stats respect trash + ?tag= filter
             const b = buildD1Stats(url, tn, allow, base);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCol) {
@@ -6663,7 +6913,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no facets" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
-            base = withTagFilter(withTrash(base));
+            base = withTagFilter(withVisible(base));
             const allowSet = new Set(allow.map((c) => String(c).toLowerCase()));
             const fields = (url.searchParams.get("fields") || "").toLowerCase().split(",").map((s) => s.trim()).filter((c) => allowSet.has(c)).slice(0, 8);
             if (!fields.length) return Response.json({ ok: false, error: "fields required" }, { status: 400 });
@@ -6723,14 +6973,14 @@ async function handleRequest(request, env, ctx) {
             let base = null;
             if (access === "feed" || access === "user") base = { clause: "owner_id=?", params: [userId] };
             else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
-            const filt = buildD1Filter(url, allow, withTagFilter(withTrash(base)));
+            const filt = buildD1Filter(url, allow, withTagFilter(withVisible(base)));
             const idSub = "id IN (SELECT id FROM " + tn + filt.whereSql + " LIMIT 1000)";
             if (method === "PATCH") {
               const body = await readBody();
               const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE " + idSub, use.map((c) => body[c]).concat(filt.params));
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + use.map((c) => sqlIdent(c) + "=?").join(",") + tsFrag + " WHERE " + idSub, use.map((c) => body[c]).concat(filt.params));
               return Response.json({ ok: true, updated: ex.changes || 0 });
             }
             // bulk DELETE
@@ -6744,8 +6994,8 @@ async function handleRequest(request, env, ctx) {
 
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6768,8 +7018,8 @@ async function handleRequest(request, env, ctx) {
             // Public READ (a shared feed/board/comments); a LOGGED-IN visitor may
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6806,8 +7056,8 @@ async function handleRequest(request, env, ctx) {
             // user whose role is 'admin' may write; admins manage ALL rows (not
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)));
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6843,8 +7093,8 @@ async function handleRequest(request, env, ctx) {
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
             if (rowId != null) {
-              let r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]);
-              if (!r[0] && await shareLevel(env, uuid, table, rowId, userId)) r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); // shared with me
+              let r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (visClause ? " AND " + visClause : ""), [rowId, userId]);
+              if (!r[0] && await shareLevel(env, uuid, table, rowId, userId)) r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); // shared with me
               if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               await doExpand(r); return Response.json({ ok: true, row: r[0] });
             }
@@ -6855,7 +7105,7 @@ async function handleRequest(request, env, ctx) {
               if (!ids.length) return Response.json({ ok: true, rows: [], total: 0 });
               base = { clause: "id IN (" + ids.map(() => "?").join(",") + ")", params: ids };
             } else base = { clause: "owner_id=?", params: [userId] };
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(base)));
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(base)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
