@@ -52,12 +52,30 @@ toward the end.
   `/api/site/backend/invites` enable|disable|create(count,uses)|list|revoke; signup
   requires a valid `invite` code (atomic redeem) except the bootstrap admin →
   403 `{need:'invite'}`.
-- **Batch 8 — cursor pagination** (this PR): keyset `?after=<lastRowId>` / `?before=`
+- **Batch 8 — cursor pagination** (PR #542, 7/7): keyset `?after=<lastRowId>` / `?before=`
   for stable "load more" on big lists (alongside limit/offset).
+- **Batch 9 — JSON/array/object columns** (PR #543, 14/14): declare `type:"json"`
+  (aliases `array`/`object`) → the platform JSON-stringifies on write & re-parses on
+  read across EVERY path (single/list/batch/realtime). Store a whole nested object or
+  list in one column (order line-items, settings blob). Backed by TEXT; `def.json`
+  drives (de)serialization. Can't `where=` into it (use a `ref` table if you must query
+  the inner rows).
+- **Batch 10 — faceted filters + counts** (PR #544, 9/9): `GET …/rows/<t>/facets?fields=
+  color,size` → `{facets:{color:[{value,count}],…}}` (top 100/col by count) for filter
+  sidebars ("Red (12)·Blue (4)"). Respects the SAME where/q/tag/trash + read visibility,
+  so counts drill down as filters tick. Pure read, no write-path risk.
 
 Also a mid-run **security review** (PR #534) over batches' new code: no injection/
 authz/leak/critical; fixed `max:0` falsiness + blank feed/user writes. Roadmap tally:
-~21 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+~23 of 93 shipped. Each verified via bare `ensure`+`schema` test backends ($0), deleted.
+
+**Known schema-evolution footgun (noted, not yet fixed):** `applySiteSchema` uses
+`CREATE TABLE IF NOT EXISTS`, so CHANGING an existing table's access mode
+(e.g. display→feed/user) does NOT add the now-needed `owner_id` column, and its
+scoped writes silently fail. Same for turning on `trash:true` after creation
+(`deleted_at`). The AI almost never flips a table's access across revisions, so it's
+low-risk, but a future correctness batch should ALTER-add owner_id/deleted_at when a
+persisted table's access/trash flag changes. (Surfaced while writing the Batch 10 test.)
 
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
