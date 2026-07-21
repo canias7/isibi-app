@@ -421,6 +421,18 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     (real Haiku replied "OK" / "Hi there, friend!"; owner charged EXACTLY 1 credit per
     call, 20→19→18). Owner approved the ~$0.006 test spend. Builder rules document both
     forms. **This is the AI-native differentiator — apps ship AI features out of the box.**
+  · **Event triggers (#511) — on-insert → function, VERIFIED live 6/6.** A function can
+    declare `"on":{"insert":"<table>"}` (sibling of steps) to run AUTOMATICALLY after a
+    row is inserted into that table (new order → email me · new signup → notify Slack ·
+    new comment → AI-screen), with the new row as `{{input.<field>}}`. Fires on single-
+    row VISITOR inserts (collect/feed/user/admin), NOT bulk imports (no flood), via
+    ctx.waitUntil (write never blocks); per-slug trigger list cached in-isolate 60s so
+    no-trigger sites pay ~1 lookup/min. **Also FIXED the ai function step:** `ai` was
+    missing from FN_ACTIONS so `{do:ai}` was silently stripped on normalize (the direct
+    /ai endpoint always worked) — now the step survives + runs metered to the owner.
+    **Proof (zero AI/fal): 6/6** — an order insert fired the fn → wrote a `logs` row
+    templated from `{{input}}`; a 2nd order → 2nd log; a bulk import of 3 orders fired
+    ZERO triggers. Seeded the fn straight into site_functions (no build); cleaned up.
   · **Data import (#509) — CSV/rows → a table, VERIFIED live 14/14.** Owner endpoint
     `POST /api/site/backend/import {slug,table,csv|rows}` — the mirror of export. Parses
     a CSV string (RFC-4180-ish: quoted fields, embedded commas/newlines, `""` escapes)

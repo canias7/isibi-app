@@ -2790,6 +2790,26 @@ async function flushSiteMetrics(env, slug, agg) {
     await cfD1Query(env, uuid, "INSERT INTO _metrics (day,reqs,errs) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET reqs=reqs+excluded.reqs, errs=errs+excluded.errs", [day, agg.reqs, agg.errs]);
   } catch {}
 }
+// Visitor analytics — a built app POSTs page views + custom events; buffered in-isolate
+// and batch-flushed into the site's own D1 `_analytics` as tiny (day,event,path) counter
+// rows (never raw per-event storage), so the owner sees traffic without bloating the DB.
+// Same approximate-by-design tradeoff as _metrics.
+const _anaBuf = new Map();
+function recordVisit(env, ctx, slug, event, path) {
+  let b = _anaBuf.get(slug);
+  if (!b) { b = { total: 0, hits: new Map() }; _anaBuf.set(slug, b); }
+  const k = (event || "view") + "\n" + (path || "");
+  b.hits.set(k, (b.hits.get(k) || 0) + 1); b.total++;
+  if (b.total >= 20) { const hits = b.hits; _anaBuf.set(slug, { total: 0, hits: new Map() }); if (ctx && ctx.waitUntil) ctx.waitUntil(flushSiteAnalytics(env, slug, hits)); }
+}
+async function flushSiteAnalytics(env, slug, hits) {
+  try {
+    const uuid = await siteBackendBySlug(env, slug); if (!uuid || !hits || !hits.size) return;
+    const day = new Date().toISOString().slice(0, 10);
+    await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _analytics (day TEXT, event TEXT, path TEXT, n INTEGER DEFAULT 0, PRIMARY KEY(day,event,path))");
+    for (const [k, n] of hits) { const i = k.indexOf("\n"); await cfD1Query(env, uuid, "INSERT INTO _analytics (day,event,path,n) VALUES (?,?,?,?) ON CONFLICT(day,event,path) DO UPDATE SET n=n+excluded.n", [day, k.slice(0, i), k.slice(i + 1), n]); }
+  } catch {}
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5316,6 +5336,29 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "read failed" }, { status: 502 });
       }
     }
+    // Owner visitor-analytics: page views + custom events for one of the owner's built
+    // apps (last N days), aggregated by event and by path. Flushes the live buffer first.
+    if (url.pathname === "/api/site/backend/analytics" && request.method === "GET") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get("days") || "14", 10) || 14));
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        const b = _anaBuf.get(slug); if (b && b.total) { const hits = b.hits; _anaBuf.set(slug, { total: 0, hits: new Map() }); await flushSiteAnalytics(env, slug, hits); }
+        let rows = [];
+        try { rows = await cfD1Query(env, uuid, "SELECT day,event,path,n FROM _analytics WHERE day >= date('now', ?) ORDER BY day DESC, n DESC LIMIT 2000", ["-" + days + " days"]); } catch {}
+        let total = 0; const byEvent = {}, byPath = {}, byDay = {};
+        for (const r of rows) { const n = r.n || 0; total += n; byEvent[r.event] = (byEvent[r.event] || 0) + n; if (r.path) byPath[r.path] = (byPath[r.path] || 0) + n; byDay[r.day] = (byDay[r.day] || 0) + n; }
+        return Response.json({ ok: true, total, byEvent, byPath, byDay, rows });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner analytics failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "read failed" }, { status: 502 });
+      }
+    }
     // Owner data import: load rows into one of the OWNER's declared tables from a CSV
     // string or a rows array (the mirror of export). isibi-authed + owner-scoped; only
     // declared columns are written (case-insensitive header match), cap 2000 rows.
@@ -5671,6 +5714,19 @@ async function handleRequest(request, env, ctx) {
         const res = await runSiteAI(env, ownerUid, { prompt: body && body.prompt, system: body && body.system });
         if (res.text != null) return Response.json({ ok: true, text: res.text });
         return Response.json({ ok: false, error: res.error || "AI unavailable" }, { status: 400 });
+      }
+      // Visitor analytics — a built app records a page view or custom event. Public,
+      // fire-and-forget, buffered (never blocks). Rate-limited.
+      const tm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/track$/i);
+      if (tm && request.method === "POST") {
+        const slug = tm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY) return Response.json({ ok: true });
+        if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|t", 300)) return Response.json({ ok: true });
+        let body; try { body = await request.json(); } catch { body = {}; }
+        const event = String((body && body.event) || "view").replace(/[^a-z0-9_.:-]/gi, "").slice(0, 40) || "view";
+        const path = String((body && body.path) || "").replace(/[\n\r"]/g, "").slice(0, 120);
+        recordVisit(env, ctx, slug, event, path);
+        return Response.json({ ok: true });
       }
     }
     // Built-site password reset — step 2: set a new password with the token.
