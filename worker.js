@@ -6879,6 +6879,37 @@ async function handleRequest(request, env, ctx) {
         recordVisit(env, ctx, slug, event, path);
         return Response.json({ ok: true });
       }
+      // File upload to R2 (per-app, consistent with the /api/db/<slug>/* API). Base64 data
+      // URL in, a permanent public URL out. Images (PNG/JPG/WebP/GIF) + PDF, ≤6MB. Same store
+      // + serve (/u/<slug>/…) as the platform uploader; only stores for a REAL live site.
+      //   POST /api/db/<slug>/upload {name, data:"data:<mime>;base64,…"} → {url, name, type, size}
+      const upm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/upload$/i);
+      if (upm && (request.method === "POST" || request.method === "OPTIONS")) {
+        const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" };
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+        const slug = upm[1].toLowerCase();
+        if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "uploads unavailable" }, { status: 501, headers: cors });
+        const tlU = tooLargeBody(request, 9_000_000); if (tlU) return Response.json({ ok: false, error: "too large" }, { status: 413, headers: cors });
+        if (!fnRateOk(slug)) return Response.json({ ok: false, error: "rate limited" }, { status: 429, headers: cors });
+        let ub; try { ub = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400, headers: cors }); }
+        const m = typeof ub.data === "string" ? ub.data.match(/^data:([^;,]+);base64,(.+)$/s) : null;
+        if (!m) return Response.json({ ok: false, error: "send the file as a base64 data URL" }, { status: 400, headers: cors });
+        const MIME_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf" };
+        const mime = m[1].toLowerCase(); const ext = MIME_EXT[mime];
+        if (!ext) return Response.json({ ok: false, error: "Only images (PNG, JPG, WebP, GIF) and PDF are allowed." }, { status: 415, headers: cors });
+        let bytes;
+        try { const bin = atob(m[2]); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { return Response.json({ ok: false, error: "couldn't read the file" }, { status: 400, headers: cors }); }
+        if (bytes.length > 6_000_000) return Response.json({ ok: false, error: "That file is too big — keep it under 6 MB." }, { status: 413, headers: cors });
+        let siteExists = false;
+        try { if (await env.SITES_BUCKET.head("sites/" + slug + "/index.html")) siteExists = true; } catch {}
+        if (!siteExists && env.SUPABASE_SERVICE_KEY) { try { const uuid = await siteBackendBySlug(env, slug); if (uuid) siteExists = true; } catch {} }
+        if (!siteExists) return Response.json({ ok: false, error: "this site isn't live yet" }, { status: 400, headers: cors });
+        try { const listed = await env.SITES_BUCKET.list({ prefix: "uploads/" + slug + "/", limit: 300 }); if (listed && Array.isArray(listed.objects) && listed.objects.length >= 300) return Response.json({ ok: false, error: "upload limit reached for this site" }, { status: 429, headers: cors }); } catch {}
+        const id = crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+        const key = "uploads/" + slug + "/" + id + "." + ext;
+        try { await env.SITES_BUCKET.put(key, bytes, { httpMetadata: { contentType: mime } }); } catch { return Response.json({ ok: false, error: "couldn't save the file" }, { status: 502, headers: cors }); }
+        return Response.json({ ok: true, url: "https://isibi.ai/u/" + slug + "/" + id + "." + ext, name: typeof ub.name === "string" ? ub.name.slice(0, 120) : "", type: mime, size: bytes.length }, { headers: cors });
+      }
       // Named counters — likes / views / reactions / poll tallies. Public + atomic.
       //   POST /api/db/<slug>/count/<name>[?by=N]  → increments (default +1, floored
       //        at 0), returns {value}. GET /count/<name> → {value}. GET /count → all.
