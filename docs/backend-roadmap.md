@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~45 / 93)
+## DONE (~49 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29).
 
 ---
 
@@ -51,12 +51,12 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Per-app rate-limit config (owner tunes the read/write caps)
 - [ ] Aggregate "distinct values" endpoint niceties (facets exist — add plain distinct)
 - [ ] Cascade options (set-null vs delete) per ref
-- [ ] Referential integrity check (reject a ref to a missing parent, optional)
+- [x] Referential integrity (`"enforceRefs"`, reject fk to missing parent) (Batch 29)
 - [ ] Computed/derived read columns (e.g. full_name = first || last)
-- [ ] Unique case-insensitive constraint
-- [ ] Cross-field validation rules (e.g. end_date > start_date)
+- [x] Unique case-insensitive constraint (`"uniqueCI"`) (Batch 27)
+- [x] Cross-field validation rules (`"checks"`) (Batch 28)
 - [x] Default sort per table (`"defaultSort"`) (Batch 22)
-- [ ] Max-rows / quota per table (owner cap)
+- [x] Max-rows / quota per table (`"maxRows"`, per-owner or global) (Batch 27)
 - [ ] Soft "archive" state distinct from trash (status lifecycle helper)
 
 ### B. Client-facing app features (no keys)

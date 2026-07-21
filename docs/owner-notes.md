@@ -271,6 +271,34 @@ branch. Roadmap tally: ~45/93.
 > literal — it re-encodes the whole file as latin1 and mojibakes every em-dash/emoji (had to
 > restore from git in Batch 26). Use the Edit tool for prose; perl only for ASCII-only ticks.
 
+## 2026-07-21 — Batch 27: Integrity II — maxRows quota + case-insensitive unique (offline 14/14) ✅ built
+
+Both DB-enforced (no insert-path plumbing), mirroring the trigger/index patterns:
+- **`"maxRows":N`** → a BEFORE INSERT trigger `SELECT RAISE(ABORT,'row limit reached')` once
+  the count hits N (scoped per-owner on user/feed via `owner_id IS NEW.owner_id`, global
+  otherwise). The abort maps to a clean **409 `{code:'limit'}`** in the data-api catch. Free-
+  tier caps, "max 100 todos per user".
+- **`"uniqueCI":["handle"]`** → `CREATE UNIQUE INDEX ON t (lower(col))` — case-insensitive
+  uniqueness (usernames/emails), race-free, surfaces as the existing 409 `{code:'duplicate'}`.
+Carried through coerceTable (enforcement is index/trigger, so norm not needed). Roadmap: ~47/93.
+
+## 2026-07-21 — Batch 28: Cross-field validation checks (offline 7/7) ✅ built
+
+Table-level **`"checks":[["end_at","gte","start_at"],["capacity","gt","reserved"]]`** (ops
+gt/gte/lt/lte/eq/ne) enforced in `validateRow`: numeric compare when both parse as numbers,
+else string/ISO-date. Enforced when BOTH fields are in the body — always on a full insert; on
+a partial PATCH only if it carries both (documented limitation: one-field update can't compare
+against the stored other). Carried via coerceTable + norm (validateRow reads request-time def).
+Roadmap tally: ~48/93.
+
+## 2026-07-21 — Batch 29: Referential integrity (enforceRefs) (offline 7/7) ✅ built
+
+Table flag **`"enforceRefs":true`** → a BEFORE INSERT and BEFORE UPDATE-OF trigger per `ref`
+column that RAISEs when the fk is set but the parent id doesn't exist; abort maps to a clean
+**400 `{code:'ref'}`** in the data-api catch. NULL fk allowed (optional link). Complements the
+delete-time cascade. Trigger-based (no write-path plumbing); carried via coerceTable. Roadmap
+tally: ~49/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

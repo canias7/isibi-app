@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2869,9 +2869,48 @@ async function applySiteSchema(env, uuid, spec) {
       };
       await mkIndexes(t.unique, false);
       await mkIndexes(t.oncePerUser, true);
+      // Case-insensitive UNIQUE — `uniqueCI:["email"]` → a UNIQUE INDEX over lower(col), so
+      // "A@x.com" and "a@x.com" collide (usernames, emails, slugs). Race-free like `unique`;
+      // a violation surfaces as the same 409 duplicate. One column per group.
+      { let ci = 0;
+        for (const raw of (Array.isArray(t.uniqueCI) ? t.uniqueCI : (t.uniqueCI ? [t.uniqueCI] : []))) {
+          const col = String(Array.isArray(raw) ? raw[0] : raw).toLowerCase();
+          if (!colSet.has(col)) continue;
+          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
+        }
+      }
+    }
+    // Max-rows quota — `maxRows:N` caps how many rows the table may hold (scoped per-owner
+    // on user/feed, global otherwise), enforced by a BEFORE INSERT trigger that ABORTs once
+    // the cap is reached. Zero insert-path plumbing; the abort surfaces to the data API as a
+    // clean 409 "limit reached". Free-tier caps, "max 100 todos per user", etc.
+    if (t.maxRows > 0) {
+      const scoped = (access === "user" || access === "feed");
+      const cntScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      try {
+        await cfD1Query(env, uuid,
+          "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_max") + " BEFORE INSERT ON " + tn +
+          " WHEN (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
+          " BEGIN SELECT RAISE(ABORT, 'row limit reached'); END");
+      } catch (e) { console.error("maxRows trigger failed:", t.name, e && e.detail); }
+    }
+    // Referential integrity — `enforceRefs:true` refuses a write whose foreign-key column
+    // points at a NON-existent parent (no orphan comments / line-items). A BEFORE INSERT and
+    // BEFORE UPDATE trigger per ref column RAISEs when the fk is set but the parent id is
+    // missing; the abort maps to a clean 400 in the data API. Complements the delete-time
+    // cascade (which stops orphans when a parent is removed). NULL fk = allowed (optional link).
+    if (t.enforceRefs) {
+      for (const col of Object.keys(refs)) {
+        const parent = refs[col];
+        if (!SAFE_IDENT.test(String(parent)) || !SAFE_IDENT.test(String(col))) continue;
+        const cn = sqlIdent(col), pn = sqlIdent(parent);
+        const cond = "NEW." + cn + " IS NOT NULL AND NOT EXISTS (SELECT 1 FROM " + pn + " WHERE id=NEW." + cn + ")";
+        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
+        try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
+      }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3584,6 +3623,21 @@ function validateRow(def, body, isInsert) {
     if ((rule.numMin !== undefined || rule.numMax !== undefined)) { const n = Number(v); if (isNaN(n)) return col + " must be a number"; if (rule.numMin !== undefined && n < rule.numMin) return col + " must be at least " + rule.numMin; if (rule.numMax !== undefined && n > rule.numMax) return col + " must be at most " + rule.numMax; }
     if (Array.isArray(rule.enum) && !rule.enum.includes(String(v))) return col + " must be one of: " + rule.enum.join(", ");
     if (rule.pattern) { try { if (!new RegExp(rule.pattern).test(String(v))) return col + " has an invalid format"; } catch {} }
+  }
+  // Cross-field checks (`checks:[["end","gte","start"]]`) — compare two fields on a write
+  // (end after start, max ≥ min, price ≥ cost). Numeric when both parse as numbers, else a
+  // string/ISO-date compare. Enforced when BOTH fields are present in the body (always on a
+  // full insert; on a partial update only if the write carries both).
+  const SYM = { gt: ">", gte: "≥", lt: "<", lte: "≤", eq: "=", ne: "≠" };
+  for (const ch of (Array.isArray(def && def.checks) ? def.checks : [])) {
+    const a = ch[0], op = ch[1], b = ch[2];
+    const va = body ? body[a] : undefined, vb = body ? body[b] : undefined;
+    if (va === undefined || vb === undefined || va === null || vb === null) continue;
+    const na = Number(va), nb = Number(vb);
+    const bothNum = !isNaN(na) && !isNaN(nb) && String(va).trim() !== "" && String(vb).trim() !== "";
+    const x = bothNum ? na : String(va), y = bothNum ? nb : String(vb);
+    const ok = op === "gt" ? x > y : op === "gte" ? x >= y : op === "lt" ? x < y : op === "lte" ? x <= y : op === "eq" ? x === y : x !== y;
+    if (!ok) return a + " must be " + SYM[op] + " " + b;
   }
   return null;
 }
@@ -7325,7 +7379,12 @@ async function handleRequest(request, env, ctx) {
           // A declared UNIQUE constraint was violated (e.g. a member reviewing the same
           // product twice) → a clean 409 the app can show ("you've already done this"),
           // not a scary 502.
-          if (/UNIQUE constraint failed/i.test((e && (e.detail || e.message)) || "")) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
+          const emsg = (e && (e.detail || e.message)) || "";
+          if (/UNIQUE constraint failed/i.test(emsg)) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
+          // A `maxRows` quota trigger aborted the insert → a clean 409, not a 502.
+          if (/row limit reached/i.test(emsg)) return Response.json({ ok: false, error: "row limit reached", code: "limit" }, { status: 409 });
+          // A referential-integrity trigger aborted (fk → missing parent) → a clean 400.
+          if (/missing parent/i.test(emsg)) return Response.json({ ok: false, error: "referenced record not found", code: "ref" }, { status: 400 });
           console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
