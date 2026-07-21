@@ -327,6 +327,37 @@ slug/position/pinned) becomes that row's value; anything else is a literal. Asse
 written value of that name is ignored, always recomputed). NULLs → "". Carried via
 coerceTable + norm. Roadmap tally: ~52/93.
 
+## 2026-07-21 — Batch 33: NEW LAYER Polls (offline 9/9) ✅ built
+
+One-vote-per-member polls (mirrors reactions). New `_polls (poll, option, user_id,
+PK(poll,user_id))` — re-voting UPDATES the member's option (real one-per-user):
+- `POST /api/db/<slug>/poll/<poll>/<option>` (auth) → cast/change → `{counts, total, mine}`.
+- `GET …/poll/<poll>` → tally (Bearer → mine); `DELETE …/poll/<poll>` (auth) → withdraw.
+Helpers ensurePolls/pollState/votePoll/unvotePoll. poll + options are app strings. One
+BACKEND_RULES line (after REACTIONS). Roadmap tally: ~53/93.
+
+## 2026-07-21 — Batch 34: Account self-service (offline 15/15) ✅ built
+
+New `/api/db/<slug>/auth/(password|email|account)` on the Phase-C visitor auth, each
+RE-VERIFYING the current password (a stolen token alone can't change/delete):
+- `POST …/auth/password {current_password, password}` → change password (strength-checked),
+  returns a fresh token.
+- `POST …/auth/email {password, email}` → change email (collision-checked, resets verified),
+  fresh token.
+- `DELETE …/auth/account {password}` → delete the member + their owned rows (every user/feed
+  table) + their social side-rows (_follows/_bookmarks/_reactions/_polls/_reports/_shares/
+  _notifications).
+One BACKEND_RULES line (after INVITE-ONLY). Roadmap tally: ~54/93.
+
+## 2026-07-21 — Batch 35: Email-verification enforcement (offline 6/6) ✅ built
+
+Table flag **`"requireVerified":true`** → a signed-in member must have confirmed their email
+(`_users.verified`) before ANY write to that table; unverified → 403 `{code:'unverified'}`.
+Single choke point right after userId is resolved in the rows handler (covers POST/PATCH/
+DELETE across every access branch); reads unaffected. Carried via coerceTable + norm.
+Note: account **lockout** (8 failed logins → 15-min lock) was ALREADY implemented in the
+login path — marked done in the roadmap, no new code. Roadmap tally: ~56/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

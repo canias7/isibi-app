@@ -2725,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2926,7 +2926,7 @@ async function applySiteSchema(env, uuid, spec) {
       }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3261,6 +3261,34 @@ async function reportState(env, uuid, target, userId) {
   let mine = false;
   if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
   return { count: (cnt[0] && cnt[0].n) || 0, mine };
+}
+// Polls — one vote per member per poll (change your vote by voting again). A poll is any
+// string id (e.g. `best-logo` or `question:${id}`); options are app-defined strings. Stored
+// in `_polls` with PK (poll, user_id), so re-voting UPDATES the member's choice — real
+// one-per-user tallies. Ensured once per isolate.
+const _pollsReady = new Set();
+async function ensurePolls(env, uuid) {
+  if (_pollsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _polls (poll TEXT NOT NULL, option TEXT NOT NULL, user_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (poll, user_id))");
+  _pollsReady.add(uuid);
+}
+async function pollState(env, uuid, poll, userId) {
+  await ensurePolls(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT option, COUNT(*) AS n FROM _polls WHERE poll=? GROUP BY option", [poll]);
+  const counts = {}; let total = 0; for (const r of rows) { counts[r.option] = r.n; total += r.n; }
+  let mine = null;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT option FROM _polls WHERE poll=? AND user_id=?", [poll, userId]); mine = m[0] ? m[0].option : null; }
+  return { counts, total, mine };
+}
+async function votePoll(env, uuid, poll, option, userId) {
+  await ensurePolls(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _polls (poll,option,user_id,created_at) VALUES (?,?,?,?) ON CONFLICT(poll,user_id) DO UPDATE SET option=excluded.option, created_at=excluded.created_at", [poll, option, userId, new Date().toISOString()]);
+  return pollState(env, uuid, poll, userId);
+}
+async function unvotePoll(env, uuid, poll, userId) {
+  await ensurePolls(env, uuid);
+  await cfD1Query(env, uuid, "DELETE FROM _polls WHERE poll=? AND user_id=?", [poll, userId]);
+  return pollState(env, uuid, poll, userId);
 }
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
@@ -6491,6 +6519,69 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
         }
       }
+      // Account self-service (the signed-in member manages THEIR OWN account):
+      //   POST   /api/db/<slug>/auth/password {current_password, password}  → change password
+      //   POST   /api/db/<slug>/auth/email    {password, email}             → change email
+      //   DELETE /api/db/<slug>/auth/account  {password}                    → delete own account
+      // Each re-verifies the current password (so a stolen token alone can't do it).
+      const acm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/(password|email|account)$/i);
+      if (acm && (request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = acm[1].toLowerCase(), what = acm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|acc", 30)) return tooMany("Too many attempts — please wait a minute.");
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        const p = await verifySiteUserToken(secret, tok);
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        let body = {}; try { body = await request.json(); } catch {}
+        try {
+          const rows = await cfD1Query(env, uuid, "SELECT id,email,pass_salt,pass_hash FROM _users WHERE id=?", [p.sub]);
+          const u = rows[0];
+          if (!u) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+          // Re-verify the current password on every account change.
+          const given = String((what === "password" ? (body.current_password || body.current || body.old_password) : body.password) || "");
+          if (!(await verifyPassword(given, u.pass_salt, u.pass_hash))) return Response.json({ ok: false, error: "current password is incorrect" }, { status: 403 });
+          const now = Math.floor(Date.now() / 1000);
+          if (what === "password") {
+            const np = String(body.password || body.new_password || "");
+            if (np.length < 8) return Response.json({ ok: false, error: "password must be at least 8 characters" }, { status: 400 });
+            if (np.toLowerCase() === u.email.toLowerCase() || np.toLowerCase() === u.email.split("@")[0].toLowerCase() || /^(.)\1+$/.test(np)) return Response.json({ ok: false, error: "please choose a stronger password" }, { status: 400 });
+            const { salt, hash } = await hashPassword(np);
+            await cfD1Query(env, uuid, "UPDATE _users SET pass_salt=?, pass_hash=?, failed=0, locked_until=NULL WHERE id=?", [salt, hash, u.id]);
+            const token = await signSiteUserToken(secret, { sub: u.id, slug, email: u.email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+            return Response.json({ ok: true, token });
+          }
+          if (what === "email") {
+            const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "enter a valid email" }, { status: 400 });
+            if (email !== u.email) { const taken = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=? AND id!=?", [email, u.id]); if (taken[0]) return Response.json({ ok: false, error: "that email already has an account" }, { status: 409 }); }
+            await cfD1Query(env, uuid, "UPDATE _users SET email=?, verified=0 WHERE id=?", [email, u.id]);
+            const token = await signSiteUserToken(secret, { sub: u.id, slug, email, iat: now, exp: now + 60 * 60 * 24 * 30 });
+            return Response.json({ ok: true, token, user: { id: u.id, email, verified: 0 } });
+          }
+          // delete account: remove the member + their owned rows + their social side-rows.
+          if (request.method !== "DELETE") return Response.json({ ok: false, error: "use DELETE" }, { status: 405 });
+          try { const spec = await loadSiteSchema(env, uuid); for (const tdef of (spec && Array.isArray(spec.tables) ? spec.tables : [])) { if (tdef && (tdef.access === "user" || tdef.access === "feed")) { try { await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(tdef.name) + " WHERE owner_id=?", [u.id]); } catch {} } } } catch {}
+          for (const q of [
+            "DELETE FROM _follows WHERE follower_id=? OR followee_id=?",
+            "DELETE FROM _bookmarks WHERE user_id=?",
+            "DELETE FROM _reactions WHERE user_id=?",
+            "DELETE FROM _polls WHERE user_id=?",
+            "DELETE FROM _reports WHERE reporter_id=?",
+            "DELETE FROM _shares WHERE user_id=?",
+            "DELETE FROM _notifications WHERE user_id=?",
+          ]) { try { await cfD1Query(env, uuid, q, q.includes("OR followee_id") ? [u.id, u.id] : [u.id]); } catch {} }
+          await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
+          return Response.json({ ok: true, deleted: true });
+        } catch (e) {
+          console.error("account self-service failed:", what, e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "account update failed" }, { status: 502 });
+        }
+      }
     }
     // Public user profiles — a shared, publicly-readable member identity (display
     // name, avatar, bio) so a feed can show WHO authored a post without every app
@@ -6798,6 +6889,30 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
         } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
       }
+      // Polls — one vote per member (change by re-voting). Poll + options are app strings.
+      //   GET    /api/db/<slug>/poll/<poll>           → {counts:{option:n}, total, mine}
+      //   POST   /api/db/<slug>/poll/<poll>/<option>  → cast/change vote (auth) → state
+      //   DELETE /api/db/<slug>/poll/<poll>           → withdraw your vote (auth) → state
+      const plm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/poll\/([a-z0-9_.:-]{1,80})(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (plm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = plm[1].toLowerCase(), poll = plm[2].toLowerCase(), option = (plm[3] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|plr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, poll }, await pollState(env, uuid, poll, userId))); }
+          if (!userId) return Response.json({ ok: false, error: "sign in to vote" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|plw", 120)) return tooMany();
+          if (request.method === "DELETE") return Response.json(Object.assign({ ok: true, poll }, await unvotePoll(env, uuid, poll, userId)));
+          if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
+          return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
+        } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
       // Content reports / flags + moderation queue.
       //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
       //   GET  /api/db/<slug>/report/<target>           → {count, mine}
@@ -7004,6 +7119,12 @@ async function handleRequest(request, env, ctx) {
           let userId = null;
           const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
           if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          // Email-verification gate — on a `requireVerified:true` table, a signed-in member
+          // must have confirmed their email before ANY write (single choke point covering
+          // every write branch). Unverified → 403 {code:'unverified'}. Reads are unaffected.
+          if (def.requireVerified && userId && (method === "POST" || method === "PATCH" || method === "DELETE")) {
+            try { const vr = await cfD1Query(env, uuid, "SELECT verified FROM _users WHERE id=?", [userId]); if (!(vr[0] && vr[0].verified)) return Response.json({ ok: false, error: "please verify your email first", code: "unverified" }, { status: 403 }); } catch {}
+          }
           const readBody = async () => { try { return jsonizeRow(def, await request.json()); } catch { return {}; } }; // JSON/array columns → stringified on the way in
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
           const doExpand = async (rows) => { parseJsonRows(def, rows); attachComputed(def, rows); await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); await attachCounts(env, uuid, spec, def, rows, url); await attachRollups(env, uuid, spec, def, rows, url); await attachAuthors(env, uuid, rows, url); await attachReactions(env, uuid, table, rows, url, userId); await attachTags(env, uuid, table, rows, url); projectFields(rows, url, allow); return rows; }; // JSON cols parsed + ?expand + ?children + ?count + ?authors=1 + ?reactions=1 + ?tags=1 + ?fields projection (last)
