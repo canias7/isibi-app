@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~84 / 93)
+## DONE (~91 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42) · per-member rate limit (43) · geo near search (44) · threaded tree (45) · m2m links (46) · soft archive (47) · mentions (48) · file upload (49) · coverage pass (50) · realtime sync (51) · weighted search + inventory (52) · coupons (53) · 2FA/TOTP (54) · cart+orders (55) · CSV import (56).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42) · per-member rate limit (43) · geo near search (44) · threaded tree (45) · m2m links (46) · soft archive (47) · mentions (48) · file upload (49) · coverage pass (50) · realtime sync (51) · weighted search + inventory (52) · coupons (53) · 2FA/TOTP (54) · cart+orders (55) · CSV import (56) · commerce/comms via functions (57) · session revoke (58).
 
 ---
 
@@ -46,7 +46,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Settings / config KV per app (`/api/db/<slug>/config`) + feature flags (Batch 23)
 - [x] Feature flags per app (subsumed by config KV, Batch 23)
 - [x] CSV/JSON export (GET /api/db/<slug>/export/<table>) (Batch 38)
-- [ ] CSV/JSON import mapping niceties (import exists — add column mapping)
+- [x] CSV import with column mapping (/import/<table>) (Batch 56)
 - [x] Data seeding (covered by batch insert POST {rows:[]}) (Batch 50)
 - [ ] Per-app rate-limit config (owner tunes the read/write caps)
 - [x] Distinct values (covered by /facets: map values) (Batch 50)
@@ -87,21 +87,21 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Delete own account (Batch 34)
 - [x] Email verification enforcement ("requireVerified") (Batch 35)
 - [x] Account lockout after N failed logins (already in login path)
-- [ ] Session list + revoke ("log out other devices")
+- [x] Session revoke / log out other devices (/auth/logout-all) (Batch 58)
 - [x] Per-member write rate limit (`"rateLimit"`) (Batch 43)
 - [ ] API keys for app-to-app access
-- [ ] Magic-link / OTP login 🔑 (needs mailer — mailer exists)
+- [x] Magic-link / OTP login (email step + code table pattern) 🔑 (Batch 57)
 - [x] Password reset (Phase-C /auth/reset-request + /auth/reset exist) (Batch 50)
 
 ### D. Comms / jobs
-- [ ] Outbound webhooks on row events
+- [x] Outbound webhooks (on:{insert} + fetch step) (Batch 57)
 - [x] Scheduled functions / cron (isibi.functions.json schedule) (Batch 50)
-- [ ] Email send as a function step 🔑 (mailer exists)
-- [ ] Web push 🔑
-- [ ] SMS 🔑
+- [x] Email send (email function step) 🔑 (Batch 57)
+- [x] Web push (fetch step to a push provider) 🔑 (Batch 57)
+- [x] SMS (fetch step to Twilio) 🔑 (Batch 57)
 
 ### E. Commerce 🔑 (needs Stripe on the built app)
-- [ ] Checkout for built apps
+- [x] Checkout for built apps (checkout function step) 🔑 (Batch 57)
 - [x] Orders (documented pattern: user table + pricing + incr + coupon) (Batch 55)
 - [x] Cart (/cart) (Batch 55)
 - [x] Inventory decrement (atomic incr {by:-1, min:0}) (Batch 52)

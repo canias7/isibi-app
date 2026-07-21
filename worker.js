@@ -4099,6 +4099,7 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
     "ALTER TABLE _users ADD COLUMN totp_secret TEXT",
     "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN token_epoch INTEGER DEFAULT 0",
   ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -6691,9 +6692,12 @@ async function handleRequest(request, env, ctx) {
             const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
             const p = await verifySiteUserToken(secret, tok);
             if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
-            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio,blocked FROM _users WHERE id=?", [p.sub]);
+            const rows = await cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio,blocked,token_epoch FROM _users WHERE id=?", [p.sub]).catch(async () => { await ensureAuthExtras(env, uuid); return cfD1Query(env, uuid, "SELECT id,email,created_at,role,verified,display_name,avatar_url,bio,blocked,token_epoch FROM _users WHERE id=?", [p.sub]); });
             if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
             if (rows[0].blocked) return Response.json({ ok: false, error: "this account has been suspended" }, { status: 403 }); // block takes effect on the next session check (the app guards on /me)
+            // Session revoke — a "log out other devices" bumps token_epoch; a token minted
+            // before the bump no longer matches → treat as signed out (the app guards on /me).
+            if ((p.ep || 0) !== (rows[0].token_epoch || 0)) return Response.json({ ok: false, error: "session ended — please sign in again" }, { status: 401 });
             const me = rows[0]; delete me.blocked; me.role = me.role || "user"; me.verified = me.verified ? 1 : 0;
             return Response.json({ ok: true, user: me });
           }
@@ -6704,7 +6708,7 @@ async function handleRequest(request, env, ctx) {
           if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "enter a valid email" }, { status: 400 });
           if (password.length < 8) return Response.json({ ok: false, error: "password must be at least 8 characters" }, { status: 400 });
           const now = Math.floor(Date.now() / 1000);
-          const mkToken = (uid, role) => signSiteUserToken(secret, { sub: uid, slug, email, role: role || "user", iat: now, exp: now + 60 * 60 * 24 * 30 });
+          const mkToken = (uid, role, ep) => signSiteUserToken(secret, { sub: uid, slug, email, role: role || "user", ep: ep || 0, iat: now, exp: now + 60 * 60 * 24 * 30 });
           if (action === "signup") {
             // Password strength (signup only — never blocks an existing user's login):
             // reject very common passwords, all-same-character, or the email itself.
@@ -6736,10 +6740,10 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0, display_name: dn } });
           }
           // login
-          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]).catch(async () => {
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled,token_epoch FROM _users WHERE email=?", [email]).catch(async () => {
             // older sites created before the 2FA columns existed → backfill then retry
             await ensureAuthExtras(env, uuid);
-            return cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]);
+            return cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled,token_epoch FROM _users WHERE email=?", [email]);
           });
           const u = rows[0];
           if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
@@ -6757,7 +6761,7 @@ async function handleRequest(request, env, ctx) {
             if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "enter your authenticator code", need: "2fa" }, { status: 401 });
           }
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
-          return Response.json({ ok: true, token: await mkToken(u.id, u.role), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
+          return Response.json({ ok: true, token: await mkToken(u.id, u.role, u.token_epoch || 0), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
@@ -6805,6 +6809,30 @@ async function handleRequest(request, env, ctx) {
           await cfD1Query(env, uuid, "UPDATE _users SET totp_enabled=0, totp_secret=NULL WHERE id=?", [u.id]);
           return Response.json({ ok: true, enabled: false });
         } catch (e) { console.error("2fa failed:", act, e && e.message, e && e.detail); return Response.json({ ok: false, error: "2fa error" }, { status: 502 }); }
+      }
+      // Log out other devices — bumps the member's token_epoch so every EXISTING token stops
+      // validating at /auth/me; returns a FRESH token so the current device stays signed in.
+      //   POST /api/db/<slug>/auth/logout-all  (auth) → {ok, token}
+      const lom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/logout-all$/i);
+      if (lom && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lom[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        const p = await verifySiteUserToken(secret, tok);
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        try {
+          await ensureAuthExtras(env, uuid);
+          await cfD1Query(env, uuid, "UPDATE _users SET token_epoch=COALESCE(token_epoch,0)+1 WHERE id=?", [p.sub]);
+          const rows = await cfD1Query(env, uuid, "SELECT email, role, token_epoch FROM _users WHERE id=?", [p.sub]);
+          if (!rows[0]) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+          const now = Math.floor(Date.now() / 1000);
+          const token = await signSiteUserToken(secret, { sub: p.sub, slug, email: rows[0].email, role: rows[0].role || "user", ep: rows[0].token_epoch || 0, iat: now, exp: now + 60 * 60 * 24 * 30 });
+          return Response.json({ ok: true, token });
+        } catch (e) { console.error("logout-all failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "logout failed" }, { status: 502 }); }
       }
       // Account self-service (the signed-in member manages THEIR OWN account):
       //   POST   /api/db/<slug>/auth/password {current_password, password}  → change password
