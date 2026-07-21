@@ -13,6 +13,7 @@ function makeBucket() {
   return {
     async get(k) { const v = m.get(k); return v == null ? null : { async text() { return v; }, async arrayBuffer() { return new TextEncoder().encode(v).buffer; }, async json() { return JSON.parse(v); } }; },
     async put(k, v) { m.set(k, typeof v === "string" ? v : Buffer.from(v).toString()); },
+    async head(k) { return m.has(k) ? { key: k } : null; },
     async delete(k) { m.delete(k); },
     async list({ prefix } = {}) { return { objects: [...m.keys()].filter((k) => !prefix || k.startsWith(prefix)).map((key) => ({ key })) }; },
     _map: m,
