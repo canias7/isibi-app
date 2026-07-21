@@ -2654,7 +2654,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2722,6 +2722,7 @@ async function applySiteSchema(env, uuid, spec) {
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
     if (access === "user" || access === "feed") { cols.push('"owner_id" INTEGER'); } // stamps the author / scopes rows
+    if (t.trash) cols.push('"deleted_at" TEXT'); // soft-delete: NULL = live, timestamp = trashed
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Composite UNIQUE constraints (declared at the TABLE level, race-free — enforced
@@ -2749,7 +2750,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, trash: !!t.trash });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -6076,12 +6077,13 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr))?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr|restore))?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
         const isIncr = dm[4] === "incr";
+        const isRestore = dm[4] === "restore";
         const rowId = dm[3] && dm[3] !== "stats" && dm[3] !== "changes" ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6107,6 +6109,41 @@ async function handleRequest(request, env, ctx) {
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
           const vBatch = (arr) => { for (const rr of arr) { const e = vErr(rr, true); if (e) return e; } return null; };
+
+          // Soft delete / trash — on tables declared with `trash:true`, DELETE hides a
+          // row (sets deleted_at) instead of removing it; reads exclude trashed rows by
+          // default. `?trashed=1` lists ONLY trashed; `?withTrashed=1` lists everything.
+          const trashOn = !!def.trash;
+          const trashClause = trashOn
+            ? (url.searchParams.get("withTrashed") === "1" ? "" : url.searchParams.get("trashed") === "1" ? "deleted_at IS NOT NULL" : "deleted_at IS NULL")
+            : "";
+          const withTrash = (base) => { if (!trashClause) return base; const c = base && base.clause ? base.clause + " AND " + trashClause : trashClause; return { clause: c, params: base ? base.params.slice() : [] }; };
+          // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
+          // otherwise it's a real cascade delete. Returns true if a row was affected.
+          const doDelete = async (scopeSql, scopeParams) => {
+            if (trashOn && url.searchParams.get("hard") !== "1") {
+              const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=? WHERE id=? AND deleted_at IS NULL" + scopeSql, [new Date().toISOString(), rowId].concat(scopeParams));
+              return ex.changes > 0;
+            }
+            return await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, scopeSql, scopeParams);
+          };
+
+          // Restore a soft-deleted row — POST /rows/<t>/<id>/restore (trash tables only),
+          // same write scope as delete (feed/user own-row, admin any).
+          if (isRestore) {
+            if (!trashOn) return Response.json({ ok: false, error: "restore not enabled" }, { status: 400 });
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (access === "display" || access === "collect") return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
+            let tok2 = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            let scope = "", params = [rowId];
+            if (access === "feed" || access === "user") { scope = " AND owner_id=?"; params.push(userId); }
+            else if (access === "admin") { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=NULL WHERE id=?" + scope, params);
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            return Response.json({ ok: true, restored: rowId });
+          }
 
           // Atomic column increment — POST /rows/<t>/<id>/incr {col, by=1, min?}. Adds
           // `by` to a NUMERIC column on one row, race-free (single UPDATE), returns the
@@ -6147,6 +6184,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
+            base = withTrash(base); // stats exclude trashed rows by default (respect ?withTrashed/?trashed)
             const b = buildD1Stats(url, tn, allow, base);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCol) {
@@ -6188,8 +6226,8 @@ async function handleRequest(request, env, ctx) {
 
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, null);
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+            const b = buildD1List(url, tn, allow, withTrash(null));
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6211,8 +6249,8 @@ async function handleRequest(request, env, ctx) {
             // Public READ (a shared feed/board/comments); a LOGGED-IN visitor may
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, null);
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTrash(null));
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6240,7 +6278,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true });
             }
             if (method === "DELETE" && rowId != null) {
-              if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, " AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              if (!(await doDelete(" AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
@@ -6250,8 +6288,8 @@ async function handleRequest(request, env, ctx) {
             // user whose role is 'admin' may write; admins manage ALL rows (not
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, null);
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTrash(null));
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -6280,7 +6318,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json({ ok: true });
             }
             if (method === "DELETE" && rowId != null) {
-              if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, "", []))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              if (!(await doDelete("", []))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               return Response.json({ ok: true });
             }
             return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
@@ -6288,8 +6326,8 @@ async function handleRequest(request, env, ctx) {
           // access === "user": requires login; every row scoped to owner_id.
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?", [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); await doExpand(r); return Response.json({ ok: true, row: r[0] }); }
-            const b = buildD1List(url, tn, allow, { clause: "owner_id=?", params: [userId] });
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]); if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 }); await doExpand(r); return Response.json({ ok: true, row: r[0] }); }
+            const b = buildD1List(url, tn, allow, withTrash({ clause: "owner_id=?", params: [userId] }));
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -6316,7 +6354,7 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true });
           }
           if (method === "DELETE" && rowId != null) {
-            if (!(await cascadeDeleteRow(env, uuid, spec, table, tn, rowId, " AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!(await doDelete(" AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true });
           }
           return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
