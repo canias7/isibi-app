@@ -2622,6 +2622,21 @@ function parseFunctionSpecs(files) {
   }
   return out;
 }
+// Lightweight per-isolate burst limiter for the built-apps public API — a fixed 60s
+// window keyed by site + visitor IP + kind. Not globally consistent (each Worker
+// isolate keeps its own counter), but it caps abuse cheaply with ZERO extra infra; a
+// strict global limit would need KV/Durable Objects (noted as the scale upgrade).
+// Returns false when the caller is over the limit for this window.
+const _rlHits = new Map();
+function rateOk(key, limit) {
+  const win = Math.floor(Date.now() / 60000);
+  const k = key + "|" + win;
+  if (_rlHits.size > 8000) { for (const kk of _rlHits.keys()) { if (!kk.endsWith("|" + win)) _rlHits.delete(kk); } } // drop stale windows
+  const n = (_rlHits.get(k) || 0) + 1;
+  _rlHits.set(k, n);
+  return n <= limit;
+}
+function tooMany(msg) { return Response.json({ ok: false, error: msg || "Too many requests — please slow down." }, { status: 429, headers: { "Retry-After": "30" } }); }
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5111,6 +5126,7 @@ async function handleRequest(request, env, ctx) {
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|a", 30)) return tooMany("Too many attempts — please wait a minute.");
         let secret; try { secret = await initSiteAuth(env, uuid); } catch (e) { console.error("initSiteAuth failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
         try {
           if (action === "me") {
@@ -5175,6 +5191,7 @@ async function handleRequest(request, env, ctx) {
       if (rm && request.method === "POST") {
         const okResp = () => Response.json({ ok: true });
         const slug = rm[1].toLowerCase();
+        if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|e", 10)) return okResp(); // neutral drop (never reveals; no email flood)
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return okResp();
         let body; try { body = await request.json(); } catch { return okResp(); }
         if (body && (body._hp || body.hp)) return okResp(); // honeypot
@@ -5207,6 +5224,7 @@ async function handleRequest(request, env, ctx) {
       if (vm && request.method === "POST") {
         const okResp = () => Response.json({ ok: true });
         const slug = vm[1].toLowerCase();
+        if (!rateOk(slug + "|" + (request.headers.get("CF-Connecting-IP") || "0") + "|e", 10)) return okResp(); // neutral drop (no email flood)
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return okResp();
         let body; try { body = await request.json(); } catch { body = {}; }
         if (body && (body._hp || body.hp)) return okResp(); // honeypot
@@ -5274,6 +5292,8 @@ async function handleRequest(request, env, ctx) {
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const rlIp = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + rlIp + "|" + (method === "GET" ? "r" : "w"), method === "GET" ? 300 : 60)) return tooMany();
         try {
           const spec = await loadSiteSchema(env, uuid);
           const def = tableDef(spec, table);
