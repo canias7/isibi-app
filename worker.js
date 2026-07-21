@@ -3436,6 +3436,33 @@ async function linksOf(env, uuid, target, toTable) {
   const filtered = toTable ? others.filter((o) => o.toLowerCase().startsWith(toTable.toLowerCase() + ":")) : others;
   return filtered.map((o) => { const i = o.indexOf(":"); return { target: o, table: i > 0 ? o.slice(0, i) : null, id: i > 0 ? parseInt(o.slice(i + 1), 10) : null }; });
 }
+// Coupons / discount codes — a redeemable code with an optional usage cap + expiry. The app
+// ADMIN mints codes; anyone can VALIDATE one, and a signed-in member REDEEMS it (an atomic
+// UPDATE bumps `used`, so the cap is race-free). `discount` is app-defined JSON (percent/
+// amount/free-shipping/…). Stored in `_coupons`. Ensured once per isolate.
+const _couponsReady = new Set();
+async function ensureCoupons(env, uuid) {
+  if (_couponsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _coupons (code TEXT PRIMARY KEY, discount TEXT, max_uses INTEGER, used INTEGER DEFAULT 0, expires_at TEXT, created_at TEXT)");
+  _couponsReady.add(uuid);
+}
+const _parseDiscount = (v) => { if (v == null) return null; try { return JSON.parse(v); } catch { return v; } };
+async function couponState(env, uuid, code) {
+  await ensureCoupons(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT code,discount,max_uses,used,expires_at FROM _coupons WHERE code=?", [code]);
+  if (!r[0]) return { valid: false, reason: "not found" };
+  const row = r[0];
+  const expired = row.expires_at && new Date(row.expires_at).getTime() <= Date.now();
+  const spent = row.max_uses != null && row.used >= row.max_uses;
+  return { valid: !expired && !spent, reason: expired ? "expired" : spent ? "used up" : null, discount: _parseDiscount(row.discount), remaining: row.max_uses != null ? Math.max(0, row.max_uses - row.used) : null };
+}
+async function redeemCoupon(env, uuid, code) {
+  await ensureCoupons(env, uuid);
+  const ex = await cfD1Exec(env, uuid, "UPDATE _coupons SET used=used+1 WHERE code=? AND (max_uses IS NULL OR used < max_uses) AND (expires_at IS NULL OR datetime(expires_at) > datetime('now'))", [code]);
+  if (!ex.changes) { const st = await couponState(env, uuid, code); return { ok: false, reason: st.reason || "invalid" }; }
+  const r = await cfD1Query(env, uuid, "SELECT discount FROM _coupons WHERE code=?", [code]);
+  return { ok: true, discount: r[0] ? _parseDiscount(r[0].discount) : null };
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -3988,6 +4015,40 @@ async function _hmac(secret, msg) {
   const sig = await crypto.subtle.sign("HMAC", key, _sbEnc.encode(msg));
   return _b64(new Uint8Array(sig));
 }
+// TOTP (RFC 6238) for two-factor auth — standard authenticator-app codes (Google
+// Authenticator, Authy, 1Password). Secret is base32; codes are 6 digits over a 30s step.
+const _B32_ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+function base32Encode(bytes) {
+  let bits = 0, val = 0, out = "";
+  for (const b of bytes) { val = (val << 8) | b; bits += 8; while (bits >= 5) { out += _B32_ALPH[(val >>> (bits - 5)) & 31]; bits -= 5; } }
+  if (bits > 0) out += _B32_ALPH[(val << (5 - bits)) & 31];
+  return out;
+}
+function base32Decode(s) {
+  const clean = String(s || "").toUpperCase().replace(/[^A-Z2-7]/g, "");
+  let bits = 0, val = 0; const out = [];
+  for (const ch of clean) { const idx = _B32_ALPH.indexOf(ch); if (idx < 0) continue; val = (val << 5) | idx; bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 0xff); bits -= 8; } }
+  return new Uint8Array(out);
+}
+async function _totpAt(keyBytes, counter) {
+  const buf = new Uint8Array(8); let c = counter;
+  for (let i = 7; i >= 0; i--) { buf[i] = c & 0xff; c = Math.floor(c / 256); }
+  const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, buf));
+  const off = sig[sig.length - 1] & 0x0f;
+  const bin = ((sig[off] & 0x7f) << 24) | (sig[off + 1] << 16) | (sig[off + 2] << 8) | sig[off + 3];
+  return String(bin % 1000000).padStart(6, "0");
+}
+async function totpVerify(secretB32, code, window = 1) {
+  const c = String(code || "").replace(/\D/g, "");
+  if (c.length !== 6) return false;
+  const key = base32Decode(secretB32);
+  if (!key.length) return false;
+  const step = Math.floor(Date.now() / 1000 / 30);
+  for (let i = -window; i <= window; i++) { if (await _totpAt(key, step + i) === c) return true; }
+  return false;
+}
+function newTotpSecret() { return base32Encode(crypto.getRandomValues(new Uint8Array(20))); }
 async function signSiteUserToken(secret, payload) {
   const body = _b64url(btoa(JSON.stringify(payload)));
   return body + "." + _b64url(await _hmac(secret, body));
@@ -4016,6 +4077,8 @@ async function ensureAuthExtras(env, uuid) {
     "ALTER TABLE _users ADD COLUMN avatar_url TEXT",
     "ALTER TABLE _users ADD COLUMN bio TEXT",
     "ALTER TABLE _users ADD COLUMN blocked INTEGER DEFAULT 0",
+    "ALTER TABLE _users ADD COLUMN totp_secret TEXT",
+    "ALTER TABLE _users ADD COLUMN totp_enabled INTEGER DEFAULT 0",
   ]) { try { await cfD1Query(env, uuid, sql); } catch {} }
   _authExtrasDone.add(uuid);
 }
@@ -6653,7 +6716,11 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, token: await mkToken(uid, role), user: { id: uid, email, role, verified: 0, display_name: dn } });
           }
           // login
-          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked FROM _users WHERE email=?", [email]);
+          const rows = await cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]).catch(async () => {
+            // older sites created before the 2FA columns existed → backfill then retry
+            await ensureAuthExtras(env, uuid);
+            return cfD1Query(env, uuid, "SELECT id,pass_salt,pass_hash,failed,locked_until,role,verified,blocked,totp_secret,totp_enabled FROM _users WHERE email=?", [email]);
+          });
           const u = rows[0];
           if (u && u.locked_until && now < u.locked_until) return Response.json({ ok: false, error: "too many attempts — try again in a few minutes" }, { status: 429 });
           // Always run a hash (even when the email is unknown) so timing can't reveal
@@ -6664,12 +6731,60 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: false, error: "wrong email or password" }, { status: 401 });
           }
           if (u.blocked) return Response.json({ ok: false, error: "this account has been suspended" }, { status: 403 });
+          // Two-factor gate — when enabled, the password is right but a valid TOTP `code` is
+          // also required; without/with-wrong code, tell the client to prompt for it.
+          if (u.totp_enabled && u.totp_secret) {
+            if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "enter your authenticator code", need: "2fa" }, { status: 401 });
+          }
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
           return Response.json({ ok: true, token: await mkToken(u.id, u.role), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "auth error — try again" }, { status: 502 });
         }
+      }
+      // Two-factor auth (TOTP — authenticator apps). The signed-in member enrolls, confirms
+      // with a code to enable, and can disable. Once enabled, login requires a `code`.
+      //   POST /api/db/<slug>/auth/2fa/setup            → {secret, otpauth} (start enrollment)
+      //   POST /api/db/<slug>/auth/2fa/enable {code}    → verify + turn on
+      //   POST /api/db/<slug>/auth/2fa/disable {code}   → turn off
+      const tfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/2fa\/(setup|enable|disable)$/i);
+      if (tfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tfm[1].toLowerCase(), act = tfm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|2fa", 30)) return tooMany();
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        const p = await verifySiteUserToken(secret, tok);
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        let body = {}; try { body = await request.json(); } catch {}
+        try {
+          await ensureAuthExtras(env, uuid);
+          const rows = await cfD1Query(env, uuid, "SELECT id,email,totp_secret,totp_enabled FROM _users WHERE id=?", [p.sub]);
+          const u = rows[0];
+          if (!u) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+          if (act === "setup") {
+            const ts = newTotpSecret();
+            await cfD1Query(env, uuid, "UPDATE _users SET totp_secret=?, totp_enabled=0 WHERE id=?", [ts, u.id]);
+            const label = encodeURIComponent(slug + ":" + u.email);
+            return Response.json({ ok: true, secret: ts, otpauth: "otpauth://totp/" + label + "?secret=" + ts + "&issuer=" + encodeURIComponent(slug) });
+          }
+          if (act === "enable") {
+            if (!u.totp_secret) return Response.json({ ok: false, error: "run setup first" }, { status: 400 });
+            if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "that code is incorrect" }, { status: 403 });
+            await cfD1Query(env, uuid, "UPDATE _users SET totp_enabled=1 WHERE id=?", [u.id]);
+            return Response.json({ ok: true, enabled: true });
+          }
+          // disable — require a current valid code (so a stolen token alone can't turn it off)
+          if (!u.totp_enabled) return Response.json({ ok: true, enabled: false });
+          if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "that code is incorrect" }, { status: 403 });
+          await cfD1Query(env, uuid, "UPDATE _users SET totp_enabled=0, totp_secret=NULL WHERE id=?", [u.id]);
+          return Response.json({ ok: true, enabled: false });
+        } catch (e) { console.error("2fa failed:", act, e && e.message, e && e.detail); return Response.json({ ok: false, error: "2fa error" }, { status: 502 }); }
       }
       // Account self-service (the signed-in member manages THEIR OWN account):
       //   POST   /api/db/<slug>/auth/password {current_password, password}  → change password
@@ -7095,6 +7210,53 @@ async function handleRequest(request, env, ctx) {
           if (!option) return Response.json({ ok: false, error: "option required to vote" }, { status: 400 });
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
+      }
+      // Coupons / discount codes.
+      //   GET    /api/db/<slug>/coupon/<code>          → {valid, discount, remaining} (validate, public)
+      //   POST   /api/db/<slug>/coupon/<code>/redeem   → atomically redeem (auth) → {ok, discount}
+      //   GET    /api/db/<slug>/coupons                → list (ADMIN)
+      //   POST   /api/db/<slug>/coupons {code, discount, max_uses?, expires_at?} → mint (ADMIN)
+      //   DELETE /api/db/<slug>/coupons/<code>         → remove (ADMIN)
+      const cpuse = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/coupon\/([a-z0-9_.-]{1,60})(\/redeem)?$/i);
+      const cpadm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/coupons(?:\/([a-z0-9_.-]{1,60}))?$/i);
+      if ((cpuse || cpadm) && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (cpuse || cpadm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (cpuse) {
+            const code = cpuse[2].toLowerCase(), isRedeem = !!cpuse[3];
+            if (!isRedeem) { if (request.method !== "GET") return Response.json({ ok: false, error: "use /redeem to redeem" }, { status: 405 }); if (!rateOk(slug + "|" + ip + "|cpr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, code }, await couponState(env, uuid, code))); }
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in to redeem" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|cpx", 60)) return tooMany();
+            const res = await redeemCoupon(env, uuid, code);
+            return Response.json(Object.assign({ code }, res), { status: res.ok ? 200 : 409 });
+          }
+          // admin coupon management
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureCoupons(env, uuid);
+          const code = cpadm[2] ? cpadm[2].toLowerCase() : null;
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|cpl", 300)) return tooMany(); const rows = await cfD1Query(env, uuid, "SELECT code,discount,max_uses,used,expires_at,created_at FROM _coupons ORDER BY created_at DESC LIMIT 500"); return Response.json({ ok: true, coupons: rows.map((r) => Object.assign(r, { discount: _parseDiscount(r.discount) })) }); }
+          if (request.method === "DELETE") { if (!code) return Response.json({ ok: false, error: "code required" }, { status: 400 }); await cfD1Query(env, uuid, "DELETE FROM _coupons WHERE code=?", [code]); return Response.json({ ok: true, code, deleted: true }); }
+          // POST — mint
+          if (!rateOk(slug + "|" + ip + "|cpw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const newCode = String(body.code || "").toLowerCase().replace(/[^a-z0-9_.-]/g, "").slice(0, 60);
+          if (!newCode) return Response.json({ ok: false, error: "code required" }, { status: 400 });
+          const maxUses = (body.max_uses != null && Number.isFinite(parseInt(body.max_uses, 10))) ? Math.max(1, parseInt(body.max_uses, 10)) : null;
+          const expiresAt = typeof body.expires_at === "string" ? body.expires_at.slice(0, 40) : null;
+          await cfD1Query(env, uuid, "INSERT INTO _coupons (code,discount,max_uses,expires_at,used,created_at) VALUES (?,?,?,?,0,?) ON CONFLICT(code) DO UPDATE SET discount=excluded.discount, max_uses=excluded.max_uses, expires_at=excluded.expires_at", [newCode, JSON.stringify(body.discount === undefined ? null : body.discount), maxUses, expiresAt, new Date().toISOString()]);
+          return Response.json(Object.assign({ ok: true, code: newCode }, await couponState(env, uuid, newCode)));
+        } catch (e) { console.error("coupon failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "coupon failed" }, { status: 502 }); }
       }
       // Many-to-many links between rows (targets are `<table>:<id>`).
       //   POST   /api/db/<slug>/link {a, b}      → link two rows (auth)

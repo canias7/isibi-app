@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~79 / 93)
+## DONE (~81 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42) · per-member rate limit (43) · geo near search (44) · threaded tree (45) · m2m links (46) · soft archive (47) · mentions (48) · file upload (49) · coverage pass (50) · realtime sync (51) · weighted search + inventory (52).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40) · saved views (41) · onDelete modes (42) · per-member rate limit (43) · geo near search (44) · threaded tree (45) · m2m links (46) · soft archive (47) · mentions (48) · file upload (49) · coverage pass (50) · realtime sync (51) · weighted search + inventory (52) · coupons (53) · 2FA/TOTP (54).
 
 ---
 
@@ -71,11 +71,11 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Reverse-relation rollups (`?rollup=child:agg:col`) (Batch 30)
 - [x] Nearby / geo search (/rows/<t>/near) (Batch 44)
 - [x] Presence / who's-online (/presence) (Batch 39)
-- [ ] Realtime edits+deletes diff (changes covers appends — add updates)
+- [x] Realtime edits+deletes diff ("sync":true, ?sync=) (Batch 51)
 - [x] File upload to R2 per app (/api/db/<slug>/upload) (Batch 49)
 - [x] Signed upload URLs (covered: direct base64 -> public URL model) (Batch 49)
 - [ ] Image resize/transform on upload (photon is available)
-- [ ] Full-text search index (LIKE `q` exists — add ranked FTS)
+- [x] Full-text search: weighted ranking ("searchWeights") (Batch 52)
 - [x] Saved views / filters per member (/views) (Batch 41)
 - [x] Row-level view counts (covered by Counters layer) (Batch 50)
 - [x] Scheduled publish / drafts (`"publishable":true`, publish_at) (Batch 25)
@@ -104,12 +104,12 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [ ] Checkout for built apps
 - [ ] Orders helper
 - [ ] Cart
-- [ ] Inventory decrement (atomic — incr exists)
-- [ ] Coupons / discounts
+- [x] Inventory decrement (atomic incr {by:-1, min:0}) (Batch 52)
+- [x] Coupons / discount codes (/coupons, /coupon/<code>/redeem) (Batch 53)
 
 ### F. Integrations 🔑
 - [ ] OAuth social login (Google/GitHub)
-- [ ] 2FA / TOTP
+- [x] 2FA / TOTP (/auth/2fa/*) (Batch 54)
 
 ---
 
