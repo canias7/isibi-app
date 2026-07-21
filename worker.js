@@ -2725,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2939,8 +2939,20 @@ async function applySiteSchema(env, uuid, spec) {
       try { await cfD1Query(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
       try { await cfD1Query(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
     }
+    // Row history / revert — `history:true` snapshots a row's OLD data columns (as JSON, via
+    // json_object) into `_history` on every UPDATE (BEFORE UPDATE trigger). The owner/admin
+    // can view the timeline and restore any prior version. Undo, revision history, audit-of-content.
+    if (t.history && colNames.length) {
+      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
+      const jsonPairs = colNames.map((cn) => "'" + String(cn).replace(/'/g, "''") + "', OLD." + sqlIdent(cn)).join(", ");
+      try {
+        await cfD1Query(env, uuid,
+          "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_hist") + " BEFORE UPDATE ON " + tn +
+          " BEGIN INSERT INTO _history (row_table,row_id,snapshot,at) VALUES ('" + t.name.replace(/'/g, "''") + "', OLD.id, json_object(" + jsonPairs + "), datetime('now')); END");
+      } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
+    }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -7266,7 +7278,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share|move)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets)(?:\/(incr|restore|tags|share|move|history|revert)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -7277,6 +7289,8 @@ async function handleRequest(request, env, ctx) {
         const isTags = dm[4] === "tags";
         const isShare = dm[4] === "share";
         const isMove = dm[4] === "move";
+        const isHistory = dm[4] === "history";
+        const isRevert = dm[4] === "revert";
         const rowId = dm[3] && !["stats", "changes", "facets"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -7540,6 +7554,41 @@ async function handleRequest(request, env, ctx) {
             }
             await cfD1Exec(env, uuid, "UPDATE " + tn + ' SET "position"=?' + tsFrag + " WHERE id=?" + scope, [newPos, rowId].concat(scopeParams));
             return Response.json({ ok: true, id: rowId, position: newPos });
+          }
+
+          // Row history / revert (owner or admin) — the change timeline of a `history:true`
+          // row and restore of any prior version. GET /rows/<t>/<id>/history lists snapshots
+          // (newest first); POST /rows/<t>/<id>/revert/<historyId> restores that snapshot's
+          // data columns (itself recorded, so a revert is undoable).
+          if (isHistory || isRevert) {
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!def.history) return badReq("this table has no history (declare \"history\":true)");
+            let hscope = "", hsp = [];
+            if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); hscope = " AND owner_id=?"; hsp = [userId]; }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
+            else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
+            const own = await cfD1Query(env, uuid, "SELECT 1 FROM " + tn + " WHERE id=?" + hscope, [rowId].concat(hsp));
+            if (!own[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _history (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, snapshot TEXT, at TEXT)"); } catch {}
+            if (isHistory) {
+              if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+              const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+              const rows = await cfD1Query(env, uuid, "SELECT id, snapshot, at FROM _history WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT ?", [table, rowId, lim]);
+              for (const r of rows) { try { r.snapshot = JSON.parse(r.snapshot); } catch {} }
+              return Response.json({ ok: true, history: rows });
+            }
+            // revert
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            const histId = parseInt(dm[5], 10) || 0;
+            if (!histId) return Response.json({ ok: false, error: "history id required (…/revert/<id>)" }, { status: 400 });
+            const hrow = await cfD1Query(env, uuid, "SELECT snapshot FROM _history WHERE id=? AND row_table=? AND row_id=?", [histId, table, rowId]);
+            if (!hrow[0]) return Response.json({ ok: false, error: "snapshot not found" }, { status: 404 });
+            let snap = null; try { snap = JSON.parse(hrow[0].snapshot); } catch {}
+            if (!snap || typeof snap !== "object") return Response.json({ ok: false, error: "snapshot unreadable" }, { status: 502 });
+            const cols = allow.filter((c) => Object.prototype.hasOwnProperty.call(snap, c));
+            if (!cols.length) return badReq("nothing to revert");
+            await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cols.map((c) => sqlIdent(c) + "=?").join(",") + tsFrag + " WHERE id=?" + hscope, cols.map((c) => snap[c]).concat([rowId], hsp));
+            return Response.json({ ok: true, reverted: rowId, from: histId });
           }
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for

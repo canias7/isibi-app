@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~60 / 93)
+## DONE (~61 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–22:** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39).
+`/move` reorder (20) · expiring rows / TTL (21) · pinned/featured + defaultSort (22) · app settings/config KV (23) · bookmarks/saves (24) · scheduled publish/drafts (25) · following feed (26) · maxRows quota + uniqueCI (27) · cross-field checks (28) · referential integrity (29) · child rollups (30) · reports/moderation (31) · computed columns (32) · polls (33) · account self-service (34) · email-verify gate (35) · block member (36) · audit log (37) · data export (38) · presence (39) · row history+revert (40).
 
 ---
 
@@ -42,7 +42,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 - [x] Row `pin`/`feature` flag + pinned-first ordering + per-table defaultSort (Batch 22)
 - [x] Expiring rows / TTL (`"expires":true`, auto-hidden past expires_at) — sales, stories, invites (Batch 21)
 - [x] Audit log (`"audit":true`, GET /api/db/<slug>/audit) (Batch 37)
-- [ ] Row history / change snapshots (per-row versions, revert)
+- [x] Row history / snapshots + revert (`"history":true`) (Batch 40)
 - [x] Settings / config KV per app (`/api/db/<slug>/config`) + feature flags (Batch 23)
 - [x] Feature flags per app (subsumed by config KV, Batch 23)
 - [x] CSV/JSON export (GET /api/db/<slug>/export/<table>) (Batch 38)
