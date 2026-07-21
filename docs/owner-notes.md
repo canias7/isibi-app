@@ -10,6 +10,26 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — NEW LAYER: Profiles (public member identity) ✅ live
+
+Testing kept showing the same gap: generated apps (Townsquare, Parkbench) copied an
+`author_name` into EVERY row because there was no shared, publicly-readable member
+identity. Fixed it with a real profiles layer:
+
+- `_users` gains `display_name` / `avatar_url` / `bio` (back-compatible ALTER via
+  `ensureAuthExtras`). Signup optionally takes `display_name` (defaults from email).
+- `GET /api/db/<slug>/profile/<id>` — PUBLIC, safe columns only (never email/hash).
+- `GET`/`PATCH /api/db/<slug>/profile/me` — read/edit own (auth); avatar must be a
+  URL, name non-empty, bio bounded. `GET …/profiles?ids=1,2,3` — batch.
+- **`?authors=1`** on any list read inlines `row.author = {id,display_name,avatar_url}`
+  by `owner_id` (batched, no N+1) — feeds show the poster with NO author_name column.
+- Owner member read now shows `display_name`; BACKEND_RULES teaches profiles+`?authors`.
+
+Shipped PR #526, deployed. **Verified live 17/17** — public read (no email/hash leak),
+me read (own email), PATCH (+ URL/empty guards + 401 anon), batch, the `?authors=1`
+join (opt-in), and owner member names (no hashes). Bare-provisioned test backend, $0,
+deleted after.
+
 ## 2026-07-21 — NEW LAYER: Counters (atomic likes/views/reactions/polls) ✅ live
 
 Built apps had no race-free way to tally likes, view counts, reactions, or poll
