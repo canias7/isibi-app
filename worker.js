@@ -3039,13 +3039,19 @@ function buildD1List(url, tn, allowCols, base) {
   // DESC). Each column is validated against the table's own columns; up to 4.
   const globalDesc = !/^asc$/i.test(url.searchParams.get("order") || "");
   const sortToks = (url.searchParams.get("sort") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
+  // When ANY column carries a direction prefix (`-`/`+`), an UNprefixed column defaults
+  // to ASC (the prefix convention — `sort=status,-price` = status asc, price desc).
+  // With no prefixes anywhere, every column follows the `order` param (default DESC),
+  // preserving the single-column `sort=price&order=asc` behavior.
+  const hasPrefix = sortToks.some((t) => t[0] === "-" || t[0] === "+");
+  const defaultDir = hasPrefix ? "ASC" : (globalDesc ? "DESC" : "ASC");
   const orderCols = [];
   for (const tk of sortToks) {
     let dir = null, col = tk;
     if (tk[0] === "-") { dir = "DESC"; col = tk.slice(1); }
     else if (tk[0] === "+") { dir = "ASC"; col = tk.slice(1); }
     if (!f.filterable.has(col)) continue;
-    orderCols.push(sqlIdent(col) + " " + (dir || (globalDesc ? "DESC" : "ASC")));
+    orderCols.push(sqlIdent(col) + " " + (dir || defaultDir));
   }
   const hasExplicit = orderCols.length > 0;
   const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
