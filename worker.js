@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2801,6 +2801,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.version) cols.push('"_version" INTEGER NOT NULL DEFAULT 1'); // optimistic-concurrency row version
     if (t.timestamps) cols.push('"updated_at" TEXT DEFAULT (datetime(\'now\'))'); // auto edit-tracking: set on insert (= created), bumped on every UPDATE
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
+    if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2834,6 +2835,7 @@ async function applySiteSchema(env, uuid, spec) {
           " END");
       } catch (e) { console.error("position trigger failed:", t.name, e && e.detail); }
     }
+    if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2865,7 +2867,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -6652,6 +6654,9 @@ async function handleRequest(request, env, ctx) {
           const access = def.access || "collect";
           const managed = new Set(["id", "created_at", "owner_id"]);
           const allow = (Array.isArray(def.columns) ? def.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+          // `expires_at` is platform-added but APP-SET (the app chooses when a row expires),
+          // so it's writable + queryable + sortable like a normal column on expiring tables.
+          if (def.expires && !allow.some((c) => String(c).toLowerCase() === "expires_at")) allow.push("expires_at");
           const tn = sqlIdent(table);
           // Identify the logged-in visitor (site-user token), if any.
           let userId = null;
@@ -6694,7 +6699,19 @@ async function handleRequest(request, env, ctx) {
           const trashClause = trashOn
             ? (url.searchParams.get("withTrashed") === "1" ? "" : url.searchParams.get("trashed") === "1" ? "deleted_at IS NOT NULL" : "deleted_at IS NULL")
             : "";
-          const withTrash = (base) => { if (!trashClause) return base; const c = base && base.clause ? base.clause + " AND " + trashClause : trashClause; return { clause: c, params: base ? base.params.slice() : [] }; };
+          // Expiring rows / TTL — on tables declared with `expires:true`, reads hide rows
+          // whose `expires_at` is in the past (a flash sale, a story, a temp invite). The
+          // app sets expires_at (any datetime/ISO string); comparison via SQLite datetime()
+          // normalizes formats and needs no bound param. `?expired=1` lists only expired,
+          // `?withExpired=1` lists everything. NULL expires_at = never expires.
+          const expiresOn = !!def.expires;
+          const expiresClause = expiresOn
+            ? (url.searchParams.get("withExpired") === "1" ? "" : url.searchParams.get("expired") === "1" ? "(expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now'))" : "(expires_at IS NULL OR datetime(expires_at) > datetime('now'))")
+            : "";
+          // Combined default row visibility (trash + expiry). Both clauses are param-free, so
+          // they compose into one AND-ed suffix shared by list, single-GET, stats, and bulk.
+          const visClause = [trashClause, expiresClause].filter(Boolean).join(" AND ");
+          const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
           const doDelete = async (scopeSql, scopeParams) => {
@@ -6874,7 +6891,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
-            base = withTagFilter(withTrash(base)); // stats respect trash + ?tag= filter
+            base = withTagFilter(withVisible(base)); // stats respect trash + ?tag= filter
             const b = buildD1Stats(url, tn, allow, base);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCol) {
@@ -6896,7 +6913,7 @@ async function handleRequest(request, env, ctx) {
             if (access === "collect") return Response.json({ ok: false, error: "no facets" }, { status: 403 });
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = { clause: "owner_id=?", params: [userId] }; }
-            base = withTagFilter(withTrash(base));
+            base = withTagFilter(withVisible(base));
             const allowSet = new Set(allow.map((c) => String(c).toLowerCase()));
             const fields = (url.searchParams.get("fields") || "").toLowerCase().split(",").map((s) => s.trim()).filter((c) => allowSet.has(c)).slice(0, 8);
             if (!fields.length) return Response.json({ ok: false, error: "fields required" }, { status: 400 });
@@ -6956,7 +6973,7 @@ async function handleRequest(request, env, ctx) {
             let base = null;
             if (access === "feed" || access === "user") base = { clause: "owner_id=?", params: [userId] };
             else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
-            const filt = buildD1Filter(url, allow, withTagFilter(withTrash(base)));
+            const filt = buildD1Filter(url, allow, withTagFilter(withVisible(base)));
             const idSub = "id IN (SELECT id FROM " + tn + filt.whereSql + " LIMIT 1000)";
             if (method === "PATCH") {
               const body = await readBody();
@@ -6977,8 +6994,8 @@ async function handleRequest(request, env, ctx) {
 
           if (access === "display") {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 403 });
-            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
+            if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);
@@ -7001,8 +7018,8 @@ async function handleRequest(request, env, ctx) {
             // Public READ (a shared feed/board/comments); a LOGGED-IN visitor may
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -7039,8 +7056,8 @@ async function handleRequest(request, env, ctx) {
             // user whose role is 'admin' may write; admins manage ALL rows (not
             // owner-scoped), so this is an in-app CMS the app's own admin controls.
             if (method === "GET") {
-              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withTrash(null)), listExtras);
+              if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
@@ -7076,8 +7093,8 @@ async function handleRequest(request, env, ctx) {
           if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
           if (method === "GET") {
             if (rowId != null) {
-              let r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (trashClause ? " AND " + trashClause : ""), [rowId, userId]);
-              if (!r[0] && await shareLevel(env, uuid, table, rowId, userId)) r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (trashClause ? " AND " + trashClause : ""), [rowId]); // shared with me
+              let r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=? AND owner_id=?" + (visClause ? " AND " + visClause : ""), [rowId, userId]);
+              if (!r[0] && await shareLevel(env, uuid, table, rowId, userId)) r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); // shared with me
               if (!r[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
               await doExpand(r); return Response.json({ ok: true, row: r[0] });
             }
@@ -7088,7 +7105,7 @@ async function handleRequest(request, env, ctx) {
               if (!ids.length) return Response.json({ ok: true, rows: [], total: 0 });
               base = { clause: "id IN (" + ids.map(() => "?").join(",") + ")", params: ids };
             } else base = { clause: "owner_id=?", params: [userId] };
-            const b = buildD1List(url, tn, allow, withTagFilter(withTrash(base)), listExtras);
+            const b = buildD1List(url, tn, allow, withTagFilter(withVisible(base)), listExtras);
             let r = await cfD1Query(env, uuid, b.sql, b.params);
             let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
             r = await doExpand(r);

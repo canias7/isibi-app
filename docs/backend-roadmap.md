@@ -17,7 +17,7 @@ live pass and merge**. Earlier layers/batches (≤15) were verified live at $0.
 
 ---
 
-## DONE (~37 / 93)
+## DONE (~39 / 93)
 
 **Named layers:** Counters · Reactions · Profiles · Uniqueness constraints.
 
@@ -31,7 +31,7 @@ optimistic concurrency (15).
 **Batches 16–20 (this session):** updated_at timestamps + `?fields` + `?count` (16) ·
 immutable fields + computed default tokens `@now`/`@today`/`@uuid` (17) · Follows social
 graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual positions +
-`/move` reorder (20, also made `position`/`updated_at`/`_version` sortable).
+`/move` reorder (20) · expiring rows / TTL (21).
 
 ---
 
@@ -40,7 +40,7 @@ graph (18) · `between` operator + `sort=random` (19) · ordered lists / manual 
 ### A. Automatic / owner-facing (no keys) — do first
 - [x] Ordered lists / manual positions (`"ordered":true` + `/move` reorder) — kanban, todo order (Batch 20)
 - [ ] Row `pin`/`feature` flag + pinned-first ordering
-- [ ] Expiring rows / TTL (`expires_at` auto-hidden past its time) — sales, stories, tokens
+- [x] Expiring rows / TTL (`"expires":true`, auto-hidden past expires_at) — sales, stories, invites (Batch 21)
 - [ ] Audit log (owner-facing `_audit` of writes; `GET /api/site/backend/audit`)
 - [ ] Row history / change snapshots (per-row versions, revert)
 - [ ] Settings / config KV per app (`/api/site/backend/config` get/set)

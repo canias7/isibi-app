@@ -204,6 +204,19 @@ Drag-to-reorder (todos, kanban, playlists, galleries):
   now works (this was needed for ordered lists to be visible, and helps Batches 15/16 too).
 BACKEND_RULES: one new line (after TRASH). Roadmap tally: ~38/93.
 
+## 2026-07-21 — Batch 21: NEW LAYER Expiring rows / TTL (offline 8/8 + trash reg 4/4) ✅ built, PR
+
+Flash sales, 24h stories, one-time invites, temp share links:
+- Table flag **`"expires":true`** (aliases ttl/expiry/expiring) → adds `expires_at` (app-set,
+  so it's added to the writable/queryable/sortable `allow` list). Reads hide rows past their
+  `expires_at`; NULL = never. `?expired=1` / `?withExpired=1` mirror trashed/withTrashed.
+  Comparison via SQLite `datetime()` (normalizes ISO vs 'YYYY-MM-DD HH:MM:SS', no bound param).
+  Renew by PATCHing expires_at later. Hidden not deleted (sweep via a scheduled function).
+- **Mechanism refactor:** folded expiry into the trash-visibility path — `trashClause` +
+  new param-free `expiresClause` compose into `visClause`; `withTrash` → **`withVisible`**
+  (covers list/stats/facets/bulk/single-GET at once). Trash behavior unchanged (reg 4/4).
+BACKEND_RULES: one new line (after ORDERED LISTS). Roadmap tally: ~39/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
