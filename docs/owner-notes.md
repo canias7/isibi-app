@@ -477,6 +477,23 @@ the React BACKEND_RULES (was only in the static SITE_RULES). Signed-upload-URLs 
 covered: the direct base64→public-URL model is the platform's upload path (no presign needed).
 Harness gained a `head()` on the mock bucket. Roadmap tally: ~71/93.
 
+## 2026-07-21 — Batch 50: coverage pass — mark already-delivered roadmap items done ✅
+
+Honest audit: five roadmap items are ALREADY implemented by existing endpoints; confirmed in
+code and marked done (no redundant new code):
+- **Distinct values** → the FACETS endpoint (`/rows/<t>/facets?fields=<col>`) returns each
+  value + count; a plain distinct is `facets[col].map(v => v.value)`.
+- **Data seeding** → batch insert `POST /rows/<t> {rows:[…]}` (insertMany, ≤100/call).
+- **Row-level view counts** → the Counters layer (`POST /count/views:post:<id>`), already in
+  BACKEND_RULES.
+- **Password reset** → the Phase-C `/auth/reset-request` + `/auth/reset` endpoints exist.
+- **Scheduled functions / cron** → `isibi.functions.json` functions support `schedule`
+  (documented in the React BACKEND_RULES functions section).
+Remaining after this: mostly 🔑 provider-key-gated (commerce ×5, OAuth, 2FA, email/push/SMS —
+need the owner's keys + can't be live-verified here) plus a few invasive infra items (session
+revoke, API keys, outbound webhooks, ranked FTS, image resize, realtime edit/delete diff,
+CSV-import column mapping, per-app rate config). Roadmap tally: ~76/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
