@@ -367,6 +367,15 @@ your blocked ids. Teeth: **`?hideBlocked=1`** on a feed read excludes blocked au
 into a composable list). Helpers ensureBlocks/toggleBlock/blockState/blockedIdList. One
 BACKEND_RULES line. Roadmap tally: ~57/93.
 
+## 2026-07-21 — Batch 37: NEW LAYER Audit log (offline 9/9) ✅ built
+
+Table flag **`"audit":true`** → AFTER INSERT/UPDATE/DELETE triggers append to a shared
+`_audit (row_table, row_id, action, actor_id, at)` — zero write-path plumbing. Actor =
+NEW/OLD.owner_id on user/feed tables, else NULL. App admin reads at **`GET /api/db/<slug>/
+audit[?table=&action=&limit=]`** (inline admin role check, newest-first, filterable).
+Carried via coerceTable; triggers created in applySiteSchema after the ref-integrity block.
+Roadmap tally: ~58/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

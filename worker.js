@@ -2725,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2924,6 +2924,20 @@ async function applySiteSchema(env, uuid, spec) {
         try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
         try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
       }
+    }
+    // Audit log — `audit:true` records every write to the table (insert/update/delete) in a
+    // shared `_audit` trail via AFTER triggers (no write-path plumbing). Captures table, row
+    // id, action, time, and the actor (owner_id on user/feed tables, else NULL). The app's
+    // admin reads it at GET /api/db/<slug>/audit. Compliance, "who changed this", activity.
+    if (t.audit) {
+      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
+      const hasOwner = (access === "user" || access === "feed");
+      const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
+      const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
+      const mk = (suffix, when, idRef, actor, action) => "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_aud_" + suffix) + " AFTER " + when + " ON " + tn + " BEGIN INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', " + idRef + ", '" + action + "', " + actor + ", datetime('now')); END";
+      try { await cfD1Query(env, uuid, mk("i", "INSERT", "NEW.id", actNew, "insert")); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
+      try { await cfD1Query(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
+      try { await cfD1Query(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified });
@@ -7019,6 +7033,35 @@ async function handleRequest(request, env, ctx) {
           if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
           return Response.json({ ok: true, id: rid, status });
         } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
+      }
+      // Audit trail (ADMIN) — the write history of `audit:true` tables.
+      //   GET /api/db/<slug>/audit[?table=<t>&action=insert|update|delete&limit=N]
+      const aum = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit$/i);
+      if (aum && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = aum[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|audr", 300)) return tooMany();
+          const table = (url.searchParams.get("table") || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
+          const action = (url.searchParams.get("action") || "").toLowerCase().replace(/[^a-z]/g, "");
+          const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+          const conds = [], params = [];
+          if (table) { conds.push("row_table=?"); params.push(table); }
+          if (["insert", "update", "delete"].includes(action)) { conds.push("action=?"); params.push(action); }
+          let rows = [];
+          try { rows = await cfD1Query(env, uuid, "SELECT id,row_table,row_id,action,actor_id,at FROM _audit" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim])); } catch {}
+          return Response.json({ ok: true, audit: rows });
+        } catch (e) { console.error("audit read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "audit failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
