@@ -421,6 +421,14 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
     (real Haiku replied "OK" / "Hi there, friend!"; owner charged EXACTLY 1 credit per
     call, 20→19→18). Owner approved the ~$0.006 test spend. Builder rules document both
     forms. **This is the AI-native differentiator — apps ship AI features out of the box.**
+  · **Data import (#509) — CSV/rows → a table, VERIFIED live 14/14.** Owner endpoint
+    `POST /api/site/backend/import {slug,table,csv|rows}` — the mirror of export. Parses
+    a CSV string (RFC-4180-ish: quoted fields, embedded commas/newlines, `""` escapes)
+    with case-insensitive header→column mapping, or a rows array; cap 2000; only declared
+    columns written (unknown dropped, `_users`/`_meta` blocked, empty cell → NULL).
+    **Proof (zero AI/fal): 14/14** — `"Gadget, deluxe"` + `""quotes""` parsed, Name→name/
+    Price→price mapped, `ignored` col dropped, empty price→NULL, rows-array path, header-
+    only→400, _users refused, no-auth→401, and export round-trips it. Owner-facing.
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
