@@ -494,6 +494,15 @@ need the owner's keys + can't be live-verified here) plus a few invasive infra i
 revoke, API keys, outbound webhooks, ranked FTS, image resize, realtime edit/delete diff,
 CSV-import column mapping, per-app rate config). Roadmap tally: ~76/93.
 
+## 2026-07-21 — Batch 51: Realtime sync — edits + deletes diff (offline 7/7) ✅ built
+
+Table flag **`"sync":true`** → implies `updated_at` (created/edited tracking) + a delete
+tombstone trigger into a shared `_deletes` table. `GET /rows/<t>/changes?sync=<iso>` returns
+`{updated:[rows with COALESCE(updated_at,created_at) > since], deleted:[ids from _deletes >
+since], at:<now cursor>}` for full offline-first incremental sync (the existing `changes`
+append endpoint is unchanged when `?sync` is absent or the table isn't sync). `tsFrag`/
+`listExtras` now honor `timestamps || sync`. Roadmap tally: ~77/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
