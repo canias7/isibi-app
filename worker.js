@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2869,6 +2869,30 @@ async function applySiteSchema(env, uuid, spec) {
       };
       await mkIndexes(t.unique, false);
       await mkIndexes(t.oncePerUser, true);
+      // Case-insensitive UNIQUE — `uniqueCI:["email"]` → a UNIQUE INDEX over lower(col), so
+      // "A@x.com" and "a@x.com" collide (usernames, emails, slugs). Race-free like `unique`;
+      // a violation surfaces as the same 409 duplicate. One column per group.
+      { let ci = 0;
+        for (const raw of (Array.isArray(t.uniqueCI) ? t.uniqueCI : (t.uniqueCI ? [t.uniqueCI] : []))) {
+          const col = String(Array.isArray(raw) ? raw[0] : raw).toLowerCase();
+          if (!colSet.has(col)) continue;
+          try { await cfD1Query(env, uuid, "CREATE UNIQUE INDEX IF NOT EXISTS " + sqlIdent("ux_" + t.name + "_ci_" + (ci++)) + " ON " + tn + " (lower(" + sqlIdent(col) + "))"); } catch (e) { console.error("uniqueCI index failed:", t.name, e && e.detail); }
+        }
+      }
+    }
+    // Max-rows quota — `maxRows:N` caps how many rows the table may hold (scoped per-owner
+    // on user/feed, global otherwise), enforced by a BEFORE INSERT trigger that ABORTs once
+    // the cap is reached. Zero insert-path plumbing; the abort surfaces to the data API as a
+    // clean 409 "limit reached". Free-tier caps, "max 100 todos per user", etc.
+    if (t.maxRows > 0) {
+      const scoped = (access === "user" || access === "feed");
+      const cntScope = scoped ? ' WHERE "owner_id" IS NEW."owner_id"' : "";
+      try {
+        await cfD1Query(env, uuid,
+          "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_max") + " BEFORE INSERT ON " + tn +
+          " WHEN (SELECT COUNT(*) FROM " + tn + cntScope + ") >= " + Math.floor(t.maxRows) +
+          " BEGIN SELECT RAISE(ABORT, 'row limit reached'); END");
+      } catch (e) { console.error("maxRows trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled });
@@ -7325,7 +7349,10 @@ async function handleRequest(request, env, ctx) {
           // A declared UNIQUE constraint was violated (e.g. a member reviewing the same
           // product twice) → a clean 409 the app can show ("you've already done this"),
           // not a scary 502.
-          if (/UNIQUE constraint failed/i.test((e && (e.detail || e.message)) || "")) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
+          const emsg = (e && (e.detail || e.message)) || "";
+          if (/UNIQUE constraint failed/i.test(emsg)) return Response.json({ ok: false, error: "already exists", code: "duplicate" }, { status: 409 });
+          // A `maxRows` quota trigger aborted the insert → a clean 409, not a 502.
+          if (/row limit reached/i.test(emsg)) return Response.json({ ok: false, error: "row limit reached", code: "limit" }, { status: 409 });
           console.error("data api failed:", slug, table, method, e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "data error — try again" }, { status: 502 });
         }
