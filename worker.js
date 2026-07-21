@@ -2644,7 +2644,7 @@ function normalizeSchema(spec) {
   const out = [];
   const coerceCol = (c) => {
     if (typeof c === "string") return { name: c, type: "text" };
-    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: c.max || c.maxLength || c.maxlength, format: c.format };
+    if (c && typeof c === "object" && c.name) return { name: c.name, type: c.type || c.dataType || "text", pk: c.pk || c.primary, notnull: c.notnull || c.required || c.notNull, unique: c.unique, ref: c.ref || c.references || c.foreignKey || c.fk, max: c.max || c.maxLength || c.maxlength, min: (c.min !== undefined ? c.min : c.minLength), format: c.format, enum: c.enum || c.oneOf || c.values, pattern: c.pattern || c.regex, default: (c.default !== undefined ? c.default : c.defaultValue) };
     return null;
   };
   const coerceTable = (name, def) => {
@@ -2676,7 +2676,7 @@ async function applySiteSchema(env, uuid, spec) {
     //   admin    — anyone READS; only an 'admin' site-user WRITES (shared, in-app CMS)
     const access = ["collect", "display", "user", "feed", "admin"].includes(t.access) ? t.access : "collect";
     const cols = []; let hasPk = false;
-    const colNames = []; const seen = new Set(); const refs = {}; const rules = {};
+    const colNames = []; const numCols = []; const seen = new Set(); const refs = {}; const rules = {};
     // id / created_at / owner_id are ALWAYS platform-managed — we add them below.
     // Skip any the model declared itself (the rules say not to, but models don't
     // always comply) and skip duplicate column names, else CREATE TABLE would have
@@ -2688,21 +2688,36 @@ async function applySiteSchema(env, uuid, spec) {
       if (MANAGED.has(low) || seen.has(low)) continue;
       seen.add(low);
       const cn = sqlIdent(c.name);
-      const ty = D1_TYPES[String(c.type || "text").toLowerCase()] || "TEXT";
+      const ctype = String(c.type || "text").toLowerCase();
+      const ty = D1_TYPES[ctype] || "TEXT";
+      const isNum = ["integer", "int", "real", "float", "number", "numeric"].includes(ctype);
       let def = cn + " " + ty;
       if (c.pk) { def += " PRIMARY KEY"; if (ty === "INTEGER") def += " AUTOINCREMENT"; hasPk = true; }
       if (c.notnull || c.required) def += " NOT NULL";
       if (c.unique) def += " UNIQUE";
-      cols.push(def); colNames.push(c.name);
+      // Column DEFAULT — a server-side default applied when the writer omits the field.
+      // Safely literalized: numbers as-is, booleans as 0/1, strings single-quote-escaped.
+      if (c.default !== undefined && c.default !== null && !c.pk) {
+        let dl = null;
+        if (typeof c.default === "number" && Number.isFinite(c.default)) dl = String(c.default);
+        else if (typeof c.default === "boolean") dl = c.default ? "1" : "0";
+        else if (typeof c.default === "string" && c.default.length <= 200) dl = "'" + c.default.replace(/'/g, "''") + "'";
+        if (dl != null) def += " DEFAULT " + dl;
+      }
+      cols.push(def); colNames.push(c.name); if (isNum) numCols.push(String(c.name).toLowerCase());
       // A declared foreign key (`ref`/`references`) is stored as metadata only — the
       // column stays a plain integer id; the `expand` reader uses refs to join. Not a
       // SQL FK (D1 has FKs off by default), so app-side integrity, platform-side join.
       if (c.ref && SAFE_IDENT.test(String(c.ref))) refs[low] = String(c.ref);
-      // validation rules (enforced on writes): required, max length, basic format
+      // validation rules (enforced on writes): required, length/value bounds, format,
+      // allowed-set (enum) and regex pattern.
       const rule = {};
       if (c.notnull || c.required) rule.required = true;
-      const mx = parseInt(c.max, 10); if (mx > 0) rule.max = Math.min(mx, 100000);
+      if (isNum) { const nmn = Number(c.min); if (Number.isFinite(nmn)) rule.numMin = nmn; const nmx = Number(c.max); if (Number.isFinite(nmx)) rule.numMax = nmx; }
+      else { const mx = parseInt(c.max, 10); if (mx > 0) rule.max = Math.min(mx, 100000); const mn = parseInt(c.min, 10); if (mn > 0) rule.minLen = Math.min(mn, 100000); }
       const fmt = String(c.format || "").toLowerCase(); if (["email", "url", "number"].includes(fmt)) rule.format = fmt;
+      if (Array.isArray(c.enum) && c.enum.length) rule.enum = c.enum.map((x) => String(x)).slice(0, 100);
+      if (typeof c.pattern === "string" && c.pattern.length && c.pattern.length <= 300) rule.pattern = c.pattern;
       if (Object.keys(rule).length) rules[low] = rule;
     }
     if (!hasPk) cols.unshift('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
@@ -2734,7 +2749,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3132,9 +3147,13 @@ function validateRow(def, body, isInsert) {
     if (rule.required && isInsert && !present) return col + " is required";
     if (!present) continue;
     if (rule.max && typeof v === "string" && v.length > rule.max) return col + " is too long (max " + rule.max + ")";
+    if (rule.minLen && typeof v === "string" && v.length < rule.minLen) return col + " is too short (min " + rule.minLen + ")";
     if (rule.format === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(v))) return col + " must be a valid email";
     if (rule.format === "url" && !/^https?:\/\/[^\s]+$/i.test(String(v))) return col + " must be a valid URL";
     if (rule.format === "number" && isNaN(Number(v))) return col + " must be a number";
+    if ((rule.numMin !== undefined || rule.numMax !== undefined)) { const n = Number(v); if (isNaN(n)) return col + " must be a number"; if (rule.numMin !== undefined && n < rule.numMin) return col + " must be at least " + rule.numMin; if (rule.numMax !== undefined && n > rule.numMax) return col + " must be at most " + rule.numMax; }
+    if (Array.isArray(rule.enum) && !rule.enum.includes(String(v))) return col + " must be one of: " + rule.enum.join(", ");
+    if (rule.pattern) { try { if (!new RegExp(rule.pattern).test(String(v))) return col + " has an invalid format"; } catch {} }
   }
   return null;
 }
@@ -6057,11 +6076,12 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes))?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes)(?:\/(incr))?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
         const isChanges = dm[3] === "changes";
+        const isIncr = dm[4] === "incr";
         const rowId = dm[3] && dm[3] !== "stats" && dm[3] !== "changes" ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -6087,6 +6107,36 @@ async function handleRequest(request, env, ctx) {
           const badReq = (msg) => Response.json({ ok: false, error: msg }, { status: 400 });
           const vErr = (b, isInsert) => validateRow(def, b, isInsert); // required/format/length — returns an error string or null
           const vBatch = (arr) => { for (const rr of arr) { const e = vErr(rr, true); if (e) return e; } return null; };
+
+          // Atomic column increment — POST /rows/<t>/<id>/incr {col, by=1, min?}. Adds
+          // `by` to a NUMERIC column on one row, race-free (single UPDATE), returns the
+          // new value. For stock/score/quantity on a specific row (view/like TALLIES not
+          // tied to a row → use Counters). Same write scope as the table: feed/user edit
+          // only their OWN row; admin edits any (admin role); display/collect can't.
+          if (isIncr) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            const numSet = new Set(Array.isArray(def.num) ? def.num : []);
+            const body = await readBody();
+            const col = String(body.col || "").toLowerCase();
+            if (!col || !allow.map((a) => String(a).toLowerCase()).includes(col)) return badReq("unknown column");
+            if (!numSet.has(col)) return badReq("column is not numeric");
+            let by = Number(body.by); if (!Number.isFinite(by)) by = 1; by = Math.max(-1e9, Math.min(1e9, by));
+            const hasFloor = body.min !== undefined && Number.isFinite(Number(body.min));
+            const floor = hasFloor ? Number(body.min) : 0;
+            const cq = sqlIdent(col);
+            const expr = hasFloor ? "MAX(?, COALESCE(" + cq + ",0) + ?)" : "COALESCE(" + cq + ",0) + ?";
+            let scope = "", params;
+            if (access === "feed" || access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scope = " AND owner_id=?"; }
+            else if (access === "admin") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 }); }
+            else return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); // display/collect
+            params = hasFloor ? [floor, by] : [by];
+            const where = [rowId].concat(scope ? [userId] : []);
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + cq + "=" + expr + " WHERE id=?" + scope, params.concat(where));
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "SELECT " + cq + " AS v FROM " + tn + " WHERE id=?", [rowId]);
+            return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
+          }
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
