@@ -412,9 +412,19 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
   (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)** ·
   **Realtime ✅ (#494)** · **Relations/expand ✅ (#495)** · **Reverse relations ✅
-  (#496)**. Custom domains LAST (owner's call 2026-07-21 — "all of them, leave custom
-  domains for last"; it needs the owner to enable Cloudflare custom hostnames + SSL at
-  the account level, so it's gated on infra, not code).
+  (#496)** · **Upsert ✅ (#497)**. Custom domains LAST (owner's call 2026-07-21 — "all
+  of them, leave custom domains for last"; it needs the owner to enable Cloudflare
+  custom hostnames + SSL at the account level, so it's gated on infra, not code).
+  · **Upsert (#497) — create-or-update by a key, VERIFIED live 14/14.** `POST /rows/
+    <table>?upsert=<col>` updates the row already matching `<col>` instead of inserting
+    a duplicate, else inserts; response carries `{created}`. Powers per-user settings,
+    like/vote toggles, saved progress — any "one row per X." For user/feed tables the
+    match is scoped to the signed-in user's OWN rows; collect/admin match globally. No
+    DB-level UNIQUE needed (tiny race window, fine at app scale). **Proof (zero AI/fal):
+    14/14** — a user's `settings?upsert=key` kept exactly one row per key and updated
+    in place, a new key added a row, two users stayed independent (A never clobbered
+    B), an `admin` config singleton updated by name, and a non-admin upsert on the
+    admin table 403'd. Cleaned up.
   · **Relations (#495 forward + #496 reverse) — linked tables, joined in ONE call,
     VERIFIED live (10/10 forward + 9/9 reverse).** A schema column declares a foreign key with `ref`
     (`{"name":"post_id","type":"integer","ref":"posts"}`). FORWARD: `?expand=<fk_col>`
