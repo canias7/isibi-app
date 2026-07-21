@@ -2746,6 +2746,26 @@ async function expandChildren(env, uuid, spec, def, rows, url) {
   }
   return rows;
 }
+// Create-or-update by a key column (`?upsert=<col>`): find an existing row whose
+// <col> matches (within the owner scope when given), UPDATE it, else INSERT. Powers
+// settings singletons, likes/toggles, idempotent saves. No DB-level UNIQUE is required
+// (small race window under truly-concurrent writes, fine at app scale). Returns
+// {created}. `owner` scopes the match/insert to one user (user/feed tables).
+async function upsertRow(env, uuid, tn, allow, col, body, owner) {
+  const use = allow.filter((c) => body[c] !== undefined);
+  const where = [sqlIdent(col) + "=?"], wparams = [body[col]];
+  if (owner != null) { where.push('"owner_id"=?'); wparams.push(owner); }
+  const found = await cfD1Query(env, uuid, "SELECT id FROM " + tn + " WHERE " + where.join(" AND ") + " LIMIT 1", wparams);
+  if (found[0]) {
+    const setCols = use.filter((c) => c !== col);
+    if (setCols.length) await cfD1Query(env, uuid, "UPDATE " + tn + " SET " + setCols.map((c) => sqlIdent(c) + "=?").join(",") + " WHERE id=?", setCols.map((c) => body[c]).concat([found[0].id]));
+    return { id: found[0].id, created: false };
+  }
+  const cols = owner != null ? use.concat(["owner_id"]) : use;
+  const vals = owner != null ? use.map((c) => body[c]).concat([owner]) : use.map((c) => body[c]);
+  await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + cols.map(sqlIdent).join(",") + ") VALUES (" + cols.map(() => "?").join(",") + ")", vals);
+  return { created: true };
+}
 // Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
 // requested aggregate families are present).
 function shapeD1Stats(row, wanted) {
@@ -5218,6 +5238,7 @@ async function handleRequest(request, env, ctx) {
           const readBody = async () => { try { return await request.json(); } catch { return {}; } };
           const pickCols = (body) => allow.filter((c) => body[c] !== undefined);
           const doExpand = async (rows) => { await expandRows(env, uuid, spec, def, rows, url); await expandChildren(env, uuid, spec, def, rows, url); return rows; }; // ?expand=<fk> (parent) + ?children=<table> (kids)
+          const upCol = (() => { const c = (url.searchParams.get("upsert") || "").trim().toLowerCase(); return c ? (allow.find((a) => String(a).toLowerCase() === c) || null) : null; })(); // ?upsert=<col> → create-or-update by that key
 
           // Aggregate/stats read — count/sum/avg/min/max (+ optional group-by), for
           // dashboards and analytics. Follows the same read visibility as the table:
@@ -5280,6 +5301,7 @@ async function handleRequest(request, env, ctx) {
             if (method !== "POST") return Response.json({ ok: false, error: "submit only" }, { status: 403 });
             const body = await readBody(); const use = pickCols(body);
             if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
             return Response.json({ ok: true });
           }
@@ -5297,6 +5319,7 @@ async function handleRequest(request, env, ctx) {
             if (!userId) return Response.json({ ok: false, error: "sign in to post" }, { status: 401 });
             if (method === "POST") {
               const body = await readBody(); const use = pickCols(body);
+              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
               const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
               return Response.json({ ok: true });
@@ -5333,6 +5356,7 @@ async function handleRequest(request, env, ctx) {
             if (method === "POST") {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
+              if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, null)));
               await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + use.map(sqlIdent).join(",") + ") VALUES (" + use.map(() => "?").join(",") + ")", use.map((c) => body[c]));
               return Response.json({ ok: true });
             }
@@ -5362,6 +5386,7 @@ async function handleRequest(request, env, ctx) {
           }
           if (method === "POST") {
             const body = await readBody(); const use = pickCols(body);
+            if (upCol) return Response.json(Object.assign({ ok: true }, await upsertRow(env, uuid, tn, allow, upCol, body, userId)));
             const c2 = use.concat(["owner_id"]), v2 = use.map((c) => body[c]).concat([userId]);
             await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + c2.map(sqlIdent).join(",") + ") VALUES (" + c2.map(() => "?").join(",") + ")", v2);
             return Response.json({ ok: true });
