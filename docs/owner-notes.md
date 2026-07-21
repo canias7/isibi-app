@@ -10,6 +10,25 @@ and fixed, and add a preference line whenever the owner signals one.
 
 ---
 
+## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
+
+Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
+a unique code without a racy check-then-insert. Now it's schema-declared and
+DB-enforced:
+
+- Table-level `"oncePerUser":["product_id"]` (on `user`/`feed`) → UNIQUE over
+  `(owner_id, product_id)` = one row per member per value.
+- Table-level `"unique":["code"]` (global) or `["event_id","seat"]` (composite);
+  accepts one group or many (`[["a"],["b","c"]]`).
+- Real UNIQUE INDEX in the site D1 — race-free. A violating write returns a clean
+  **409** `{error:"already exists", code:"duplicate"}` across single/batch/upsert
+  (was a 502). BACKEND_RULES: declare it instead of check-then-insert; handle 409.
+
+Shipped PR #530, deployed. **Verified live 13/13** — oncePerUser is genuinely
+per-user (member B could still review product 1 after A), global unique, composite
+`(event_id,seat)` unique, 409 `code:'duplicate'`, and the owner row-count confirmed
+the dup was actually blocked (3 rows, not 4). Bare test backend, $0, deleted.
+
 ## 2026-07-21 — NEW LAYER: Reactions (one-per-user likes/upvotes/RSVPs) ✅ live
 
 Counters tally anonymously but can't dedupe per user, so a like/upvote/RSVP button
