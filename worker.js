@@ -1941,7 +1941,7 @@ async function decryptSecret(env, packed) {
 // bounded trigger→steps recipe), never arbitrary code. The Worker interprets the
 // spec against primitives we already own (collections, secrets, external fetch),
 // so nothing user-authored ever executes — there is no code to sandbox. ──
-const FN_ACTIONS = new Set(["read", "save", "fetch", "respond", "checkout", "email", "ai"]);
+const FN_ACTIONS = new Set(["read", "save", "fetch", "respond", "checkout", "email", "ai", "notify"]);
 const cleanColl = (s) => (typeof s === "string" ? s.toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) : "");
 const cleanAs = (s) => (typeof s === "string" ? s.replace(/[^A-Za-z0-9_]/g, "").slice(0, 40) : "");
 // Bound a spec value: keep template placeholders intact, cap strings/arrays/objects.
@@ -1981,6 +1981,8 @@ function normalizeFnSpec(spec) {
       const prompt = typeof s.prompt === "string" ? s.prompt.slice(0, 6000) : "";
       if (!prompt) continue;
       steps.push({ do: "ai", prompt, system: typeof s.system === "string" ? s.system.slice(0, 2000) : "", as: cleanAs(s.as) || "ai" });
+    } else if (op === "notify") {
+      steps.push({ do: "notify", to: cleanTempl(s.to != null ? s.to : s.user), type: typeof s.type === "string" ? s.type.slice(0, 40) : "", text: cleanTempl(s.text != null ? s.text : s.message), link: cleanTempl(s.link) });
     } else if (op === "respond") {
       steps.push({ do: "respond", data: cleanTempl(s.data != null ? s.data : s.body) });
     } else if (op === "checkout") {
@@ -2257,6 +2259,17 @@ async function runSiteFunction(env, row, input, slug) {
         if (!key || !to || !from) { data.steps[st.as] = { error: "email not configured — add your email provider key in Secrets and set from/to" }; continue; }
         const er = await postProviderEmail(st.provider, key, from, to, subject, html);
         data.steps[st.as] = { ok: er.ok, status: er.status };
+      } else if (st.do === "notify") {
+        // Create an in-app notification for a member (server-side only). `to` is a
+        // member id (templated from earlier steps/input). No secret exposure.
+        const uuid = await getD1();
+        if (uuid) {
+          const to = resolveStr(String(st.to != null ? st.to : ""), data, null);
+          const text = resolveStr(String(st.text || ""), data, null);
+          const link = resolveStr(String(st.link || ""), data, null);
+          try { await createNotification(env, uuid, to, { type: st.type, text, link }); } catch {}
+        }
+        data.steps[st.as || "notified"] = { ok: true };
       } else if (st.do === "respond") {
         response = resolveTempl(st.data, data, null); // NEVER expose secrets to the caller
       }
@@ -2985,6 +2998,23 @@ async function attachTags(env, uuid, table, rows, url) {
   for (const rec of recs) { if (!m.has(rec.row_id)) m.set(rec.row_id, []); m.get(rec.row_id).push(rec.tag); }
   for (const r of rows) r.tags = m.get(r.id) || [];
   return rows;
+}
+// In-app notifications — a per-member inbox (someone commented on your post, your
+// order shipped, you were @mentioned). Created SERVER-SIDE ONLY (a function/trigger
+// `notify` step), so a visitor can't spam another; each member reads only their own.
+// Stored in the site's own D1 `_notifications`, ensured once per isolate.
+const _notifsReady = new Set();
+async function ensureNotifications(env, uuid) {
+  if (_notifsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, type TEXT, text TEXT, link TEXT, read INTEGER DEFAULT 0, created_at TEXT)");
+  _notifsReady.add(uuid);
+}
+async function createNotification(env, uuid, userId, n) {
+  const uid = parseInt(userId, 10);
+  if (!(uid > 0)) return false;
+  await ensureNotifications(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _notifications (user_id,type,text,link,created_at) VALUES (?,?,?,?,?)", [uid, String(n.type || "").slice(0, 40), String(n.text || "").slice(0, 500), String(n.link || "").slice(0, 400), new Date().toISOString()]);
+  return true;
 }
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
@@ -6128,6 +6158,45 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("reaction failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "reaction failed" }, { status: 502 });
+        }
+      }
+      // In-app notification inbox (the signed-in member's OWN notifications):
+      //   GET  /api/db/<slug>/notifications[?unread=1&limit=N] → {rows, unread}
+      //   POST /api/db/<slug>/notifications/<id>/read           → mark one read
+      //   POST /api/db/<slug>/notifications/read-all            → mark all read
+      const nm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/notifications(?:\/(\d+\/read|read-all))?$/i);
+      if (nm) {
+        const slug = nm[1].toLowerCase(), sub = nm[2] || "";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        // must be signed in — the inbox is strictly the caller's own
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureNotifications(env, uuid);
+          if (!sub) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|nfr", 300)) return tooMany();
+            const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+            const onlyUnread = url.searchParams.get("unread") === "1";
+            const rows = await cfD1Query(env, uuid, "SELECT id,type,text,link,read,created_at FROM _notifications WHERE user_id=?" + (onlyUnread ? " AND read=0" : "") + " ORDER BY id DESC LIMIT ?", [userId, lim]);
+            const uc = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _notifications WHERE user_id=? AND read=0", [userId]);
+            return Response.json({ ok: true, rows, unread: (uc[0] && uc[0].n) || 0 });
+          }
+          if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|nfw", 120)) return tooMany();
+          if (sub === "read-all") { await cfD1Query(env, uuid, "UPDATE _notifications SET read=1 WHERE user_id=? AND read=0", [userId]); return Response.json({ ok: true }); }
+          const nid = parseInt(sub, 10) || 0; // "<id>/read" → parseInt grabs the id
+          const ex = await cfD1Exec(env, uuid, "UPDATE _notifications SET read=1 WHERE id=? AND user_id=?", [nid, userId]);
+          if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+          return Response.json({ ok: true });
+        } catch (e) {
+          console.error("notifications failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "notifications failed" }, { status: 502 });
         }
       }
     }
