@@ -3016,6 +3016,23 @@ async function createNotification(env, uuid, userId, n) {
   await cfD1Query(env, uuid, "INSERT INTO _notifications (user_id,type,text,link,created_at) VALUES (?,?,?,?,?)", [uid, String(n.type || "").slice(0, 40), String(n.text || "").slice(0, 500), String(n.link || "").slice(0, 400), new Date().toISOString()]);
   return true;
 }
+// Invite-only signup — the owner can require a valid invite code to register.
+// Flag in _meta ('invite_only'='1'); codes live in `_invites` (code, uses_left).
+async function ensureInvites(env, uuid) {
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _invites (code TEXT PRIMARY KEY, uses_left INTEGER DEFAULT 1, used_count INTEGER DEFAULT 0, created_at TEXT)");
+}
+async function isInviteOnly(env, uuid) {
+  try { const r = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='invite_only'"); return !!(r[0] && r[0].v === "1"); } catch { return false; }
+}
+// Redeem a code atomically (decrement uses_left, bump used_count). Returns true on
+// success. A code with uses_left<=0 (or unknown) fails.
+async function consumeInvite(env, uuid, code) {
+  const c = String(code || "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40);
+  if (!c) return false;
+  await ensureInvites(env, uuid);
+  const ex = await cfD1Exec(env, uuid, "UPDATE _invites SET uses_left=uses_left-1, used_count=used_count+1 WHERE code=? AND uses_left>0", [c]);
+  return ex.changes > 0;
+}
 // Parse the shared filter part of a data-API read: `where=<col>:<op>:<val>`
 // (repeatable, AND-ed; op eq|ne|lt|lte|gt|gte|contains) + `q=<text>` (free-text LIKE
 // across the declared columns). Columns are validated against the table's own columns
@@ -5564,6 +5581,53 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: "action failed" }, { status: 502 });
       }
     }
+    // Owner invite management — turn invite-only signup on/off and mint/revoke codes.
+    // isibi-authed + owner-scoped. actions: enable | disable | create (count?,uses?) |
+    // list | revoke (code).
+    if (url.pathname === "/api/site/backend/invites" && request.method === "POST") {
+      const u = await authUser(request); if (!u) return UNAUTHED();
+      if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+      let bb; try { bb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = String(bb.slug || "").replace(/[^a-z0-9-]/gi, "").slice(0, 60);
+      const action = String(bb.action || "");
+      if (!slug) return Response.json({ ok: false, error: "missing slug" }, { status: 400 });
+      try {
+        const uuid = await siteBackendForOwner(env, slug, u.id);
+        if (!uuid) return Response.json({ ok: false, error: "no backend" }, { status: 404 });
+        await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)");
+        await ensureInvites(env, uuid);
+        if (action === "enable" || action === "disable") {
+          await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('invite_only',?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [action === "enable" ? "1" : "0"]);
+          return Response.json({ ok: true, invite_only: action === "enable" });
+        }
+        if (action === "create") {
+          const count = Math.min(100, Math.max(1, parseInt(bb.count, 10) || 1));
+          const uses = Math.min(10000, Math.max(1, parseInt(bb.uses, 10) || 1));
+          const made = [];
+          for (let i = 0; i < count; i++) {
+            const code = (crypto.randomUUID().replace(/-/g, "").slice(0, 10)).toUpperCase();
+            try { await cfD1Query(env, uuid, "INSERT INTO _invites (code,uses_left,used_count,created_at) VALUES (?,?,0,?)", [code, uses, new Date().toISOString()]); made.push(code); } catch {}
+          }
+          return Response.json({ ok: true, codes: made, uses });
+        }
+        if (action === "list") {
+          const rows = await cfD1Query(env, uuid, "SELECT code,uses_left,used_count,created_at FROM _invites ORDER BY created_at DESC LIMIT 500");
+          const io = await isInviteOnly(env, uuid);
+          return Response.json({ ok: true, invite_only: io, codes: rows });
+        }
+        if (action === "revoke") {
+          const code = String(bb.code || "").toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 40);
+          if (!code) return Response.json({ ok: false, error: "missing code" }, { status: 400 });
+          await cfD1Query(env, uuid, "DELETE FROM _invites WHERE code=?", [code]);
+          return Response.json({ ok: true });
+        }
+        return Response.json({ ok: false, error: "unknown action" }, { status: 400 });
+      } catch (e) {
+        if (e && e.forbidden) return UNAUTHED();
+        console.error("owner invites failed:", e && e.message, e && e.detail);
+        return Response.json({ ok: false, error: "action failed" }, { status: 502 });
+      }
+    }
     // Owner data export: download one of the OWNER's own built-app tables as CSV or
     // JSON (backups, GDPR, analysis). isibi-authed + owner-scoped; _users is limited to
     // safe columns (never password hashes). Streamed as an attachment.
@@ -5909,6 +5973,12 @@ async function handleRequest(request, env, ctx) {
             // everyone after is a normal 'user'.
             const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _users");
             const role = (cnt[0] && cnt[0].n) ? "user" : "admin";
+            // Invite-only gate: when enabled, everyone AFTER the first member (the
+            // bootstrap admin) must present a valid invite code, redeemed atomically.
+            if (role === "user" && await isInviteOnly(env, uuid)) {
+              const okInvite = await consumeInvite(env, uuid, body.invite || body.code || body.invite_code);
+              if (!okInvite) return Response.json({ ok: false, error: "a valid invite code is required to join", need: "invite" }, { status: 403 });
+            }
             // Optional public display name at signup (else derived from the email local part).
             const dn = (typeof body.display_name === "string" ? body.display_name : (typeof body.name === "string" ? body.name : "")).trim().replace(/[\r\n]/g, "").slice(0, 80) || email.split("@")[0].slice(0, 80);
             await cfD1Query(env, uuid, "INSERT INTO _users (email,pass_salt,pass_hash,role,display_name) VALUES (?,?,?,?,?)", [email, salt, hash, role, dn]);
