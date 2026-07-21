@@ -617,6 +617,28 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-21 — Live generation QA + BACKEND_RULES tightening
+
+Generated real sites through the live Sonnet builder (`/api/site/react-build`) as a user
+and verified each provisioned backend. Findings:
+
+- **Access-mode mapping is reliably correct.** Two sites (a book club, an events board)
+  both got collect/display/user/feed/admin exactly right for the brief, verified live
+  (feed public-read + own-row edits, user private isolation, collect admin-only read,
+  admin RBAC 403).
+- **Finer constraints were dropped.** The events board's "one RSVP per member per event"
+  did NOT become `oncePerUser` (a member could RSVP repeatedly), and `event_id` was a
+  plain int with no `ref` (no server-side relation). Same class as omitting a 1-5 `min/max`.
+- **Fix:** added a directive to `BACKEND_RULES` (builder/react-gen.mjs) telling the model
+  to ENCODE the brief's rules as schema keys — 'one X per member' → `oncePerUser`, 'rated
+  1-5' → `min/max`, 'belongs to a parent' → `ref`, unique handle/code → `unique`/`uniqueCI`,
+  fixed choice set → `enum`. "If the brief says it, the schema carries it."
+- **Generation reliability:** ~half of first-attempt builds failed (a missing imported
+  component file → compile error; a truncated generation on a large multi-page app). The
+  auto-fix loop recovered some (1-2 passes) but not all. Adding "keep files minimal +
+  ensure every import exists" to the brief helped. Worth watching if build success rate
+  matters.
+
 ## 2026-07-21 — Batch 61: OAuth social login (Google / GitHub) — ROADMAP COMPLETE 93/93 ✅ built
 
 The final roadmap layer. Two GET endpoints, a normal browser redirect dance:
