@@ -2709,7 +2709,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2803,6 +2803,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.ordered) cols.push('"position" REAL'); // manual sort order — auto-assigned to end on insert (trigger below), midpoint-reordered via /move
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
+    if (t.scheduled) cols.push('"publish_at" TEXT'); // scheduled publish — hidden until this time (app-set)
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
     // Schema evolution: CREATE IF NOT EXISTS is a no-op for a table that already exists,
@@ -2838,6 +2839,7 @@ async function applySiteSchema(env, uuid, spec) {
     }
     if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
+    if (t.scheduled) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "publish_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
     if (slugFrom) {
@@ -2869,7 +2871,7 @@ async function applySiteSchema(env, uuid, spec) {
       await mkIndexes(t.oncePerUser, true);
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3125,6 +3127,42 @@ async function followList(env, uuid, targetId, dir, limit) {
   try { profs = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url,bio FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { return []; }
   const byId = new Map(profs.map((p) => [p.id, p]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+// Bookmarks / saves — a member saves any row (target `<table>:<id>`) to a private list
+// ("save for later", favourites, a reading list, a wishlist). Deduped per (member,target)
+// PK. Mirrors reactions but is PRIVATE to each member (their own saved list). Ensured once.
+const _bookmarksReady = new Set();
+async function ensureBookmarks(env, uuid) {
+  if (_bookmarksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bookmarks (user_id INTEGER NOT NULL, target TEXT NOT NULL, created_at TEXT, PRIMARY KEY (user_id, target))");
+  _bookmarksReady.add(uuid);
+}
+async function toggleBookmark(env, uuid, userId, target, set) {
+  await ensureBookmarks(env, uuid);
+  const existing = await cfD1Query(env, uuid, "SELECT 1 FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]);
+  const has = !!existing[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _bookmarks (user_id,target,created_at) VALUES (?,?,?)", [userId, target, new Date().toISOString()]);
+  else if (!want && has) await cfD1Query(env, uuid, "DELETE FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _bookmarks WHERE target=?", [target]);
+  return { saved: want, count: (cnt[0] && cnt[0].n) || 0 };
+}
+async function bookmarkState(env, uuid, target, userId) {
+  await ensureBookmarks(env, uuid);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _bookmarks WHERE target=?", [target]);
+  let mine = false;
+  if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _bookmarks WHERE user_id=? AND target=?", [userId, target]); mine = !!m[0]; }
+  return { count: (cnt[0] && cnt[0].n) || 0, mine };
+}
+// The caller's saved targets, newest-first, optionally filtered to one table. Returns
+// [{target, id, table, created_at}] so an app can fetch the rows (e.g. ?where=id:in:…).
+async function bookmarkList(env, uuid, userId, table, limit) {
+  await ensureBookmarks(env, uuid);
+  const lim = Math.min(500, Math.max(1, limit || 200));
+  const rows = table
+    ? await cfD1Query(env, uuid, "SELECT target, created_at FROM _bookmarks WHERE user_id=? AND target LIKE ? ORDER BY created_at DESC LIMIT ?", [userId, table + ":%", lim])
+    : await cfD1Query(env, uuid, "SELECT target, created_at FROM _bookmarks WHERE user_id=? ORDER BY created_at DESC LIMIT ?", [userId, lim]);
+  return rows.map((r) => { const i = String(r.target).indexOf(":"); return { target: r.target, table: i > 0 ? r.target.slice(0, i) : null, id: i > 0 ? parseInt(r.target.slice(i + 1), 10) : null, created_at: r.created_at }; });
 }
 // App settings / config — a per-app key→value store (theme, hero text, feature flags,
 // toggles). Publicly READABLE (the app renders from it), ADMIN-only writable (only the
@@ -6585,6 +6623,52 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
         }
       }
+      // Bookmarks / saves — a member's private "saved" list over any row (`<table>:<id>`).
+      //   POST /api/db/<slug>/save/<target>  → toggle (auth) → {saved, count}
+      //   GET  /api/db/<slug>/save/<target>  → {count, mine} (Bearer → mine)
+      //   GET  /api/db/<slug>/saves[?table=<t>&limit=N] → the caller's saved items (auth)
+      const bl = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/saves$/i);
+      if (bl && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bl[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|svlr", 300)) return tooMany();
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const table = (url.searchParams.get("table") || "").toLowerCase().replace(/[^a-z0-9_]/g, "") || null;
+          const lim = parseInt(url.searchParams.get("limit") || "200", 10);
+          return Response.json({ ok: true, saves: await bookmarkList(env, uuid, userId, table, lim) });
+        } catch (e) { console.error("saves list failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "saves failed" }, { status: 502 }); }
+      }
+      const sm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/save\/([a-z0-9_.:-]{1,80})$/i);
+      if (sm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sm[1].toLowerCase(), target = sm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|svr", 300)) return tooMany();
+            return Response.json(Object.assign({ ok: true }, await bookmarkState(env, uuid, target, userId)));
+          }
+          if (!userId) return Response.json({ ok: false, error: "sign in to save" }, { status: 401 });
+          if (!rateOk(slug + "|" + ip + "|svw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, target }, await toggleBookmark(env, uuid, userId, target, set)));
+        } catch (e) { console.error("save failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "save failed" }, { status: 502 }); }
+      }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
       //   GET    /api/db/<slug>/config/<key>    → {key, value}
@@ -6732,6 +6816,9 @@ async function handleRequest(request, env, ctx) {
           // `pinned` is platform-added but APP-SET (the app marks featured rows), so it's
           // writable + queryable + sortable like a normal column on pinnable tables.
           if (def.pinnable && !allow.some((c) => String(c).toLowerCase() === "pinned")) allow.push("pinned");
+          // `publish_at` is platform-added but APP-SET (the app schedules when a row goes
+          // live), so it's writable + queryable + sortable on scheduled tables.
+          if (def.scheduled && !allow.some((c) => String(c).toLowerCase() === "publish_at")) allow.push("publish_at");
           const tn = sqlIdent(table);
           // Identify the logged-in visitor (site-user token), if any.
           let userId = null;
@@ -6786,9 +6873,18 @@ async function handleRequest(request, env, ctx) {
           const expiresClause = expiresOn
             ? (url.searchParams.get("withExpired") === "1" ? "" : url.searchParams.get("expired") === "1" ? "(expires_at IS NOT NULL AND datetime(expires_at) <= datetime('now'))" : "(expires_at IS NULL OR datetime(expires_at) > datetime('now'))")
             : "";
-          // Combined default row visibility (trash + expiry). Both clauses are param-free, so
-          // they compose into one AND-ed suffix shared by list, single-GET, stats, and bulk.
-          const visClause = [trashClause, expiresClause].filter(Boolean).join(" AND ");
+          // Scheduled publish (inverse of TTL) — on `scheduled:true` tables reads HIDE rows
+          // whose `publish_at` is still in the future (drafts / scheduled posts); NULL or a
+          // past time = live. `?scheduled=1` lists only the not-yet-published, `?withScheduled=1`
+          // lists everything. Param-free (SQLite datetime()), composes into visClause.
+          const scheduledOn = !!def.scheduled;
+          const publishClause = scheduledOn
+            ? (url.searchParams.get("withScheduled") === "1" ? "" : url.searchParams.get("scheduled") === "1" ? "(publish_at IS NOT NULL AND datetime(publish_at) > datetime('now'))" : "(publish_at IS NULL OR datetime(publish_at) <= datetime('now'))")
+            : "";
+          // Combined default row visibility (trash + expiry + scheduled). All clauses are
+          // param-free, so they compose into one AND-ed suffix shared by list, single-GET,
+          // stats, and bulk.
+          const visClause = [trashClause, expiresClause, publishClause].filter(Boolean).join(" AND ");
           const withVisible = (base) => { if (!visClause) return base; const c = base && base.clause ? base.clause + " AND " + visClause : visClause; return { clause: c, params: base ? base.params.slice() : [] }; };
           // On a trash table, DELETE soft-deletes (sets deleted_at) unless `?hard=1`;
           // otherwise it's a real cascade delete. Returns true if a row was affected.
@@ -7097,7 +7193,12 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(null)), listExtras, listOpts);
+              // Following feed (`?following=1`, auth) — the home-feed primitive: only rows
+              // authored by members the caller FOLLOWS (owner_id ∈ their followees). Composes
+              // with where/q/sort/pagination. Needs the Follows layer; ignored when signed out.
+              let fbase = null;
+              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); fbase = { clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }; }
+              const b = buildD1List(url, tn, allow, withTagFilter(withVisible(fbase)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}
               r = await doExpand(r);
