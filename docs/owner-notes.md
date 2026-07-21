@@ -163,6 +163,18 @@ Two cohesive write-integrity primitives (same PR/branch):
 BACKEND_RULES: folded into the existing schema-column-rules line (no new bullet).
 Roadmap tally: ~34/93.
 
+## 2026-07-21 — Batch 18: NEW LAYER Follows (member social graph) (offline 12/12) ✅ built, PR
+
+Mirrors the proven Reactions primitive but over the MEMBER graph (not rows), so risk is
+low. New `_follows (follower_id, followee_id)` PK-deduped table in each site D1:
+- `POST /api/db/<slug>/follow/<userId>` (auth) → toggles, `{following, followers}`
+  (`{on:true|false}` forces). Can't follow yourself. Idempotent (PK).
+- `GET …/follow/<userId>` → `{followers, following, mine}` (Bearer → `mine`).
+- `GET …/follow/<userId>/followers` and `/following` → arrays of public profiles
+  (batched, safe columns) for "Followers"/"Following" pages.
+Helpers `ensureFollows`/`toggleFollow`/`followState`/`followList` sit beside the reactions
+helpers. BACKEND_RULES: one new social line (after PROFILES). Roadmap tally: ~35/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /

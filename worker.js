@@ -3055,6 +3055,55 @@ async function attachReactions(env, uuid, table, rows, url, userId) {
   for (const r of rows) { const t = table + ":" + r.id; r.reactions = { counts: cMap.get(t) || {}, mine: mMap.get(t) || [] }; }
   return rows;
 }
+// Follows — a member follows another member (social graph): followers/following counts,
+// "Followers"/"Following" lists, and whether the caller follows a given member. Stored in
+// the site's own D1 `_follows` (follower_id, followee_id) with a PK that dedupes, so
+// "follow" is idempotent and one-per-pair — mirrors the reactions primitive but over the
+// member graph rather than rows. Ensured once per warm isolate.
+const _followsReady = new Set();
+async function ensureFollows(env, uuid) {
+  if (_followsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _follows (follower_id INTEGER NOT NULL, followee_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (follower_id, followee_id))");
+  _followsReady.add(uuid);
+}
+// Toggle whether `follower` follows `followee`. `set` forces on/off; otherwise flips.
+// Returns {following, followers} (the caller's new state + followee's follower count).
+async function toggleFollow(env, uuid, follower, followee, set) {
+  await ensureFollows(env, uuid);
+  const existing = await cfD1Query(env, uuid, "SELECT 1 FROM _follows WHERE follower_id=? AND followee_id=?", [follower, followee]);
+  const has = !!existing[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _follows (follower_id,followee_id,created_at) VALUES (?,?,?)", [follower, followee, new Date().toISOString()]);
+  else if (!want && has) await cfD1Query(env, uuid, "DELETE FROM _follows WHERE follower_id=? AND followee_id=?", [follower, followee]);
+  const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE followee_id=?", [followee]);
+  return { following: want, followers: (cnt[0] && cnt[0].n) || 0 };
+}
+// Counts for one member: {followers, following, mine} — how many follow this member, how
+// many they follow, and whether the (optional) viewer follows them.
+async function followState(env, uuid, targetId, viewerId) {
+  await ensureFollows(env, uuid);
+  const fr = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE followee_id=?", [targetId]);
+  const fg = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _follows WHERE follower_id=?", [targetId]);
+  let mine = false;
+  if (viewerId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _follows WHERE follower_id=? AND followee_id=?", [viewerId, targetId]); mine = !!m[0]; }
+  return { followers: (fr[0] && fr[0].n) || 0, following: (fg[0] && fg[0].n) || 0, mine };
+}
+// The follower (or followee) member profiles for a "Followers"/"Following" page. `dir`
+// "followers" → members who follow <id>; "following" → members <id> follows. Batched,
+// public-safe profile columns only, newest-first, capped.
+async function followList(env, uuid, targetId, dir, limit) {
+  await ensureFollows(env, uuid);
+  const col = dir === "following" ? "follower_id" : "followee_id";
+  const pick = dir === "following" ? "followee_id" : "follower_id";
+  const lim = Math.min(200, Math.max(1, limit || 100));
+  const rows = await cfD1Query(env, uuid, "SELECT " + pick + " AS uid FROM _follows WHERE " + col + "=? ORDER BY created_at DESC LIMIT ?", [targetId, lim]);
+  const ids = [...new Set(rows.map((r) => r.uid).filter((v) => v != null))];
+  if (!ids.length) return [];
+  let profs = [];
+  try { profs = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url,bio FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { return []; }
+  const byId = new Map(profs.map((p) => [p.id, p]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
 // public; adding/removing follows the same write scope as the row.
@@ -6427,6 +6476,43 @@ async function handleRequest(request, env, ctx) {
         } catch (e) {
           console.error("reaction failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "reaction failed" }, { status: 502 });
+        }
+      }
+      // Follows — the member social graph. Toggle a follow, read a member's
+      // followers/following counts (+ whether the caller follows them), and list either
+      // side for a "Followers"/"Following" page.
+      //   POST /api/db/<slug>/follow/<userId> {on?}      → toggle (auth) → {following, followers}
+      //   GET  /api/db/<slug>/follow/<userId>            → {followers, following, mine}
+      //   GET  /api/db/<slug>/follow/<userId>/followers  → [profiles who follow them]
+      //   GET  /api/db/<slug>/follow/<userId>/following  → [profiles they follow]
+      const fm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/follow\/(\d+)(?:\/(followers|following))?$/i);
+      if (fm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fm[1].toLowerCase(), targetId = parseInt(fm[2], 10) || 0, dir = fm[3] || "";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|flr", 300)) return tooMany();
+            if (dir) { const lim = parseInt(url.searchParams.get("limit") || "100", 10); return Response.json({ ok: true, dir, users: await followList(env, uuid, targetId, dir, lim) }); }
+            return Response.json(Object.assign({ ok: true, id: targetId }, await followState(env, uuid, targetId, userId)));
+          }
+          // POST — toggle follow (requires login; can't follow yourself)
+          if (!userId) return Response.json({ ok: false, error: "sign in to follow" }, { status: 401 });
+          if (dir) return Response.json({ ok: false, error: "use GET for lists" }, { status: 405 });
+          if (targetId === userId) return Response.json({ ok: false, error: "you can't follow yourself" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|flw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, id: targetId }, await toggleFollow(env, uuid, userId, targetId, set)));
+        } catch (e) {
+          console.error("follow failed:", e && e.message, e && e.detail);
+          return Response.json({ ok: false, error: "follow failed" }, { status: 502 });
         }
       }
       // In-app notification inbox (the signed-in member's OWN notifications):
