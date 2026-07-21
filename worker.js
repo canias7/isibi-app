@@ -2725,7 +2725,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified) });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog) });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2924,6 +2924,20 @@ async function applySiteSchema(env, uuid, spec) {
         try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_i") + " BEFORE INSERT ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (i) failed:", t.name, col, e && e.detail); }
         try { await cfD1Query(env, uuid, "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_ref_" + col + "_u") + " BEFORE UPDATE OF " + cn + " ON " + tn + " WHEN " + cond + " BEGIN SELECT RAISE(ABORT, 'missing parent'); END"); } catch (e) { console.error("ref trigger (u) failed:", t.name, col, e && e.detail); }
       }
+    }
+    // Audit log — `audit:true` records every write to the table (insert/update/delete) in a
+    // shared `_audit` trail via AFTER triggers (no write-path plumbing). Captures table, row
+    // id, action, time, and the actor (owner_id on user/feed tables, else NULL). The app's
+    // admin reads it at GET /api/db/<slug>/audit. Compliance, "who changed this", activity.
+    if (t.audit) {
+      try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
+      const hasOwner = (access === "user" || access === "feed");
+      const actNew = hasOwner ? 'NEW."owner_id"' : "NULL";
+      const actOld = hasOwner ? 'OLD."owner_id"' : "NULL";
+      const mk = (suffix, when, idRef, actor, action) => "CREATE TRIGGER IF NOT EXISTS " + sqlIdent("trg_" + t.name + "_aud_" + suffix) + " AFTER " + when + " ON " + tn + " BEGIN INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('" + t.name.replace(/'/g, "''") + "', " + idRef + ", '" + action + "', " + actor + ", datetime('now')); END";
+      try { await cfD1Query(env, uuid, mk("i", "INSERT", "NEW.id", actNew, "insert")); } catch (e) { console.error("audit trigger i failed:", t.name, e && e.detail); }
+      try { await cfD1Query(env, uuid, mk("u", "UPDATE", "NEW.id", actNew, "update")); } catch (e) { console.error("audit trigger u failed:", t.name, e && e.detail); }
+      try { await cfD1Query(env, uuid, mk("d", "DELETE", "OLD.id", actOld, "delete")); } catch (e) { console.error("audit trigger d failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
     norm.push({ name: t.name, access, columns: colNames, refs, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified });
@@ -3289,6 +3303,35 @@ async function unvotePoll(env, uuid, poll, userId) {
   await ensurePolls(env, uuid);
   await cfD1Query(env, uuid, "DELETE FROM _polls WHERE poll=? AND user_id=?", [poll, userId]);
   return pollState(env, uuid, poll, userId);
+}
+// Blocks — a member blocks another so they can hide that member's content (feed reads with
+// `?hideBlocked=1` exclude blocked authors) and sever any follow edges between them. Stored
+// in `_blocks` PK(blocker_id, blocked_id). Personal + private to each member. Ensured once.
+const _blocksReady = new Set();
+async function ensureBlocks(env, uuid) {
+  if (_blocksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _blocks (blocker_id INTEGER NOT NULL, blocked_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY (blocker_id, blocked_id))");
+  _blocksReady.add(uuid);
+}
+async function toggleBlock(env, uuid, blocker, blocked, set) {
+  await ensureBlocks(env, uuid);
+  const has = !!(await cfD1Query(env, uuid, "SELECT 1 FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, blocked]))[0];
+  const want = set === "on" ? true : set === "off" ? false : !has;
+  if (want && !has) {
+    await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _blocks (blocker_id,blocked_id,created_at) VALUES (?,?,?)", [blocker, blocked, new Date().toISOString()]);
+    try { await ensureFollows(env, uuid); await cfD1Query(env, uuid, "DELETE FROM _follows WHERE (follower_id=? AND followee_id=?) OR (follower_id=? AND followee_id=?)", [blocked, blocker, blocker, blocked]); } catch {}
+  } else if (!want && has) { await cfD1Query(env, uuid, "DELETE FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, blocked]); }
+  return { blocking: want };
+}
+async function blockState(env, uuid, blocker, target) {
+  await ensureBlocks(env, uuid);
+  const m = await cfD1Query(env, uuid, "SELECT 1 FROM _blocks WHERE blocker_id=? AND blocked_id=?", [blocker, target]);
+  return { blocking: !!m[0] };
+}
+async function blockedIdList(env, uuid, blocker) {
+  await ensureBlocks(env, uuid);
+  const rows = await cfD1Query(env, uuid, "SELECT blocked_id FROM _blocks WHERE blocker_id=? ORDER BY created_at DESC", [blocker]);
+  return rows.map((r) => r.blocked_id);
 }
 // Tags / labels — attach short labels to any row and filter by them. Stored in the
 // site's own D1 `_tags` (row_table, row_id, tag), ensured once per isolate. Reads are
@@ -6913,6 +6956,33 @@ async function handleRequest(request, env, ctx) {
           return Response.json(Object.assign({ ok: true, poll, option }, await votePoll(env, uuid, poll, option, userId)));
         } catch (e) { console.error("poll failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "poll failed" }, { status: 502 }); }
       }
+      // Blocks — hide another member. `POST /block/<userId>` toggles, `GET /block/<userId>`
+      // → {blocking}, `GET /blocks` → your blocked ids. Then pass `?hideBlocked=1` on a feed
+      // read to drop blocked authors. All auth-only (a block is personal).
+      const blm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/block\/(\d+)$/i);
+      const bllm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/blocks$/i);
+      if ((blm || bllm) && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = (blm || bllm)[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          if (bllm) { if (!rateOk(slug + "|" + ip + "|bkl", 300)) return tooMany(); return Response.json({ ok: true, blocked: await blockedIdList(env, uuid, userId) }); }
+          const target = parseInt(blm[2], 10) || 0;
+          if (request.method === "GET") { if (!rateOk(slug + "|" + ip + "|bkr", 300)) return tooMany(); return Response.json(Object.assign({ ok: true, id: target }, await blockState(env, uuid, userId, target))); }
+          if (target === userId) return Response.json({ ok: false, error: "you can't block yourself" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|bkw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const set = body && (body.set === "on" || body.set === "off") ? body.set : (body && typeof body.on === "boolean" ? (body.on ? "on" : "off") : null);
+          return Response.json(Object.assign({ ok: true, id: target }, await toggleBlock(env, uuid, userId, target, set)));
+        } catch (e) { console.error("block failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "block failed" }, { status: 502 }); }
+      }
       // Content reports / flags + moderation queue.
       //   POST /api/db/<slug>/report/<target> {reason}  → flag a row (auth) → {reported, count}
       //   GET  /api/db/<slug>/report/<target>           → {count, mine}
@@ -6963,6 +7033,69 @@ async function handleRequest(request, env, ctx) {
           if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
           return Response.json({ ok: true, id: rid, status });
         } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
+      }
+      // Data export (ADMIN) — download a table as CSV (default) or JSON.
+      //   GET /api/db/<slug>/export/<table>[?format=csv|json&limit=N]
+      const exm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/export\/([a-z_][a-z0-9_]{0,40})$/i);
+      if (exm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = exm[1].toLowerCase(), table = exm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          if (!rateOk(slug + "|" + ip + "|expr", 30)) return tooMany();
+          const lim = Math.min(50000, Math.max(1, parseInt(url.searchParams.get("limit") || "10000", 10) || 10000));
+          const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(table) + " ORDER BY id DESC LIMIT ?", [lim]);
+          parseJsonRows(def, rows);
+          const fmt = (url.searchParams.get("format") || "csv").toLowerCase();
+          if (fmt === "json") return new Response(JSON.stringify(rows), { headers: { "content-type": "application/json; charset=utf-8", "content-disposition": 'attachment; filename="' + table + '.json"' } });
+          // CSV — union of keys across rows; RFC-4180 escaping.
+          const cols = []; const seen = new Set();
+          for (const r of rows) for (const k of Object.keys(r)) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+          const esc = (v) => { if (v == null) return ""; const s = typeof v === "object" ? JSON.stringify(v) : String(v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+          const csv = [cols.join(",")].concat(rows.map((r) => cols.map((c) => esc(r[c])).join(","))).join("\r\n");
+          return new Response(csv, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="' + table + '.csv"' } });
+        } catch (e) { console.error("export failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "export failed" }, { status: 502 }); }
+      }
+      // Audit trail (ADMIN) — the write history of `audit:true` tables.
+      //   GET /api/db/<slug>/audit[?table=<t>&action=insert|update|delete&limit=N]
+      const aum = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/audit$/i);
+      if (aum && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = aum[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|audr", 300)) return tooMany();
+          const table = (url.searchParams.get("table") || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
+          const action = (url.searchParams.get("action") || "").toLowerCase().replace(/[^a-z]/g, "");
+          const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+          const conds = [], params = [];
+          if (table) { conds.push("row_table=?"); params.push(table); }
+          if (["insert", "update", "delete"].includes(action)) { conds.push("action=?"); params.push(action); }
+          let rows = [];
+          try { rows = await cfD1Query(env, uuid, "SELECT id,row_table,row_id,action,actor_id,at FROM _audit" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim])); } catch {}
+          return Response.json({ ok: true, audit: rows });
+        } catch (e) { console.error("audit read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "audit failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
@@ -7494,11 +7627,14 @@ async function handleRequest(request, env, ctx) {
             // post, and may edit/delete only their OWN rows (stamped owner_id).
             if (method === "GET") {
               if (rowId != null) { const r = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + (visClause ? " AND " + visClause : ""), [rowId]); if (r[0]) await doExpand(r); return Response.json({ ok: true, row: r[0] || null }); }
-              // Following feed (`?following=1`, auth) — the home-feed primitive: only rows
-              // authored by members the caller FOLLOWS (owner_id ∈ their followees). Composes
-              // with where/q/sort/pagination. Needs the Follows layer; ignored when signed out.
-              let fbase = null;
-              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); fbase = { clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }; }
+              // Feed audience filters (auth, composable): `?following=1` → only authors the
+              // caller follows (home feed); `?hideBlocked=1` → exclude authors the caller has
+              // blocked. Both AND together and compose with where/q/sort/pagination; ignored
+              // when signed out.
+              const audience = [];
+              if (url.searchParams.get("following") === "1" && userId) { await ensureFollows(env, uuid); audience.push({ clause: "owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)", params: [userId] }); }
+              if (url.searchParams.get("hideBlocked") === "1" && userId) { await ensureBlocks(env, uuid); audience.push({ clause: "owner_id NOT IN (SELECT blocked_id FROM _blocks WHERE blocker_id=?)", params: [userId] }); }
+              const fbase = audience.length ? { clause: audience.map((a) => a.clause).join(" AND "), params: audience.flatMap((a) => a.params) } : null;
               const b = buildD1List(url, tn, allow, withTagFilter(withVisible(fbase)), listExtras, listOpts);
               let r = await cfD1Query(env, uuid, b.sql, b.params);
               let total = r.length; try { const c = await cfD1Query(env, uuid, b.countSql, b.countParams); if (c[0] && c[0].n != null) total = c[0].n; } catch {}

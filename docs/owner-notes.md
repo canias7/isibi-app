@@ -358,6 +358,32 @@ DELETE across every access branch); reads unaffected. Carried via coerceTable + 
 Note: account **lockout** (8 failed logins → 15-min lock) was ALREADY implemented in the
 login path — marked done in the roadmap, no new code. Roadmap tally: ~56/93.
 
+## 2026-07-21 — Batch 36: NEW LAYER Block another member (offline 12/12) ✅ built
+
+`_blocks` PK(blocker_id, blocked_id): `POST /block/<userId>` toggle → `{blocking}` (also
+DELETEs any follow edge both ways), `GET /block/<userId>` → `{blocking}`, `GET /blocks` →
+your blocked ids. Teeth: **`?hideBlocked=1`** on a feed read excludes blocked authors
+(`owner_id NOT IN (…)`), composing with `?following=1` (refactored the feed audience filters
+into a composable list). Helpers ensureBlocks/toggleBlock/blockState/blockedIdList. One
+BACKEND_RULES line. Roadmap tally: ~57/93.
+
+## 2026-07-21 — Batch 37: NEW LAYER Audit log (offline 9/9) ✅ built
+
+Table flag **`"audit":true`** → AFTER INSERT/UPDATE/DELETE triggers append to a shared
+`_audit (row_table, row_id, action, actor_id, at)` — zero write-path plumbing. Actor =
+NEW/OLD.owner_id on user/feed tables, else NULL. App admin reads at **`GET /api/db/<slug>/
+audit[?table=&action=&limit=]`** (inline admin role check, newest-first, filterable).
+Carried via coerceTable; triggers created in applySiteSchema after the ref-integrity block.
+Roadmap tally: ~58/93.
+
+## 2026-07-21 — Batch 38: Data export CSV/JSON (offline 11/11) ✅ built
+
+**`GET /api/db/<slug>/export/<table>[?format=csv|json&limit=N]`** (admin site-user) returns
+the table as a downloadable file (Content-Disposition attachment). CSV = union of keys +
+RFC-4180 escaping (`"` doubled, quoted when it contains comma/quote/newline), CRLF rows;
+JSON = array (json columns parsed). Cap 50k rows. Complements the existing OWNER-side
+`/api/site/backend/export`. Roadmap tally: ~59/93.
+
 ## 2026-07-21 — NEW LAYER: Uniqueness constraints (race-free) ✅ live
 
 Apps couldn't enforce "one review per member per product" / "one RSVP per event" /
