@@ -410,7 +410,34 @@ tolerant (it is now). If more shape drift shows up, extend `normalizeSchema`.
   DB ✅ · Auth+reset ✅ · **Files ✅ (#484)** · **Server functions + Secrets ✅ (#486)
   → this also delivers Payments + Email for React apps** (via a checkout/email
   function step + a secret) · **Search/Query ✅ (#490)** · **Stats/Aggregations ✅
-  (#491)**. Custom domains + realtime still open.
+  (#491)** · **Roles/permissions ✅ (#492)** · **Email verification ✅ (#493)**.
+  Realtime next; custom domains LAST (owner's call 2026-07-21 — "all of them, leave
+  custom domains for last"; it needs the owner to enable Cloudflare custom hostnames
+  + SSL at the account level, so it's gated on infra, not code).
+  · **Roles/permissions (#492) — VERIFIED live 17/17.** Built-site users now carry a
+    `role`; the FIRST person to sign up becomes `'admin'` automatically (owns the
+    app), everyone after is `'user'`. signup/login/me return `role` (+`verified`) and
+    role rides in the session token. New access mode **`admin`** = public READ, but
+    only an admin site-user can create/edit/delete (a real in-app CMS — blog/catalog/
+    events the owner manages from a logged-in admin screen, unlike `display` which has
+    no in-app editor). Non-admin write → 403 'admins only'; anon write → 401; everyone
+    GETs. New `_users` columns (role + verification) migrate in via a per-warm-isolate
+    cached idempotent ALTER (not paid on every auth call); new sites get them from the
+    CREATE. Owner's `_users` read now shows role+verified too (member admin view).
+    **Proof (zero AI/fal):** two signups → admin + user; admin POST/PATCH/DELETE ok,
+    user + anon blocked (403/401), edits/deletes stuck, public reads worked. Cleaned.
+  · **Email verification (#493) — flag + endpoints live; happy-path flip pending the
+    email key (same gate as reset).** On signup the platform auto-emails a signed 24h
+    'confirm your email' link → the worker-hosted `/verify` page flips the user's
+    `verified` 0→1 (idempotent, on-brand). Apps get a `verified` flag on the `user`
+    object; they can gate features on it + offer a 'Resend' button → `POST /auth/
+    verify-request` (Bearer or {email}, neutral response, already-verified sends
+    nothing). Most apps can ignore it. **The actual email only sends once GO_FARTHER_
+    API_KEY is set as a Worker secret** (still pending — SAME blocker as password
+    reset; see the reminder below). Verified live: signup returns `verified:0`, /me
+    shows 0, `/verify` with a bad/absent token renders the 'invalid/expired' page,
+    verify-request returns neutral ok. The token→flip happy path goes live with the
+    email key. Builder rules document the flag + resend.
   · **Why we hand-build these (owner asked 2026-07-20):** Supabase (which powers
     ISIBI's OWN backend) ships auth + a query API + storage pre-assembled — but a
     Supabase project is heavy + costs per-project, so it can't be "one backend per
