@@ -6438,3 +6438,24 @@ next). Everything else was already there.
   Sonnet-generated 3D build tested post-deploy. NEXT increments: 3D physics (Havok/rapier), curated CC0 asset
   packs (Kenney/Quaternius) for real models, Mixamo animations, an FPS/framerate budget in the smoke test.
   NOTE: this deploy REBUILDS the game container image (new Babylon dep) — slower than worker-only deploys.
+
+## 2026-07-22 — TEAMS / ORGANIZATIONS / WORKSPACES (the biggest genuine gap — B2B multi-tenancy)
+Grepped first: no teams/orgs membership layer existed — only `teamRead` (a manager→downline reporting
+hierarchy) and comments mentioning "owner/team". So B2B/multi-tenant apps (PSA, CRM, project mgmt, ITSM,
+any shared-workspace SaaS) had no way to group members. Built it, ADDITIVE (doesn't touch the owner_id
+row model):
+- `_teams` (id, name, created_by) + `_team_members` (team_id, user_id, role PK). Roles owner›admin›member.
+- Routes: `POST /teams {name}` (creator=owner), `GET /teams` (my teams + role + count), `GET /teams/<id>`
+  (team+members, members-only 403 else), `PATCH /teams/<id> {name}` (owner/admin), `DELETE /teams/<id>`
+  (owner), `GET|POST /teams/<id>/members` (add: owner/admin; only owner grants admin; dedup 409),
+  `PATCH /teams/<id>/members/<uid> {role}` (owner-only; role:'owner' TRANSFERS ownership → demotes caller
+  to admin), `DELETE /teams/<id>/members/<uid>` (owner/admin; can't remove owner; admin can't remove admin),
+  `POST /teams/<id>/leave` (owner blocked → must transfer/delete first). `ensureTeams`/`teamRoleOf` helpers.
+- Data scoping is app-side: add a team_id column, filter by the caller's team ids — the primitive is the
+  membership+roles layer, not a new access mode (kept it additive/non-invasive). Member-add needs an
+  existing user id (invite-by-email is a future follow-up).
+- Wired `_team_members` into the GDPR account-erase (memberships wiped on account deletion).
+batch154 (36/36) — create/owner, add member+admin, all role gates (member can't add, admin can't grant
+admin, admin can't change roles / remove admins / remove owner), dedup+unknown-user, member-list ordering,
+non-member 403, ownership transfer (both sides), leave (owner blocked), delete (owner-only), erase-wipes-
+membership (white-box + black-box), guards. Full suite 137 green.
