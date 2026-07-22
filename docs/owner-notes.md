@@ -634,6 +634,15 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   cancel/delete owner-or-admin. `_bookings` table. postBooking/ensureBookings/_normDT helpers. batch127
   (19/19). Full suite 110 green. Serves ATS interviews + any appointments/rentals. (Capacity>1 / multi-
   resource common-slot = later enhancement; v1 is exclusive single-resource.)
+- **VERT 2 — EFFECTIVE-DATED RECORDS** (`/api/db/<slug>/effective`, ADMIN): a (subject, attribute) value that
+  changes over time; "as of date X" = latest effective_date ≤ X. `POST /effective {subject,attribute,
+  effective_date,value(JSON),note?}` (upsert on subject+attribute+date). `GET /effective?subject=&attribute=
+  &as_of=` → value-in-force (+ which record applied) or, without as_of, full history newest-first. `GET
+  /effective/snapshot?attribute=&as_of=` → every subject's value as of a date (correlated MAX(effective_date)
+  join — payroll-run pattern). `DELETE /effective/<id>`. `_effective_values` UNIQUE(subject,attribute,date).
+  batch128 (21/21) — inclusive on-date, between-changes, before-any→null, object values, upsert-no-dup,
+  snapshot picks pre-raise value + excludes not-yet-existing subjects. Full suite 111 green. Serves HCM
+  comp/position history + price history.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 

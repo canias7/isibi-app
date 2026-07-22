@@ -3947,6 +3947,18 @@ async function postBooking(env, uuid, data, userId) {
   if (!ins[0]) return { err: "that time is already booked", code: "conflict" };
   return { booking: { id: ins[0].id, resource, start: start, end: end, status: "booked", party: data.party || null } };
 }
+// ── EFFECTIVE-DATED / TEMPORAL RECORDS (HCM comp/position history, price history) ──
+// Track a value that CHANGES OVER TIME for a (subject, attribute) pair, and answer "what
+// was it AS OF date X" = the row with the greatest effective_date on/before X. A snapshot
+// gives every subject's value as of one date (e.g. everyone's salary on a pay date).
+const _effReady = new Set();
+async function ensureEffective(env, uuid) {
+  if (_effReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _effective_values (id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL, attribute TEXT NOT NULL, effective_date TEXT NOT NULL, value TEXT, note TEXT, created_by INTEGER, created_at TEXT, UNIQUE(subject, attribute, effective_date))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ev_sa ON _effective_values (attribute, subject, effective_date)"); } catch {}
+  _effReady.add(uuid);
+}
+const _parseJSON = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return s; } };
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9655,6 +9667,69 @@ async function handleRequest(request, env, ctx) {
           if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "conflict" ? 409 : 400 });
           return Response.json({ ok: true, booking: res.booking });
         } catch (e) { console.error("bookings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bookings failed" }, { status: 502 }); }
+      }
+      // EFFECTIVE-DATED RECORDS (HCM/pricing history) — a value that changes over time; query
+      // it "as of" any date. ADMIN-gated. `value` is any JSON.
+      //   POST   /api/db/<slug>/effective {subject, attribute, effective_date, value, note?}  → record a change
+      //   GET    /api/db/<slug>/effective?subject=&attribute=&as_of=   → value as of a date (omit as_of → full history)
+      //   GET    /api/db/<slug>/effective/snapshot?attribute=&as_of=   → every subject's value as of a date
+      //   DELETE /api/db/<slug>/effective/<id>                         → remove one dated entry
+      const efm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/effective(?:\/(snapshot|\d+))?$/i);
+      if (efm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = efm[1].toLowerCase(), seg = efm[2] || null;
+        const evId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isSnap = seg === "snapshot";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureEffective(env, uuid);
+          const dateOf = (v) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null; };
+          if (isSnap) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|effr", 300)) return tooMany();
+            const attribute = String(url.searchParams.get("attribute") || "").trim();
+            if (!attribute) return Response.json({ ok: false, error: "attribute required" }, { status: 400 });
+            const asOf = dateOf(url.searchParams.get("as_of")) || new Date().toISOString().slice(0, 10);
+            const rows = await cfD1Query(env, uuid, "SELECT ev.subject, ev.value, ev.effective_date FROM _effective_values ev JOIN (SELECT subject, MAX(effective_date) AS md FROM _effective_values WHERE attribute=? AND effective_date<=? GROUP BY subject) m ON ev.subject=m.subject AND ev.effective_date=m.md AND ev.attribute=? ORDER BY ev.subject LIMIT 10000", [attribute, asOf, attribute]);
+            return Response.json({ ok: true, attribute, as_of: asOf, values: rows.map((r) => ({ subject: r.subject, value: _parseJSON(r.value), effective_date: r.effective_date })) });
+          }
+          if (evId && request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|effw", 60)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _effective_values WHERE id=?", [evId]);
+            return ex.changes > 0 ? Response.json({ ok: true, id: evId, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|effr", 300)) return tooMany();
+            const subject = String(url.searchParams.get("subject") || "").trim();
+            const attribute = String(url.searchParams.get("attribute") || "").trim();
+            if (!subject || !attribute) return Response.json({ ok: false, error: "subject and attribute are required" }, { status: 400 });
+            const asOf = dateOf(url.searchParams.get("as_of"));
+            if (asOf) {
+              const r = await cfD1Query(env, uuid, "SELECT value, effective_date FROM _effective_values WHERE subject=? AND attribute=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1", [subject, attribute, asOf]);
+              return Response.json({ ok: true, subject, attribute, as_of: asOf, value: r[0] ? _parseJSON(r[0].value) : null, effective_date: r[0] ? r[0].effective_date : null });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT id, effective_date, value, note FROM _effective_values WHERE subject=? AND attribute=? ORDER BY effective_date DESC LIMIT 5000", [subject, attribute]);
+            return Response.json({ ok: true, subject, attribute, history: rows.map((r) => ({ id: r.id, effective_date: r.effective_date, value: _parseJSON(r.value), note: r.note })) });
+          }
+          // POST — record a dated value (upsert on subject+attribute+date)
+          if (!rateOk(slug + "|" + ip + "|effw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const subject = String(body.subject || "").trim(); const attribute = String(body.attribute || "").trim();
+          const eff = dateOf(body.effective_date);
+          if (!subject || !attribute) return Response.json({ ok: false, error: "subject and attribute are required" }, { status: 400 });
+          if (!eff) return Response.json({ ok: false, error: "effective_date must be a date (YYYY-MM-DD)" }, { status: 400 });
+          if (body.value === undefined) return Response.json({ ok: false, error: "value is required" }, { status: 400 });
+          await cfD1Query(env, uuid, "INSERT INTO _effective_values (subject, attribute, effective_date, value, note, created_by, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(subject, attribute, effective_date) DO UPDATE SET value=excluded.value, note=excluded.note", [subject, attribute, eff, JSON.stringify(body.value), body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString()]);
+          return Response.json({ ok: true, subject, attribute, effective_date: eff, value: body.value });
+        } catch (e) { console.error("effective failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "effective failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
