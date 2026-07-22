@@ -6045,3 +6045,91 @@ in the media composer" wiring and rebuilt it as a standalone view.
 - NOTE: the landing GAME channel still shows the "coming soon" placeholder text while
   tuned (data-live="0"); selecting it works and routes to the studio. A landing
   polish (flip it to read live) is a small follow-up.
+
+## 2026-07-22 — Game Studio: iterate/revise loop (make the engine a studio, not one-shot)
+Added iteration so a built game can be changed in place ("make it faster", "add a
+boss", "neon green theme") — the core thing that makes a builder a studio.
+- **worker.js `POST /api/game/revise`**: loads the stashed source
+  (`gamesrc/<slug>.json`, owner-checked), applies `Sonnet(GAME_REVISE_RULES)` with
+  the instruction, merges the changed file blocks, rebuilds in the container with
+  the smoke test + the same Phase-4 auto-fix loop, and REPUBLISHES to the SAME slug
+  so `/g/<slug>/` stays stable. Same Sonnet-rate metering/guards as build.
+- **Frontend**: the Studio preview screen now has a revise bar under the game
+  (`.gs-revise` input + Update). `gameStudioRevise()` posts to `/api/game/revise`,
+  shows a status line, then reloads the iframe in place (cache-buster) so the change
+  shows immediately; 402→openCredits, balance→setCredits.
+- Validated locally: the revise merge→rebuild→smoke path passes (modified breakout
+  source → vite build OK → smoke PASS non-blank/zero-errors); the revise bar renders
+  + wires with no JS errors. Live Sonnet edit untested (same as build).
+
+## 2026-07-22 — Game Studio: streaming build (live code + phases, no idle-timeout risk)
+`/api/game/build` now STREAMS NDJSON (mirrors the React builder): `{ev:"phase"}`
+(generating→compiling→fixing→publishing), `{ev:"code"}` (the kaplay source as
+Sonnet writes it), terminal `{ev:"done"|"error"}`. Streaming keeps the HTTP
+connection alive through the ~60s build so it can't trip a client/edge idle
+timeout, and the Studio watches the code get written (Lovable-style).
+- worker.js: build endpoint switched to TransformStream + streaming Anthropic
+  (`streamGen`) + `ctx.waitUntil(run())`. Pre-stream guards (auth/config/credits)
+  still return JSON (incl. 402). Auto-fix loop + publish unchanged, just emits events.
+- chat.js: `gameStudioBuild()` consumes the NDJSON stream — live phase status + a
+  `.gs-code` panel that fills with the streamed source (auto-scroll, capped) — then
+  on `done` opens the preview + updates the ✦ pill. `GAME_PHASES` labels.
+- styles.css: `.gs-code` mono panel.
+- Validated in-browser with a mocked NDJSON stream: live phases + streamed code
+  render, then the preview opens and credits update, zero JS errors. (Revise still
+  uses its status-line timer — a fast follow to stream too.)
+
+## 2026-07-22 — Game Studio: streaming revise + Code view (round out the studio)
+- **Streaming revise**: `/api/game/revise` now streams NDJSON like build
+  (phase/code/done/error); `gameStudioRevise()` consumes it (live phase status →
+  reload the iframe in place on done). Consistent with the streaming build.
+- **Code view**: new `GET /api/game/source?slug=` (owner-only) returns the stashed
+  kaplay files; the preview screen has **Preview / Code tabs** (`.gs-tabs`); the Code
+  tab lists each file with its path + source and a **Download source** button
+  (downloads the `===FILE:===` bundle as `<slug>-source.txt`). `gameView` state.
+- Validated in-browser: the Code view renders the real source (main.js + scenes.js)
+  with the download button, zero JS errors; streaming revise shares the proven
+  build stream consumer.
+
+## 2026-07-22 — Game Studio Phase 6: AI sprites (generate → chroma-key → bundle)
+Games can now use AI-generated sprites instead of primitive shapes (opt-in "AI art"
+toggle). No image model outputs true alpha, so we generate each sprite on a solid
+pure-GREEN chroma-key background and cut it out with **Photon** (already a dep) — no
+new paid rembg call. Assets are BUNDLED into the build (self-contained; the smoke
+test loads them locally).
+- **builder-game/build-server.mjs**: `/build` now accepts `{assets:{name:base64}}` →
+  writes them to `public/assets/<name>` → Vite copies public/ into dist/ → the game
+  loads them by relative path (`assets/<name>`).
+- **builder-game/game-gen.mjs**: `GAME_ASSET_RULES` (sprites via
+  `k.loadSprite("n","@@SPRITE:<prompt>@@")`, ≤5, short prompts, shapes still for
+  HUD/ground) + `parseSpriteTokens`.
+- **worker.js**: `genSpritePng` (fal image on green screen) + `chromaKeyGreenToPng`
+  (Photon raw-pixel green→alpha, falls back to the opaque original on any Photon
+  hiccup) + `injectGameAssets` (resolves @@SPRITE@@ → bundled `assets/sprite-N.png`,
+  **placeholder square on gen failure so a game NEVER breaks**). `/api/game/build`
+  takes `art:'sprites'`, runs it (phase `arting`), meters each sprite at SITE_IMG_USD,
+  bundles + persists assets in `gamesrc` so **revise re-bundles the art**.
+- **Frontend**: an "✨ AI art" toggle in the Game Studio compose (sends `art:'sprites'`).
+- **VALIDATED (real):** the whole asset FOUNDATION — a kaplay game with a real alpha
+  PNG + WAV builds and smoke-passes THROUGH THE ACTUAL container build-server
+  (base64 asset → public/assets → dist → smoke PASS non-blank/zero-errors, sprite
+  renders with transparency). Contract + parser + toggle validated.
+- **NEEDS A LIVE TEST (can't spend fal / run workerd here):** `genSpritePng` (fal
+  image gen) and `chromaKeyGreenToPng` (the exact Photon `get_raw_pixels`/
+  `new PhotonImage`/`get_bytes` API). Safety nets mean the worst case is
+  placeholder/opaque sprites, never a broken game. Sounds/music deferred (fal audio
+  is voice/music-oriented) — v1 games are silent.
+
+## 2026-07-22 — Game Studio: built-in 8-bit SFX kit (games have sound, zero gen cost)
+Closed Phase 6's audio gap without fal (its audio is voice/music, not SFX): a small
+procedural 8-bit **SFX kit is baked into the game container image** and referenced by
+the generation contract — no per-build audio generation, no cost.
+- `builder-game/template/public/sfx/*.wav` — 7 synthesized sounds (jump, coin, hit,
+  shoot, explode, powerup, blip; ~56 KB total). Baked into the image via `COPY
+  template/`; Vite copies public/ into dist/, so every game has `sfx/<name>.wav`.
+  (build-server only wipes src/ + public/assets, so the kit persists across builds.)
+- `game-gen.mjs`: GAME_RULES (and thus GAME_ASSET_RULES) now has a SOUND section —
+  `k.loadSound("<name>","sfx/<name>.wav")` + `k.play(...)`, wired to the obvious
+  events. Applies to BOTH shape and sprite games.
+- Validated: a game that loads + plays the kit builds and smoke-passes (all 7 wavs
+  bundled into dist/sfx/, sounds trigger on input, zero errors).

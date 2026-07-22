@@ -11595,6 +11595,9 @@ if (params.get('credits') === 'added') {
 const GAMES_KEY = 'zephyr_games_v1';
 let gameOpenSlug = null;
 let gameBuilding = false;
+let gameView = 'preview'; // 'preview' | 'code' — the open game's active tab
+let gameArt = 'shapes';   // 'shapes' | 'sprites' — Phase 6 AI art toggle
+function gsEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function gamesLoad() { try { return JSON.parse(localStorage.getItem(GAMES_KEY) || '[]'); } catch { return []; } }
 function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} }
 
@@ -11617,26 +11620,45 @@ function renderGames() {
   const games = gamesLoad();
   const open = gameOpenSlug ? games.find((g) => g.slug === gameOpenSlug) : null;
 
+  const tabs = open
+    ? '<div class="gs-tabs">' +
+        '<button class="gs-tab' + (gameView === 'preview' ? ' on' : '') + '" type="button" data-gv="preview">Preview</button>' +
+        '<button class="gs-tab' + (gameView === 'code' ? ' on' : '') + '" type="button" data-gv="code">Code</button>' +
+      '</div>'
+    : '';
   const head =
     '<div class="gs-top">' +
       '<button class="gs-back" type="button" id="gsBack">‹ Studio</button>' +
       '<div class="gs-brand">🎮 <b>Game Studio</b></div>' +
       '<div style="flex:1"></div>' +
+      tabs +
       (open ? '<a class="gs-open" href="' + open.url + '" target="_blank" rel="noopener">Open ↗</a>' +
               '<button class="gs-new" type="button" id="gsNew">+ New game</button>' : '') +
     '</div>';
 
   let body;
-  if (open) {
+  if (open && gameView === 'code') {
+    body = '<div class="gs-codeview" id="gsCodeView"><div class="gs-code-load">Loading source…</div></div>';
+  } else if (open) {
     body =
       '<div class="gs-stage">' +
         '<div class="gs-frame-wrap"><div class="gs-frame">' +
           '<iframe title="' + gameTitle(open.slug) + '" src="' + open.url + '" allow="autoplay; fullscreen"></iframe>' +
         '</div>' +
-        '<div class="gs-meta"><b>' + gameTitle(open.slug) + '</b><span>Play-tested ✓ · click the game to play</span></div></div>' +
+        '<div class="gs-meta"><b>' + gameTitle(open.slug) + '</b><span>Play-tested ✓ · click the game to play</span></div>' +
+        '<div class="gs-revise">' +
+          '<input id="gsRevise" type="text" placeholder="Change something — “make it faster”, “add a boss”, “neon green theme”…" />' +
+          '<button class="gs-build" type="button" id="gsReviseBtn">Update</button>' +
+          '<span class="gs-status" id="gsReviseStatus"></span>' +
+        '</div></div>' +
       '</div>';
   } else {
     const chips = GAME_GENRES.map((g) => '<button class="gs-chip" type="button" data-genre="' + g.key + '">' + g.label + '</button>').join('');
+    const artToggle =
+      '<div class="gs-arttoggle">' +
+        '<button class="gs-artbtn' + (gameArt === 'sprites' ? ' on' : '') + '" type="button" id="gsArt" role="switch" aria-checked="' + (gameArt === 'sprites' ? 'true' : 'false') + '"><span class="gs-artknob"></span>✨ AI art</button>' +
+        '<span class="gs-arthint" id="gsArtHint">' + (gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast &amp; free') + '</span>' +
+      '</div>';
     const cards = games.length
       ? '<div class="gs-recent"><div class="gs-recent-lab">Your games</div><div class="gs-grid">' +
           games.map((g) => '<button class="gs-card" type="button" data-slug="' + g.slug + '"><span class="gs-card-frame"><iframe tabindex="-1" title="" src="' + g.url + '" scrolling="no"></iframe></span><span class="gs-card-t">' + gameTitle(g.slug) + '</span></button>').join('') +
@@ -11647,6 +11669,7 @@ function renderGames() {
         '<h1 class="gs-h1">What are we <span class="gs-grad">playing</span>?</h1>' +
         '<p class="gs-sub">Describe a game. isibi writes it, compiles it, and play-tests it before you see it.</p>' +
         '<div class="gs-chips">' + chips + '</div>' +
+        artToggle +
         '<div class="gs-box">' +
           '<textarea id="gsPrompt" rows="3" placeholder="e.g. a neon endless runner where you dodge obstacles and collect orbs…"></textarea>' +
           '<div class="gs-box-foot">' +
@@ -11654,18 +11677,29 @@ function renderGames() {
             '<button class="gs-build" type="button" id="gsBuild">Build game →</button>' +
           '</div>' +
         '</div>' +
+        '<pre class="gs-code" id="gsCode" hidden></pre>' +
         cards +
       '</div>';
   }
   view.innerHTML = head + body;
 
   const back = view.querySelector('#gsBack'); if (back) back.onclick = () => showView('home');
-  const nw = view.querySelector('#gsNew'); if (nw) nw.onclick = () => { gameOpenSlug = null; renderGames(); };
-  view.querySelectorAll('.gs-card').forEach((c) => { c.onclick = () => { gameOpenSlug = c.dataset.slug; renderGames(); }; });
+  const nw = view.querySelector('#gsNew'); if (nw) nw.onclick = () => { gameOpenSlug = null; gameView = 'preview'; renderGames(); };
+  view.querySelectorAll('.gs-tab').forEach((t) => { t.onclick = () => { gameView = t.dataset.gv; renderGames(); }; });
+  view.querySelectorAll('.gs-card').forEach((c) => { c.onclick = () => { gameOpenSlug = c.dataset.slug; gameView = 'preview'; renderGames(); }; });
+  if (open && gameView === 'code') loadGameCode(open.slug);
   view.querySelectorAll('.gs-chip').forEach((ch) => { ch.onclick = () => {
     const g = GAME_GENRES.find((x) => x.key === ch.dataset.genre);
     const ta = view.querySelector('#gsPrompt'); if (g && ta) { ta.value = g.prompt; ta.focus(); }
   }; });
+  const artBtn = view.querySelector('#gsArt');
+  if (artBtn) artBtn.onclick = () => {
+    gameArt = gameArt === 'sprites' ? 'shapes' : 'sprites';
+    artBtn.classList.toggle('on', gameArt === 'sprites');
+    artBtn.setAttribute('aria-checked', gameArt === 'sprites' ? 'true' : 'false');
+    const hint = view.querySelector('#gsArtHint');
+    if (hint) hint.textContent = gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast & free';
+  };
   const buildBtn = view.querySelector('#gsBuild');
   if (buildBtn) buildBtn.onclick = () => {
     const ta = view.querySelector('#gsPrompt');
@@ -11673,39 +11707,134 @@ function renderGames() {
     if (!brief) { if (ta) ta.focus(); return; }
     gameStudioBuild(brief);
   };
+  const rvBtn = view.querySelector('#gsReviseBtn');
+  const doRevise = () => {
+    const inp = view.querySelector('#gsRevise');
+    const ins = (inp && inp.value || '').trim();
+    if (!ins) { if (inp) inp.focus(); return; }
+    gameStudioRevise(open.slug, ins);
+  };
+  if (rvBtn) rvBtn.onclick = doRevise;
+  const rvInp = view.querySelector('#gsRevise');
+  if (rvInp) rvInp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doRevise(); } };
 }
 
+// Iterate on an open game — POST /api/game/revise (loads its stashed source,
+// applies the change with GAME_REVISE_RULES, rebuilds + smoke-tests, republishes
+// to the SAME slug). Reloads the iframe in place so the change shows immediately.
+async function gameStudioRevise(slug, instruction) {
+  if (gameBuilding) return;
+  gameBuilding = true;
+  const btn = document.getElementById('gsReviseBtn');
+  const status = document.getElementById('gsReviseStatus');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+  if (status) status.textContent = 'Starting…';
+  let done = null, err = null;
+  try {
+    const r = await apiFetch('/api/game/revise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, instruction }) });
+    if (r.status === 402) { if (status) status.textContent = 'Out of credits — top up to keep editing.'; if (typeof openCredits === 'function') openCredits(true); return; }
+    if (!r.ok || !r.body) { if (status) status.textContent = '⚠️ Couldn’t start the edit — try again.'; return; }
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done: rd } = await reader.read(); if (rd) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.ev === 'phase') { if (status) status.textContent = GAME_PHASES[ev.phase] || ev.phase; }
+        else if (ev.ev === 'done') { done = ev; }
+        else if (ev.ev === 'error') { err = ev; }
+      }
+    }
+    if (err) { if (status) status.textContent = '⚠️ ' + (err.msg || 'That change didn’t apply — try rephrasing.'); return; }
+    if (!done) { if (status) status.textContent = '⚠️ The edit ended early — try again.'; return; }
+    if (typeof done.balance === 'number' && typeof setCredits === 'function') setCredits(done.balance);
+    const fr = document.querySelector('#viewGames .gs-frame iframe');
+    if (fr) fr.src = done.url + '?r=' + Date.now(); // cache-buster → the rebuilt game reloads
+    if (status) status.textContent = 'Updated ✓' + (done.fixed ? ' · auto-fixed ' + done.fixed + '×' : '');
+    const inp = document.getElementById('gsRevise'); if (inp) inp.value = '';
+  } catch (e) {
+    if (status) status.textContent = '⚠️ Couldn’t reach the builder just now — give it a moment.';
+  } finally {
+    gameBuilding = false;
+    const b2 = document.getElementById('gsReviseBtn');
+    if (b2) { b2.disabled = false; b2.textContent = 'Update'; }
+  }
+}
+
+// Code view — fetch the game's stashed source and render each file, with Download.
+async function loadGameCode(slug) {
+  const el = document.getElementById('gsCodeView');
+  if (!el) return;
+  try {
+    const r = await apiFetch('/api/game/source?slug=' + encodeURIComponent(slug));
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.ok || !d.files) { el.innerHTML = '<div class="gs-code-load">Couldn’t load the source.</div>'; return; }
+    const paths = Object.keys(d.files).sort((a, b) => (a === 'src/main.js' ? -1 : b === 'src/main.js' ? 1 : a.localeCompare(b)));
+    el.innerHTML =
+      '<div class="gs-code-head"><span>' + paths.length + ' file' + (paths.length === 1 ? '' : 's') + ' · kaplay</span>' +
+        '<button class="gs-dl" type="button" id="gsDownload">↓ Download source</button></div>' +
+      paths.map((p) => '<div class="gs-file"><div class="gs-file-h">' + gsEsc(p) + '</div><pre class="gs-code gs-code-static">' + gsEsc(d.files[p]) + '</pre></div>').join('');
+    const dl = document.getElementById('gsDownload');
+    if (dl) dl.onclick = () => downloadGameSource(slug, d.files);
+  } catch (e) { el.innerHTML = '<div class="gs-code-load">Couldn’t load the source.</div>'; }
+}
+
+function downloadGameSource(slug, files) {
+  const bundle = Object.entries(files).map(([p, s]) => '===FILE: ' + p + '===\n' + s).join('\n\n');
+  const blob = new Blob([bundle], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (slug || 'game') + '-source.txt';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// Live phase labels for the streamed build.
+const GAME_PHASES = { generating: 'Designing & writing the code…', arting: 'Creating the art…', compiling: 'Compiling…', fixing: 'Fixing a hiccup…', publishing: 'Publishing…' };
 async function gameStudioBuild(brief) {
   if (gameBuilding) return;
   gameBuilding = true;
   const btn = document.getElementById('gsBuild');
   const status = document.getElementById('gsStatus');
+  const codeEl = document.getElementById('gsCode');
   if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
-  const steps = ['Designing the game…', 'Writing the code…', 'Compiling…', 'Play-testing…'];
-  let si = 0;
-  if (status) status.textContent = steps[0];
-  const tick = setInterval(() => { si = Math.min(si + 1, steps.length - 1); if (status) status.textContent = steps[si]; }, 9000);
+  if (status) status.textContent = 'Starting…';
+  if (codeEl) { codeEl.textContent = ''; codeEl.hidden = false; }
+  const appendCode = (t) => { if (!codeEl) return; codeEl.textContent += t; if (codeEl.textContent.length > 12000) codeEl.textContent = codeEl.textContent.slice(-9000); codeEl.scrollTop = codeEl.scrollHeight; };
+  let done = null, err = null;
   try {
-    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
-    const d = await r.json().catch(() => ({}));
-    clearInterval(tick);
-    if (r.status === 402 || d.need === 'credits') {
-      if (status) status.textContent = 'Out of credits — top up to build a game.';
-      if (typeof openCredits === 'function') openCredits(true);
-      return;
+    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief, art: gameArt }) });
+    if (r.status === 402) { if (status) status.textContent = 'Out of credits — top up to build a game.'; if (typeof openCredits === 'function') openCredits(true); return; }
+    if (!r.ok || !r.body) { if (status) status.textContent = '⚠️ Couldn’t start the build — try again.'; return; }
+    // Consume the NDJSON stream: {ev:"phase"|"code"|"done"|"error"}.
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done: rd } = await reader.read(); if (rd) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.ev === 'phase') { if (status) status.textContent = GAME_PHASES[ev.phase] || ev.phase; }
+        else if (ev.ev === 'code') { appendCode(ev.t); }
+        else if (ev.ev === 'done') { done = ev; }
+        else if (ev.ev === 'error') { err = ev; }
+      }
     }
-    if (!r.ok || !d.ok) {
-      if (status) status.textContent = '⚠️ ' + (d.error || 'That build didn’t come together — try again, maybe simpler.');
-      return;
-    }
+    if (err) { if (status) status.textContent = '⚠️ ' + (err.msg || 'That build didn’t come together — try again, maybe simpler.'); return; }
+    if (!done) { if (status) status.textContent = '⚠️ The build ended early — try again.'; return; }
     const games = gamesLoad();
-    games.unshift({ slug: d.slug, url: d.url, ts: Date.now() });
+    games.unshift({ slug: done.slug, url: done.url, ts: Date.now() });
     gamesSave(games);
-    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
-    gameOpenSlug = d.slug;
+    if (typeof done.balance === 'number' && typeof setCredits === 'function') setCredits(done.balance);
+    gameOpenSlug = done.slug;
+    gameView = 'preview';
     renderGames();
   } catch (e) {
-    clearInterval(tick);
     if (status) status.textContent = '⚠️ Couldn’t reach the game builder just now — give it a moment.';
   } finally {
     gameBuilding = false;

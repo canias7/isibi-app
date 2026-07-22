@@ -7,10 +7,17 @@
 // Worker's Phase-4 auto-fix loop.
 //
 // Contract:
-//   POST /build   { "files": { "<relpath>": "<utf8 source>", ... }, "smoke": true }
+//   POST /build   { "files": { "<relpath>": "<utf8 source>", ... },
+//                   "assets": { "<name>": "<base64>", ... },   // OPTIONAL sprites/sounds
+//                   "smoke": true }
 //     → 200 { "ok": true,  "files": {…dist…}, "smoke": { "passed": bool, "errors": [...], "blank": bool, "ms": N } }
 //     → 200 { "ok": false, "error": "<build stderr>", "stage": "build" }   (compile failed)
 //   GET  /health  → 200 "ok"
+//
+// `assets` are binary game assets (generated sprite PNGs w/ alpha, sound WAV/MP3).
+// They're written to public/assets/<name>; Vite copies public/ verbatim into dist/,
+// so the game loads them by relative path (assets/<name>) and they're self-contained
+// (the smoke test serves the dist locally, so no cross-origin fetch).
 import http from "node:http";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -20,6 +27,7 @@ import { smokeTest } from "./smoke.mjs";
 const APP = process.env.APP_DIR || "/app";
 const SRC = path.join(APP, "src");
 const DIST = path.join(APP, "dist");
+const ASSETS = path.join(APP, "public", "assets");
 const MAX_BODY = 12 * 1024 * 1024;
 const BUILD_TIMEOUT = 90_000;
 
@@ -36,6 +44,19 @@ function safeRel(rel) {
 
 function wipeSrc() { try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {} fs.mkdirSync(SRC, { recursive: true }); }
 function wipeDist() { try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {} }
+function wipeAssets() { try { fs.rmSync(ASSETS, { recursive: true, force: true }); } catch {} fs.mkdirSync(ASSETS, { recursive: true }); }
+// Write binary game assets to public/assets/<name>. Names are sanitised to a flat
+// filename (no path traversal); only known media extensions are allowed.
+function writeAssets(assets) {
+  let n = 0;
+  for (const [name, b64] of Object.entries(assets || {})) {
+    if (typeof b64 !== "string") continue;
+    const safe = String(name).replace(/[^a-z0-9._-]/gi, "-");
+    if (!/\.(png|jpg|jpeg|webp|mp3|wav|ogg)$/i.test(safe)) continue;
+    try { fs.writeFileSync(path.join(ASSETS, safe), Buffer.from(b64, "base64")); n++; } catch {}
+  }
+  return n;
+}
 
 function runBuild() {
   return new Promise((resolve) => {
@@ -77,7 +98,8 @@ const server = http.createServer((req, res) => {
     const files = payload && payload.files;
     if (!files || typeof files !== "object") return send(res, 400, { ok: false, error: "no files" });
     try {
-      wipeSrc(); wipeDist();
+      wipeSrc(); wipeDist(); wipeAssets();
+      writeAssets(payload.assets);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRel(rel);
