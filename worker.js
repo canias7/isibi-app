@@ -3989,6 +3989,16 @@ async function ensureEffective(env, uuid) {
   _effReady.add(uuid);
 }
 const _parseJSON = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return s; } };
+// LMS progress: a course's ordered items (+ optional prereq) and each learner's completion.
+const _progressReady = new Set();
+async function ensureProgress(env, uuid) {
+  if (_progressReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _courses (course TEXT PRIMARY KEY, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _course_items (course TEXT NOT NULL, item TEXT NOT NULL, sort INTEGER, prereq TEXT, PRIMARY KEY (course, item))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _progress (learner TEXT NOT NULL, course TEXT NOT NULL, item TEXT NOT NULL, score REAL, completed_at TEXT, PRIMARY KEY (learner, course, item))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_prog_cl ON _progress (course, learner)"); } catch {}
+  _progressReady.add(uuid);
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9760,6 +9770,109 @@ async function handleRequest(request, env, ctx) {
           await cfD1Query(env, uuid, "INSERT INTO _effective_values (subject, attribute, effective_date, value, note, created_by, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(subject, attribute, effective_date) DO UPDATE SET value=excluded.value, note=excluded.note", [subject, attribute, eff, JSON.stringify(body.value), body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString()]);
           return Response.json({ ok: true, subject, attribute, effective_date: eff, value: body.value });
         } catch (e) { console.error("effective failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "effective failed" }, { status: 502 }); }
+      }
+      // PROGRESS / COMPLETION TRACKING (LMS) — a course's items, a learner's completion %, and
+      // prerequisite gating. Course def is ADMIN; a signed-in member records/reads their OWN
+      // progress (admin can act for any `learner`).
+      //   POST   /api/db/<slug>/courses/<course> {items:[{item, prereq?, sort?}]}   (admin) → define/replace
+      //   GET    /api/db/<slug>/courses[/<course>]                                  → list / one definition
+      //   DELETE /api/db/<slug>/courses/<course>                                    (admin) → remove
+      //   POST   /api/db/<slug>/courses/<course>/complete {item, learner?, score?}  → mark done (409 if prereq unmet)
+      //   POST   /api/db/<slug>/courses/<course>/reset {item?, learner?}            → un-complete an item / whole course
+      //   GET    /api/db/<slug>/courses/<course>/progress[?learner=]                → {completed, total, percent, items}
+      const csm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/courses(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(complete|reset|progress))?)?$/i);
+      if (csm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = csm[1].toLowerCase(), course = csm[2] || null, act = csm[3] ? csm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureProgress(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|csr", 300), wr = () => rateOk(slug + "|" + ip + "|csw", 120);
+          // Resolve whose progress we're touching: your own, unless an admin names a learner.
+          const learnerOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (act === "progress") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const learner = learnerOf(url.searchParams.get("learner")); if (!learner) return Response.json({ ok: false, error: "you can only view your own progress" }, { status: 403 });
+            const items = await cfD1Query(env, uuid, "SELECT item, sort, prereq FROM _course_items WHERE course=? ORDER BY sort, item", [course]);
+            if (!items.length) return Response.json({ ok: false, error: "no such course" }, { status: 404 });
+            const done = new Map((await cfD1Query(env, uuid, "SELECT item, score, completed_at FROM _progress WHERE course=? AND learner=?", [course, learner])).map((r) => [r.item, r]));
+            const out = items.map((i) => ({ item: i.item, done: done.has(i.item), score: done.has(i.item) ? done.get(i.item).score : null, completed_at: done.has(i.item) ? done.get(i.item).completed_at : null, prereq: i.prereq || null }));
+            const completed = out.filter((x) => x.done).length;
+            return Response.json({ ok: true, course, learner, completed, total: items.length, percent: items.length ? Math.round((completed / items.length) * 1000) / 10 : 0, items: out });
+          }
+          if (act === "complete") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only record your own progress" }, { status: 403 });
+            const item = String(body.item || "").trim(); if (!item) return Response.json({ ok: false, error: "item is required" }, { status: 400 });
+            const def = (await cfD1Query(env, uuid, "SELECT prereq FROM _course_items WHERE course=? AND item=?", [course, item]))[0];
+            if (!def) return Response.json({ ok: false, error: "no such item in this course" }, { status: 404 });
+            if (def.prereq) { const p = await cfD1Query(env, uuid, "SELECT 1 FROM _progress WHERE course=? AND learner=? AND item=?", [course, learner, def.prereq]); if (!p[0]) return Response.json({ ok: false, error: "complete the prerequisite '" + def.prereq + "' first", code: "prereq", prereq: def.prereq }, { status: 409 }); }
+            const score = body.score != null && body.score !== "" && Number.isFinite(Number(body.score)) ? Number(body.score) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _progress (learner, course, item, score, completed_at) VALUES (?,?,?,?,?) ON CONFLICT(learner, course, item) DO UPDATE SET score=excluded.score, completed_at=excluded.completed_at", [learner, course, item, score, new Date().toISOString()]);
+            const total = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _course_items WHERE course=?", [course]))[0] || {}).n || 0;
+            const completed = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _progress p JOIN _course_items ci ON ci.course=p.course AND ci.item=p.item WHERE p.course=? AND p.learner=?", [course, learner]))[0] || {}).n || 0;
+            return Response.json({ ok: true, course, learner, item, completed, total, percent: total ? Math.round((completed / total) * 1000) / 10 : 0 });
+          }
+          if (act === "reset") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only reset your own progress" }, { status: 403 });
+            if (body.item) await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=? AND learner=? AND item=?", [course, learner, String(body.item).slice(0, 80)]);
+            else await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=? AND learner=?", [course, learner]);
+            return Response.json({ ok: true, course, learner, reset: body.item ? String(body.item) : "all" });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          // ── course definition CRUD ──
+          if (course && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const items = await cfD1Query(env, uuid, "SELECT item, sort, prereq FROM _course_items WHERE course=? ORDER BY sort, item", [course]);
+            if (!items.length) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            return Response.json({ ok: true, course, items: items.map((i) => ({ item: i.item, sort: i.sort, prereq: i.prereq || null })) });
+          }
+          if (!course && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT course, COUNT(*) AS n FROM _course_items GROUP BY course ORDER BY course LIMIT 5000");
+            return Response.json({ ok: true, courses: rows.map((r) => ({ course: r.course, item_count: r.n })) });
+          }
+          // POST/DELETE course definition → admin only
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            if (!course) return Response.json({ ok: false, error: "course required" }, { status: 400 });
+            await cfD1Query(env, uuid, "DELETE FROM _course_items WHERE course=?", [course]);
+            await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=?", [course]);
+            return Response.json({ ok: true, course, deleted: true });
+          }
+          if (!course) return Response.json({ ok: false, error: "course name required in the path" }, { status: 400 });
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.items) || !body.items.length) return Response.json({ ok: false, error: "items:[{item, prereq?}] is required" }, { status: 400 });
+          if (body.items.length > 1000) return Response.json({ ok: false, error: "too many items (max 1000)" }, { status: 400 });
+          const seen = new Set(); const defs = [];
+          for (let i = 0; i < body.items.length; i++) {
+            const it = body.items[i]; const name = String((it && it.item != null ? it.item : it) || "").trim();
+            if (!name || name.length > 80) return Response.json({ ok: false, error: "item " + (i + 1) + " needs a name (≤80)" }, { status: 400 });
+            if (seen.has(name)) return Response.json({ ok: false, error: "duplicate item " + name }, { status: 400 });
+            seen.add(name); defs.push({ item: name, sort: (it && Number.isFinite(Number(it.sort))) ? Number(it.sort) : i, prereq: (it && it.prereq != null && it.prereq !== "") ? String(it.prereq).slice(0, 80) : null });
+          }
+          for (const d of defs) if (d.prereq && !seen.has(d.prereq)) return Response.json({ ok: false, error: "prereq '" + d.prereq + "' isn't an item in this course" }, { status: 400 });
+          await cfD1Query(env, uuid, "DELETE FROM _course_items WHERE course=?", [course]);
+          await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _courses (course, created_at) VALUES (?,?)", [course, new Date().toISOString()]);
+          for (const d of defs) await cfD1Query(env, uuid, "INSERT INTO _course_items (course, item, sort, prereq) VALUES (?,?,?,?)", [course, d.item, d.sort, d.prereq]);
+          return Response.json({ ok: true, course, items: defs.length });
+        } catch (e) { console.error("courses failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "courses failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.

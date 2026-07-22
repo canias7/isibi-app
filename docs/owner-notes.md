@@ -659,6 +659,14 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   to point; sorted most-negative-first; carries supplier. Separate route (item path ≠ numeric). ensureReorder
   helper. batch130 (16/16) — fixed qty, top-up-to-target, healthy-excluded, reservation-triggers, default=up-
   to-point, delete. Full suite 113 green.
+- **VERT 5 — COURSE PROGRESS** (LMS, `/api/db/<slug>/courses/*`): `_courses` + `_course_items`(course,item,
+  sort,prereq) + `_progress`(learner,course,item,score). Course def = ADMIN (`POST /courses/<course>
+  {items:[{item,prereq?,sort?}]}`, prereq must be a real item in the course; replace-on-write). A signed-in
+  member records/reads THEIR OWN (learnerOf forces own unless admin passes `learner`): `/complete {item,
+  score?}` (409 `prereq` if the item's prereq isn't done), `/progress` → {completed,total,percent,items},
+  `/reset {item?}`. `GET /courses` list, `DELETE /courses/<course>` (admin, cascades progress). ensureProgress
+  helper. batch131 (27/27) — prereq gate, 66.7%/100% math, score, per-learner isolation, admin-for-any,
+  member-can't-see-others (403), reset item/all, prereq-validation. Full suite 114 green. Serves LMS.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
