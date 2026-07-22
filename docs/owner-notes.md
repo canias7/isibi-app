@@ -617,6 +617,16 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — Attachments: storage-usage endpoint
+
+`GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
+summing `_attachments.size` site-wide + per table (ORDER BY bytes DESC). For an app admin's
+usage/quota dashboard. Offline batch90 (12/12): totals, per-table breakdown + sort, updates after a
+delete, non-admin 403 / signed-out 401, empty-site zeros. Full suite (73) green. BACKEND_RULES
+documents it after the attachments entry.
+(**Decision:** recurring-records / auto-renewals NOT built — it needs a global per-site cron sweep,
+which is the same scale frontier as the Postgres tier; deferred by design, not an oversight.)
+
 ## 2026-07-22 — Hardening: cascade-deleted CHILD rows' satellites are swept too
 
 Closes the last delete-cascade follow-up. `cascadeDeleteRow`'s cascade branch now SELECTs the child

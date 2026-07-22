@@ -8458,6 +8458,29 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, q, results, count });
       }
     }
+    // Phase D.2 — attachment storage usage: GET /api/db/<slug>/storage → total file count + bytes,
+    // site-wide and per table, for an admin usage/quota dashboard. Admin-gated (aggregate sizes).
+    {
+      const gm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/storage$/i);
+      if (gm) {
+        if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+        const slug = gm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        let userId = null;
+        const gtok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (gtok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, gtok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+        if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admin only" }, { status: 403 });
+        await ensureAttachments(env, uuid);
+        let total = { count: 0, bytes: 0 }, byTable = [];
+        try { const r = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, COALESCE(SUM(size),0) AS b FROM _attachments"); if (r[0]) total = { count: Number(r[0].n) || 0, bytes: Number(r[0].b) || 0 }; } catch {}
+        try { const r = await cfD1Query(env, uuid, "SELECT row_table AS t, COUNT(*) AS n, COALESCE(SUM(size),0) AS b FROM _attachments GROUP BY row_table ORDER BY b DESC"); byTable = r.map((x) => ({ table: x.t, count: Number(x.n) || 0, bytes: Number(x.b) || 0 })); } catch {}
+        return Response.json({ ok: true, attachments: total, by_table: byTable });
+      }
+    }
     // Phase D.1 — attachment fetch: GET /api/db/<slug>/attach/<attId> streams a record's stored
     // file from R2 (base64 → bytes) with its content-type. Access follows the underlying record's
     // visibility (public-read tables → anyone; a `user` row → its owner/team/admin), so the bucket
