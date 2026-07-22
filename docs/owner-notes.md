@@ -617,6 +617,26 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: activity notes / logging (per-record activity log)
+
+CRM activity log — the central "log a call/email/meeting note against a contact/deal" feature that
+was genuinely absent (rollups, bulk ops, history all already existed). Polymorphic platform table
+`_notes (id, row_table, row_id, author_id, kind, body, created_at)`, ensured lazily (ensureNotes),
+always-on for every non-collect table (no schema key — like tags/reactions). Endpoints (dm[4]
+`notes` added to the rows regex):
+- `POST /rows/<t>/<id>/notes {body, kind?}` — kind ∈ note|call|email|meeting|task|sms|log (default
+  note; invalid → note); body ≤5000 chars, required.
+- `GET /rows/<t>/<id>/notes[?kind=&limit=]` — newest-first, each with `note.author` (batched public
+  profile).
+- `DELETE /rows/<t>/<id>/notes/<noteId>` — your own note, or any if admin.
+Visibility gate `memberCanSeeRow(env,uuid,def,tn,rowId,userId,access)` (new reusable helper) runs
+for ALL methods up-front so an outsider gets 404 (can't even discover a note exists): on a `user`
+table = owner / owner's manager via teamRead CTE / admin; on display/feed/admin = any signed-in
+member; collect = none (400). New-note id returned via `INSERT … RETURNING id`. Offline batch74
+(21/21), full suite (57) green. BACKEND_RULES documents it after the reports/moderation section.
+NOTE for the follow-up: a unified activity TIMELINE endpoint (merging _notes + _audit + _approvals +
+_history into one chronological feed) is the natural next gap — this lays its foundation.
+
 ## 2026-07-22 — CRM gap layer: approval workflow (submit → approve/reject, audited)
 
 Workflow gap (the last of the three harder CRM gaps). Table-level
