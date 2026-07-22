@@ -7383,17 +7383,37 @@ async function handleRequest(request, env, ctx) {
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= gbCredits(2500, GB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
       const dumpFiles = (f) => Object.entries(f).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
-      const gen = async (system, user) => {
+      // Streams NDJSON, same as /api/game/build (phase/code/done/error).
+      const enc = new TextEncoder();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+      const streamGen = async (system, user, onDelta) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, system, messages: [{ role: "user", content: user }] }),
+          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: user }] }),
           signal: AbortSignal.timeout(180000),
         });
         if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; throw e; }
-        const j = await r.json();
-        const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-        return { text, usedIn: (j.usage && j.usage.input_tokens) || 0, usedOut: (j.usage && j.usage.output_tokens) || Math.ceil(text.length / 4) };
+        const reader = r.body.getReader(); const dec = new TextDecoder();
+        let buf = "", text = "", usedIn = 0, usedOut = 0;
+        for (;;) {
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(js); } catch { continue; }
+            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { text += ev.delta.text; if (onDelta) onDelta(ev.delta.text); }
+            else if (ev.type === "message_start" && ev.message && ev.message.usage) usedIn = ev.message.usage.input_tokens || 0;
+            else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
+          }
+        }
+        if (!usedOut) usedOut = Math.ceil(text.length / 4);
+        return { text, usedIn, usedOut };
       };
       const buildGame = async (files) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
@@ -7402,44 +7422,70 @@ async function handleRequest(request, env, ctx) {
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
-      try {
-        let cost = 0;
-        let files = { ...srcObj.files };
-        const g = await gen(GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files));
-        cost += gbCredits(g.usedIn, g.usedOut);
-        try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
-        const changed = parseGameFiles(g.text);
-        if (!Object.keys(changed).length) return Response.json({ ok: false, error: "the edit came back empty — try rephrasing" }, { status: 200 });
-        Object.assign(files, changed);
-        // Build + Phase-4 auto-fix loop (compile AND runtime failures).
-        let bd, buildMs, attempt = 0;
-        for (;;) {
-          ({ bd, buildMs } = await buildGame(files));
-          const compileFail = !bd.ok;
-          const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
-          if (!compileFail && !runtimeFail) break;
-          if (attempt >= 2) break;
-          attempt++;
-          const fixPrompt = compileFail
-            ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
-            : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
-          let fg; try { fg = await gen(GAME_RULES, fixPrompt); } catch { break; }
-          cost += gbCredits(fg.usedIn, fg.usedOut);
-          try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
-          const fixed = parseGameFiles(fg.text);
-          if (!Object.keys(fixed).length) break;
-          Object.assign(files, fixed);
+      let codeBuf = "";
+      const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 120)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
+      const onDelta = (d) => { codeBuf += d; flushCode(false); };
+      const run = async () => {
+        try {
+          let cost = 0;
+          let files = { ...srcObj.files };
+          emit({ ev: "phase", phase: "generating" });
+          const g = await streamGen(GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files), onDelta);
+          flushCode(true);
+          cost += gbCredits(g.usedIn, g.usedOut);
+          try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+          const changed = parseGameFiles(g.text);
+          if (!Object.keys(changed).length) { emit({ ev: "error", msg: "the edit came back empty — try rephrasing" }); return; }
+          Object.assign(files, changed);
+          let bd, buildMs, attempt = 0;
+          for (;;) {
+            emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
+            ({ bd, buildMs } = await buildGame(files));
+            const compileFail = !bd.ok;
+            const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
+            if (!compileFail && !runtimeFail) break;
+            if (attempt >= 2) break;
+            attempt++;
+            emit({ ev: "phase", phase: "fixing" });
+            const fixPrompt = compileFail
+              ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+              : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
+            let fg; try { fg = await streamGen(GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
+            cost += gbCredits(fg.usedIn, fg.usedOut);
+            try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+            const fixed = parseGameFiles(fg.text);
+            if (!Object.keys(fixed).length) break;
+            Object.assign(files, fixed);
+          }
+          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
+          emit({ ev: "phase", phase: "publishing" });
+          await writeGameDistToR2(env, slug, bd.files);
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
+          emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
+        } catch (e) {
+          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200) });
+        } finally {
+          try { await writer.close(); } catch {}
         }
-        if (!bd.ok) return Response.json({ ok: false, stage: "build", error: String(bd.error || "build failed").slice(0, 1200), fixed: attempt }, { status: 200 });
-        // Republish to the SAME slug + update the stashed source.
-        await writeGameDistToR2(env, slug, bd.files);
-        try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
-        let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
-        return Response.json({ ok: true, url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter, model: GB_MODEL });
-      } catch (e) {
-        if (e && e.status === 402) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
-        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 200 });
-      }
+      };
+      ctx.waitUntil(run());
+      return new Response(readable, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" } });
+    }
+
+    // GET /api/game/source?slug=… — the stashed kaplay source for the Code view
+    // (owner-only). Returns { ok, files: { "<path>": "<src>" } }.
+    if (url.pathname === "/api/game/source" && request.method === "GET") {
+      const gu = await authUser(request);
+      if (!gu) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "not configured" }, { status: 501 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 80);
+      if (!slug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      let srcObj = null;
+      try { const o = await env.SITES_BUCKET.get("gamesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
+      if (!srcObj || !srcObj.files) return Response.json({ ok: false, error: "no source" }, { status: 404 });
+      if (srcObj.uid && srcObj.uid !== gu.id) return Response.json({ ok: false, error: "not your game" }, { status: 403 });
+      return Response.json({ ok: true, files: srcObj.files });
     }
 
     // Phase 3b — the REACT build pipeline (behind its own endpoint; the static

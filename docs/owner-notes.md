@@ -5994,3 +5994,15 @@ timeout, and the Studio watches the code get written (Lovable-style).
 - Validated in-browser with a mocked NDJSON stream: live phases + streamed code
   render, then the preview opens and credits update, zero JS errors. (Revise still
   uses its status-line timer — a fast follow to stream too.)
+
+## 2026-07-22 — Game Studio: streaming revise + Code view (round out the studio)
+- **Streaming revise**: `/api/game/revise` now streams NDJSON like build
+  (phase/code/done/error); `gameStudioRevise()` consumes it (live phase status →
+  reload the iframe in place on done). Consistent with the streaming build.
+- **Code view**: new `GET /api/game/source?slug=` (owner-only) returns the stashed
+  kaplay files; the preview screen has **Preview / Code tabs** (`.gs-tabs`); the Code
+  tab lists each file with its path + source and a **Download source** button
+  (downloads the `===FILE:===` bundle as `<slug>-source.txt`). `gameView` state.
+- Validated in-browser: the Code view renders the real source (main.js + scenes.js)
+  with the download button, zero JS errors; streaming revise shares the proven
+  build stream consumer.
