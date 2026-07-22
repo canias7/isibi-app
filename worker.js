@@ -4371,7 +4371,9 @@ async function ensureTeams(env, uuid) {
   if (_teamsReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _teams (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_members (team_id INTEGER NOT NULL, user_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT, PRIMARY KEY (team_id, user_id))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_invites (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', invited_by INTEGER, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT)");
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_tm_user ON _team_members (user_id)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ti_email ON _team_invites (email, status)"); } catch {}
   _teamsReady.add(uuid);
 }
 async function teamRoleOf(env, uuid, teamId, userId) {
@@ -9091,6 +9093,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
+            ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
           ]) { try { await cfD1Query(env, uuid, q, args); } catch {} }
           await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
           return Response.json({ ok: true, deleted: true });
@@ -10282,7 +10285,49 @@ async function handleRequest(request, env, ctx) {
       //   PATCH  /api/db/<slug>/teams/<id>/members/<userId> {role}→ change role / transfer owner (owner)
       //   DELETE /api/db/<slug>/teams/<id>/members/<userId>       → remove a member (owner/admin)
       //   POST   /api/db/<slug>/teams/<id>/leave                  → caller leaves the team
-      const tmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/teams(?:\/(\d+)(?:\/(members|leave)(?:\/(\d+))?)?)?$/i);
+      // Team invites addressed to the CALLER (by their email) — the invitee side.
+      //   GET  /api/db/<slug>/teams/invites/mine          → my pending invites
+      //   POST /api/db/<slug>/teams/invites/<id>/accept   → join that team
+      //   POST /api/db/<slug>/teams/invites/<id>/decline  → decline it
+      const tim = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/teams\/invites\/(?:mine|(\d+)\/(accept|decline))$/i);
+      if (tim && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tim[1].toLowerCase(), inviteId = tim[2] ? parseInt(tim[2], 10) : null, act = tim[3] ? tim[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureTeams(env, uuid);
+          const me = (await cfD1Query(env, uuid, "SELECT email FROM _users WHERE id=?", [userId]))[0];
+          const myEmail = me ? String(me.email || "").toLowerCase() : "";
+          if (inviteId == null) { // GET .../mine
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|teamr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT ti.id, ti.team_id, ti.role, ti.invited_by, ti.created_at, t.name AS team_name FROM _team_invites ti JOIN _teams t ON t.id=ti.team_id WHERE lower(ti.email)=? AND ti.status='pending' ORDER BY ti.id DESC LIMIT 500", [myEmail]);
+            return Response.json({ ok: true, invites: rows });
+          }
+          if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|teamw", 120)) return tooMany();
+          const inv = (await cfD1Query(env, uuid, "SELECT id, team_id, email, role, status FROM _team_invites WHERE id=?", [inviteId]))[0];
+          if (!inv || inv.status !== "pending") return Response.json({ ok: false, error: "invite not found or already handled" }, { status: 404 });
+          if (String(inv.email || "").toLowerCase() !== myEmail) return Response.json({ ok: false, error: "this invite isn't addressed to you" }, { status: 403 });
+          if (act === "decline") {
+            await cfD1Query(env, uuid, "UPDATE _team_invites SET status='declined' WHERE id=?", [inviteId]);
+            return Response.json({ ok: true, declined: inviteId });
+          }
+          // accept — join the team (idempotent if already a member) then mark accepted.
+          if (!(await cfD1Query(env, uuid, "SELECT 1 FROM _teams WHERE id=?", [inv.team_id]))[0]) return Response.json({ ok: false, error: "that team no longer exists" }, { status: 404 });
+          if (!(await teamRoleOf(env, uuid, inv.team_id, userId))) await cfD1Query(env, uuid, "INSERT INTO _team_members (team_id, user_id, role, created_at) VALUES (?,?,?,?)", [inv.team_id, userId, inv.role === "admin" ? "admin" : "member", new Date().toISOString()]);
+          await cfD1Query(env, uuid, "UPDATE _team_invites SET status='accepted' WHERE id=?", [inviteId]);
+          return Response.json({ ok: true, joined: inv.team_id, role: inv.role === "admin" ? "admin" : "member" });
+        } catch (e) { console.error("team invites failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "invites failed" }, { status: 502 }); }
+      }
+      const tmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/teams(?:\/(\d+)(?:\/(members|leave|invites)(?:\/(\d+))?)?)?$/i);
       if (tmm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = tmm[1].toLowerCase(), teamId = tmm[2] ? parseInt(tmm[2], 10) : null, sub = tmm[3] || null, memberId = tmm[4] ? parseInt(tmm[4], 10) : null;
@@ -10328,6 +10373,40 @@ async function handleRequest(request, env, ctx) {
             if (myRole === "owner") return Response.json({ ok: false, error: "an owner can't leave — transfer ownership or delete the team first" }, { status: 409 });
             await cfD1Query(env, uuid, "DELETE FROM _team_members WHERE team_id=? AND user_id=?", [teamId, userId]);
             return Response.json({ ok: true, left: teamId });
+          }
+          // ── /teams/<id>/invites (manager side — invite people by email) ──────────────────
+          if (sub === "invites") {
+            if (!canManage) return Response.json({ ok: false, error: "only an owner or admin can manage invites" }, { status: 403 });
+            if (memberId == null) {
+              if (request.method === "GET") {
+                if (!rd()) return tooMany();
+                const rows = await cfD1Query(env, uuid, "SELECT id, email, role, invited_by, created_at FROM _team_invites WHERE team_id=? AND status='pending' ORDER BY id DESC LIMIT 1000", [teamId]);
+                return Response.json({ ok: true, invites: rows });
+              }
+              if (request.method === "POST") {
+                if (!wr()) return tooMany();
+                let body = {}; try { body = await request.json(); } catch {}
+                const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+                if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "a valid email is required" }, { status: 400 });
+                let role = String(body.role || "member").toLowerCase(); if (role !== "member" && role !== "admin") role = "member";
+                if (role === "admin" && myRole !== "owner") return Response.json({ ok: false, error: "only the owner can invite an admin" }, { status: 403 });
+                // Already a member (that email belongs to a current member)?
+                const existingUser = (await cfD1Query(env, uuid, "SELECT id FROM _users WHERE lower(email)=?", [email]))[0];
+                if (existingUser && (await teamRoleOf(env, uuid, teamId, existingUser.id))) return Response.json({ ok: false, error: "that person is already a member", code: "duplicate" }, { status: 409 });
+                const dupe = (await cfD1Query(env, uuid, "SELECT id FROM _team_invites WHERE team_id=? AND lower(email)=? AND status='pending'", [teamId, email]))[0];
+                if (dupe) return Response.json({ ok: true, id: dupe.id, email, role, status: "pending", already: true });
+                const ins = await cfD1Query(env, uuid, "INSERT INTO _team_invites (team_id, email, role, invited_by, status, created_at) VALUES (?,?,?,?,'pending',?) RETURNING id", [teamId, email, role, userId, new Date().toISOString()]);
+                return Response.json({ ok: true, id: ins[0] && ins[0].id, email, role, status: "pending" });
+              }
+              return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+            }
+            // /teams/<id>/invites/<inviteId> — revoke.
+            if (request.method === "DELETE") {
+              if (!wr()) return tooMany();
+              const ex = await cfD1Exec(env, uuid, "UPDATE _team_invites SET status='revoked' WHERE id=? AND team_id=? AND status='pending'", [memberId, teamId]);
+              return Response.json({ ok: true, id: memberId, revoked: (ex.changes || 0) > 0 });
+            }
+            return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
           }
           // ── /teams/<id>/members ─────────────────────────────────────────────────────────
           if (sub === "members") {
