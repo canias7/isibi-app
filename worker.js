@@ -9708,6 +9708,77 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, table, step_col: stepCol, actor, from, to, steps: out, overall_conversion: pct(out[out.length - 1].count, top) });
         } catch (e) { console.error("funnel failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "funnel failed" }, { status: 502 }); }
       }
+      // RETENTION COHORTS — of the actors first seen in a period, how many came back in each
+      // later period. Computed over the app's OWN event-log table (any row = "active that day").
+      // Each actor is cohorted by the period of their FIRST event; the grid then shows, per
+      // cohort, the % still active at each subsequent offset (0 = the cohort period itself).
+      //   GET /api/db/<slug>/retention?table=<t>[&actor=owner_id&period=week&offsets=8&from=&to=]
+      //     → {period, offsets, cohorts:[{cohort, size, retention:[{offset, count, pct}]}], overall:[…]}
+      // ADMIN site-user only (reads across every actor's rows).
+      const rtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/retention$/i);
+      if (rtm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rtm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|retn", 300)) return tooMany();
+          const table = String(url.searchParams.get("table") || "").trim().toLowerCase();
+          if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid ?table= is required" }, { status: 400 });
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          const colOf = (c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
+          const cols = new Set([].concat((Array.isArray(def.columns) ? def.columns : []).map(colOf).filter(Boolean), ["id", "created_at", "owner_id"]));
+          const actor = String(url.searchParams.get("actor") || "owner_id").toLowerCase();
+          if (!cols.has(actor)) return Response.json({ ok: false, error: "actor must be a column on the table (default 'owner_id')" }, { status: 400 });
+          const period = String(url.searchParams.get("period") || "week").toLowerCase();
+          const bucket = period === "day" ? "strftime('%Y-%m-%d', \"created_at\")" : period === "month" ? "strftime('%Y-%m', \"created_at\")" : "strftime('%Y-%W', \"created_at\")";
+          if (!["day", "week", "month"].includes(period)) return Response.json({ ok: false, error: "period must be day, week, or month" }, { status: 400 });
+          const offsets = Math.min(26, Math.max(1, parseInt(url.searchParams.get("offsets") || "8", 10) || 8));
+          const isDay = (s) => /^\d{4}-\d{2}-\d{2}/.test(s || "");
+          const from = isDay(url.searchParams.get("from")) ? url.searchParams.get("from") : null;
+          const to = isDay(url.searchParams.get("to")) ? url.searchParams.get("to") : null;
+          const tn = sqlIdent(table), ac = sqlIdent(actor);
+          const w = [ac + " IS NOT NULL"], p = [];
+          if (from) { w.push('"created_at" >= ?'); p.push(from); }
+          if (to) { w.push('"created_at" <= ?'); p.push(to); }
+          // One row per (actor, active period). Bounded so a huge log can't blow the response.
+          const rows = await cfD1Query(env, uuid, "SELECT " + ac + " AS a, " + bucket + " AS p FROM " + tn + " WHERE " + w.join(" AND ") + " GROUP BY a, p ORDER BY p ASC LIMIT 20000", p);
+          // Distinct periods → an ordinal index so offsets work for day/week/month alike.
+          const periodsSorted = [...new Set(rows.map((r) => r.p))].sort();
+          const idx = new Map(periodsSorted.map((pp, i) => [pp, i]));
+          const byActor = new Map();
+          for (const r of rows) { let s = byActor.get(r.a); if (!s) { s = new Set(); byActor.set(r.a, s); } s.add(r.p); }
+          // Cohort each actor by their first active period; tally returns per offset.
+          const cohortMap = new Map(); // cohortPeriod -> { size, counts:[] }
+          for (const [, periodsSet] of byActor) {
+            const acts = [...periodsSet].map((pp) => idx.get(pp)).sort((x, y) => x - y);
+            const c0 = acts[0]; const cohortP = periodsSorted[c0];
+            let cm = cohortMap.get(cohortP); if (!cm) { cm = { size: 0, counts: new Array(offsets).fill(0) }; cohortMap.set(cohortP, cm); }
+            cm.size++;
+            const present = new Set(acts.map((a) => a - c0));
+            for (let o = 0; o < offsets; o++) if (present.has(o)) cm.counts[o]++;
+          }
+          const pct = (num, den) => (den ? Math.round((num / den) * 10000) / 100 : 0);
+          const cohorts = periodsSorted.filter((pp) => cohortMap.has(pp)).map((pp) => {
+            const cm = cohortMap.get(pp);
+            return { cohort: pp, size: cm.size, retention: cm.counts.map((c, o) => ({ offset: o, count: c, pct: pct(c, cm.size) })) };
+          });
+          // Overall = size-weighted retention across all cohorts, per offset.
+          const totSize = cohorts.reduce((s, c) => s + c.size, 0);
+          const overall = new Array(offsets).fill(0).map((_, o) => { const c = cohorts.reduce((s, ch) => s + ch.retention[o].count, 0); return { offset: o, count: c, pct: pct(c, totSize) }; });
+          return Response.json({ ok: true, table, actor, period, offsets, from, to, cohorts, overall });
+        } catch (e) { console.error("retention failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "retention failed" }, { status: 502 }); }
+      }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
       //   GET    /api/db/<slug>/config/<key>    → {key, value}

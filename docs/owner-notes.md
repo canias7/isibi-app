@@ -6262,3 +6262,14 @@ the data API — so a generated app couldn't build an in-app analytics page from
   (reads across every actor). batch144 (20/20) — 4 actors with different drop-off (incl. an out-of-order
   skipper + a duplicate step + an unrelated step), monotonic check, %s, window empty/full, all guards.
   Full suite 127 green.
+
+- **Retention cohorts** (analytics): `GET /api/db/<slug>/retention?table=<t>[&period=week&offsets=8]` (ADMIN)
+  — companion to the funnel, over the same event-log table (any row = "active that period"). One
+  `GROUP BY actor, <strftime bucket>` query pulls (actor, active-period) pairs; JS cohorts each actor by
+  their FIRST period and tallies returns per offset. Distinct periods are mapped to ordinal indices so
+  offsets work uniformly for day/week/month (no date math beyond the bucket expr). Returns per-cohort
+  `retention:[{offset,count,pct}]` (offset0 = cohort size, 100%) + a size-weighted `overall` curve.
+  period day|week|month, offsets ≤26, optional from/to; result capped at 20k (actor,period) rows.
+  batch145 (24/24) — hand-built day-cohort grid with skips + gaps (07-01 cohort 100/33.33/66.67, 07-02
+  cohort with no day-4 data), overall size-weighting, all guards, empty window. Full suite 128 green.
+  Note: strftime on the app's ISO-Z created_at buckets correctly in both node:sqlite and D1.
