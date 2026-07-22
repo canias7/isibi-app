@@ -617,6 +617,22 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: file attachments on records
+
+Genuine gap (needed infra, which already existed — the R2 SITES_BUCKET). New `_attachments` table
+(row_table,row_id,filename,content_type,size,r2_key,uploaded_by) + endpoints: `POST
+/rows/<t>/<id>/attach {filename,content_type?,data:<base64>}` (data: URL prefix stripped, ≤14M b64
+chars ≈ 10 MB, 50/record), `GET .../attach` (list w/ urls), `DELETE .../attach/<attId>` (own or
+admin). Bytes stored in R2 as BASE64 (round-trips through the harness stub AND real R2 faithfully;
+decoded to a Uint8Array when streamed). Fetch-through-worker at `GET /api/db/<slug>/attach/<attId>`
+(Phase D.1, new top-level route) streams with the stored content-type — access re-checks the
+UNDERLYING record's visibility via memberCanSeeRow (public-read row → anyone; user row →
+owner/team/admin), so the bucket URL is never exposed and a forbidden file is an indistinguishable
+404. attach/list gated by memberCanSeeRow too; collect → 400. Offline batch85 (25/25) incl.
+round-trip body checks, public vs private fetch gating, non-uploader 403, bad-base64 400. Full suite
+(68) green. BACKEND_RULES documents it after activity-notes. FOLLOW-UP: attachments aren't cascaded
+when the row is hard-deleted (orphan R2 objects) — fine for now, could sweep later.
+
 ## 2026-07-22 — CRM gap layer: global search across tables
 
 Discovery gap (a genuinely-missing feature, not composable). New route `GET /api/db/<slug>/search?q=…
