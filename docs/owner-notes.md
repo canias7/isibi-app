@@ -617,6 +617,20 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: round-robin assignment (lead routing)
+
+Workflow gap. Table-level `roundRobin:{among:[roles]}` on a user/feed table → each new row's
+owner_id is auto-assigned to the next member of the role pool in rotation (stable order by id, atomic
+`_counters` row `rr:<table>` → even, no double-assign), regardless of creator — so admin/public-intake
+leads fan out to reps. New `roundRobinOwner(env,uuid,def,table,fallback)` helper; blocked members
+skipped (`blocked IS NULL OR blocked=0`), empty pool → fallback to creator (never unowned). Wired
+into BOTH owner-stamped single-row inserts (feed @14-space indent + user @12-space — the replace_all
+only caught the feed one at first; the user block needed a separate edit) by swapping the stamped
+`[userId]` for `[rrOwner]`; the response returns `owner_id` when it differs. Normalizer accepts
+`{among}` / array / `true`(→["user"]) forms; norm.push carries it. Batch/upsert intentionally keep
+the creator as owner (single-insert is the lead-creation path). Offline batch77 (10/10), full suite
+(60) green. BACKEND_RULES documents it after the approval section.
+
 ## 2026-07-22 — CRM gap layer: auto-numbering / sequences (record numbers)
 
 Data-model gap. Table-level `sequence:{field, prefix?, pad?, start?}` stamps each new row with the
