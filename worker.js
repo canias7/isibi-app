@@ -8093,7 +8093,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8106,6 +8106,7 @@ async function handleRequest(request, env, ctx) {
         const isTags = dm[4] === "tags";
         const isShare = dm[4] === "share";
         const isAssign = dm[4] === "assign";
+        const isMerge = dm[4] === "merge";
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
@@ -8393,6 +8394,38 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
           }
 
+          // Merge duplicate records — POST /rows/<t>/<id>/merge {from:<otherId>, fillBlanks?}.
+          // ADMIN-only. Folds the `from` row INTO this one: every child row that references
+          // `from` (any table with a `ref` to this one) is repointed to this id, then `from`
+          // is deleted. `fillBlanks:true` copies the loser's non-empty values into this row's
+          // still-empty columns first (keep the fuller record). Dedupe accounts/contacts.
+          if (isMerge) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "only an admin can merge records" }, { status: 403 });
+            let b = {}; try { b = await request.json(); } catch {}
+            const from = parseInt(b.from, 10) || 0;
+            if (!(from > 0) || from === rowId) return Response.json({ ok: false, error: "pass a different 'from' record id to merge in" }, { status: 400 });
+            const both = await cfD1Query(env, uuid, "SELECT id FROM " + tn + " WHERE id IN (?,?)", [rowId, from]);
+            if (both.length < 2) return Response.json({ ok: false, error: "both records must exist" }, { status: 404 });
+            if (b.fillBlanks) {
+              try {
+                const loser = (await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [from]))[0] || {};
+                const surv = (await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]))[0] || {};
+                const sets = [], vals = [];
+                for (const col of allow) { if ((surv[col] == null || surv[col] === "") && loser[col] != null && loser[col] !== "") { sets.push(sqlIdent(col) + "=?"); vals.push(loser[col]); } }
+                if (sets.length) await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + sets.join(",") + tsFrag + " WHERE id=?", vals.concat([rowId]));
+              } catch {}
+            }
+            const repointed = {};
+            for (const ch of childRefsOf(spec, table)) {
+              try { const ex = await cfD1Exec(env, uuid, "UPDATE " + sqlIdent(ch.table) + " SET " + sqlIdent(ch.col) + "=? WHERE " + sqlIdent(ch.col) + "=?", [rowId, from]); repointed[ch.table] = (repointed[ch.table] || 0) + (ex.changes || 0); } catch {}
+            }
+            try { await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [from]); } catch {}
+            return Response.json({ ok: true, into: rowId, from, repointed });
+          }
           // Reassign a record's owner — POST /rows/<t>/<id>/assign {user:<id|email>}. On a
           // table WITH an owner (user/feed), an ADMIN — or the current owner's MANAGER on a
           // `teamRead` table — hands the row to another member (CRM lead routing / case

@@ -617,6 +617,15 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: record merge (dedupe)
+
+Data-model gap. New `POST /api/db/<slug>/rows/<t>/<id>/merge {from:<otherId>, fillBlanks?}`
+(ADMIN) folds `from` INTO this record: every child row referencing `from` (found via
+childRefsOf, the ref graph) is repointed to this id, then `from` is deleted. `fillBlanks:true`
+first copies the loser's non-empty values into the survivor's empty fields (keep the fuller
+record). Returns {into, from, repointed:{table:count}}. Added `merge` to the rows dm regex +
+isMerge handler. Dedupe duplicate accounts/contacts. Offline batch70 (11/11), full suite green.
+
 ## 2026-07-22 — CRM gap layer: record assignment (/assign — lead routing)
 
 Workflow gap. New `POST /api/db/<slug>/rows/<t>/<id>/assign {user:<id|email>}` on a user/feed
