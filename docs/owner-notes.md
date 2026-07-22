@@ -617,6 +617,17 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: field-level security (fieldRoles)
+
+Fourth CRM gap, first piece of the SHARING MODEL (gap #1). Table-level
+`"fieldRoles":{"amount":["admin","manager"],"cost":["admin"]}` — on reads, a column is
+stripped for any caller whose role isn't listed (signed-out = role `public`); `admin` is a
+superuser and always sees every field. New `stripFieldRoles()` runs in doExpand before the
+?fields projection; the caller's role is fetched ONCE and only when the table declares
+fieldRoles (every other table pays nothing). So reps see the deal but not its margin.
+Forwarded through coerceTable + norm.push. Offline batch66 (7/7), full suite green. Remaining
+in the sharing model: team/manager-hierarchy read visibility (see your reports' records).
+
 ## 2026-07-22 — CRM gap layer: formula fields (arithmetic)
 
 Third CRM gap (data-model). `computed` only concatenates strings; added a table-level
