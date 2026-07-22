@@ -6273,3 +6273,13 @@ the data API — so a generated app couldn't build an in-app analytics page from
   batch145 (24/24) — hand-built day-cohort grid with skips + gaps (07-01 cohort 100/33.33/66.67, 07-02
   cohort with no day-4 data), overall size-weighting, all guards, empty window. Full suite 128 green.
   Note: strftime on the app's ISO-Z created_at buckets correctly in both node:sqlite and D1.
+
+- **KPI snapshots** (analytics): `POST /api/db/<slug>/kpi {metric,value,at?,note?}` (ADMIN) records a
+  point-in-time business metric (MRR, active users, NPS…); append-only in `_kpi_snapshots`. `GET /kpi/<metric>`
+  returns the series oldest→newest + latest/previous/change/pct_change/min/max; `GET /kpi` returns every
+  metric's latest + delta-vs-previous overview; `DELETE /kpi/<metric>` clears a series. value is REAL
+  (fractions OK — these are display numbers, not money to reconcile). Distinct from `/analytics` (which
+  auto-counts `/track` events) — KPI is for numbers YOU compute and snapshot. batch146 (29/29) — 3-point
+  MRR series with negative delta (−20%), a second metric with notes, overview, window filter, single-point
+  null-deltas, delete-clears, all guards (non-admin 403 r/w, signed-out 401, missing metric / non-numeric
+  400, unknown metric → empty). Full suite 129 green.
