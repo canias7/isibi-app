@@ -3749,6 +3749,9 @@ async function ensureStock(env, uuid) {
   if (_stockReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, kind TEXT, ref TEXT, unit_cost_c INTEGER, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_reservations (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, ref TEXT, status TEXT NOT NULL DEFAULT 'active', created_by INTEGER, created_at TEXT, released_at TEXT)");
+  try { await cfD1Query(env, uuid, "ALTER TABLE _stock_moves ADD COLUMN lot TEXT"); } catch {} // batch/serial dimension (a serial = a lot of qty 1)
+  try { await cfD1Query(env, uuid, "ALTER TABLE _stock_moves ADD COLUMN expiry TEXT"); } catch {} // lot expiry date (FEFO / expiring-soon)
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sm_lot ON _stock_moves (item, location, lot)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sm_il ON _stock_moves (item, location)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sr_il ON _stock_reservations (item, location, status)"); } catch {}
   _stockReady.add(uuid);
@@ -3776,17 +3779,35 @@ async function postStockMove(env, uuid, data, userId) {
   const kind = data.kind != null ? String(data.kind).slice(0, 24) : (qty > 0 ? "receipt" : "issue");
   const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
   const cost = data.unit_cost != null && data.unit_cost !== "" ? toCents(data.unit_cost) : null;
+  const lot = data.lot != null && data.lot !== "" ? String(data.lot).slice(0, 80) : null; // batch/serial
+  const expiry = /^\d{4}-\d{2}-\d{2}/.test(String(data.expiry || "")) ? String(data.expiry).slice(0, 10) : null;
   const now = new Date().toISOString();
   let ins;
   if (qty < 0 && !data.allowNegative) {
-    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) SELECT ?,?,?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) + ? >= 0 RETURNING id",
-      [item, location, qty, kind, ref, cost, userId || null, now, item, location, qty]);
-    if (!ins[0]) return { err: "insufficient stock", code: "stock" };
+    // Guard against negative on-hand — scoped to the LOT when one is given (can't issue more
+    // of a specific batch than that batch holds), else to the whole item+location balance.
+    const guardSql = lot ? "(SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=? AND lot=?) + ? >= 0" : "(SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) + ? >= 0";
+    const guardParams = lot ? [item, location, lot, qty] : [item, location, qty];
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,lot,expiry,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE " + guardSql + " RETURNING id",
+      [item, location, qty, kind, ref, cost, lot, expiry, userId || null, now].concat(guardParams));
+    if (!ins[0]) return { err: lot ? "insufficient stock in lot " + lot : "insufficient stock", code: "stock" };
   } else {
-    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id",
-      [item, location, qty, kind, ref, cost, userId || null, now]);
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,lot,expiry,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
+      [item, location, qty, kind, ref, cost, lot, expiry, userId || null, now]);
   }
-  return { move: { id: ins[0] && ins[0].id, item, location, qty: qty / 1000, kind, ref, unit_cost: cost == null ? null : cost / 100 }, level: await stockLevel(env, uuid, item, location) };
+  return { move: { id: ins[0] && ins[0].id, item, location, qty: qty / 1000, kind, ref, lot, expiry, unit_cost: cost == null ? null : cost / 100 }, level: await stockLevel(env, uuid, item, location) };
+}
+// On-hand per lot (item[, location]), with expiry. `expiring_before` filters to lots that
+// expire on/before a date; on-hand > 0 only. Ordered earliest-expiry first (FEFO).
+async function stockLots(env, uuid, filter) {
+  await ensureStock(env, uuid);
+  const where = ["lot IS NOT NULL"]; const params = [];
+  if (filter.item) { where.push("item=?"); params.push(filter.item); }
+  if (filter.location) { where.push("location=?"); params.push(filter.location); }
+  const rows = await cfD1Query(env, uuid, "SELECT item, location, lot, MAX(expiry) AS expiry, SUM(qty_m) AS oh FROM _stock_moves WHERE " + where.join(" AND ") + " GROUP BY item, location, lot HAVING SUM(qty_m) > 0 ORDER BY (expiry IS NULL), expiry, item, lot LIMIT 5000", params);
+  let out = rows.map((r) => ({ item: r.item, location: r.location, lot: r.lot, expiry: r.expiry, on_hand: (r.oh || 0) / 1000 }));
+  if (filter.expiringBefore) out = out.filter((l) => l.expiry && l.expiry <= filter.expiringBefore);
+  return out;
 }
 // Reserve stock — earmarks qty against availability (on-hand − active reservations),
 // refused atomically if it would oversell. Returns the reservation.
@@ -9956,7 +9977,7 @@ async function handleRequest(request, env, ctx) {
       //   GET  /api/db/<slug>/stock/reservations[?item=&location=&status=]  → reservations
       //   POST /api/db/<slug>/stock/reservations/<id>/release              → free a reservation
       //   POST /api/db/<slug>/stock/reservations/<id>/fulfill              → issue the reserved qty + close it
-      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|valuation|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
+      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|valuation|lots|allocate|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
       if (stm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = stm[1].toLowerCase(), resource = stm[2].toLowerCase(), resvId = stm[3] ? parseInt(stm[3], 10) : null, resvAct = stm[4] ? stm[4].toLowerCase() : null;
@@ -10045,6 +10066,28 @@ async function handleRequest(request, env, ctx) {
             const item = _stockItem(url.searchParams.get("item"));
             const loc = url.searchParams.get("location");
             return Response.json(Object.assign({ ok: true }, await stockValuation(env, uuid, { item: item || null, location: loc ? _stockLoc(loc) : null })));
+          }
+          if (resource === "lots") {
+            // On-hand per lot/batch (with expiry). `expiring_before=<date>` → an expiring-soon report.
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            const loc = url.searchParams.get("location");
+            const eb = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("expiring_before") || "")) ? url.searchParams.get("expiring_before").slice(0, 10) : null;
+            return Response.json({ ok: true, lots: await stockLots(env, uuid, { item: item || null, location: loc ? _stockLoc(loc) : null, expiringBefore: eb }) });
+          }
+          if (resource === "allocate") {
+            // FEFO pick plan — which lots to pull (earliest expiry first) to fulfil qty. Read-only.
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : "main";
+            const need = Number(url.searchParams.get("qty"));
+            if (!item || !Number.isFinite(need) || need <= 0) return Response.json({ ok: false, error: "item and a positive qty are required" }, { status: 400 });
+            const lots = await stockLots(env, uuid, { item, location: loc }); // already FEFO-ordered
+            let remaining = Math.round(need * 1000); const plan = [];
+            for (const l of lots) { if (remaining <= 0) break; const avail = Math.round(l.on_hand * 1000); const take = Math.min(avail, remaining); if (take > 0) { plan.push({ lot: l.lot, expiry: l.expiry, take: take / 1000 }); remaining -= take; } }
+            return Response.json({ ok: true, item, location: loc, requested: need, plan, shortfall: remaining > 0 ? remaining / 1000 : 0, fulfillable: remaining <= 0 });
           }
           if (resource === "reserve") {
             if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });

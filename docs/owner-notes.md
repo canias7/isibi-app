@@ -643,6 +643,15 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   batch128 (21/21) — inclusive on-date, between-changes, before-any→null, object values, upsert-no-dup,
   snapshot picks pre-raise value + excludes not-yet-existing subjects. Full suite 111 green. Serves HCM
   comp/position history + price history.
+- **VERT 3 — LOT / BATCH / SERIAL + EXPIRY** (extends the stock ledger, ADMIN): `_stock_moves` gains nullable
+  `lot` + `expiry` (best-effort ALTER). postStockMove accepts them; a NEGATIVE move that names a lot is
+  guarded per (item,location,LOT) instead of item+location (can't over-issue a batch) — else unchanged.
+  `GET /stock/lots?item=&location=&expiring_before=` → on-hand per lot w/ expiry, FEFO-ordered (nulls last),
+  on-hand>0 only; expiring_before = expiring-soon report. `GET /stock/allocate?item=&location=&qty=` → FEFO
+  pick plan [{lot,expiry,take}] + shortfall/fulfillable (read-only). A SERIAL = a lot of qty 1 (no separate
+  mechanism). Non-lot moves fully unchanged. stockLots helper; added lots|allocate to the stock route.
+  batch129 (20/20) — FEFO order, lot-scoped 409, expiring filter, serial ship-twice-409, non-lot untouched.
+  Full suite 112 green. Serves WMS/SCM.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
