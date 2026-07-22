@@ -8712,7 +8712,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8722,6 +8722,7 @@ async function handleRequest(request, env, ctx) {
         const isTree = dm[3] === "tree";
         const isDupes = dm[3] === "duplicates";
         const isOverdue = dm[3] === "overdue";
+        const isEvents = dm[3] === "events";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -8738,7 +8739,7 @@ async function handleRequest(request, env, ctx) {
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
         const isAttach = dm[4] === "attach";
-        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree", "duplicates", "overdue"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree", "duplicates", "overdue", "events"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -9491,6 +9492,22 @@ async function handleRequest(request, env, ctx) {
           // row (checking during an EDIT). Same read visibility as the table (user → own/team via
           // userReadBase; public-read tables → all; collect exposes nothing), trash-aware, and
           // field-level security is applied. Composes with /merge (dedupe) and uniqueCI (hard block).
+          // Table-wide EVENT STREAM — GET /rows/<t>/events[?since=<eventId>&limit=] returns the
+          // insert/update/delete change log for a table (requires audit:true), oldest-first, with a
+          // cursor for polling. Unlike ?changes (new ROWS only) this includes updates AND deletes —
+          // for sync, integrations, or an activity feed. Admin/writeRole only (change logs are sensitive).
+          if (isEvents) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!def.audit) return badReq("this table has no event log (declare \"audit\":true)");
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
+            try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); } catch {}
+            const since = parseInt(url.searchParams.get("since") || "0", 10) || 0;
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const events = await cfD1Query(env, uuid, "SELECT id, row_id, action, actor_id, at FROM _audit WHERE row_table=?" + (since > 0 ? " AND id>?" : "") + " ORDER BY id ASC LIMIT ?", since > 0 ? [table, since, lim] : [table, lim]);
+            const cursor = events.length ? events[events.length - 1].id : since;
+            return Response.json({ ok: true, events, cursor });
+          }
           if (isDupes) {
             if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
             if (access === "collect") return Response.json({ ok: false, error: "no lookups on a write-only table" }, { status: 403 });
