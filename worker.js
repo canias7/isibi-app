@@ -3818,6 +3818,9 @@ async function ensureDocuments(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _doc_counters (type TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)");
   try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN ledger_entry_id INTEGER"); } catch {} // set when a doc is posted to the ledger (idempotency)
   try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN stock_posted INTEGER DEFAULT 0"); } catch {} // set when a doc's lines are posted to stock (idempotency)
+  try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN due_date TEXT"); } catch {} // payment due date (for AR/AP aging; falls back to doc_date)
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _doc_allocations (id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER NOT NULL, amount_c INTEGER NOT NULL, ref TEXT, memo TEXT, alloc_date TEXT, created_by INTEGER, created_at TEXT)"); // payments/credits applied to a document
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_da_doc ON _doc_allocations (doc_id)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dl_doc ON _document_lines (doc_id)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_doc_type ON _documents (type, status)"); } catch {}
   _docsReady.add(uuid);
@@ -3851,9 +3854,11 @@ async function getDocument(env, uuid, id) {
   if (!d[0]) return null;
   const ls = await cfD1Query(env, uuid, "SELECT * FROM _document_lines WHERE doc_id=? ORDER BY sort, id", [id]);
   const h = d[0];
+  const pa = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_c),0) AS n FROM _doc_allocations WHERE doc_id=?", [id]);
+  const paidC = (pa[0] && pa[0].n) || 0;
   return {
-    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id, ledger_entry_id: h.ledger_entry_id || null, stock_posted: !!h.stock_posted,
-    subtotal: h.subtotal_c / 100, tax: h.tax_c / 100, total: h.total_c / 100, meta: h.meta ? (() => { try { return JSON.parse(h.meta); } catch { return null; } })() : null,
+    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, due_date: h.due_date || null, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id, ledger_entry_id: h.ledger_entry_id || null, stock_posted: !!h.stock_posted,
+    subtotal: h.subtotal_c / 100, tax: h.tax_c / 100, total: h.total_c / 100, paid: paidC / 100, outstanding: (h.total_c - paidC) / 100, meta: h.meta ? (() => { try { return JSON.parse(h.meta); } catch { return null; } })() : null,
     created_at: h.created_at, updated_at: h.updated_at,
     lines: ls.map((l) => ({ id: l.id, item: l.item, description: l.description, qty: l.qty_m / 1000, unit_price: l.unit_price_c / 100, tax_rate: l.tax_rate_bp / 100, subtotal: l.subtotal_c / 100, tax: l.tax_c / 100, total: l.total_c / 100, dim: l.dim, meta: l.meta ? (() => { try { return JSON.parse(l.meta); } catch { return null; } })() : null })),
   };
@@ -3869,9 +3874,10 @@ async function createDocument(env, uuid, data, userId) {
   const number = data.number != null && data.number !== "" ? String(data.number).slice(0, 60) : await nextDocNumber(env, uuid, type);
   const date = /^\d{4}-\d{2}-\d{2}/.test(String(data.date || "")) ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
   const status = data.status != null ? String(data.status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "draft" : "draft";
+  const due = /^\d{4}-\d{2}-\d{2}/.test(String(data.due_date || "")) ? String(data.due_date).slice(0, 10) : null;
   const now = new Date().toISOString();
-  const ins = await cfD1Query(env, uuid, "INSERT INTO _documents (type, number, party, doc_date, status, currency, ref, memo, from_id, subtotal_c, tax_c, total_c, meta, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
-    [type, number, data.party != null ? String(data.party).slice(0, 200) : null, date, status, data.currency != null ? String(data.currency).slice(0, 8) : null, data.ref != null ? String(data.ref).slice(0, 120) : null, data.memo != null ? String(data.memo).slice(0, 1000) : null, data.from_id || null, norm.subtotal_c, norm.tax_c, norm.total_c, data.meta !== undefined ? JSON.stringify(data.meta) : null, userId || null, now, now]);
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _documents (type, number, party, doc_date, due_date, status, currency, ref, memo, from_id, subtotal_c, tax_c, total_c, meta, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+    [type, number, data.party != null ? String(data.party).slice(0, 200) : null, date, due, status, data.currency != null ? String(data.currency).slice(0, 8) : null, data.ref != null ? String(data.ref).slice(0, 120) : null, data.memo != null ? String(data.memo).slice(0, 1000) : null, data.from_id || null, norm.subtotal_c, norm.tax_c, norm.total_c, data.meta !== undefined ? JSON.stringify(data.meta) : null, userId || null, now, now]);
   const docId = ins[0] && ins[0].id; if (!docId) return { err: "could not create document" };
   await insertDocLines(env, uuid, docId, norm.lines);
   return { doc: await getDocument(env, uuid, docId) };
@@ -9212,6 +9218,102 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("stock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "stock failed" }, { status: 502 }); }
       }
+      // AR/AP AGING — open documents of a type bucketed by how overdue they are, for a
+      // receivables/payables report. Uses due_date (falls back to doc_date). ADMIN-gated.
+      //   GET /api/db/<slug>/documents/aging?type=invoice[&as_of=&party=&buckets=30,60,90]
+      //     → {as_of, buckets:[…labels], parties:[{party, total, aged:[…]}], totals:{aged:[…], total}}
+      const agm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents\/aging$/i);
+      if (agm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = agm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureDocuments(env, uuid);
+          if (!rateOk(slug + "|" + ip + "|docr", 300)) return tooMany();
+          const ty = _docType(url.searchParams.get("type"));
+          if (!ty) return Response.json({ ok: false, error: "type is required (e.g. invoice)" }, { status: 400 });
+          const asOf = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("as_of") || "")) ? url.searchParams.get("as_of").slice(0, 10) : new Date().toISOString().slice(0, 10);
+          const cuts = (url.searchParams.get("buckets") || "30,60,90").split(",").map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n) && n > 0).slice(0, 6).sort((a, b) => a - b);
+          const edges = cuts.length ? cuts : [30, 60, 90];
+          const labels = ["current"]; for (let i = 0; i < edges.length; i++) labels.push((i === 0 ? 1 : edges[i - 1] + 1) + "-" + edges[i]); labels.push((edges[edges.length - 1] + 1) + "+");
+          const where = ["type=?", "status NOT IN ('draft','cancelled','void')"]; const params = [ty];
+          const party = (url.searchParams.get("party") || "").trim(); if (party) { where.push("party=?"); params.push(party); }
+          // outstanding = total − Σ allocations; only rows still owing.
+          const rows = await cfD1Query(env, uuid, "SELECT id, party, number, doc_date, due_date, total_c, COALESCE(due_date, doc_date) AS basis, (total_c - COALESCE((SELECT SUM(amount_c) FROM _doc_allocations a WHERE a.doc_id=d.id),0)) AS out_c FROM _documents d WHERE " + where.join(" AND ") + " AND (total_c - COALESCE((SELECT SUM(amount_c) FROM _doc_allocations a WHERE a.doc_id=d.id),0)) > 0 LIMIT 10000", params);
+          const bucketOf = (basis) => { if (!basis) return 0; const days = Math.floor((Date.parse(asOf + "T00:00:00Z") - Date.parse(String(basis).slice(0, 10) + "T00:00:00Z")) / 86400000); if (days <= 0) return 0; for (let i = 0; i < edges.length; i++) if (days <= edges[i]) return i + 1; return edges.length + 1; };
+          const byParty = new Map(); const totals = new Array(labels.length).fill(0); let grand = 0;
+          const docs = [];
+          for (const r of rows) {
+            const bi = bucketOf(r.basis); const outC = r.out_c || 0;
+            const key = r.party || "—"; if (!byParty.has(key)) byParty.set(key, new Array(labels.length).fill(0));
+            byParty.get(key)[bi] += outC; totals[bi] += outC; grand += outC;
+            docs.push({ id: r.id, party: r.party, number: r.number, doc_date: r.doc_date, due_date: r.due_date, outstanding: outC / 100, bucket: labels[bi] });
+          }
+          const parties = [...byParty.entries()].map(([p, arr]) => ({ party: p, total: arr.reduce((s, n) => s + n, 0) / 100, aged: arr.map((n) => n / 100) })).sort((a, b) => b.total - a.total);
+          return Response.json({ ok: true, type: ty, as_of: asOf, buckets: labels, parties, totals: { aged: totals.map((n) => n / 100), total: grand / 100 }, documents: docs });
+        } catch (e) { console.error("aging failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "aging failed" }, { status: 502 }); }
+      }
+      // DOCUMENT ALLOCATIONS — payments/credits applied to a document, driving paid/outstanding.
+      //   GET    /api/db/<slug>/documents/<id>/allocations              → {allocations, paid, outstanding}
+      //   POST   /api/db/<slug>/documents/<id>/allocations {amount, ref?, memo?, date?, allowOverpay?} → apply
+      //   DELETE /api/db/<slug>/documents/<id>/allocations/<allocId>    → unapply
+      const alm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents\/(\d+)\/allocations(?:\/(\d+))?$/i);
+      if (alm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = alm[1].toLowerCase(), docId = parseInt(alm[2], 10), allocId = alm[3] ? parseInt(alm[3], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureDocuments(env, uuid);
+          const dr = await cfD1Query(env, uuid, "SELECT total_c FROM _documents WHERE id=?", [docId]);
+          if (!dr[0]) return Response.json({ ok: false, error: "document not found" }, { status: 404 });
+          const totalC = dr[0].total_c || 0;
+          const paidNow = async () => ((await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_c),0) AS n FROM _doc_allocations WHERE doc_id=?", [docId]))[0].n) || 0;
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|docr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, amount_c, ref, memo, alloc_date, created_at FROM _doc_allocations WHERE doc_id=? ORDER BY id", [docId]);
+            const paid = await paidNow();
+            return Response.json({ ok: true, allocations: rows.map((r) => ({ id: r.id, amount: r.amount_c / 100, ref: r.ref, memo: r.memo, date: r.alloc_date, created_at: r.created_at })), paid: paid / 100, outstanding: (totalC - paid) / 100 });
+          }
+          if (request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|docw", 120)) return tooMany();
+            if (!allocId) return Response.json({ ok: false, error: "allocation id required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _doc_allocations WHERE id=? AND doc_id=?", [allocId, docId]);
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const paid = await paidNow();
+            return Response.json({ ok: true, id: allocId, deleted: true, paid: paid / 100, outstanding: (totalC - paid) / 100 });
+          }
+          // POST — apply a payment/credit
+          if (!rateOk(slug + "|" + ip + "|docw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const amtC = toCents(body.amount);
+          if (amtC == null || amtC <= 0) return Response.json({ ok: false, error: "amount must be a positive number" }, { status: 400 });
+          const paid = await paidNow();
+          const outC = totalC - paid;
+          if (amtC > outC && !body.allowOverpay) return Response.json({ ok: false, error: "amount exceeds the outstanding " + (outC / 100).toFixed(2) + " (pass allowOverpay to force)", code: "overpay", outstanding: outC / 100 }, { status: 409 });
+          const date = /^\d{4}-\d{2}-\d{2}/.test(String(body.date || "")) ? String(body.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+          const ins = await cfD1Query(env, uuid, "INSERT INTO _doc_allocations (doc_id, amount_c, ref, memo, alloc_date, created_by, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [docId, amtC, body.ref != null ? String(body.ref).slice(0, 120) : null, body.memo != null ? String(body.memo).slice(0, 500) : null, date, userId, new Date().toISOString()]);
+          const newPaid = paid + amtC;
+          return Response.json({ ok: true, id: ins[0] && ins[0].id, amount: amtC / 100, paid: newPaid / 100, outstanding: (totalC - newPaid) / 100, settled: newPaid >= totalC });
+        } catch (e) { console.error("allocations failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "allocations failed" }, { status: 502 }); }
+      }
       // DOCUMENT FLOW (ERP sales/procurement) — quotes/orders/invoices/etc. with line-item
       // totals, auto numbering, status, and quote→order→invoice CONVERT. ADMIN-gated.
       //   POST   /api/db/<slug>/documents {type, party?, date?, currency?, ref?, memo?, status?, number?, lines:[{item?,description?,qty,unit_price,tax_rate?,dim?,meta?}]} → {doc}
@@ -9359,6 +9461,7 @@ async function handleRequest(request, env, ctx) {
             const strField = (k, col, max) => { if (body[k] !== undefined) { set.push(col + "=?"); params.push(body[k] == null ? null : String(body[k]).slice(0, max)); } };
             strField("party", "party", 200); strField("ref", "ref", 120); strField("memo", "memo", 1000); strField("currency", "currency", 8);
             if (body.date !== undefined && /^\d{4}-\d{2}-\d{2}/.test(String(body.date || ""))) { set.push("doc_date=?"); params.push(String(body.date).slice(0, 10)); }
+            if (body.due_date !== undefined) { set.push("due_date=?"); params.push(/^\d{4}-\d{2}-\d{2}/.test(String(body.due_date || "")) ? String(body.due_date).slice(0, 10) : null); }
             if (body.status !== undefined) { set.push("status=?"); params.push(String(body.status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "draft"); }
             if (body.meta !== undefined) { set.push("meta=?"); params.push(JSON.stringify(body.meta)); }
             // Line replacement is only allowed while the document is still a draft.
