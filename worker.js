@@ -8806,15 +8806,24 @@ async function handleRequest(request, env, ctx) {
           // delete account: remove the member + their owned rows + their social side-rows.
           if (request.method !== "DELETE") return Response.json({ ok: false, error: "use DELETE" }, { status: 405 });
           try { const spec = await loadSiteSchema(env, uuid); for (const tdef of (spec && Array.isArray(spec.tables) ? spec.tables : [])) { if (tdef && (tdef.access === "user" || tdef.access === "feed")) { try { await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(tdef.name) + " WHERE owner_id=?", [u.id]); } catch {} } } } catch {}
-          for (const q of [
-            "DELETE FROM _follows WHERE follower_id=? OR followee_id=?",
-            "DELETE FROM _bookmarks WHERE user_id=?",
-            "DELETE FROM _reactions WHERE user_id=?",
-            "DELETE FROM _polls WHERE user_id=?",
-            "DELETE FROM _reports WHERE reporter_id=?",
-            "DELETE FROM _shares WHERE user_id=?",
-            "DELETE FROM _notifications WHERE user_id=?",
-          ]) { try { await cfD1Query(env, uuid, q, q.includes("OR followee_id") ? [u.id, u.id] : [u.id]); } catch {} }
+          // Wipe every side-table that holds this member's personal data (right-to-be-forgotten).
+          // Each is best-effort — a table that doesn't exist in this app is skipped.
+          for (const [q, args] of [
+            ["DELETE FROM _follows WHERE follower_id=? OR followee_id=?", [u.id, u.id]],
+            ["DELETE FROM _bookmarks WHERE user_id=?", [u.id]],
+            ["DELETE FROM _reactions WHERE user_id=?", [u.id]],
+            ["DELETE FROM _polls WHERE user_id=?", [u.id]],
+            ["DELETE FROM _reports WHERE reporter_id=?", [u.id]],
+            ["DELETE FROM _shares WHERE user_id=?", [u.id]],
+            ["DELETE FROM _notifications WHERE user_id=?", [u.id]],
+            ["DELETE FROM _dm_messages WHERE sender_id=? OR recipient_id=?", [u.id, u.id]], // private messages (both sides)
+            ["DELETE FROM _blocks WHERE blocker_id=? OR blocked_id=?", [u.id, u.id]],       // block edges either direction
+            ["DELETE FROM _logins WHERE user_id=?", [u.id]],                                 // IP/device sign-in history
+            ["DELETE FROM _presence WHERE user_id=?", [u.id]],
+            ["DELETE FROM _consents WHERE user_id=?", [u.id]],
+            ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
+            ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
+          ]) { try { await cfD1Query(env, uuid, q, args); } catch {} }
           await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
           return Response.json({ ok: true, deleted: true });
         } catch (e) {

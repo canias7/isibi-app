@@ -6216,3 +6216,21 @@ the generation contract — no per-build audio generation, no cost.
   to drop blocked authors. No schema change — reuses `_blocks(blocker_id,blocked_id)`. batch141 (11/11) —
   baseline DM ok → block → 403 code:blocked → reverse still ok, hideBlocked drops/keeps, unblock restores.
   Lesson (again): grep for the feature before building it. Full suite 124 green.
+
+## 2026-07-22 — SECURITY theme (most of it already existed; erase-completeness is the gap I fixed)
+Audited the security surface before building — it's already deep: TOTP 2FA (setup/enable/disable +
+login gate, `need:'2fa'`), GDPR self-service export (`/auth/export`), login history (`/auth/logins`),
+consent tracking (`/auth/consent`), password/email change, `logout-all` (token_epoch revocation),
+account lockout, password strength. So no new primitive was needed — instead I closed a real GDPR gap.
+
+- **GDPR erase completeness** (security): `DELETE /auth/account` wiped the member + their owned
+  user/feed rows + the OLDER social side-tables (`_follows`/`_bookmarks`/`_reactions`/`_polls`/
+  `_reports`/`_shares`/`_notifications`), but it PRE-DATED everything I've added since — so a
+  right-to-be-forgotten deletion left the member's **private DMs, block edges, and login/IP history**
+  (their most sensitive data) orphaned in the DB. Extended the erase loop to also wipe `_dm_messages`
+  (sender OR recipient), `_blocks` (blocker OR blocked), `_logins`, `_presence`, `_consents`, `_views`,
+  and `_notes` (author). Refactored the loop to carry per-query params as tuples (was a fragile
+  `q.includes("OR followee_id")` param switch). Each delete is best-effort (a table absent in that app
+  is skipped). batch142 (17/17) — white-box row counts before/after (harness `getDb`) + black-box
+  (the OTHER party's DM thread empties when you erase yourself; their account is untouched). Full suite
+  125 green. Lesson: when you add a personal-data table, wire it into the erase THEN.
