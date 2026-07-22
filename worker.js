@@ -4102,6 +4102,12 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
       }
     }
   }
+  // DISTINCT count — `?distinct=<col>[,<col>]` → COUNT(DISTINCT col), for "how many UNIQUE customers /
+  // countries / days". Returned under `distinct:{col:n}`. Separate family (COUNT DISTINCT, not the
+  // sum/avg wrapper), appended to every select path.
+  wanted.distinct = [];
+  for (const raw of url.searchParams.getAll("distinct")) for (const c of String(raw).split(",")) { const col = c.trim().toLowerCase(); if (col && (f.filterable.has(col) || (cfg && col === cfg.as)) && !wanted.distinct.includes(col)) wanted.distinct.push(col); }
+  const distinctSel = (prefix) => wanted.distinct.map((col) => "COUNT(DISTINCT " + aggExpr(prefix, col) + ") AS distinct__" + col);
   // Grouped-report controls (apply to EVERY grouped path): sort groups by an aggregate, cap to
   // top-N, and filter groups with HAVING — so "top 10 accounts by revenue" or "reps whose pipeline
   // exceeds quota" are one request. An "agg spec" is `count` | `<sum|avg|min|max>:<col>` | `value`.
@@ -4144,7 +4150,7 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
     const pcols = pdef ? new Set([].concat((pdef.columns || []).map((c) => String(c).toLowerCase()), ["id", "created_at", "slug"])) : null;
     if (pdef && pcols && pcols.has(pcol) && f.filterable.has(fk)) {
       const qsel = ["COUNT(*) AS _count"];
-      for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(" + aggExpr("t.", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) qsel.push(k.toUpperCase() + "(" + exprToSql("t.", e.expr) + ") AS " + k + "__" + e.alias); }
+      for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(" + aggExpr("t.", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) qsel.push(k.toUpperCase() + "(" + exprToSql("t.", e.expr) + ") AS " + k + "__" + e.alias); } for (const d of distinctSel("t.")) qsel.push(d);
       const sql = "SELECT p." + sqlIdent(pcol) + " AS _g0, " + qsel.join(", ") + " FROM (SELECT * FROM " + tn + f.whereSql + ") t LEFT JOIN " + sqlIdent(parent) + " p ON t." + sqlIdent(fk) + " = p.id GROUP BY p." + sqlIdent(pcol) + havingSql + " ORDER BY " + (orderOverride || "_count DESC") + " LIMIT " + groupLimit;
       return { sql, params: f.params.slice().concat(havingParams), wanted, wantedExpr, groupCols: [crossTok] };
     }
@@ -4158,13 +4164,13 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
   if (timeTok) {
     const [tcol, gran] = timeTok.split(":");
     const tsel = ["COUNT(*) AS _count"];
-    for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) tsel.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); }
+    for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) tsel.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); } for (const d of distinctSel("")) tsel.push(d);
     const bucket = "strftime('" + TIME_FMT[gran] + "', " + sqlIdent(tcol) + ")";
     const sql = "SELECT " + bucket + " AS _g0, " + tsel.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY _g0" + havingSql + " ORDER BY " + (orderOverride || "_g0 ASC") + " LIMIT " + groupLimit;
     return { sql, params: f.params.slice().concat(havingParams), wanted, wantedExpr, groupCols: [timeTok] };
   }
   const selects = ["COUNT(*) AS _count"];
-  for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) selects.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); }
+  for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) selects.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); } for (const d of distinctSel("")) selects.push(d);
   // GROUP BY one OR MORE base columns (comma-separated) → multi-dimensional "matrix" reports
   // ("pipeline by stage AND by rep"). Up to 4 dimensions; each must be a filterable column.
   const groupCols = groupRaw.filter((c) => f.filterable.has(c)).slice(0, 4);
@@ -4522,6 +4528,7 @@ function shapeD1Stats(row, wanted, wantedExpr) {
     for (const col of wanted[k]) out[k][col] = row ? row[k + "__" + col] : null;
     for (const e of exprs) out[k][e.alias] = row ? row[k + "__" + e.alias] : null;
   }
+  if (wanted.distinct && wanted.distinct.length) { out.distinct = {}; for (const col of wanted.distinct) out.distinct[col] = Number(row ? row["distinct__" + col] : 0) || 0; }
   return out;
 }
 
