@@ -6283,3 +6283,21 @@ the data API — so a generated app couldn't build an in-app analytics page from
   MRR series with negative delta (−20%), a second metric with notes, overview, window filter, single-point
   null-deltas, delete-clears, all guards (non-admin 403 r/w, signed-out 401, missing metric / non-numeric
   400, unknown metric → empty). Full suite 129 green.
+
+## 2026-07-22 — INTEGRATION: outbound webhooks (new category, past the 4 themes)
+- **Outbound webhooks** (integration): the first "push events OUT" primitive — everything before was
+  inbound/in-app. `POST /api/db/<slug>/webhooks {url,events?,secret?}` (ADMIN) registers an external
+  subscriber (url MUST be https + public — reuses `hostIsBlocked` so localhost/private IPs are rejected at
+  register time, closing SSRF); `events` = array or "*"; optional `secret` enables HMAC-SHA256 signing.
+  `GET /webhooks` lists (secret NEVER returned, just a `signed` flag), `DELETE /webhooks/<id>` removes.
+  `POST /webhooks/emit {event,data}` delivers `{event,data,at}` as JSON to every matching hook via
+  `safeFetch` (SSRF-guarded, AbortSignal timeout 5s), AWAITED (not waitUntil) so the response carries
+  per-hook `{ok,status,error}` and the delivery is logged before returning — makes it deterministic +
+  testable. Signature header `X-Webhook-Signature: sha256=<hex>` + `X-Webhook-Event`. `_webhooks` subs +
+  `_webhook_deliveries` log; deliveries readable at `GET /webhooks/deliveries[?hook=&limit=]`. Capped: 100
+  hooks scanned, 20 delivered/emit. batch147 (27/27) — specific+wildcard matching, signed/unsigned, secret
+  never leaked, matched/delivered counts, per-hook delivery log filter, delete stops matching, SSRF guards
+  (non-https/localhost/private-IP/garbage → 400), admin/auth guards. Full suite 130 green.
+  NOTE: delivery is synchronous-awaited — fine for a handful of hooks; if a site ever needs many/laggy
+  subscribers, move to a queue. Failure-path logging (non-2xx/unreachable) is coded but not asserted (the
+  test harness returns 200 for any external URL); exercise it live if it ever matters.

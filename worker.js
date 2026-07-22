@@ -4203,6 +4203,28 @@ async function ensureKpi(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_kpi_metric ON _kpi_snapshots (metric, at)"); } catch {}
   _kpiReady.add(uuid);
 }
+// Outbound webhooks — an app registers external URLs to receive its events (order.created,
+// signup…), then fires them; the server POSTs a signed JSON payload to each subscriber and logs
+// the attempt. `_webhooks` = subscriptions, `_webhook_deliveries` = the delivery log. Ensured once.
+const _hooksReady = new Set();
+async function ensureHooks(env, uuid) {
+  if (_hooksReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _webhooks (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL, events TEXT, secret TEXT, active INTEGER DEFAULT 1, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _webhook_deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, hook_id INTEGER, event TEXT, ok INTEGER, status INTEGER, error TEXT, at TEXT)");
+  _hooksReady.add(uuid);
+}
+// HMAC-SHA256 sign a webhook body with the subscription's secret → "sha256=<hex>" (null if no secret).
+async function hookSign(secret, body) {
+  if (!secret) return null;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+  return "sha256=" + [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+// A webhook's event list matches `event` if it subscribes to "*" or lists that exact event.
+function hookMatches(eventsCsv, event) {
+  const list = String(eventsCsv || "*").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return list.includes("*") || list.includes(event);
+}
 // Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
 async function postWallet(env, uuid, data, userId) {
   await ensureWallet(env, uuid);
@@ -9852,6 +9874,90 @@ async function handleRequest(request, env, ctx) {
           });
           return Response.json({ ok: true, metrics });
         } catch (e) { console.error("kpi failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "kpi failed" }, { status: 502 }); }
+      }
+      // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
+      // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
+      //   POST   /api/db/<slug>/webhooks {url, events?, secret?}   → register (admin; url must be https)
+      //   GET    /api/db/<slug>/webhooks                          → list (secret never returned)
+      //   DELETE /api/db/<slug>/webhooks/<id>                     → remove
+      //   POST   /api/db/<slug>/webhooks/emit {event, data}       → deliver to matching hooks
+      //   GET    /api/db/<slug>/webhooks/deliveries[?hook=&limit=]→ the delivery log
+      const whm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/webhooks(?:\/(emit|deliveries|\d+))?$/i);
+      if (whm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = whm[1].toLowerCase(), seg = whm[2] || null;
+        const hookId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureHooks(env, uuid);
+          // Delivery log.
+          if (seg === "deliveries") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|whr", 300)) return tooMany();
+            const conds = [], params = [];
+            const hk = parseInt(url.searchParams.get("hook"), 10); if (hk > 0) { conds.push("hook_id=?"); params.push(hk); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT id,hook_id,event,ok,status,error,at FROM _webhook_deliveries" + (conds.length ? " WHERE " + conds.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, deliveries: rows });
+          }
+          // Fire an event to all matching subscribers (awaited so the response reports results).
+          if (seg === "emit") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|whe", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const event = String(body.event || "").toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60);
+            if (!event) return Response.json({ ok: false, error: "event is required" }, { status: 400 });
+            const hooks = (await cfD1Query(env, uuid, "SELECT id,url,events,secret FROM _webhooks WHERE active=1 LIMIT 100")).filter((hk) => hookMatches(hk.events, event));
+            const payload = JSON.stringify({ event, data: body.data == null ? null : body.data, at: new Date().toISOString() });
+            const results = [];
+            for (const hk of hooks.slice(0, 20)) {
+              let ok = 0, status = 0, error = null;
+              try {
+                const sig = await hookSign(hk.secret, payload);
+                const headers = { "content-type": "application/json", "X-Webhook-Event": event };
+                if (sig) headers["X-Webhook-Signature"] = sig;
+                const resp = await safeFetch(hk.url, { method: "POST", headers, body: payload, signal: AbortSignal.timeout(5000) });
+                if (!resp) { error = "blocked or unreachable"; }
+                else { status = resp.status; ok = resp.status >= 200 && resp.status < 300 ? 1 : 0; if (!ok) error = "HTTP " + resp.status; }
+              } catch (e) { error = String((e && e.message) || "delivery error").slice(0, 200); }
+              try { await cfD1Query(env, uuid, "INSERT INTO _webhook_deliveries (hook_id,event,ok,status,error,at) VALUES (?,?,?,?,?,?)", [hk.id, event, ok, status, error, new Date().toISOString()]); } catch {}
+              results.push({ hook_id: hk.id, ok: !!ok, status, error });
+            }
+            return Response.json({ ok: true, event, matched: hooks.length, delivered: results.filter((r) => r.ok).length, results });
+          }
+          // Register.
+          if (request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|whw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let u; try { u = new URL(String(body.url || "")); } catch { return Response.json({ ok: false, error: "a valid https url is required" }, { status: 400 }); }
+            if (u.protocol !== "https:") return Response.json({ ok: false, error: "webhook url must be https" }, { status: 400 });
+            if (hostIsBlocked(u.hostname)) return Response.json({ ok: false, error: "that host isn't allowed" }, { status: 400 });
+            let events = "*";
+            if (Array.isArray(body.events)) { const list = body.events.map((e) => String(e).toLowerCase().replace(/[^a-z0-9_.:*-]/g, "").slice(0, 60)).filter(Boolean).slice(0, 40); if (list.length) events = list.join(","); }
+            else if (typeof body.events === "string" && body.events.trim()) { events = body.events.toLowerCase().replace(/[^a-z0-9_.:*,-]/g, "").slice(0, 400) || "*"; }
+            const secret = body.secret != null ? String(body.secret).slice(0, 200) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _webhooks (url,events,secret,active,created_at) VALUES (?,?,?,1,?) RETURNING id", [u.toString(), events, secret, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, url: u.toString(), events, signed: !!secret });
+          }
+          if (request.method === "DELETE") {
+            if (!hookId) return Response.json({ ok: false, error: "which webhook? DELETE /webhooks/<id>" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _webhooks WHERE id=?", [hookId]);
+            return Response.json({ ok: true, id: hookId, removed: (ex.changes || 0) > 0 });
+          }
+          // GET list — never expose the secret.
+          if (!rateOk(slug + "|" + ip + "|whl", 300)) return tooMany();
+          const rows = await cfD1Query(env, uuid, "SELECT id,url,events,active,created_at, CASE WHEN secret IS NOT NULL THEN 1 ELSE 0 END AS signed FROM _webhooks ORDER BY id DESC LIMIT 200");
+          return Response.json({ ok: true, webhooks: rows.map((r) => ({ id: r.id, url: r.url, events: r.events, active: !!r.active, signed: !!r.signed, created_at: r.created_at })) });
+        } catch (e) { console.error("webhooks failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "webhooks failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
