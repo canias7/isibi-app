@@ -647,6 +647,9 @@ is delivered.
 - #83 Event stream: `GET /rows/<t>/events[?since=&limit=]` (audit:true tables, admin/writeRole) → the
   insert/update/delete change log oldest-first with a cursor — unlike ?changes (new rows only) it
   includes updates+deletes. Reuses _audit (no new write hooks). batch100 (11/11).
+- #18 JSON shape validation: table-level `jsonShapes:{col:{field:type}}` (type string|number|boolean|
+  array|object) validates a json column's inner fields on write (400 naming the field) via validateRow.
+  batch101 (8/8).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
