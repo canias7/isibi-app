@@ -5961,3 +5961,19 @@ in the media composer" wiring and rebuilt it as a standalone view.
 - NOTE: the landing GAME channel still shows the "coming soon" placeholder text while
   tuned (data-live="0"); selecting it works and routes to the studio. A landing
   polish (flip it to read live) is a small follow-up.
+
+## 2026-07-22 — Game Studio: iterate/revise loop (make the engine a studio, not one-shot)
+Added iteration so a built game can be changed in place ("make it faster", "add a
+boss", "neon green theme") — the core thing that makes a builder a studio.
+- **worker.js `POST /api/game/revise`**: loads the stashed source
+  (`gamesrc/<slug>.json`, owner-checked), applies `Sonnet(GAME_REVISE_RULES)` with
+  the instruction, merges the changed file blocks, rebuilds in the container with
+  the smoke test + the same Phase-4 auto-fix loop, and REPUBLISHES to the SAME slug
+  so `/g/<slug>/` stays stable. Same Sonnet-rate metering/guards as build.
+- **Frontend**: the Studio preview screen now has a revise bar under the game
+  (`.gs-revise` input + Update). `gameStudioRevise()` posts to `/api/game/revise`,
+  shows a status line, then reloads the iframe in place (cache-buster) so the change
+  shows immediately; 402→openCredits, balance→setCredits.
+- Validated locally: the revise merge→rebuild→smoke path passes (modified breakout
+  source → vite build OK → smoke PASS non-blank/zero-errors); the revise bar renders
+  + wires with no JS errors. Live Sonnet edit untested (same as build).

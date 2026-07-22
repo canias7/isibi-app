@@ -11633,7 +11633,12 @@ function renderGames() {
         '<div class="gs-frame-wrap"><div class="gs-frame">' +
           '<iframe title="' + gameTitle(open.slug) + '" src="' + open.url + '" allow="autoplay; fullscreen"></iframe>' +
         '</div>' +
-        '<div class="gs-meta"><b>' + gameTitle(open.slug) + '</b><span>Play-tested ✓ · click the game to play</span></div></div>' +
+        '<div class="gs-meta"><b>' + gameTitle(open.slug) + '</b><span>Play-tested ✓ · click the game to play</span></div>' +
+        '<div class="gs-revise">' +
+          '<input id="gsRevise" type="text" placeholder="Change something — “make it faster”, “add a boss”, “neon green theme”…" />' +
+          '<button class="gs-build" type="button" id="gsReviseBtn">Update</button>' +
+          '<span class="gs-status" id="gsReviseStatus"></span>' +
+        '</div></div>' +
       '</div>';
   } else {
     const chips = GAME_GENRES.map((g) => '<button class="gs-chip" type="button" data-genre="' + g.key + '">' + g.label + '</button>').join('');
@@ -11673,6 +11678,57 @@ function renderGames() {
     if (!brief) { if (ta) ta.focus(); return; }
     gameStudioBuild(brief);
   };
+  const rvBtn = view.querySelector('#gsReviseBtn');
+  const doRevise = () => {
+    const inp = view.querySelector('#gsRevise');
+    const ins = (inp && inp.value || '').trim();
+    if (!ins) { if (inp) inp.focus(); return; }
+    gameStudioRevise(open.slug, ins);
+  };
+  if (rvBtn) rvBtn.onclick = doRevise;
+  const rvInp = view.querySelector('#gsRevise');
+  if (rvInp) rvInp.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doRevise(); } };
+}
+
+// Iterate on an open game — POST /api/game/revise (loads its stashed source,
+// applies the change with GAME_REVISE_RULES, rebuilds + smoke-tests, republishes
+// to the SAME slug). Reloads the iframe in place so the change shows immediately.
+async function gameStudioRevise(slug, instruction) {
+  if (gameBuilding) return;
+  gameBuilding = true;
+  const btn = document.getElementById('gsReviseBtn');
+  const status = document.getElementById('gsReviseStatus');
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+  const steps = ['Applying your change…', 'Compiling…', 'Play-testing…'];
+  let si = 0;
+  if (status) status.textContent = steps[0];
+  const tick = setInterval(() => { si = Math.min(si + 1, steps.length - 1); if (status) status.textContent = steps[si]; }, 9000);
+  try {
+    const r = await apiFetch('/api/game/revise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, instruction }) });
+    const d = await r.json().catch(() => ({}));
+    clearInterval(tick);
+    if (r.status === 402 || d.need === 'credits') {
+      if (status) status.textContent = 'Out of credits — top up to keep editing.';
+      if (typeof openCredits === 'function') openCredits(true);
+      return;
+    }
+    if (!r.ok || !d.ok) {
+      if (status) status.textContent = '⚠️ ' + (d.error || 'That change didn’t apply — try rephrasing.');
+      return;
+    }
+    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
+    const fr = document.querySelector('#viewGames .gs-frame iframe');
+    if (fr) fr.src = d.url + '?r=' + Date.now(); // cache-buster → the rebuilt game reloads
+    if (status) status.textContent = 'Updated ✓' + (d.fixed ? ' · auto-fixed ' + d.fixed + '×' : '');
+    const inp = document.getElementById('gsRevise'); if (inp) inp.value = '';
+  } catch (e) {
+    clearInterval(tick);
+    if (status) status.textContent = '⚠️ Couldn’t reach the builder just now — give it a moment.';
+  } finally {
+    gameBuilding = false;
+    const b2 = document.getElementById('gsReviseBtn');
+    if (b2) { b2.disabled = false; b2.textContent = 'Update'; }
+  }
 }
 
 async function gameStudioBuild(brief) {

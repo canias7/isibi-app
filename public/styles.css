@@ -5233,3 +5233,10 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .gs-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-top: 14px; }
 .gs-meta b { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.1rem; text-transform: capitalize; }
 .gs-meta span { color: var(--muted); font-size: .84rem; }
+
+/* Revise bar under an open game (Game Studio iterate loop) */
+.gs-revise { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.gs-revise input { flex: 1; min-width: 240px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; color: var(--text); font: inherit; font-size: .92rem; padding: 11px 14px; outline: none; }
+.gs-revise input:focus { border-color: rgba(255,121,198,.5); }
+.gs-revise input::placeholder { color: #5c5c66; }
+.gs-revise .gs-status { flex-basis: 100%; text-align: left; }

@@ -7320,6 +7320,93 @@ async function handleRequest(request, env, ctx) {
       }
     }
 
+    // POST /api/game/revise — iterate on an existing game ("make it faster", "add a
+    // boss", "change the colours"). Loads the stashed source (gamesrc/<slug>.json),
+    // applies Sonnet(GAME_REVISE_RULES) with the instruction, rebuilds in the
+    // container with the smoke test + Phase-4 auto-fix loop, and REPUBLISHES to the
+    // SAME slug so /g/<slug>/ stays stable. Turns the one-shot generator into a
+    // studio. Same metering/guards as /api/game/build.
+    if (url.pathname === "/api/game/revise" && request.method === "POST") {
+      const gu = await authUser(request);
+      if (!gu) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "engine not configured" }, { status: 501 });
+      if (!env.GAME_BUILD_CONTAINER || !env.SITES_BUCKET) return Response.json({ ok: false, error: "build service not configured" }, { status: 501 });
+      const tlR = tooLargeBody(request, 200_000); if (tlR) return tlR;
+      let rv; try { rv = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const slug = typeof rv.slug === "string" ? rv.slug.replace(/[^a-z0-9-]/gi, "").slice(0, 80) : "";
+      const instruction = typeof rv.instruction === "string" ? rv.instruction.trim().slice(0, 2000) : "";
+      if (!slug || !instruction) return Response.json({ ok: false, error: "missing slug or instruction" }, { status: 400 });
+      // Load the stashed source; only the owner can revise their own game.
+      let srcObj = null;
+      try { const o = await env.SITES_BUCKET.get("gamesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
+      if (!srcObj || !srcObj.files || !srcObj.files["src/main.js"]) return Response.json({ ok: false, error: "couldn’t find that game’s source to edit" }, { status: 404 });
+      if (srcObj.uid && srcObj.uid !== gu.id) return Response.json({ ok: false, error: "not your game" }, { status: 403 });
+      const auth = request.headers.get("Authorization") || "";
+      const CREDIT_USD = 0.008, GB_MAX_OUT = 16000, GB_MODEL = "claude-sonnet-5";
+      const RATE_IN = 3e-6, RATE_OUT = 15e-6;
+      const gbCredits = (i, o) => Math.max(1, Math.ceil((i * RATE_IN + o * RATE_OUT) / CREDIT_USD));
+      let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
+      if (!(bal0 >= gbCredits(2500, GB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+      const dumpFiles = (f) => Object.entries(f).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+      const gen = async (system, user) => {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, system, messages: [{ role: "user", content: user }] }),
+          signal: AbortSignal.timeout(180000),
+        });
+        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; throw e; }
+        const j = await r.json();
+        const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+        return { text, usedIn: (j.usage && j.usage.input_tokens) || 0, usedOut: (j.usage && j.usage.output_tokens) || Math.ceil(text.length / 4) };
+      };
+      const buildGame = async (files) => {
+        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        const t0 = Date.now();
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, smoke: true }) }));
+        const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+        return { bd, buildMs: Date.now() - t0 };
+      };
+      try {
+        let cost = 0;
+        let files = { ...srcObj.files };
+        const g = await gen(GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files));
+        cost += gbCredits(g.usedIn, g.usedOut);
+        try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+        const changed = parseGameFiles(g.text);
+        if (!Object.keys(changed).length) return Response.json({ ok: false, error: "the edit came back empty — try rephrasing" }, { status: 200 });
+        Object.assign(files, changed);
+        // Build + Phase-4 auto-fix loop (compile AND runtime failures).
+        let bd, buildMs, attempt = 0;
+        for (;;) {
+          ({ bd, buildMs } = await buildGame(files));
+          const compileFail = !bd.ok;
+          const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
+          if (!compileFail && !runtimeFail) break;
+          if (attempt >= 2) break;
+          attempt++;
+          const fixPrompt = compileFail
+            ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+            : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
+          let fg; try { fg = await gen(GAME_RULES, fixPrompt); } catch { break; }
+          cost += gbCredits(fg.usedIn, fg.usedOut);
+          try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+          const fixed = parseGameFiles(fg.text);
+          if (!Object.keys(fixed).length) break;
+          Object.assign(files, fixed);
+        }
+        if (!bd.ok) return Response.json({ ok: false, stage: "build", error: String(bd.error || "build failed").slice(0, 1200), fixed: attempt }, { status: 200 });
+        // Republish to the SAME slug + update the stashed source.
+        await writeGameDistToR2(env, slug, bd.files);
+        try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+        let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
+        return Response.json({ ok: true, url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter, model: GB_MODEL });
+      } catch (e) {
+        if (e && e.status === 402) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 200 });
+      }
+    }
+
     // Phase 3b — the REACT build pipeline (behind its own endpoint; the static
     // /api/site path is untouched). Sonnet(REACT_RULES) → parseGeneratedFiles →
     // inject real images into the SOURCE → container `vite build` → dist → R2 at
