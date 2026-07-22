@@ -3801,6 +3801,51 @@ async function stockValuation(env, uuid, filter) {
   });
   return { valuation: rows, total_value: totalC / 100 };
 }
+// ── BILL OF MATERIALS (ERP manufacturing) ────────────────────────────────────────
+// A product is built from component items in quantities; a component can itself be a
+// built product (multi-level BOM). "Explosion" walks the tree recursively and aggregates
+// the LEAF (raw) components needed to build a quantity of the top product — the input to
+// work orders and MRP. Cycles are detected (a product can't contain itself). BOM keys are
+// URL-safe SKUs. Quantities in milli-units (×1000) for 3-decimal precision.
+const _bomReady = new Set();
+async function ensureBom(env, uuid) {
+  if (_bomReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _boms (id INTEGER PRIMARY KEY AUTOINCREMENT, product TEXT NOT NULL UNIQUE, notes TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bom_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, bom_id INTEGER NOT NULL, component TEXT NOT NULL, qty_m INTEGER NOT NULL)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_bl_bom ON _bom_lines (bom_id)"); } catch {}
+  _bomReady.add(uuid);
+}
+const _bomSku = (v) => { const s = String(v == null ? "" : v).trim(); return /^[A-Za-z0-9_.-]{1,80}$/.test(s) ? s : null; };
+// Load every BOM as product → [{component, qty_m}] for in-memory explosion.
+async function loadBomMap(env, uuid) {
+  const rows = await cfD1Query(env, uuid, "SELECT b.product, l.component, l.qty_m FROM _boms b JOIN _bom_lines l ON l.bom_id=b.id LIMIT 20000");
+  const map = new Map();
+  for (const r of rows) { if (!map.has(r.product)) map.set(r.product, []); map.get(r.product).push({ component: r.component, qty_m: r.qty_m }); }
+  return map;
+}
+// Recursively explode `product` × `qty` into aggregated leaf components. Returns
+// {components:[{component, qty}], subassemblies:[{component, qty}]} or {err} on a cycle.
+function explodeBom(map, product, qty) {
+  const leaves = new Map(), subs = new Map();
+  let cycle = null;
+  const walk = (p, mult, path) => {
+    const bom = map.get(p);
+    if (!bom) { leaves.set(p, (leaves.get(p) || 0) + mult); return; } // leaf (raw material)
+    if (path.includes(p)) { cycle = [...path, p].join(" → "); return; }
+    if (path.length > 30) { cycle = "too deep at " + p; return; }
+    subs.set(p, (subs.get(p) || 0) + mult); // an intermediate built item
+    for (const ln of bom) walk(ln.component, mult * (ln.qty_m / 1000), [...path, p]);
+  };
+  const top = map.get(product);
+  if (!top) return { err: "no BOM defined for " + product, code: "no_bom" };
+  for (const ln of top) walk(ln.component, qty * (ln.qty_m / 1000), [product]);
+  if (cycle) return { err: "BOM cycle: " + cycle, code: "cycle" };
+  const round3 = (n) => Math.round(n * 1000) / 1000;
+  return {
+    components: [...leaves.entries()].map(([component, q]) => ({ component, qty: round3(q) })).sort((a, b) => a.component < b.component ? -1 : 1),
+    subassemblies: [...subs.entries()].map(([component, q]) => ({ component, qty: round3(q) })).sort((a, b) => a.component < b.component ? -1 : 1),
+  };
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9090,6 +9135,83 @@ async function handleRequest(request, env, ctx) {
         const res = depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
+      }
+      // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
+      // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
+      //   POST   /api/db/<slug>/bom {product, notes?, lines:[{component, qty}]}  → create/replace a BOM
+      //   GET    /api/db/<slug>/bom                        → list products that have a BOM
+      //   GET    /api/db/<slug>/bom/<product>              → {product, notes, lines}
+      //   DELETE /api/db/<slug>/bom/<product>              → remove
+      //   GET    /api/db/<slug>/bom/<product>/explode?qty=N → aggregated leaf {components} + {subassemblies}
+      const bmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/bom(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(explode))?)?$/i);
+      if (bmm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bmm[1].toLowerCase(), product = bmm[2] || null, explode = bmm[3] === "explode";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureBom(env, uuid);
+          if (explode) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|bomr", 300)) return tooMany();
+            const qty = Number(url.searchParams.get("qty") || "1"); if (!Number.isFinite(qty) || qty <= 0) return Response.json({ ok: false, error: "qty must be positive" }, { status: 400 });
+            const map = await loadBomMap(env, uuid);
+            const res = explodeBom(map, product, qty);
+            if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "no_bom" ? 404 : 409 });
+            return Response.json({ ok: true, product, qty, components: res.components, subassemblies: res.subassemblies });
+          }
+          if (product && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|bomr", 300)) return tooMany();
+            const b = await cfD1Query(env, uuid, "SELECT * FROM _boms WHERE product=?", [product]);
+            if (!b[0]) return Response.json({ ok: false, error: "no BOM for " + product }, { status: 404 });
+            const ls = await cfD1Query(env, uuid, "SELECT component, qty_m FROM _bom_lines WHERE bom_id=? ORDER BY component", [b[0].id]);
+            return Response.json({ ok: true, product, notes: b[0].notes, lines: ls.map((l) => ({ component: l.component, qty: l.qty_m / 1000 })) });
+          }
+          if (!product && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|bomr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT b.product, b.notes, COUNT(l.id) AS n FROM _boms b LEFT JOIN _bom_lines l ON l.bom_id=b.id GROUP BY b.id ORDER BY b.product LIMIT 5000", []);
+            return Response.json({ ok: true, boms: rows.map((r) => ({ product: r.product, notes: r.notes, component_count: r.n })) });
+          }
+          if (product && request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|bomw", 60)) return tooMany();
+            const b = await cfD1Query(env, uuid, "SELECT id FROM _boms WHERE product=?", [product]);
+            if (!b[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            await cfD1Query(env, uuid, "DELETE FROM _bom_lines WHERE bom_id=?", [b[0].id]);
+            await cfD1Query(env, uuid, "DELETE FROM _boms WHERE id=?", [b[0].id]);
+            return Response.json({ ok: true, product, deleted: true });
+          }
+          if (request.method === "POST" && !product) {
+            if (!rateOk(slug + "|" + ip + "|bomw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const prod = _bomSku(body.product); if (!prod) return Response.json({ ok: false, error: "product must be a SKU (letters/digits/._-, ≤80)" }, { status: 400 });
+            if (!Array.isArray(body.lines) || !body.lines.length) return Response.json({ ok: false, error: "at least one component line is required" }, { status: 400 });
+            if (body.lines.length > 500) return Response.json({ ok: false, error: "too many lines (max 500)" }, { status: 400 });
+            const lines = [];
+            for (let i = 0; i < body.lines.length; i++) {
+              const comp = _bomSku(body.lines[i] && body.lines[i].component);
+              if (!comp) return Response.json({ ok: false, error: "line " + (i + 1) + ": component must be a SKU" }, { status: 400 });
+              if (comp === prod) return Response.json({ ok: false, error: "a product can't be a component of itself" }, { status: 400 });
+              const q = toMilli(body.lines[i].qty); if (q == null || q <= 0) return Response.json({ ok: false, error: "line " + (i + 1) + ": qty must be positive" }, { status: 400 });
+              lines.push({ component: comp, qty_m: q });
+            }
+            // Replace any existing BOM for this product (upsert).
+            const existing = await cfD1Query(env, uuid, "SELECT id FROM _boms WHERE product=?", [prod]);
+            let bomId;
+            if (existing[0]) { bomId = existing[0].id; await cfD1Query(env, uuid, "DELETE FROM _bom_lines WHERE bom_id=?", [bomId]); await cfD1Query(env, uuid, "UPDATE _boms SET notes=? WHERE id=?", [body.notes != null ? String(body.notes).slice(0, 500) : null, bomId]); }
+            else { const ins = await cfD1Query(env, uuid, "INSERT INTO _boms (product, notes, created_at) VALUES (?,?,?) RETURNING id", [prod, body.notes != null ? String(body.notes).slice(0, 500) : null, new Date().toISOString()]); bomId = ins[0] && ins[0].id; }
+            for (const l of lines) await cfD1Query(env, uuid, "INSERT INTO _bom_lines (bom_id, component, qty_m) VALUES (?,?,?)", [bomId, l.component, l.qty_m]);
+            return Response.json({ ok: true, product: prod, lines: lines.map((l) => ({ component: l.component, qty: l.qty_m / 1000 })) });
+          }
+          return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+        } catch (e) { console.error("bom failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bom failed" }, { status: 502 }); }
       }
       // STOCK LEDGER (ERP inventory) — append-only movements; on-hand = Σqty; reservations
       // earmark availability. No-negative-stock is enforced atomically. ADMIN-gated.
