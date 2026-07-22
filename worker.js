@@ -3773,6 +3773,7 @@ async function ensureDocuments(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _documents (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, number TEXT, party TEXT, doc_date TEXT, status TEXT NOT NULL DEFAULT 'draft', currency TEXT, ref TEXT, memo TEXT, from_id INTEGER, subtotal_c INTEGER NOT NULL DEFAULT 0, tax_c INTEGER NOT NULL DEFAULT 0, total_c INTEGER NOT NULL DEFAULT 0, meta TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _document_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER NOT NULL, item TEXT, description TEXT, qty_m INTEGER NOT NULL, unit_price_c INTEGER NOT NULL, tax_rate_bp INTEGER NOT NULL DEFAULT 0, subtotal_c INTEGER NOT NULL, tax_c INTEGER NOT NULL, total_c INTEGER NOT NULL, dim TEXT, meta TEXT, sort INTEGER)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _doc_counters (type TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN ledger_entry_id INTEGER"); } catch {} // set when a doc is posted to the ledger (idempotency)
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dl_doc ON _document_lines (doc_id)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_doc_type ON _documents (type, status)"); } catch {}
   _docsReady.add(uuid);
@@ -3807,7 +3808,7 @@ async function getDocument(env, uuid, id) {
   const ls = await cfD1Query(env, uuid, "SELECT * FROM _document_lines WHERE doc_id=? ORDER BY sort, id", [id]);
   const h = d[0];
   return {
-    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id,
+    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id, ledger_entry_id: h.ledger_entry_id || null,
     subtotal: h.subtotal_c / 100, tax: h.tax_c / 100, total: h.total_c / 100, meta: h.meta ? (() => { try { return JSON.parse(h.meta); } catch { return null; } })() : null,
     created_at: h.created_at, updated_at: h.updated_at,
     lines: ls.map((l) => ({ id: l.id, item: l.item, description: l.description, qty: l.qty_m / 1000, unit_price: l.unit_price_c / 100, tax_rate: l.tax_rate_bp / 100, subtotal: l.subtotal_c / 100, tax: l.tax_c / 100, total: l.total_c / 100, dim: l.dim, meta: l.meta ? (() => { try { return JSON.parse(l.meta); } catch { return null; } })() : null })),
@@ -9109,7 +9110,7 @@ async function handleRequest(request, env, ctx) {
       //   DELETE /api/db/<slug>/documents/<id>                    → delete (only while 'draft')
       //   POST   /api/db/<slug>/documents/<id>/status {status}    → set status
       //   POST   /api/db/<slug>/documents/<id>/convert {type, status?, date?, source_status?} → copy lines into a new linked doc
-      const dcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents(?:\/(\d+)(?:\/(status|convert))?)?$/i);
+      const dcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents(?:\/(\d+)(?:\/(status|convert|post))?)?$/i);
       if (dcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = dcm[1].toLowerCase(), docId = dcm[2] ? parseInt(dcm[2], 10) : null, act = dcm[3] ? dcm[3].toLowerCase() : null;
@@ -9136,6 +9137,34 @@ async function handleRequest(request, env, ctx) {
             const ex = await cfD1Exec(env, uuid, "UPDATE _documents SET status=?, updated_at=? WHERE id=?", [status, new Date().toISOString(), docId]);
             if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
             return Response.json({ ok: true, id: docId, status });
+          }
+          if (docId && act === "post") {
+            // Post a document to the ledger — turns an invoice/bill into a balanced journal
+            // entry. The caller maps the accounts; direction handles sale (total on debit =
+            // A/R) vs purchase (total on credit = A/P). Idempotent: a doc carries its
+            // ledger_entry_id and re-posting is refused. Honours the period lock.
+            //   {total_account, base_account, tax_account?, total_side?='debit', ledger?, date?}
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            const doc = await getDocument(env, uuid, docId);
+            if (!doc) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (doc.ledger_entry_id) return Response.json({ ok: false, error: "already posted to the ledger", code: "posted", ledger_entry_id: doc.ledger_entry_id }, { status: 409 });
+            if (!(doc.total > 0)) return Response.json({ ok: false, error: "can only post a document with a positive total", code: "total" }, { status: 400 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const totalAcct = String(body.total_account || "").trim(), baseAcct = String(body.base_account || "").trim();
+            if (!totalAcct || !baseAcct) return Response.json({ ok: false, error: "total_account and base_account are required" }, { status: 400 });
+            const taxAcct = body.tax_account != null ? String(body.tax_account).trim() : "";
+            if (doc.tax > 0 && !taxAcct) return Response.json({ ok: false, error: "tax_account is required (this document has tax)" }, { status: 400 });
+            const totalSide = String(body.total_side || "debit").toLowerCase() === "credit" ? "credit" : "debit";
+            const opp = totalSide === "debit" ? "credit" : "debit";
+            const lines = [{ account: totalAcct, [totalSide]: doc.total }];
+            if (doc.subtotal !== 0) lines.push({ account: baseAcct, [opp]: doc.subtotal });
+            if (doc.tax !== 0) lines.push({ account: taxAcct, [opp]: doc.tax });
+            const ledgerName = String(body.ledger || "gl").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "gl";
+            const res = await postLedgerEntry(env, uuid, ledgerName, { lines, date: body.date || doc.doc_date, ref: doc.number, memo: (doc.type + " " + (doc.number || "")).trim() }, userId);
+            if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "period_locked" ? 409 : 400 });
+            await cfD1Query(env, uuid, "UPDATE _documents SET ledger_entry_id=?, updated_at=? WHERE id=?", [res.entry.id, new Date().toISOString(), docId]);
+            return Response.json({ ok: true, entry: res.entry, document_id: docId });
           }
           if (docId && act === "convert") {
             if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });

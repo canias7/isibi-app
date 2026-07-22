@@ -683,6 +683,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   item → avg/value null. Read-only, builds on the existing `_stock_moves.unit_cost_c`; added `valuation` to
   the stock route. stockValuation() helper. batch115 (15/15). Full suite 98 green. (FIFO/LIFO cost layers =
   a later enhancement; weighted-average is the common SMB default and needs no new storage.)
+- **PHASE 6a — DOCUMENT→LEDGER POSTING** (the integration layer): `POST /documents/<id>/post {total_account,
+  base_account, tax_account?, total_side?='debit', ledger?, date?}` turns a document's totals into a balanced
+  ledger entry — sale invoice = Dr total_account(total) / Cr base_account(subtotal) + Cr tax_account(tax);
+  purchase bill = `total_side:'credit'` mirrors it. IDEMPOTENT via a new `_documents.ledger_entry_id` column
+  (ALTER best-effort; surfaced in getDocument) — re-post → 409 `posted`. Reuses postLedgerEntry so it honours
+  the period lock (→409) and the balance invariant (total = subtotal+tax always balances). Guards: positive
+  total only, tax_account required iff doc has tax, account fields required. Added `post` to the documents
+  route act group. batch116 (23/23) — invoice + mirror bill + no-tax + period-lock + idempotency. Full suite
+  99 green. This is the first primitive that COMPOSES two others (documents × ledger) into a real ERP flow.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
