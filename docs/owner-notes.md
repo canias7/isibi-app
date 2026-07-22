@@ -618,6 +618,9 @@ round-trip, so it can't be built+verified without owner credentials. Everything 
 is delivered.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
+- #20 Field masking: table-level `mask:{col:{roles,keep,char}}` partial-reveals a sensitive column
+  to non-privileged readers (card `••••4242`); read-time attach beside stripFieldRoles, admin sees full.
+  batch92 (8/8).
 - #1 Schema introspection: `GET /api/db/<slug>/schema` (Phase D.-1, public, read-only) → tables with
   columns (type/required/enum/format/max/min/ref/immutable), relations, enabled features, writeRoles.
   Structure only, no row data. Built from the persisted norm spec. batch91 (17/17).
