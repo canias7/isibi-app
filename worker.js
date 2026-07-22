@@ -4194,6 +4194,15 @@ async function ensureDM(env, uuid) {
   _dmReady.add(uuid);
 }
 const _dmThread = (a, b) => Math.min(a, b) + ":" + Math.max(a, b);
+// KPI snapshots — a business metric (MRR, active users, NPS…) recorded at points in time so a
+// dashboard can chart it and show deltas. Append-only in `_kpi_snapshots`. Ensured once.
+const _kpiReady = new Set();
+async function ensureKpi(env, uuid) {
+  if (_kpiReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _kpi_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT, metric TEXT NOT NULL, value REAL, note TEXT, at TEXT NOT NULL)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_kpi_metric ON _kpi_snapshots (metric, at)"); } catch {}
+  _kpiReady.add(uuid);
+}
 // Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
 async function postWallet(env, uuid, data, userId) {
   await ensureWallet(env, uuid);
@@ -9778,6 +9787,71 @@ async function handleRequest(request, env, ctx) {
           const overall = new Array(offsets).fill(0).map((_, o) => { const c = cohorts.reduce((s, ch) => s + ch.retention[o].count, 0); return { offset: o, count: c, pct: pct(c, totSize) }; });
           return Response.json({ ok: true, table, actor, period, offsets, from, to, cohorts, overall });
         } catch (e) { console.error("retention failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "retention failed" }, { status: 502 }); }
+      }
+      // KPI SNAPSHOTS — record a business metric (MRR, active users, NPS…) at points in time and
+      // read back the trend + deltas. Append-only; the app decides what to snapshot and when.
+      //   POST   /api/db/<slug>/kpi {metric, value, at?, note?}   → record a snapshot (admin)
+      //   GET    /api/db/<slug>/kpi                               → each metric's latest + delta
+      //   GET    /api/db/<slug>/kpi/<metric>[?from=&to=&limit=]   → one metric's time-series + deltas
+      //   DELETE /api/db/<slug>/kpi/<metric>                      → clear a metric's history (admin)
+      const kpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/kpi(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (kpm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = kpm[1].toLowerCase(), metric = kpm[2] ? kpm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureKpi(env, uuid);
+          const pctCh = (cur, prev) => (prev != null && prev !== 0 ? Math.round(((cur - prev) / Math.abs(prev)) * 10000) / 100 : null);
+          if (request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|kpiw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const m = String(body.metric || "").toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60);
+            if (!m) return Response.json({ ok: false, error: "metric is required (letters, digits, _ . : -)" }, { status: 400 });
+            const value = Number(body.value);
+            if (!Number.isFinite(value)) return Response.json({ ok: false, error: "value must be a number" }, { status: 400 });
+            const at = (typeof body.at === "string" && !isNaN(Date.parse(body.at))) ? new Date(body.at).toISOString() : new Date().toISOString();
+            const note = body.note != null ? String(body.note).slice(0, 300) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _kpi_snapshots (metric, value, note, at) VALUES (?,?,?,?) RETURNING id", [m, value, note, at]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, metric: m, value, at, note });
+          }
+          if (request.method === "DELETE") {
+            if (!metric) return Response.json({ ok: false, error: "which metric? DELETE /kpi/<metric>" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _kpi_snapshots WHERE metric=?", [metric]);
+            return Response.json({ ok: true, metric, removed: ex.changes || 0 });
+          }
+          if (!rateOk(slug + "|" + ip + "|kpir", 300)) return tooMany();
+          if (metric) {
+            // One metric's time-series (oldest→newest) + latest/previous/change.
+            const conds = ["metric=?"], params = [metric];
+            const isDT = (s) => s && !isNaN(Date.parse(s));
+            if (isDT(url.searchParams.get("from"))) { conds.push("at >= ?"); params.push(new Date(url.searchParams.get("from")).toISOString()); }
+            if (isDT(url.searchParams.get("to"))) { conds.push("at <= ?"); params.push(new Date(url.searchParams.get("to")).toISOString()); }
+            const lim = Math.min(2000, Math.max(1, parseInt(url.searchParams.get("limit") || "500", 10) || 500));
+            const rows = await cfD1Query(env, uuid, "SELECT id, value, note, at FROM _kpi_snapshots WHERE " + conds.join(" AND ") + " ORDER BY at ASC, id ASC LIMIT ?", params.concat([lim]));
+            const n = rows.length;
+            const latest = n ? rows[n - 1] : null, previous = n > 1 ? rows[n - 2] : null;
+            const change = latest && previous ? Math.round((latest.value - previous.value) * 1e6) / 1e6 : null;
+            return Response.json({ ok: true, metric, points: rows, count: n, latest: latest ? latest.value : null, previous: previous ? previous.value : null, change, pct_change: latest && previous ? pctCh(latest.value, previous.value) : null, min: n ? Math.min(...rows.map((r) => r.value)) : null, max: n ? Math.max(...rows.map((r) => r.value)) : null });
+          }
+          // No metric → each metric's latest value + delta vs its previous snapshot.
+          const all = await cfD1Query(env, uuid, "SELECT metric, value, at FROM _kpi_snapshots ORDER BY metric ASC, at ASC, id ASC LIMIT 20000", []);
+          const byMetric = new Map();
+          for (const r of all) { let a = byMetric.get(r.metric); if (!a) { a = []; byMetric.set(r.metric, a); } a.push(r); }
+          const metrics = [...byMetric.entries()].map(([mname, arr]) => {
+            const latest = arr[arr.length - 1], previous = arr.length > 1 ? arr[arr.length - 2] : null;
+            return { metric: mname, latest: latest.value, at: latest.at, previous: previous ? previous.value : null, change: previous ? Math.round((latest.value - previous.value) * 1e6) / 1e6 : null, pct_change: previous ? pctCh(latest.value, previous.value) : null, count: arr.length };
+          });
+          return Response.json({ ok: true, metrics });
+        } catch (e) { console.error("kpi failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "kpi failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
