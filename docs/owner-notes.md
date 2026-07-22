@@ -6648,3 +6648,16 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   before heavy commercial use (the rules no longer claim the pack is "CC0"). BIGGER FIX for "any person on
   demand" = avatar generation: Ready Player Me API (blocked from THIS sandbox — 502 — but likely reachable from
   the production Worker) or AI text-to-3D; not wired yet. This deploy REBUILDS the container (new model baked).
+
+## 2026-07-22 — 1,317-item backlog + column-profile endpoint
+- Wrote `docs/backlog-1000.md` — 1,317 numbered items across 31 domains (auth/IAM, data API, teams,
+  workflow, commerce, inventory, finance, CRM, marketing, support, HR, LMS, CMS, analytics, integration,
+  notifications, files, search/AI, healthcare, manufacturing, FSM, PM, GRC, real-estate, devex, frontend,
+  infra, testing, mobile, i18n, performance). Living roadmap; marks (prim)/(flag)/(ui)/(infra)/(vert).
+- **Column profile / describe** (data API): `GET /rows/<t>/profile` → `{total, columns:[{name,type,
+  non_null,nulls,distinct,min,max,avg?,sum?}]}` in ONE aggregate query. Per-column completeness, cardinality,
+  range; avg+sum for numeric (def.num). Read-only, added as a `profile` sub-action on the rows regex next to
+  `stats` — reuses the SAME visibility (userReadBase for user tables, withVisible/withTagFilter for trash+tag,
+  collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
+  avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
+  (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.

@@ -122,7 +122,7 @@ platform infrastructure. Grouped by domain; each item is a concrete unit of work
 107. Bulk PATCH by id list (not just filter) (prim)
 108. Dry-run for any write (validate without persist) (prim)
 109. Referential-integrity check report (orphan finder) (prim)
-110. Column statistics endpoint (min/max/distinct/nulls) (prim)
+110. Column statistics endpoint (min/max/distinct/nulls) (prim) ✅ DONE (#profile)
 111. Data-quality rules + violation report (prim)
 112. Deduplication endpoint with fuzzy matching (prim)
 113. Record-linkage / entity resolution (MDM golden record) (prim)
