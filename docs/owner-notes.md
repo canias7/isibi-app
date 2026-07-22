@@ -617,6 +617,20 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: global search across tables
+
+Discovery gap (a genuinely-missing feature, not composable). New route `GET /api/db/<slug>/search?q=…
+[&tables=&per=]` (Phase D.0, before the rows block) runs the same buildD1Filter `q` match over EVERY
+readable table at once → `{results:[{table, rows}], count}` grouped by table. Per-table visibility
+reused: collect skipped, user tables scoped to the caller (owner_id, signed-out → skipped),
+display/feed/admin all rows; trash excluded; per-table attaches (json/computed/formulas/currency/sla)
++ stripFieldRoles(callerRole) applied so search never leaks secured fields. Uses a synthetic
+`qUrl = new URL("https://s/?q=…")` so a stray ?where can't leak across tables. Caps: 20 tables
+scanned, `per` (default 5, max 25) rows each, rate-limited 120/min/IP. Offline batch84 (17/17),
+full suite (67) green. BACKEND_RULES documents it after the duplicate-check entry.
+Note: this is the command-palette / global-search-box backend; single-table search is still the
+list read's `?q=`.
+
 ## 2026-07-22 — CRM gap layer: SLA escalation action [part 2 of 2]
 
 Completes SLA. `sla.escalate:{to?, field?, value?}` config + `POST /rows/<t>/overdue/escalate`

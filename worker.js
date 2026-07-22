@@ -8303,6 +8303,60 @@ async function handleRequest(request, env, ctx) {
         }
       }
     }
+    // Phase D.0 — GLOBAL SEARCH across a site's tables: GET /api/db/<slug>/search?q=…
+    // [&tables=a,b][&per=N]. Runs the same free-text `q` match each table's list read uses, over
+    // EVERY readable table at once (a CRM's global search bar → matching contacts + deals +
+    // tickets in one call). Per-table read visibility is respected: display/feed/admin search all
+    // rows, a `user` table only the caller's own (needs auth, else that table is skipped), a
+    // write-only `collect` table is never searched; trashed rows are excluded and field-level
+    // security is applied. Returns `{results:[{table, rows}], count}` grouped by table.
+    {
+      const sm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/search$/i);
+      if (sm) {
+        if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+        const slug = sm[1].toLowerCase();
+        const q = (url.searchParams.get("q") || "").trim();
+        if (!q) return Response.json({ ok: false, error: "q required" }, { status: 400 });
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const rlIp = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + rlIp + "|search", 120)) return tooMany();
+        const spec = await loadSiteSchema(env, uuid);
+        if (!spec || !Array.isArray(spec.tables)) return Response.json({ ok: true, q, results: [], count: 0 });
+        let userId = null, callerRole = null;
+        const stok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (stok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, stok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (userId) { try { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); callerRole = (rr[0] && rr[0].role) || null; } catch {} }
+        const want = (url.searchParams.get("tables") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+        const per = Math.min(25, Math.max(1, parseInt(url.searchParams.get("per") || url.searchParams.get("limit") || "5", 10) || 5));
+        const managed = new Set(["id", "created_at", "owner_id"]);
+        const qUrl = new URL("https://s/?q=" + encodeURIComponent(q)); // q-only filter (no per-table where leaks across tables)
+        const results = []; let count = 0, scanned = 0;
+        for (const tdef of spec.tables) {
+          if (scanned >= 20) break;
+          const tbl = String((tdef && tdef.name) || "").toLowerCase();
+          if (!tbl || !/^[a-z_][a-z0-9_]{0,40}$/.test(tbl) || (want.length && !want.includes(tbl))) continue;
+          const access = tdef.access || "collect";
+          if (access === "collect") continue;
+          const allow = (Array.isArray(tdef.columns) ? tdef.columns : []).filter((n) => n && !managed.has(String(n).toLowerCase()));
+          if (!allow.length) continue;
+          let base = null;
+          if (access === "user") { if (!userId) continue; base = { clause: "owner_id=?", params: [userId] }; }
+          if (tdef.trash) base = base ? { clause: base.clause + " AND deleted_at IS NULL", params: base.params.slice() } : { clause: "deleted_at IS NULL", params: [] };
+          scanned++;
+          const f = buildD1Filter(qUrl, allow, base);
+          let rows = [];
+          try { rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(tbl) + f.whereSql + " ORDER BY id DESC LIMIT " + per, f.params); } catch { continue; }
+          if (!rows.length) continue;
+          parseJsonRows(tdef, rows); attachComputed(tdef, rows); attachFormulas(tdef, rows); attachCurrency(tdef, rows); attachSla(tdef, rows);
+          stripFieldRoles(tdef, rows, callerRole);
+          results.push({ table: tbl, rows });
+          count += rows.length;
+        }
+        return Response.json({ ok: true, q, results, count });
+      }
+    }
     // Phase D — public data API: /api/db/<slug>/rows/<table>[/<id>], access enforced
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
