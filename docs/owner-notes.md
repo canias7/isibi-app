@@ -617,6 +617,18 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: grouped-report controls (sort / top-N / HAVING)
+
+Reporting completion. `buildD1Stats` gained shared controls applied to ALL grouped paths (plain
+multi-dim, cross-table, time-bucket): `groupSort=<count|sum:col|avg:col|…|value>` + `groupOrder`
+(default count desc) → sort groups by an aggregate; `groupLimit`/`topN` (≤1000, default 500) →
+top-N; `having=<agg>:<op>:<n>` (repeatable AND, ops gt/gte/lt/lte/eq/ne) → filter groups. `aggSqlExpr`
+builds the raw SQL expr (COUNT(*) / SUM(col) via aggExpr, honoring currency conversion) so sort/having
+work even when the agg isn't SELECTed; `value`→`_g0`. HAVING params appended after WHERE params;
+ignored on the ungrouped-total branch (no GROUP BY). Enables revenue leaderboards, top-N accounts,
+and quota/threshold reports in one request. Offline batch81 (13/13), full suite (64) green.
+BACKEND_RULES STATS section documents it.
+
 ## 2026-07-22 — CRM gap layer: time-bucketed stats (trend / time-series reports)
 
 Reporting gap. `buildD1Stats` now recognizes a group token `datecol:granularity`
