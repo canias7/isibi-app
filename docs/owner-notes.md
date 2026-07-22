@@ -660,6 +660,11 @@ is delivered.
 - #32 Distinct-count: `?distinct=col[,col]` → COUNT(DISTINCT col), returned as `distinct:{col:n}`; a
   separate agg family appended to all stats paths (main/cross/time). "How many unique customers".
   batch104 (8/8). (Verified existing: recycle-bin ?trashed=1, ?expired=1, ?archived=1.)
+- #27 FULL-TEXT SEARCH (FTS5): table-level `fts:true` (all text cols) or `fts:[cols]` builds an FTS5
+  vtable `<t>_fts` + insert/update/delete sync triggers (rebuilt idempotently on schema apply, backfills
+  existing rows). `?fts=<query>` on the list read runs a ranked bm25 search (prefix terms, AND) over the
+  index, base-visibility isolated in a subquery, paginated. Confirmed node:sqlite AND D1 support FTS5.
+  batch105 (13/13).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
