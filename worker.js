@@ -4568,6 +4568,15 @@ function checkinStreaks(daysAsc, todayStr) {
   }
   return { current_streak: current, longest_streak: longest, total, last_day: daysAsc[daysAsc.length - 1] };
 }
+// Reminders — per-member scheduled notes the app polls for. Every row is owned by user_id and every
+// query filters on it, so a reminder is private to its owner. Ensured once per isolate.
+const _remindersReady = new Set();
+async function ensureReminders(env, uuid) {
+  if (_remindersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, remind_at TEXT NOT NULL, subject TEXT, note TEXT, done INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reminders_user ON _reminders (user_id, done, remind_at)"); } catch {}
+  _remindersReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9323,6 +9332,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _reviews WHERE user_id=?", [u.id]],                                // ratings & reviews
             ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
             ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
+            ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10808,6 +10818,90 @@ async function handleRequest(request, env, ctx) {
           const stats = checkinStreaks(asc, todayStr);
           return Response.json({ ok: true, current_streak: stats.current_streak, longest_streak: stats.longest_streak, total: stats.total, last_day: stats.last_day, days: asc.slice(-60).reverse() });
         } catch (e) { console.error("streak failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "streak failed" }, { status: 502 }); }
+      }
+      // REMINDERS — per-member scheduled notes; the app POLLS /due for ones that have come due. Every
+      // reminder is PRIVATE to its owner (every query filters user_id=?, so another member's id 404s and
+      // never leaks). remind_at is normalized to a canonical ISO string on write so /due compares cleanly.
+      //   POST   /api/db/<slug>/reminders {remind_at, note, subject?}     → {id}
+      //   GET    /api/db/<slug>/reminders[?done=1|&upcoming=1]            → mine (default: not-done, soonest first)
+      //   GET    /api/db/<slug>/reminders/due                            → mine, not-done, remind_at <= now
+      //   POST   /api/db/<slug>/reminders/<id>/done                      → mark mine done
+      //   PATCH  /api/db/<slug>/reminders/<id> {remind_at?, note?, subject?}  → edit mine
+      //   DELETE /api/db/<slug>/reminders/<id>                           → delete mine
+      const rmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reminders(?:\/(due|\d+))?(?:\/(done))?$/i);
+      if (rmm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rmm[1].toLowerCase(), tail = rmm[2] ? rmm[2].toLowerCase() : null, act = rmm[3] ? rmm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const id = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureReminders(env, uuid);
+          const normAt = (v) => { if (v === undefined || v === null || v === "") return undefined; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString(); };
+          // CREATE.
+          if (!tail && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rmw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const remindAt = normAt(body.remind_at);
+            if (remindAt === undefined) return Response.json({ ok: false, error: "remind_at is required" }, { status: 400 });
+            if (remindAt === null) return Response.json({ ok: false, error: "remind_at must be a valid date/time" }, { status: 400 });
+            const note = body.note != null ? String(body.note).slice(0, 2000) : "";
+            if (!note) return Response.json({ ok: false, error: "a note is required" }, { status: 400 });
+            const subject = body.subject != null && body.subject !== "" ? String(body.subject).slice(0, 160) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _reminders (user_id, remind_at, subject, note, done, created_at) VALUES (?,?,?,?,0,?) RETURNING id", [userId, remindAt, subject, note, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, remind_at: remindAt });
+          }
+          // DUE — my not-done reminders that have come due (for a poller).
+          if (tail === "due") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|rmd", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, created_at FROM _reminders WHERE user_id=? AND done=0 AND remind_at <= ? ORDER BY remind_at ASC LIMIT 500", [userId, new Date().toISOString()]);
+            return Response.json({ ok: true, reminders: rows });
+          }
+          // A specific reminder: /<id> (PATCH/DELETE) or /<id>/done (POST). Always scoped to user_id.
+          if (id != null) {
+            if (act === "done") {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _reminders SET done=1 WHERE id=? AND user_id=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, done: true });
+            }
+            if (request.method === "PATCH") {
+              if (!rateOk(slug + "|" + ip + "|rmp", 120)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const sets = [], params = [];
+              if (body.remind_at !== undefined) { const at = normAt(body.remind_at); if (at === null || at === undefined) return Response.json({ ok: false, error: "remind_at must be a valid date/time" }, { status: 400 }); sets.push("remind_at=?"); params.push(at); }
+              if (body.note !== undefined) { const n = String(body.note == null ? "" : body.note).slice(0, 2000); if (!n) return Response.json({ ok: false, error: "note can't be empty" }, { status: 400 }); sets.push("note=?"); params.push(n); }
+              if (body.subject !== undefined) { sets.push("subject=?"); params.push(body.subject != null && body.subject !== "" ? String(body.subject).slice(0, 160) : null); }
+              if (body.done !== undefined) { sets.push("done=?"); params.push(body.done === true || body.done === 1 || body.done === "true" ? 1 : 0); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _reminders SET " + sets.join(", ") + " WHERE id=? AND user_id=?", params.concat([id, userId]));
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, updated: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _reminders WHERE id=? AND user_id=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use PATCH, DELETE, or POST /<id>/done" }, { status: 405 });
+          }
+          // LIST (GET, no id) — mine. Default: not-done, soonest first. ?done=1 → completed; ?upcoming=1 → future not-done.
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported reminders request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|rml", 300)) return tooMany();
+          let where = "user_id=?", params = [userId], order = "remind_at ASC";
+          if (url.searchParams.get("done") === "1") { where += " AND done=1"; order = "remind_at DESC"; }
+          else if (url.searchParams.get("upcoming") === "1") { where += " AND done=0 AND remind_at > ?"; params.push(new Date().toISOString()); }
+          else where += " AND done=0";
+          const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, done, created_at FROM _reminders WHERE " + where + " ORDER BY " + order + " LIMIT 500", params);
+          return Response.json({ ok: true, reminders: rows });
+        } catch (e) { console.error("reminders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reminders failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
