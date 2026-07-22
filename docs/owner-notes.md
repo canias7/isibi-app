@@ -617,6 +617,21 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — Hardening: hard-delete cascades to a row's satellite data (no orphans)
+
+Hygiene/cost layer. New `purgeRowSatellites(env,uuid,table,ids)` sweeps a hard-deleted row's
+satellites: attachment BYTES in R2 (real storage cost) + `_attachments` rows, then `_notes`,
+`_approvals`, `_history`, `_tags`, `_shares` (row_table/row_id-keyed) and `_reactions`, `_reports`,
+`_bookmarks`, `_links` (`<table>:<id>`-target). Best-effort per table (caught no-op if a site never
+used a feature). `_audit` intentionally KEPT (the deletion's compliance trail). Wired into
+`cascadeDeleteRow` (single hard delete) and the bulk hard-delete path (selects victim ids first,
+then deletes, then purges). Row ids are AUTOINCREMENT so orphans were never a correctness bug (no id
+reuse) — this is about not leaking storage/rows. Offline batch86 (14/14) asserts the harness R2
+`_map.size` drops as rows are deleted + survivors keep their data. Full suite (69) green. FOLLOW-UPS:
+(1) cascade-deleted CHILD rows' satellites aren't swept (only the directly-deleted row's — matches
+the existing one-level cascade philosophy); (2) `/merge` deletes the loser row but doesn't
+purge/repoint its satellites yet.
+
 ## 2026-07-22 — CRM gap layer: file attachments on records
 
 Genuine gap (needed infra, which already existed — the R2 SITES_BUCKET). New `_attachments` table
