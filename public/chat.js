@@ -11638,6 +11638,7 @@ let gameOpenSlug = null;
 let gameBuilding = false;
 let gameView = 'preview'; // 'preview' | 'code' — the open game's active tab
 let gameArt = 'shapes';   // 'shapes' | 'sprites' — Phase 6 AI art toggle
+let gameEngine = '2d';    // '2d' (kaplay) | '3d' (Babylon) — Phase 7 engine toggle
 function gsEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function gamesLoad() { try { return JSON.parse(localStorage.getItem(GAMES_KEY) || '[]'); } catch { return []; } }
 function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} try { touchAssets(); } catch {} }
@@ -11695,10 +11696,18 @@ function renderGames() {
       '</div>';
   } else {
     const chips = GAME_GENRES.map((g) => '<button class="gs-chip" type="button" data-genre="' + g.key + '">' + g.label + '</button>').join('');
+    const is3d = gameEngine === '3d';
     const artToggle =
-      '<div class="gs-arttoggle">' +
-        '<button class="gs-artbtn' + (gameArt === 'sprites' ? ' on' : '') + '" type="button" id="gsArt" role="switch" aria-checked="' + (gameArt === 'sprites' ? 'true' : 'false') + '"><span class="gs-artknob"></span>✨ AI art</button>' +
-        '<span class="gs-arthint" id="gsArtHint">' + (gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast &amp; free') + '</span>' +
+      '<div class="gs-toggles">' +
+        '<div class="gs-arttoggle">' +
+          '<button class="gs-artbtn' + (is3d ? ' on' : '') + '" type="button" id="gsEngine" role="switch" aria-checked="' + (is3d ? 'true' : 'false') + '"><span class="gs-artknob"></span>🧊 3D <span class="gs-beta">beta</span></button>' +
+          '<span class="gs-arthint">' + (is3d ? 'A real 3D world (WebGL) — first-person, heavier build' : 'Toggle for a 3D game instead of 2D') + '</span>' +
+        '</div>' +
+        (is3d ? '' :
+          '<div class="gs-arttoggle">' +
+            '<button class="gs-artbtn' + (gameArt === 'sprites' ? ' on' : '') + '" type="button" id="gsArt" role="switch" aria-checked="' + (gameArt === 'sprites' ? 'true' : 'false') + '"><span class="gs-artknob"></span>✨ AI art</button>' +
+            '<span class="gs-arthint" id="gsArtHint">' + (gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast &amp; free') + '</span>' +
+          '</div>') +
       '</div>';
     const cards = games.length
       ? '<div class="gs-recent"><div class="gs-recent-lab">Your games</div><div class="gs-grid">' +
@@ -11743,6 +11752,12 @@ function renderGames() {
     const g = GAME_GENRES.find((x) => x.key === ch.dataset.genre);
     const ta = view.querySelector('#gsPrompt'); if (g && ta) { ta.value = g.prompt; ta.focus(); }
   }; });
+  const engineBtn = view.querySelector('#gsEngine');
+  if (engineBtn) engineBtn.onclick = () => {
+    gameEngine = gameEngine === '3d' ? '2d' : '3d';
+    if (gameEngine === '3d') gameArt = 'shapes'; // 3D uses primitives, not AI sprites
+    renderGames(); // re-render so the AI-art toggle hides/shows
+  };
   const artBtn = view.querySelector('#gsArt');
   if (artBtn) artBtn.onclick = () => {
     gameArt = gameArt === 'sprites' ? 'shapes' : 'sprites';
@@ -11874,7 +11889,7 @@ async function gameStudioBuild(brief) {
   const appendCode = (t) => { if (!codeEl) return; codeEl.textContent += t; if (codeEl.textContent.length > 12000) codeEl.textContent = codeEl.textContent.slice(-9000); codeEl.scrollTop = codeEl.scrollHeight; };
   let done = null, err = null;
   try {
-    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief, art: gameArt }) });
+    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief, art: gameArt, engine: gameEngine }) });
     if (r.status === 402) { if (status) status.textContent = 'Out of credits — top up to build a game.'; if (typeof openCredits === 'function') openCredits(true); return; }
     if (!r.ok || !r.body) { if (status) status.textContent = '⚠️ Couldn’t start the build — try again.'; return; }
     // Consume the NDJSON stream: {ev:"phase"|"code"|"done"|"error"}.

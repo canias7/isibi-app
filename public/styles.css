@@ -5287,6 +5287,9 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .gs-code-static { max-height: none; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.28); color: rgba(237,234,243,.85); }
 
 /* AI-art toggle (Game Studio, Phase 6) */
+.gs-toggles { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; margin: 0 0 18px; }
+.gs-toggles .gs-arttoggle { margin: 0; }
+.gs-beta { font-size: .58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #ffb84d; border: 1px solid rgba(255,184,77,.5); border-radius: 5px; padding: 1px 4px; margin-left: 2px; }
 .gs-arttoggle { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; }
 .gs-artbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); font: inherit; font-size: .84rem; font-weight: 600; padding: 7px 14px 7px 8px; border-radius: 999px; cursor: pointer; }
 .gs-artbtn.on { background: linear-gradient(120deg, rgba(255,121,198,.18), rgba(255,184,77,.18)); border-color: rgba(255,121,198,.5); color: var(--text); }

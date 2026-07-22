@@ -6425,3 +6425,16 @@ next). Everything else was already there.
   batch153 (23/23) — EOQ 707.11 @ classic inputs (order cost ≈ holding cost at EOQ), z=1.645 @ 95%, safety
   stock/reorder point, explicit-SS override; break-even 500 units/$25k, target profit 750u, MoS 16.67%; all
   guards. Full suite 136 green.
+- **GAME STUDIO — Phase 7: 3D engine (Babylon.js), increment 1 (2026-07-22).** Games can now be 3D, not just
+  2D. Added Babylon.js (`@babylonjs/core`) to the game container; a "🧊 3D (beta)" toggle in the composer sends
+  `engine:'3d'` → `/api/game/build` uses `GAME_3D_RULES` (a full FPS contract: per-module tree-shaken imports
+  ONLY — `import * as BABYLON` bloats the bundle 3× — UniversalCamera + WASD + pointer-lock, scene collisions
+  + gravity, raycast shooting via `scene.pickWithRay`, DOM HUD, primitives-only art). 3D skips AI-sprite
+  injection; `engine` is stashed in gamesrc so revise uses the Babylon rules too; `game3DFixRules` drives the
+  auto-fix loop. Smoke test already launches Chromium with `--use-gl=swiftshader` so 3D validates headlessly
+  out of the box. VALIDATED LOCALLY (real): a hand-written multi-mechanic FPS (camera collisions, gravity,
+  moving enemies, raycast shooting, DOM HUD) built via Vite at **1.7MB / 45 files** with the import allowlist
+  (no missing side-effect imports) and smoke-passed headlessly (WebGL yes, 60% non-blank, ZERO errors). Live
+  Sonnet-generated 3D build tested post-deploy. NEXT increments: 3D physics (Havok/rapier), curated CC0 asset
+  packs (Kenney/Quaternius) for real models, Mixamo animations, an FPS/framerate budget in the smoke test.
+  NOTE: this deploy REBUILDS the game container image (new Babylon dep) — slower than worker-only deploys.
