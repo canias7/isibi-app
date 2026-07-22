@@ -640,6 +640,19 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   `?ledger=` (default 'gl') for GL + AP/AR/inventory subledgers in one DB. Tables `_ledger_entries` +
   `_ledger_lines` (+indexes). Helpers postLedgerEntry/getLedgerEntry/ledgerBalances/normalizeLedgerLines/
   toCents beside the reports helpers. batch111 (31/31). Full suite 94 green.
+- **PHASE 2 — STOCK LEDGER** (`/api/db/<slug>/stock/*`, ADMIN): append-only movement log; on-hand = Σqty.
+  `POST /stock/moves {item,location?,qty(+/−),kind?,ref?,unit_cost?,allowNegative?}` — a negative move that
+  would push on-hand < 0 is REFUSED via a SINGLE-STATEMENT atomic guard (`INSERT … SELECT … WHERE (SELECT
+  SUM…)+? >= 0`), which is the key no-transaction trick (D1 is single-writer so two concurrent issues can't
+  both pass). `?allowNegative` bypasses. Reservations earmark availability (on-hand − active reservations):
+  `POST /stock/reserve` (409 if oversell), `/reservations/<id>/release` (frees) and `/fulfill` (issues +
+  closes; frees the reservation FIRST so the issue guard sees the availability). `POST /stock/transfer
+  {item,from,to,qty}` = guarded issue + receipt across locations. Reads: `/stock/level?item=[&location=]` →
+  {on_hand,reserved,available} (no location = aggregate), `/stock/levels[?location=&below=N]` (low-stock
+  list), `/stock/moves`, `/stock/reservations`. Qty stored in milli-units (×1000 int) → exact to 3 decimals.
+  Tables `_stock_moves` + `_stock_reservations`. Helpers ensureStock/postStockMove/reserveStock/stockLevel/
+  toMilli beside the ledger helpers. batch112 (35/35) — incl. the atomic guard verified through node:sqlite.
+  Full suite 95 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
