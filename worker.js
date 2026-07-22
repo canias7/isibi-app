@@ -2653,6 +2653,7 @@ async function cascadeDeleteRow(env, uuid, spec, table, tn, id, scopeSql, scopeP
     } catch (e) { console.error("cascade child (" + k.mode + ") failed:", k.table, e && e.message); }
   }
   await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));
+  await purgeRowSatellites(env, uuid, table, [id]); // sweep notes/attachments(+R2)/tags/… of the removed row
   return true;
 }
 // Permanently delete a site's D1 database (idempotent — already-gone is fine).
@@ -3588,6 +3589,33 @@ async function ensureAttachments(env, uuid) {
   if (_attachReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT NOT NULL, row_id INTEGER NOT NULL, filename TEXT, content_type TEXT, size INTEGER, r2_key TEXT NOT NULL, uploaded_by INTEGER, created_at TEXT)");
   _attachReady.add(uuid);
+}
+// When a row is HARD-deleted, sweep the satellite data that hangs off it so nothing is orphaned —
+// most importantly the attachment BYTES in R2 (real storage), plus notes, approvals, snapshots,
+// tags, shares, and the polymorphic reaction/report/bookmark/link rows keyed by `<table>:<id>`.
+// Best-effort per table (a site that never used a feature has no such table → the DELETE is a
+// caught no-op). `_audit` is intentionally KEPT — it's the compliance trail of the deletion itself.
+async function purgeRowSatellites(env, uuid, table, ids) {
+  const idList = [...new Set((ids || []).map((v) => parseInt(v, 10)).filter((v) => v > 0))];
+  if (!idList.length) return;
+  const ph = idList.map(() => "?").join(",");
+  const targets = idList.map((id) => table + ":" + id);
+  const tph = targets.map(() => "?").join(",");
+  // Attachments: remove the R2 objects first, then the metadata rows.
+  try {
+    const atts = await cfD1Query(env, uuid, "SELECT r2_key FROM _attachments WHERE row_table=? AND row_id IN (" + ph + ")", [table, ...idList]);
+    for (const a of atts) { if (a && a.r2_key) { try { await env.SITES_BUCKET.delete(a.r2_key); } catch {} } }
+    await cfD1Query(env, uuid, "DELETE FROM _attachments WHERE row_table=? AND row_id IN (" + ph + ")", [table, ...idList]);
+  } catch {}
+  // (row_table,row_id)-keyed satellites.
+  for (const tb of ["_notes", "_approvals", "_history", "_tags", "_shares"]) {
+    try { await cfD1Query(env, uuid, "DELETE FROM " + tb + " WHERE row_table=? AND row_id IN (" + ph + ")", [table, ...idList]); } catch {}
+  }
+  // `<table>:<id>`-target polymorphic satellites.
+  for (const tb of ["_reactions", "_reports", "_bookmarks"]) {
+    try { await cfD1Query(env, uuid, "DELETE FROM " + tb + " WHERE target IN (" + tph + ")", targets); } catch {}
+  }
+  try { await cfD1Query(env, uuid, "DELETE FROM _links WHERE a IN (" + tph + ") OR b IN (" + tph + ")", [...targets, ...targets]); } catch {}
 }
 // A signed-in member can log/see notes on a record they can SEE: public-read tables
 // (display/feed/admin) → any member; a `user` table → the row's owner, its owner's manager
@@ -9326,7 +9354,10 @@ async function handleRequest(request, env, ctx) {
               const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=? WHERE " + idSub, [new Date().toISOString()].concat(filt.params));
               return Response.json({ ok: true, deleted: ex.changes || 0, soft: true });
             }
+            let victimIds = [];
+            try { victimIds = (await cfD1Query(env, uuid, "SELECT id FROM " + tn + filt.whereSql + " LIMIT 1000", filt.params.slice())).map((r) => r.id); } catch {}
             const ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE " + idSub, filt.params);
+            if (victimIds.length) await purgeRowSatellites(env, uuid, table, victimIds); // sweep satellites of the removed rows
             return Response.json({ ok: true, deleted: ex.changes || 0 });
           }
 
