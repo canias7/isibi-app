@@ -7439,6 +7439,37 @@ async function handleRequest(request, env, ctx) {
       // Log out other devices — bumps the member's token_epoch so every EXISTING token stops
       // validating at /auth/me; returns a FRESH token so the current device stays signed in.
       //   POST /api/db/<slug>/auth/logout-all  (auth) → {ok, token}
+      // Per-user data export (GDPR self-service) — GET /api/db/<slug>/auth/export returns a JSON
+      // bundle of everything the signed-in member owns: their profile, their rows in every
+      // user/feed table (owner_id = them), and the notes they wrote + attachments they uploaded.
+      const exm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/export$/i);
+      if (exm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = exm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const p = await verifySiteUserToken(secret, (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, ""));
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        try {
+          const uid = p.sub;
+          let profile = null;
+          try { profile = (await cfD1Query(env, uuid, "SELECT id, email, display_name, avatar_url, role, created_at FROM _users WHERE id=?", [uid]))[0] || null; } catch {}
+          const spec = await loadSiteSchema(env, uuid);
+          const data = {};
+          for (const tdef of ((spec && spec.tables) || [])) {
+            if (!(tdef.access === "user" || tdef.access === "feed")) continue;
+            const tn2 = String(tdef.name || "").toLowerCase();
+            if (!/^[a-z_][a-z0-9_]{0,40}$/.test(tn2)) continue;
+            try { const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(tn2) + " WHERE owner_id=? ORDER BY id LIMIT 5000", [uid]); if (rows.length) { parseJsonRows(tdef, rows); data[tn2] = rows; } } catch {}
+          }
+          let notes = [], attachments = [];
+          try { notes = await cfD1Query(env, uuid, "SELECT row_table, row_id, kind, body, created_at FROM _notes WHERE author_id=? ORDER BY id LIMIT 5000", [uid]); } catch {}
+          try { attachments = await cfD1Query(env, uuid, "SELECT row_table, row_id, filename, content_type, size, created_at FROM _attachments WHERE uploaded_by=? ORDER BY id LIMIT 5000", [uid]); } catch {}
+          return Response.json({ ok: true, exported_at: new Date().toISOString(), profile, data, notes, attachments });
+        } catch (e) { console.error("export failed:", e && e.message); return Response.json({ ok: false, error: "export failed" }, { status: 502 }); }
+      }
       const lom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/logout-all$/i);
       if (lom && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
