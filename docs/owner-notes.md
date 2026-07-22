@@ -617,6 +617,22 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: team/manager-hierarchy visibility (teamRead)
+
+Completes the SHARING MODEL (CRM gap #1). Table-level `"teamRead":true` on a `user` table →
+a manager READS rows owned by their whole downline (recursive `_users.manager_id`), not just
+their own; WRITES stay own-row-only. `manager_id` added to `_users` (ensureAuthExtras); the
+owner sets a member's manager via the member route new `set_manager` action (manager_id/null).
+Read path: compute `teamIds` ONCE per GET via a recursive CTE (from the caller down, cap
+5000), then a `userReadBase()` helper returns `owner_id IN (…)` for managers / `owner_id=?`
+for solo users; applied to list + single-GET + stats + facets. Solo users (no reports)
+unchanged, so zero blast radius on existing apps. Offline batch67 (10/10) — mgr sees own+2
+reports, reps see own, single-GET works for mgr, peer 404s, mgr can't EDIT a report's row,
+team stats count=3. Full suite green (core read-scoping change, no regressions).
+
+### CRM sharing model (gap #1) now covers: field-level security + team-hierarchy read
+visibility. (Not yet: criteria-based sharing RULES + territory management — a later layer.)
+
 ## 2026-07-22 — CRM gap layer: field-level security (fieldRoles)
 
 Fourth CRM gap, first piece of the SHARING MODEL (gap #1). Table-level
