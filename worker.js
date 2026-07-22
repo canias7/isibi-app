@@ -9600,6 +9600,56 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, audit: rows });
         } catch (e) { console.error("audit read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "audit failed" }, { status: 502 }); }
       }
+      // App-facing ANALYTICS read — the app's OWN admin reads back the traffic it fires with
+      // `/track` (page views + custom events), for an in-app "Analytics" dashboard. Aggregated
+      // daily counts from `_analytics` over a window, with a zero-filled day series for charts.
+      //   GET /api/db/<slug>/analytics[?days=14 | from=YYYY-MM-DD&to=YYYY-MM-DD][&event=&path=]
+      //     → {total, from, to, byEvent:{ev:n}, byPath:[{path,n}], series:[{day,n}], events:[…]}
+      // ADMIN site-user only (traffic is business data). Separate from the isibi-owner dashboard.
+      const anm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/analytics$/i);
+      if (anm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = anm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|anar", 300)) return tooMany();
+          const isDay = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s || "");
+          const dayISO = (d) => new Date(d).toISOString().slice(0, 10);
+          let from = url.searchParams.get("from"), to = url.searchParams.get("to");
+          if (isDay(from) && isDay(to)) {
+            if (from > to) { const s = from; from = to; to = s; }
+            // Cap an explicit window to ~366 days so the zero-fill stays bounded.
+            if ((Date.parse(to) - Date.parse(from)) / 86400000 > 366) from = dayISO(Date.parse(to) - 366 * 86400000);
+          } else {
+            const days = Math.min(90, Math.max(1, parseInt(url.searchParams.get("days") || "14", 10) || 14));
+            to = dayISO(Date.now());
+            from = dayISO(Date.now() - (days - 1) * 86400000);
+          }
+          const event = (url.searchParams.get("event") || "").replace(/[^a-z0-9_.:-]/gi, "").slice(0, 40);
+          const path = (url.searchParams.get("path") || "").replace(/[\n\r"]/g, "").slice(0, 120);
+          const conds = ["day >= ?", "day <= ?"], params = [from, to];
+          if (event) { conds.push("event=?"); params.push(event); }
+          if (path) { conds.push("path=?"); params.push(path); }
+          let rows = [];
+          try { rows = await cfD1Query(env, uuid, "SELECT day,event,path,n FROM _analytics WHERE " + conds.join(" AND ") + " ORDER BY day ASC LIMIT 5000", params); } catch {}
+          let total = 0; const byEvent = {}, byPathM = {}, byDay = {}, evSet = {};
+          for (const r of rows) { const n = r.n || 0; total += n; byEvent[r.event] = (byEvent[r.event] || 0) + n; evSet[r.event] = 1; if (r.path) byPathM[r.path] = (byPathM[r.path] || 0) + n; byDay[r.day] = (byDay[r.day] || 0) + n; }
+          // Zero-filled day series so a chart has a continuous x-axis.
+          const series = []; let cur = Date.parse(from + "T00:00:00Z"); const end = Date.parse(to + "T00:00:00Z"); let guard = 0;
+          while (cur <= end && guard++ < 400) { const d = new Date(cur).toISOString().slice(0, 10); series.push({ day: d, n: byDay[d] || 0 }); cur += 86400000; }
+          const byPath = Object.entries(byPathM).map(([p, n]) => ({ path: p, n })).sort((a, b) => b.n - a.n).slice(0, 50);
+          return Response.json({ ok: true, from, to, total, byEvent, byPath, series, events: Object.keys(evSet).sort() });
+        } catch (e) { console.error("analytics read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "analytics failed" }, { status: 502 }); }
+      }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
       //   GET    /api/db/<slug>/config/<key>    → {key, value}
