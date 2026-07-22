@@ -6772,3 +6772,21 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   robot enemies + 800 ambient embers + dense varied props + full HUD render as a real game, not squares — but
   props/environment are still primitives (the character models are the only real meshes; real prop/env asset
   packs remain the wall).
+
+- **2026-07-22 (cont.) — confirmation build caught a REAL 3D deadlock bug (fixed) + a smoke blind spot (closed).**
+  After deploying the WebGL-force smoke fix I ran one live 3D build to confirm: `smoke.passed` went TRUE (the
+  WebGPU-CDN phantom fix-loop is gone ✅). BUT rendering that published game exposed a genuine bug: this generation
+  gated `engine.runRenderLoop` (line 200) BEHIND a top-level `await` on the model-container load (line 138). In
+  headless/software-GPU that DEADLOCKS — the GLB's GPU upload needs render frames to complete, but frames are
+  blocked by the await — so it sits forever on the "Loading…" overlay (proven: still stuck after 40s; moving the
+  render loop before the load made it render instantly). Real users on slow/software GPUs would hit this too. Root
+  cause was a self-contradiction in GAME_3D_RULES: one rule said "render first, load async via .then()", another
+  said "`await` the container at startup with a Loading overlay" — the model read the second and put the await
+  before runRenderLoop. Fixes shipped: (1) GAME_3D_RULES MODULE PATTERN now states explicitly that
+  `engine.runRenderLoop` MUST be registered BEFORE any awaited asset load, and the many-enemies rule now shows an
+  async-IIFE load (`(async()=>{ try{container=await LoadAssetContainerAsync(...) }catch{fallback} hideOverlay();
+  startSpawning(); })()`) that never blocks the loop + always hides the overlay after the load. (2) smoke.mjs now
+  FAILS a game still showing a short "Loading…"-type overlay at the end of the boot+play window (the old non-blank
+  check missed it — the DOM overlay made the canvas-region screenshot "non-blank"), with an error that tells the
+  fix loop to move the render loop ahead of the load. Both validated locally: deadlocked game → detector flags it;
+  render-loop-first game → clean. Rebuilds the container (smoke.mjs is baked in).

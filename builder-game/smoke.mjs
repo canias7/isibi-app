@@ -110,6 +110,30 @@ export async function smokeTest(distDir) {
     } catch {}
     await page.waitForTimeout(PLAY_MS - 1000);
 
+    // Still-stuck-on-"Loading…" check. A 3D game that gates its render loop behind a
+    // top-level `await` on a model load DEADLOCKS (the GLB's GPU upload needs render
+    // frames, which the await blocks) and sits forever on its loading overlay. The
+    // non-blank check below can't catch it — the DOM overlay covers the canvas, so the
+    // canvas-region screenshot is "non-blank" from the overlay text alone. Detect a
+    // still-visible, screen-covering element whose text is a loading indicator and
+    // fail with a clear message so the fix loop moves the render loop ahead of the load.
+    try {
+      const stuck = await page.evaluate(() => {
+        // A healthy game hides its loading indicator within the boot+play window; if a
+        // short loading string is STILL visible here the startup load never finished.
+        // Anchored regex so transient HUD text ("Loading next wave") doesn't match.
+        for (const el of document.querySelectorAll("body *")) {
+          const txt = (el.textContent || "").trim();
+          if (!/^(loading|loading\s*\.{1,3}|loading\s*…|please wait|loading arena\s*\.{0,3})$/i.test(txt)) continue;
+          const s = getComputedStyle(el), r = el.getBoundingClientRect();
+          if (s.display === "none" || s.visibility === "hidden" || +s.opacity === 0) continue;
+          if (r.width > 0 && r.height > 0) return txt.slice(0, 40);
+        }
+        return null;
+      });
+      if (stuck) errors.push('stuck on loading overlay ("' + stuck + '") — the render loop is blocked behind an awaited asset load; start engine.runRenderLoop BEFORE awaiting the model (load it in an async IIFE) and always hide the overlay after the load');
+    } catch {}
+
     // Non-blank check: screenshot the canvas; a rendered scene yields a far larger
     // PNG than a flat fill. (Robust for WebGL, where pixel readback is unreliable.)
     try {
