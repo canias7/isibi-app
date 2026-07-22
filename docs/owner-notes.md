@@ -6188,3 +6188,20 @@ the generation contract — no per-build audio generation, no cost.
   messaging feature before building. batch140 (22/22) — shared thread both directions, mine flag, unread
   counts + read receipts (markRead + /read), threads list, thread isolation, non-participant sees nothing,
   self/ghost/empty guards. Full suite 123 green.
+
+- **GAME STUDIO — live fal sprite test (2026-07-22).** Ran the first real sprite-mode build
+  (`/api/game/build` art:'sprites', game `a-top-down-945d8d`). Full path green: generating→arting→
+  compiling→fixing→publishing, smoke PASSED, auto-fix recovered 1 runtime error, published to /g/<slug>/.
+  Cost 94 credits (~$0.75, mostly 4× nano-banana-pro sprites @19). **The fal green-screen → Photon
+  chroma-key pipeline works on real images** (46–89% transparent, no opaque-fallback failures).
+  **Fixed:** the key left a ~1px green/light fringe on anti-aliased edges (edge-greenish 97–100% on 3/4
+  sprites). Added a de-spill + 1px matte-erode pass to `chromaKeyGreenToPng` (edge-limited, interior colours
+  untouched, opaque fallback preserved) — validated before/after on the real sprites, halo gone.
+- **⚠️ Anthropic API account ran DRY (found 2026-07-22, owner reloaded same day).** Every Sonnet call
+  (`/api/game/build`, `/api/site/react-build`, and the High/Ultra/Max `/api/direct` steps) was returning
+  HTTP 400 "Your credit balance is too low to access the Anthropic API." The director fails soft to LOCAL
+  prompt-writing, so image/video gen kept working and it went unnoticed — but the game + app builders were
+  fully down. Not a code bug; fix is topping up console.anthropic.com → Plans & Billing (consider
+  auto-reload). Also hardened: the game build/revise `streamGen` now surfaces the Anthropic error body as
+  `detail` in the {ev:error} (was a bare "gen 400"). NOTE: the site-builder's terminal catch still swallows
+  `detail` (generic "builder hit a problem") — worth mirroring the game fix there if it ever needs debugging.

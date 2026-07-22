@@ -2591,6 +2591,27 @@ function chromaKeyGreenToPng(bytes) {
       const r = px[i], g = px[i + 1], b = px[i + 2];
       if (g > 108 && r < 115 && b < 115 && g - r > 40 && g - b > 40) px[i + 3] = 0; // green screen → transparent
     }
+    // De-spill + matte cleanup: the hard green key leaves a ~1px anti-aliased rim
+    // (subject pixels that blended toward the green screen, so they read as a green/
+    // light halo). Erode the matte by 1px to drop that outer ring, then neutralize any
+    // residual green on the NEW edge (clamp green to max(r,b)). Edge-limited, so interior
+    // colours are never touched and a genuinely green sprite body is left alone.
+    const alphaAt = (x, y) => px[(y * w + x) * 4 + 3];
+    const drop = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (alphaAt(x, y) === 0) continue;
+      if ((x > 0 && alphaAt(x - 1, y) === 0) || (x < w - 1 && alphaAt(x + 1, y) === 0) ||
+          (y > 0 && alphaAt(x, y - 1) === 0) || (y < h - 1 && alphaAt(x, y + 1) === 0)) drop[y * w + x] = 1;
+    }
+    for (let p = 0; p < w * h; p++) if (drop[p]) px[p * 4 + 3] = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4; if (px[i + 3] === 0) continue;
+      if ((x > 0 && alphaAt(x - 1, y) === 0) || (x < w - 1 && alphaAt(x + 1, y) === 0) ||
+          (y > 0 && alphaAt(x, y - 1) === 0) || (y < h - 1 && alphaAt(x, y + 1) === 0)) {
+        const r = px[i], g = px[i + 1], b = px[i + 2];
+        if (g > r && g > b) px[i + 1] = Math.max(r, b); // neutralize green rim
+      }
+    }
     const out = new PhotonImage(px, w, h);
     const pngBytes = out.get_bytes(); // PNG
     let bin = ""; const u8 = new Uint8Array(pngBytes);
