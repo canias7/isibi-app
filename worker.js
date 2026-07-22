@@ -2834,7 +2834,7 @@ function normalizeSchema(spec) {
     let cols = [];
     if (Array.isArray(src)) cols = src.map(coerceCol);
     else if (src && typeof src === "object") cols = Object.entries(src).map(([n, ty]) => ({ name: n, type: (typeof ty === "string" ? ty : (ty && (ty.type || ty.dataType)) || "text") }));
-    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })() });
+    out.push({ name, access, columns: cols.filter(Boolean), unique: def.unique, oncePerUser: def.oncePerUser || def.uniquePerUser || def.oncePer, trash: !!(def.trash || def.softDelete || def.soft), slug: def.slug || def.slugFrom || def.slugify, writeRoles: def.writeRoles || def.write_roles || def.editorRoles, version: !!(def.version || def.optimisticLock || def.concurrency), timestamps: !!(def.timestamps || def.updatedAt || def.updated_at || def.timestamp), ordered: !!(def.ordered || def.position || def.sortable || def.reorderable), expires: !!(def.expires || def.ttl || def.expiry || def.expiring), pinnable: !!(def.pinnable || def.pinned || def.featurable || def.sticky), defaultSort: (() => { const s = def.defaultSort || def.default_sort || def.orderBy || def.order_by; return (typeof s === "string" && /^[-+a-z0-9_,\s]{1,80}$/i.test(s)) ? s : null; })(), scheduled: !!(def.publishable || def.scheduled || def.publishAt || def.publish_at || def.scheduling), uniqueCI: def.uniqueCI || def.uniqueCaseInsensitive || def.ciUnique || null, maxRows: (() => { const n = parseInt(def.maxRows != null ? def.maxRows : (def.max_rows != null ? def.max_rows : (def.rowLimit != null ? def.rowLimit : def.cap)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000000) : 0; })(), checks: (() => { const raw = def.checks || def.validate || def.constraints; if (!Array.isArray(raw)) return null; const OPS = new Set(["gt", "gte", "lt", "lte", "eq", "ne"]); const out = []; for (const ch of raw) { if (!Array.isArray(ch) || ch.length < 3) continue; const a = String(ch[0]).toLowerCase(), op = String(ch[1]).toLowerCase(), b = String(ch[2]).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(a) && OPS.has(op) && /^[a-z0-9_]{1,40}$/.test(b)) out.push([a, op, b]); } return out.length ? out.slice(0, 12) : null; })(), enforceRefs: !!(def.enforceRefs || def.refIntegrity || def.strictRefs), computed: (() => { const src = def.computed || def.derived || def.virtual; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? [tpl] : null); if (!arr) continue; const toks = arr.filter((x) => typeof x === "string" && x.length <= 60).slice(0, 8); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), requireVerified: !!(def.requireVerified || def.verifiedOnly || def.emailVerified), audit: !!(def.audit || def.auditLog || def.changelog), history: !!(def.history || def.versions || def.snapshots || def.revisions), archivable: !!(def.archivable || def.archive), sync: !!(def.sync || def.syncable || def.offline), searchWeights: (() => { const w = def.searchWeights || def.searchRank || def.searchBoost; if (!w || typeof w !== "object" || Array.isArray(w)) return null; const out = {}; for (const [k, v] of Object.entries(w)) { const n = Number(v); if (/^[a-z0-9_]{1,40}$/i.test(k) && Number.isFinite(n) && n > 0) out[k.toLowerCase()] = Math.min(n, 100); } return Object.keys(out).length ? out : null; })(), rateLimit: (() => { const n = parseInt(def.rateLimit != null ? def.rateLimit : (def.writeLimit != null ? def.writeLimit : (def.throttle != null ? def.throttle : def.maxPerMinute)), 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 10000) : 0; })(), geo: (() => { const g = def.geo || def.location; if (g && typeof g === "object" && g.lat && g.lng) { const la = String(g.lat).toLowerCase(), ln = String(g.lng).toLowerCase(); if (/^[a-z0-9_]{1,40}$/.test(la) && /^[a-z0-9_]{1,40}$/.test(ln)) return { lat: la, lng: ln }; } return null; })(), transitions: (() => { const raw = def.transitions || def.stateMachine || def.stages; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, m] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col) || !m || typeof m !== "object" || Array.isArray(m)) continue; const cm = {}; for (const [from, tos] of Object.entries(m)) { if (String(from).length > 60) continue; const arr = (Array.isArray(tos) ? tos : [tos]).map((x) => String(x)).filter((x) => x.length <= 60).slice(0, 24); if (arr.length) cm[from] = arr; } if (Object.keys(cm).length) out[col.toLowerCase()] = cm; } return Object.keys(out).length ? out : null; })(), formulas: (() => { const src = def.formulas || def.formula || def.calc; if (!src || typeof src !== "object" || Array.isArray(src)) return null; const out = {}; for (const [name, tpl] of Object.entries(src)) { if (!/^[a-z0-9_]{1,40}$/i.test(name)) continue; const arr = Array.isArray(tpl) ? tpl : (typeof tpl === "string" ? tpl.trim().split(/\s+/) : null); if (!arr) continue; const toks = arr.filter((x) => (typeof x === "string" || typeof x === "number") && String(x).length <= 40).map(String).slice(0, 24); if (toks.length) out[name.toLowerCase()] = toks; } return Object.keys(out).length ? out : null; })(), fieldRoles: (() => { const raw = def.fieldRoles || def.fieldSecurity || def.secureFields; if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null; const out = {}; for (const [col, roles] of Object.entries(raw)) { if (!/^[a-z0-9_]{1,40}$/i.test(col)) continue; const arr = (Array.isArray(roles) ? roles : [roles]).map((x) => String(x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)).slice(0, 24); if (arr.length) out[col.toLowerCase()] = arr; } return Object.keys(out).length ? out : null; })(), teamRead: !!(def.teamRead || def.teamVisible || def.managerRead || def.hierarchyRead), currency: (() => { const c = def.currency || def.money || def.multiCurrency; if (!c || typeof c !== "object" || Array.isArray(c)) return null; const amount = String(c.amount || c.value || c.field || "").toLowerCase(); const code = String(c.code || c.currency || c.currencyField || c.codeField || "").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(amount) || !/^[a-z0-9_]{1,40}$/.test(code)) return null; const base = String(c.base || c.baseCurrency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(base)) return null; const rates = {}; const raw = c.rates || c.rate; if (raw && typeof raw === "object" && !Array.isArray(raw)) { for (const [k, v] of Object.entries(raw)) { const cc = String(k).toUpperCase(); const n = Number(v); if (/^[A-Z]{2,8}$/.test(cc) && Number.isFinite(n) && n > 0) rates[cc] = n; } } rates[base] = 1; let as = String(c.as || c.into || (amount + "_base")).toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(as)) as = amount + "_base"; return { amount, code, base, rates, as }; })(), approval: (() => { const a = def.approval || def.approvals || def.signoff; if (!a || typeof a !== "object" || Array.isArray(a)) return null; const src = Array.isArray(a.approvers) ? a.approvers : (Array.isArray(a.roles) ? a.roles : [a.approvers || a.roles]); const approvers = src.map((x) => String(x == null ? "" : x).toLowerCase()).filter((x) => /^[a-z0-9_]{1,24}$/.test(x)); const uniq = [...new Set(approvers)].slice(0, 12); if (!uniq.length) return null; let status = String(a.status || a.field || a.statusField || "approval_status").toLowerCase(); if (!/^[a-z0-9_]{1,40}$/.test(status)) status = "approval_status"; return { approvers: uniq, status }; })() });
   };
   const t = spec.tables || spec;
   if (Array.isArray(t)) t.forEach((tb) => tb && coerceTable(tb.name, tb));
@@ -2947,6 +2947,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.expires) cols.push('"expires_at" TEXT'); // TTL — app sets it; reads hide rows past it
     if (t.pinnable) cols.push('"pinned" INTEGER DEFAULT 0'); // featured/sticky — app sets 0/1; pinned rows list first
     if (t.scheduled) cols.push('"publish_at" TEXT'); // scheduled publish — hidden until this time (app-set)
+    if (t.approval) cols.push(sqlIdent(t.approval.status) + " TEXT"); // approval state — endpoint-set only (NOT app-writable), queryable
     if (t.archivable) cols.push('"archived_at" TEXT'); // soft archive — reads hide archived rows by default
     cols.push('"created_at" TEXT DEFAULT (datetime(\'now\'))');
     await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS " + tn + " (" + cols.join(", ") + ")");
@@ -3006,6 +3007,7 @@ async function applySiteSchema(env, uuid, spec) {
     if (t.expires) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "expires_at" TEXT'); } catch {} }
     if (t.pinnable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "pinned" INTEGER DEFAULT 0'); } catch {} }
     if (t.scheduled) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "publish_at" TEXT'); } catch {} }
+    if (t.approval) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + " ADD COLUMN " + sqlIdent(t.approval.status) + " TEXT"); } catch {} }
     if (t.archivable) { try { await cfD1Query(env, uuid, "ALTER TABLE " + tn + ' ADD COLUMN "archived_at" TEXT'); } catch {} }
     // Auto-slug: backfill the column on a pre-existing table + a UNIQUE index to police
     // collisions (SQLite lets a UNIQUE index hold many NULLs, so slug-less rows are fine).
@@ -3103,7 +3105,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -3467,6 +3469,22 @@ async function reportState(env, uuid, target, userId) {
   let mine = false;
   if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
   return { count: (cnt[0] && cnt[0].n) || 0, mine };
+}
+// Approvals — a sign-off workflow on a table declaring `approval:{approvers,status}`. A row is
+// submitted (status→pending), then an approver (a member whose role is in `approvers`, or admin)
+// approves (→approved) or rejects (→rejected). The status lives in the row's platform-added
+// `approval:{status}` column (endpoint-set only — never app-writable, so an owner can't
+// self-approve by PATCHing). Every decision is logged to `_approvals` for the audit trail
+// (who submitted/approved/rejected, when, with an optional note). Ensured once per isolate.
+const _approvalsReady = new Set();
+async function ensureApprovals(env, uuid) {
+  if (_approvalsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _approvals (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT NOT NULL, row_id INTEGER NOT NULL, action TEXT NOT NULL, actor_id INTEGER, note TEXT, at TEXT)");
+  _approvalsReady.add(uuid);
+}
+async function logApproval(env, uuid, table, rowId, action, actorId, note) {
+  await ensureApprovals(env, uuid);
+  await cfD1Query(env, uuid, "INSERT INTO _approvals (row_table,row_id,action,actor_id,note,at) VALUES (?,?,?,?,?,?)", [table, rowId, action, actorId || null, String(note || "").slice(0, 1000) || null, new Date().toISOString()]);
 }
 // Polls — one vote per member per poll (change your vote by voting again). A poll is any
 // string id (e.g. `best-logo` or `question:${id}`); options are app-defined strings. Stored
@@ -8136,7 +8154,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8154,6 +8172,8 @@ async function handleRequest(request, env, ctx) {
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
         const isArchive = dm[4] === "archive" || dm[4] === "unarchive";
+        const isApprovalAct = dm[4] === "submit" || dm[4] === "approve" || dm[4] === "reject";
+        const isApprovalsLog = dm[4] === "approvals";
         const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -8252,7 +8272,7 @@ async function handleRequest(request, env, ctx) {
           // Auto-managed columns this table has that are legitimately sortable/filterable
           // (so `?sort=position`, `?sort=updated_at`, `?sort=_version` work even though they
           // aren't app-declared columns).
-          const listExtras = [].concat(def.ordered ? ["position"] : [], (def.timestamps || def.sync) ? ["updated_at"] : [], def.version ? ["_version"] : []);
+          const listExtras = [].concat(def.ordered ? ["position"] : [], (def.timestamps || def.sync) ? ["updated_at"] : [], def.version ? ["_version"] : [], def.approval ? [def.approval.status] : []);
           // List-ordering options for this table: pinned-first (if pinnable) and a built-in
           // defaultSort used when the request sends no sort of its own.
           const listOpts = { pinCol: def.pinnable ? "pinned" : null, defaultSort: def.defaultSort || null, searchWeights: def.searchWeights || null };
@@ -8468,6 +8488,50 @@ async function handleRequest(request, env, ctx) {
             }
             try { await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [from]); } catch {}
             return Response.json({ ok: true, into: rowId, from, repointed });
+          }
+          // Approval workflow — POST /rows/<t>/<id>/submit|approve|reject, GET .../approvals.
+          // The table must declare `approval:{approvers,status}`. `submit` (a writer of the row)
+          // moves the status column to 'pending'; `approve`/`reject` (a member whose role is in
+          // `approvers`, or admin) moves it to 'approved'/'rejected'. The status col is
+          // platform-set ONLY — never in the app-writable set — so an owner can't self-approve
+          // by PATCHing the row. Every decision is logged to _approvals (audit trail); the GET
+          // returns that log + the current status. approve/reject fire on:{update} functions.
+          if (isApprovalAct || isApprovalsLog) {
+            if (!def.approval) return Response.json({ ok: false, error: "this table has no approval workflow (declare \"approval\":{\"approvers\":[…]})" }, { status: 400 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const statusCol = def.approval.status;
+            const hasOwner = access === "user" || access === "feed";
+            const exist = await cfD1Query(env, uuid, "SELECT id" + (hasOwner ? ", owner_id" : "") + ", " + sqlIdent(statusCol) + " AS _status FROM " + tn + " WHERE id=?", [rowId]);
+            if (!exist[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (isApprovalsLog) {
+              if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+              await ensureApprovals(env, uuid);
+              const log = await cfD1Query(env, uuid, "SELECT id, action, actor_id, note, at FROM _approvals WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT 200", [table, rowId]);
+              return Response.json({ ok: true, id: rowId, status: exist[0]._status || null, log });
+            }
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            const myRole = (rr[0] && rr[0].role) || "user";
+            const body = await readBody();
+            if (dm[4] === "submit") {
+              let maySubmit = myRole === "admin";
+              if (!maySubmit) {
+                if (access === "admin") maySubmit = await siteRoleAllows(env, uuid, userId, def);
+                else if (access === "user" || access === "feed") maySubmit = exist[0].owner_id === userId;
+              }
+              if (!maySubmit) return Response.json({ ok: false, error: "not allowed to submit this record for approval" }, { status: 403 });
+              await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + sqlIdent(statusCol) + "='pending'" + tsFrag + " WHERE id=?", [rowId]);
+              await logApproval(env, uuid, table, rowId, "submit", userId, body.note);
+              return Response.json({ ok: true, id: rowId, status: "pending" });
+            }
+            const isApprover = myRole === "admin" || def.approval.approvers.includes(String(myRole));
+            if (!isApprover) return Response.json({ ok: false, error: "only an approver can approve or reject this record", code: "not_approver" }, { status: 403 });
+            const decision = dm[4] === "approve" ? "approved" : "rejected";
+            await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + sqlIdent(statusCol) + "=?" + tsFrag + " WHERE id=?", [decision, rowId]);
+            await logApproval(env, uuid, table, rowId, dm[4], userId, body.note);
+            fireUpdateTriggers(env, ctx, slug, table, { id: rowId, [statusCol]: decision, _approval: dm[4] });
+            return Response.json({ ok: true, id: rowId, status: decision });
           }
           // Reassign a record's owner — POST /rows/<t>/<id>/assign {user:<id|email>}. On a
           // table WITH an owner (user/feed), an ADMIN — or the current owner's MANAGER on a
