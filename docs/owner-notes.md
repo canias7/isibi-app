@@ -665,6 +665,14 @@ is delivered.
   existing rows). `?fts=<query>` on the list read runs a ranked bm25 search (prefix terms, AND) over the
   index, base-visibility isolated in a subquery, paginated. Confirmed node:sqlite AND D1 support FTS5.
   batch105 (13/13).
+- #86 Per-key rate limits: admin caps a specific API key at N req/min via `POST .../apikeys {label,rpm}`
+  (0/neg/non-numeric→unlimited, clamp 100000); `_apikeys.rpm` col (ALTER for old tables); resolveApiKeyUser
+  → `{user,keyId,rpm}`; enforced `rateOk(slug|akey|keyId,rpm)` across all tables, independent of the
+  per-IP cap. Surfaces in mint + listing. batch106 (15/15). (API keys DO auth data reads/writes → applicable.)
+- #96 Full-site export: `GET /api/db/<slug>/export[?limit=N]` (admin site-user) → one JSON bundle of EVERY
+  app table's rows (`{tables:{name:[rows]}, users:[safe cols]}`, json cols parsed, no password hashes) for
+  an in-app 'Download all data' button. Distinct from `/api/site/backend/backup` (isibi-owner, R2) and the
+  per-table `/export/<table>`. Heavier read → tighter 6/min cap. batch107 (15/15).
 - #86 Per-key rate limits: an admin can cap a specific API key at N req/min via `POST .../apikeys
   {label, rpm}` (0/negative/non-numeric → unlimited, huge clamps to 100000); `_apikeys` gains an `rpm`
   column (best-effort ALTER for old tables). resolveApiKeyUser now returns `{user,keyId,rpm}`; the
