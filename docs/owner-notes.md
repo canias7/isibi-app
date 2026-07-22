@@ -6638,3 +6638,13 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   step #1 of the "how do we get toward AAA" plan; remaining ladder: better/more PBR models, VFX + game-feel +
   sound, physics, animation blending. HARD CEILING (told owner): photoreal COD is out of reach on WebGL/browser
   (native engine + AAA art team + years); the reachable target is a POLISHED STYLIZED 3D game.
+
+- **GAME STUDIO — Phase 7: human character model (2026-07-22).** Owner pushed back that boxes+bloom still
+  aren't "a real person". Added `soldier.glb` (three.js example — a RIGGED HUMAN, 2.16MB, animations Idle/Walk/
+  Run/TPose) to the model pack so 3D games can use an actual human character, not just the robot/boxes.
+  GAME_3D_RULES ASSETS now lists BOTH (soldier=human, robot=robot; prefer human for people-themed games) with
+  per-model animation names (human uses Run/Walk, robot uses Running/Punch/Death). LICENSE CAVEAT: soldier.glb
+  is from three.js examples — likely CC-BY/Mixamo-derived, NOT strictly CC0 — swap for a licensed human pack
+  before heavy commercial use (the rules no longer claim the pack is "CC0"). BIGGER FIX for "any person on
+  demand" = avatar generation: Ready Player Me API (blocked from THIS sandbox — 502 — but likely reachable from
+  the production Worker) or AI text-to-3D; not wired yet. This deploy REBUILDS the container (new model baked).
