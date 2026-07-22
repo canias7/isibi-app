@@ -3840,6 +3840,36 @@ function depreciationSchedule(opts) {
   }
   return { method: isDB ? "declining_balance" : "straight_line", cost: costC / 100, salvage: salvageC / 100, life, total_depreciable: depreciable / 100, schedule: sched };
 }
+// Loan amortization schedule (stateless calculator) — a level-payment (annuity) loan, cents
+// throughout so it ties out: principal is repaid to the exact cent (the final period clears any
+// residual). Powers mortgages, auto/BNPL/loan-management (LMS), lease schedules. Optional `extra`
+// principal per period pays the loan off early (fewer periods, less interest). Pairs with the
+// ledger (post each period's interest + principal) + a normal loans table.
+function amortizationSchedule(opts) {
+  const principalC = toCents(opts.principal); if (principalC == null || principalC <= 0) return { err: "principal must be a positive number" };
+  const rate = Number(opts.rate); if (!Number.isFinite(rate) || rate < 0 || rate > 1000) return { err: "rate must be an annual percentage 0–1000" };
+  const term = Math.floor(Number(opts.term)); if (!Number.isFinite(term) || term < 1 || term > 1200) return { err: "term must be 1–1200 periods" };
+  let freq = Math.floor(Number(opts.freq)); if (!Number.isFinite(freq) || freq < 1 || freq > 366) freq = 12; // payments per year (12 = monthly)
+  const extraC = (opts.extra != null && opts.extra !== "") ? (toCents(opts.extra) || 0) : 0;
+  if (extraC < 0) return { err: "extra must be ≥ 0" };
+  const r = rate / 100 / freq; // periodic rate
+  let paymentC = r === 0 ? Math.round(principalC / term) : Math.round(principalC * r / (1 - Math.pow(1 + r, -term)));
+  if (paymentC < 1) paymentC = 1;
+  const sched = []; let balance = principalC, totalInterest = 0;
+  for (let p = 1; p <= term; p++) {
+    const interest = Math.round(balance * r);
+    let principalPay = paymentC + extraC - interest, pay = paymentC + extraC;
+    if (p === term || principalPay >= balance) { principalPay = balance; pay = balance + interest; } // last period / early payoff clears the remainder
+    if (principalPay < 0) { principalPay = 0; pay = interest; }
+    balance -= principalPay; totalInterest += interest;
+    sched.push({ period: p, payment: pay / 100, interest: interest / 100, principal: principalPay / 100, balance: balance / 100 });
+    if (balance <= 0) { balance = 0; break; }
+  }
+  const start = /^\d{4}-\d{2}-\d{2}/.test(String(opts.start || "")) ? String(opts.start).slice(0, 10) : null;
+  const monthsPer = { 12: 1, 6: 2, 4: 3, 3: 4, 2: 6, 1: 12 }[freq]; // payments/yr → months between payments (common cases)
+  if (start && monthsPer) { const [y, mo, d] = start.split("-").map(Number); for (let i = 0; i < sched.length; i++) { const dt = new Date(Date.UTC(y, mo - 1, d)); dt.setUTCMonth(dt.getUTCMonth() + (i + 1) * monthsPer); sched[i].date = dt.toISOString().slice(0, 10); } }
+  return { principal: principalC / 100, rate, term, freq, payment: paymentC / 100, periods: sched.length, total_interest: totalInterest / 100, total_paid: (principalC + totalInterest) / 100, schedule: sched };
+}
 // Demand forecast (stateless) over a numeric time series. linear (least-squares trend),
 // moving_average (mean of last `window`), or exp_smoothing (level via alpha). Returns the
 // next `horizon` periods. Serves SCM demand planning (feed the shortfall into reorder/MRP).
@@ -10520,7 +10550,7 @@ async function handleRequest(request, env, ctx) {
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
       //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast)$/i);
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
@@ -10534,7 +10564,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
+        const res = calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }

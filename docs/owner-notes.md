@@ -6371,3 +6371,25 @@ the data API — so a generated app couldn't build an in-app analytics page from
   change to the core CRUD path). batch150 (21/21) — update, soft vs hard delete, limit cap, all:true,
   every guard (no-where 400, update-without-set 400, invalid op 400, unknown table 404, non-admin 403,
   signed-out 401, set-with-no-valid-column 400). Full suite 133 green.
+
+## 2026-07-22 — Vertical-software coverage audit (user's 70-acronym list: OMS…MDM) + amortization
+User asked whether the backend covers OMS/IMS/POS/PIM/PLM/PMS/CMMS/EAM/DMS/ECM/BPM/BPA/RPA/BI/CPM/
+EPM/FP&A/PSA/FSM/ITSM/ITAM/IAM/MDM/DAM/PAM/GRC/QMS/MES/MRP/CPQ/SFA/PRM/SRM/CLM/CSM/CXM/CDP/MAP/ESP/
+CCaaS/UCaaS/SIS/EMR/EHR/HIS/LIS/RIS/PACS/LOS/loan-LMS/AMS/RMS/project-PMS/PPM/OKR/ESM/iPaaS/DBMS/DWH/
+ETL/API-Mgmt/SIEM/SOAR/EDR/mobile-MDM. Verdict: the ~80-primitive set already COMPOSES almost all of
+them (each acronym = tables + the right primitives). Genuinely OUT OF SCOPE for a per-site app backend:
+CAD/CAM (desktop design), CCaaS/UCaaS (telephony), PACS (DICOM imaging), EDR + mobile-MDM (device
+agents) — those need native apps / telephony / endpoint agents, not a data backend. The only clean
+COMPUTATIONAL gaps were finance calcs: loan amortization (built now) and MRP/BOM explosion (offered
+next). Everything else was already there.
+
+- **Loan amortization calculator** (finance/ERP): `POST /api/db/<slug>/finance/amortization
+  {principal, rate, term, freq?, extra?, start?}` → level-payment schedule `{payment, periods,
+  total_interest, total_paid, schedule:[{period,date?,payment,interest,principal,balance}]}`. Mirrors
+  the depreciation calc exactly — cents throughout, final period clears the residual so balance ends at
+  0 and principal ties out to the cent. rate = annual %, term = # payments, freq = payments/yr (12 def).
+  `extra` principal per period → early payoff (fewer periods, less interest). start+freq stamps due
+  dates. Stateless (any signed-in member), wired into the existing /finance/(depreciation|forecast)
+  route. Unlocks LMS-loan/mortgage/BNPL/auto-loan/AMS/lease apps. batch151 (24/24) — verified the classic
+  $100k@6%×360 → $599.55/mo, 0% loan, extra-principal early payoff saves interest, principal ties out,
+  dates, all guards. Full suite 134 green.
