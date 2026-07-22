@@ -2471,14 +2471,16 @@ async function runScheduledSiteFunctions(env, ctx) {
 // Supabase storage, and swap the real URL in — real photography, not CSS art.
 const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
 const SITE_IMG_USD = 0.15; // 2K nano-banana-pro (fal), = ceil(0.15/0.008)=19 credits
-// Game sprites use a CHEAPER model than hero site images: the quality bar is lower
-// (a stylised sprite on a flat green screen, then chroma-keyed) and they're made in
-// bulk (≤5/game), so nano-banana-pro at 19 credits each made AI-art games costly.
-// flux/dev follows the "solid green screen" instruction reliably (schnell was too
-// weak — it left non-green/opaque backgrounds the chroma-key couldn't cut). ~$0.025/img
-// → ~4 credits each (a ~4-sprite game drops ~76→~16 credits, still a ~5× win).
-const SPRITE_IMG_MODEL = "fal-ai/flux/dev";
-const SPRITE_IMG_USD = 0.03;
+// Game sprites are chroma-keyed off a green screen, so the ONE thing that matters is
+// a clean, pure #00FF00 background. Cheaper models were live-tested and BOTH failed at
+// exactly that: flux/schnell left opaque/non-green backgrounds (nothing to key), flux/dev
+// rendered light/off-hue greens the key couldn't cut (one sprite came back 81% green).
+// nano-banana-pro is the only model in the lineup that reliably renders a pure green
+// screen, so sprites stay on it (19cr each) — quality over the cost cut. A wider chroma
+// key could unlock a cheaper model later, but needs careful testing (must not eat the
+// pink/amber/cyan subjects). Kept as its own constants so the model is easy to retune.
+const SPRITE_IMG_MODEL = "fal-ai/nano-banana-pro";
+const SPRITE_IMG_USD = 0.15;
 async function genOneSiteImage(env, prompt, aspect) {
   const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
     method: "POST",
@@ -2639,7 +2641,7 @@ async function genSpritePng(env, prompt) {
   const r = await fetch(`https://fal.run/${SPRITE_IMG_MODEL}`, {
     method: "POST",
     headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: p, image_size: "square_hd", num_inference_steps: 28, guidance_scale: 3.5, num_images: 1, output_format: "png", enable_safety_checker: true }),
+    body: JSON.stringify({ prompt: p, aspect_ratio: "1:1", resolution: "1K", output_format: "png", num_images: 1 }),
     signal: AbortSignal.timeout(120000),
   });
   const d = await r.json().catch(() => ({}));
