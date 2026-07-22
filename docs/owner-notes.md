@@ -617,6 +617,30 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
+
+Framing: the backend is a schema-driven data API, so ERP = a small set of new backend PRIMITIVES the
+builder composes into ERP screens (most of ERP is already covered — CRM, approvals, sequences,
+multi-currency, RBAC, audit, formulas, rollups, BI stats). D1 has NO multi-row transaction (REST /query,
+one statement, no BEGIN/COMMIT, per-site DBs can't use the transactional .batch() binding) — so every ERP
+primitive uses an APPEND-ONLY + read-gate design (write lines, flip one `posted` header flag last; reads
+trust only posted records) and single-statement atomic guards for invariants. Build sequence: (1) ledger
+engine ✅, (2) stock ledger, (3) document flow (quote→order→invoice→payment), (4) fiscal periods/locking,
+(5) valuation + depreciation + recurring journals, (6) BOM/MRP, (7) AP/AR aging + tax lines + fiscal-year
+numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external providers).
+
+- **PHASE 1 — DOUBLE-ENTRY LEDGER** (`/api/db/<slug>/ledger/*`, ADMIN): a balanced, append-only, immutable
+  general journal. `POST /ledger/entries {ref?,memo?,date?,ledger?,lines:[{account,debit?|credit?,dim?,memo?,meta?}]}`
+  enforces Σdebit=Σcredit (each line one side only), stores amounts in whole CENTS (exact invariant), posts
+  header(posted=0)→lines→posted=1 so a crash leaves an invisible half-entry not a partial ledger. Immutable:
+  no edit/delete, only `POST /ledger/entries/<id>/reverse` (mirror entry, links reverses/reversed_by,
+  double-reverse→409). Reads (posted lines only): `GET /ledger/balance?account=&ledger=&dim=&from=&to=` →
+  {debit,credit,balance}; `GET /ledger/trial-balance` → per-account + total_debit/total_credit/balanced;
+  `GET /ledger/entries[…filters]` (header+total) and `/entries/<id>` (header+lines). Named ledgers via
+  `?ledger=` (default 'gl') for GL + AP/AR/inventory subledgers in one DB. Tables `_ledger_entries` +
+  `_ledger_lines` (+indexes). Helpers postLedgerEntry/getLedgerEntry/ledgerBalances/normalizeLedgerLines/
+  toCents beside the reports helpers. batch111 (31/31). Full suite 94 green.
+
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
 > **WRAP (end of the overnight run).** Shipped **20 net-new backend features** this session, each its own
