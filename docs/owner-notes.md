@@ -617,6 +617,20 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: multi-currency (native storage, base-currency roll-ups)
+
+Data-model gap. Table-level `"currency":{amount,code,base,rates,as?}` — `amount` = money col,
+`code` = per-row ISO-currency col, `base` = report currency, `rates` = {CUR: base-units-per-1}
+(base auto-1). TWO effects: (1) READ-time `attachCurrency(def, rows)` adds `<amount>_base` (= amount
+× rate[code]), null when the row's currency has no rate — wired into the list/single/tree/sync read
+paths beside attachFormulas; (2) STATS-side, `buildD1Stats` recognizes the derived `as` field in
+sum/avg/min/max and emits `SUM(amount * CASE UPPER(currency) WHEN 'EUR' THEN 1.08 … ELSE NULL END)`,
+so `?group=region&sum=amount_base` rolls a cross-currency pipeline up into ONE base total in SQL (a
+EUR deal + a GBP deal add correctly; unconvertible rows drop out of the SUM). Currency codes are
+`^[A-Z]{2,8}$` and rates finite>0, both inlined safely (no params). Normalizer added to
+normalizeSchema + carried through norm.push. Offline batch72 (12/12), full suite (55) green.
+BACKEND_RULES schema section documents it.
+
 ## 2026-07-22 — CRM gap layer: cross-table reporting (group by a parent column)
 
 Reporting gap (CRM gap #2). `buildD1Stats(url, tn, allowCols, base, def, spec)` — extra
