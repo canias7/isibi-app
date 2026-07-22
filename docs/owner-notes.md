@@ -6178,3 +6178,13 @@ the generation contract — no per-build audio generation, no cost.
   rejected (would leak private rows to followers). batch139 (18/18) — followees-only, excludes self/non-
   followees, newest-first, keyset pages, unfollow drops posts, trashed excluded, empty-when-no-follows,
   user-table-rejected. Full suite 122 green. (2nd collision caught+handled — like /coupons earlier.)
+
+- **DIRECT MESSAGES** (`/api/db/<slug>/dm`, social): 1:1 threads. `_dm_messages`(thread,sender_id,recipient_id,
+  body,read_at). Canonical `thread` = `min:max` of the two ids so both directions share one conversation.
+  `POST /dm {to, body}` (recipient must exist; no self-msg), `GET /dm/<otherId>[?limit=&before=&markRead=1]`
+  (newest-first, keyset, mine flag, optional mark-read), `GET /dm/threads` (last msg + per-thread unread),
+  `GET /dm/unread` total, `POST /dm/<otherId>/read`. Only participants see a thread (a non-participant's
+  GET /dm/<id> reads the min:max thread key they're NOT in → empty). ensureDM/_dmThread. Verified NO existing
+  messaging feature before building. batch140 (22/22) — shared thread both directions, mine flag, unread
+  counts + read receipts (markRead + /read), threads list, thread isolation, non-participant sees nothing,
+  self/ghost/empty guards. Full suite 123 green.

@@ -4160,6 +4160,19 @@ function entIsActive(row) {
 }
 // (Follow graph already exists above — `_follows(follower_id, followee_id)` + toggleFollow/
 // followState/followList. The HOME FEED below reuses that table; no new follows primitive.)
+// ── DIRECT MESSAGES (social) — 1:1 threads between two members ────────────────────
+// Each message stores sender/recipient + a canonical `thread` key (min:max of the two ids)
+// so both directions map to one conversation. Unread = messages TO the caller with read_at
+// null. Only the two participants can see a thread.
+const _dmReady = new Set();
+async function ensureDM(env, uuid) {
+  if (_dmReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _dm_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, thread TEXT NOT NULL, sender_id INTEGER NOT NULL, recipient_id INTEGER NOT NULL, body TEXT, read_at TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dm_thread ON _dm_messages (thread, id)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dm_unread ON _dm_messages (recipient_id, read_at)"); } catch {}
+  _dmReady.add(uuid);
+}
+const _dmThread = (a, b) => Math.min(a, b) + ":" + Math.max(a, b);
 // Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
 async function postWallet(env, uuid, data, userId) {
   await ensureWallet(env, uuid);
@@ -10288,6 +10301,74 @@ async function handleRequest(request, env, ctx) {
           parseJsonRows(def, rows);
           return Response.json({ ok: true, table, rows, next_before: rows.length === lim ? rows[rows.length - 1].id : null });
         } catch (e) { console.error("feed failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "feed failed" }, { status: 502 }); }
+      }
+      // DIRECT MESSAGES (social) — 1:1 conversations between members. Signed-in; only the two
+      // participants see a thread.
+      //   POST /api/db/<slug>/dm {to, body}          → send a message
+      //   GET  /api/db/<slug>/dm/threads             → conversation list (other, last msg, unread)
+      //   GET  /api/db/<slug>/dm/unread              → {unread} total
+      //   GET  /api/db/<slug>/dm/<otherId>[?limit=&before=&markRead=1]  → the thread's messages
+      //   POST /api/db/<slug>/dm/<otherId>/read      → mark incoming from that member read
+      const dmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/dm(?:\/(threads|unread|\d+)(?:\/(read))?)?$/i);
+      if (dmm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dmm[1].toLowerCase(), seg = dmm[2] || null, act = dmm[3] ? dmm[3].toLowerCase() : null;
+        const otherId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureDM(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|dmr", 300), wr = () => rateOk(slug + "|" + ip + "|dmw", 120);
+          if (seg === "unread") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const n = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _dm_messages WHERE recipient_id=? AND read_at IS NULL", [userId]))[0] || {}).n || 0;
+            return Response.json({ ok: true, unread: n });
+          }
+          if (seg === "threads") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const last = await cfD1Query(env, uuid, "SELECT m.* FROM _dm_messages m JOIN (SELECT thread, MAX(id) AS mid FROM _dm_messages WHERE sender_id=? OR recipient_id=? GROUP BY thread) x ON m.id=x.mid ORDER BY m.id DESC LIMIT 200", [userId, userId]);
+            const unread = new Map((await cfD1Query(env, uuid, "SELECT thread, COUNT(*) AS n FROM _dm_messages WHERE recipient_id=? AND read_at IS NULL GROUP BY thread", [userId])).map((r) => [r.thread, r.n]));
+            return Response.json({ ok: true, threads: last.map((m) => ({ with: m.sender_id === userId ? m.recipient_id : m.sender_id, last: { body: m.body, from: m.sender_id, at: m.created_at, mine: m.sender_id === userId }, unread: unread.get(m.thread) || 0 })) });
+          }
+          if (otherId && act === "read") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            const th = _dmThread(userId, otherId);
+            const ex = await cfD1Exec(env, uuid, "UPDATE _dm_messages SET read_at=? WHERE thread=? AND recipient_id=? AND read_at IS NULL", [new Date().toISOString(), th, userId]);
+            return Response.json({ ok: true, with: otherId, marked_read: ex.changes || 0 });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (otherId && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const th = _dmThread(userId, otherId);
+            const where = ["thread=?"]; const params = [th];
+            const before = parseInt(url.searchParams.get("before") || "", 10); if (Number.isFinite(before)) { where.push("id < ?"); params.push(before); }
+            const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+            const rows = await cfD1Query(env, uuid, "SELECT id, sender_id, recipient_id, body, read_at, created_at FROM _dm_messages WHERE " + where.join(" AND ") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+            if (url.searchParams.get("markRead") === "1") await cfD1Query(env, uuid, "UPDATE _dm_messages SET read_at=? WHERE thread=? AND recipient_id=? AND read_at IS NULL", [new Date().toISOString(), th, userId]);
+            return Response.json({ ok: true, with: otherId, messages: rows.map((m) => ({ id: m.id, body: m.body, from: m.sender_id, mine: m.sender_id === userId, read: !!m.read_at, at: m.created_at })), next_before: rows.length === lim ? rows[rows.length - 1].id : null });
+          }
+          // POST /dm — send
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const to = parseInt(body.to, 10);
+          if (!(to > 0)) return Response.json({ ok: false, error: "a valid `to` member id is required" }, { status: 400 });
+          if (to === userId) return Response.json({ ok: false, error: "you can't message yourself" }, { status: 400 });
+          const text = String(body.body == null ? "" : body.body).slice(0, 5000);
+          if (!text.trim()) return Response.json({ ok: false, error: "body is required" }, { status: 400 });
+          const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [to]))[0];
+          if (!exists) return Response.json({ ok: false, error: "recipient not found" }, { status: 404 });
+          const ins = await cfD1Query(env, uuid, "INSERT INTO _dm_messages (thread, sender_id, recipient_id, body, created_at) VALUES (?,?,?,?,?) RETURNING id", [_dmThread(userId, to), userId, to, text, new Date().toISOString()]);
+          return Response.json({ ok: true, id: ins[0] && ins[0].id, to, body: text });
+        } catch (e) { console.error("dm failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dm failed" }, { status: 502 }); }
       }
       // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
       // signed-in member books (owner-stamped); admin sees/manages all, members their own.
