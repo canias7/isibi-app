@@ -7357,6 +7357,13 @@ async function handleRequest(request, env, ctx) {
             if (!(await totpVerify(u.totp_secret, body.code))) return Response.json({ ok: false, error: "enter your authenticator code", need: "2fa" }, { status: 401 });
           }
           if (u.failed) await cfD1Query(env, uuid, "UPDATE _users SET failed=0, locked_until=NULL WHERE id=?", [u.id]);
+          // Login history (best-effort — never blocks the login): record device/IP for a security
+          // "recent sign-ins" view. Kept trimmed to the last 50 per member.
+          try {
+            await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _logins (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, ip TEXT, ua TEXT, at TEXT)");
+            await cfD1Query(env, uuid, "INSERT INTO _logins (user_id,ip,ua,at) VALUES (?,?,?,?)", [u.id, String(request.headers.get("CF-Connecting-IP") || "").slice(0, 60), String(request.headers.get("User-Agent") || "").slice(0, 300), new Date().toISOString()]);
+            await cfD1Query(env, uuid, "DELETE FROM _logins WHERE user_id=? AND id NOT IN (SELECT id FROM _logins WHERE user_id=? ORDER BY id DESC LIMIT 50)", [u.id, u.id]);
+          } catch {}
           return Response.json({ ok: true, token: await mkToken(u.id, u.role, u.token_epoch || 0), user: { id: u.id, email, role: u.role || "user", verified: u.verified ? 1 : 0 } });
         } catch (e) {
           console.error("site auth failed:", action, e && e.message, e && e.detail);
@@ -7442,6 +7449,25 @@ async function handleRequest(request, env, ctx) {
       // Per-user data export (GDPR self-service) — GET /api/db/<slug>/auth/export returns a JSON
       // bundle of everything the signed-in member owns: their profile, their rows in every
       // user/feed table (owner_id = them), and the notes they wrote + attachments they uploaded.
+      // Login history — GET /api/db/<slug>/auth/logins returns the signed-in member's recent
+      // sign-ins (device / IP / time) for a "recent activity" security panel.
+      const lgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/logins$/i);
+      if (lgm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lgm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const p = await verifySiteUserToken(secret, (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, ""));
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        try {
+          await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _logins (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, ip TEXT, ua TEXT, at TEXT)");
+          const lim = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+          const rows = await cfD1Query(env, uuid, "SELECT id, ip, ua, at FROM _logins WHERE user_id=? ORDER BY id DESC LIMIT ?", [p.sub, lim]);
+          return Response.json({ ok: true, logins: rows });
+        } catch (e) { console.error("logins failed:", e && e.message); return Response.json({ ok: false, error: "logins failed" }, { status: 502 }); }
+      }
       // Consent / policy-acceptance tracking — POST /api/db/<slug>/auth/consent {doc, version}
       // records that the signed-in member accepted a document (e.g. doc:"tos", version:"2026-07");
       // GET returns their latest accepted version per doc. For compliance ("who accepted which ToS").
