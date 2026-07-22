@@ -3917,6 +3917,70 @@ function investmentAnalysis(opts) {
     total_inflow: c2(totalIn), total_outflow: c2(totalOut), periods: cf.length - 1,
   };
 }
+// Inverse standard-normal CDF (Acklam's rational approximation) — the z-score for a probability.
+// Used to turn a service level (e.g. 95%) into a safety-stock multiplier. Returns null out of range.
+function invNorm(p) {
+  if (!(p > 0 && p < 1)) return null;
+  const a = [-3.969683028665376e+1, 2.209460984245205e+2, -2.759285104469687e+2, 1.383577518672690e+2, -3.066479806614716e+1, 2.506628277459239e+0];
+  const b = [-5.447609879822406e+1, 1.615858368580409e+2, -1.556989798598866e+2, 6.680131188771972e+1, -1.328068155288572e+1];
+  const c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838e+0, -2.549732539343734e+0, 4.374664141464968e+0, 2.938163982698783e+0];
+  const d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996e+0, 3.754408661907416e+0];
+  const plow = 0.02425, phigh = 1 - plow; let q, r;
+  if (p < plow) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  if (p <= phigh) { q = p - 0.5; r = q * q; return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+  q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+}
+// EOQ (economic order quantity, stateless) — the order size that minimizes total (ordering +
+// holding) cost, plus orders/year, cycle time, and total annual cost. Optionally computes the
+// reorder point (demand over the lead time + safety stock) — safety stock from an explicit value
+// or a service level + daily demand σ. Powers IMS/SCM/WMS inventory planning.
+function eoqCalc(opts) {
+  const D = Number(opts.demand), S = Number(opts.order_cost != null ? opts.order_cost : opts.orderCost), H = Number(opts.holding_cost != null ? opts.holding_cost : opts.holdingCost);
+  if (!Number.isFinite(D) || D <= 0) return { err: "demand (annual) must be positive" };
+  if (!Number.isFinite(S) || S <= 0) return { err: "order_cost must be positive" };
+  if (!Number.isFinite(H) || H <= 0) return { err: "holding_cost (per unit per year) must be positive" };
+  const eoq = Math.sqrt(2 * D * S / H), ordersPerYear = D / eoq;
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const out = { eoq: r2(eoq), eoq_rounded: Math.ceil(eoq), orders_per_year: r2(ordersPerYear), cycle_time_days: r2(365 / ordersPerYear), annual_order_cost: r2(ordersPerYear * S), annual_holding_cost: r2((eoq / 2) * H), total_annual_cost: r2(ordersPerYear * S + (eoq / 2) * H) };
+  const lead = Number(opts.lead_time != null ? opts.lead_time : opts.leadTime);
+  if (Number.isFinite(lead) && lead >= 0) {
+    const dailyD = D / 365; let ss = 0;
+    const explicitSS = Number(opts.safety_stock != null ? opts.safety_stock : opts.safetyStock);
+    const sigma = Number(opts.demand_std != null ? opts.demand_std : opts.demandStd);
+    const sl = Number(opts.service_level != null ? opts.service_level : opts.serviceLevel);
+    if (Number.isFinite(explicitSS) && explicitSS >= 0) ss = explicitSS;
+    else if (Number.isFinite(sigma) && sigma >= 0 && Number.isFinite(sl) && sl > 0 && sl < 100) { const z = invNorm(sl / 100); if (z != null) { ss = z * sigma * Math.sqrt(lead); out.z = r2(z); } }
+    ss = Math.max(0, ss);
+    out.demand_during_lead = r2(dailyD * lead); out.safety_stock = r2(ss); out.reorder_point = r2(dailyD * lead + ss);
+  }
+  return out;
+}
+// Break-even / CVP (cost-volume-profit, stateless) — the units + revenue at which contribution
+// covers fixed cost, contribution margin + ratio, optional target-profit volume, and (given a
+// unit count) profit + margin of safety. Cents throughout for the money. Powers pricing/planning.
+function breakevenCalc(opts) {
+  const priceC = toCents(opts.price), vcC = toCents(opts.variable_cost != null ? opts.variable_cost : opts.variableCost), fcC = toCents(opts.fixed_cost != null ? opts.fixed_cost : opts.fixedCost);
+  if (priceC == null || priceC <= 0) return { err: "price must be a positive number" };
+  if (vcC == null || vcC < 0) return { err: "variable_cost must be ≥ 0" };
+  if (fcC == null || fcC < 0) return { err: "fixed_cost must be ≥ 0" };
+  const cmC = priceC - vcC;
+  if (cmC <= 0) return { err: "no break-even: price must exceed variable cost" };
+  const beUnits = fcC / cmC, r4 = (x) => Math.round(x * 1e4) / 1e4;
+  const out = {
+    contribution_margin: cmC / 100, cm_ratio: Math.round((cmC / priceC) * 1e4) / 1e4,
+    break_even_units: r4(beUnits), break_even_units_rounded: Math.ceil(beUnits),
+    break_even_revenue: Math.round(fcC * priceC / cmC) / 100,
+  };
+  const tpRaw = opts.target_profit != null ? opts.target_profit : opts.targetProfit;
+  if (tpRaw != null && tpRaw !== "") { const tp = toCents(tpRaw); if (tp != null && tp >= 0) { const u = (fcC + tp) / cmC; out.target_profit = tp / 100; out.units_for_target = r4(u); out.units_for_target_rounded = Math.ceil(u); } }
+  const units = Number(opts.units);
+  if (Number.isFinite(units) && units >= 0) {
+    out.units = units; out.profit_at_units = Math.round(units * cmC - fcC) / 100;
+    out.margin_of_safety_units = r4(units - beUnits);
+    out.margin_of_safety_pct = units > 0 ? Math.round(((units - beUnits) / units) * 1e4) / 100 : null;
+  }
+  return out;
+}
 // Demand forecast (stateless) over a numeric time series. linear (least-squares trend),
 // moving_average (mean of last `window`), or exp_smoothing (level via alpha). Returns the
 // next `horizon` periods. Serves SCM demand planning (feed the shortfall into reorder/MRP).
@@ -10597,7 +10661,7 @@ async function handleRequest(request, env, ctx) {
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
       //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization|investment)$/i);
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization|investment|breakeven|eoq)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
@@ -10611,7 +10675,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = calc === "investment" ? investmentAnalysis(body) : calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
+        const res = calc === "eoq" ? eoqCalc(body) : calc === "breakeven" ? breakevenCalc(body) : calc === "investment" ? investmentAnalysis(body) : calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }

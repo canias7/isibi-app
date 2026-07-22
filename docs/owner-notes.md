@@ -6411,3 +6411,17 @@ next). Everything else was already there.
   ranking. batch152 (22/22) — textbook -1000/500/500/500@10% → NPV 243.43, IRR 23.4%, payback 2.0,
   disc-payback 2.35, PI 1.243; break-even project (NPV 0, IRR=rate); never-profitable (irr/payback null);
   higher-rate-lowers-NPV; all guards. Full suite 135 green.
+
+- **EOQ + break-even calculators** (finance/ops — grepped first: neither existed; reorder-RULES did but
+  that's stored min/qty, not the optimal-qty formula). Two more stateless calcs on the /finance route
+  (now 6: depreciation·forecast·amortization·investment·eoq·breakeven):
+  - `POST /finance/eoq {demand, order_cost, holding_cost[, lead_time, demand_std, service_level|safety_stock]}`
+    → √(2DS/H) order qty + orders/yr + cycle time + total annual cost; with lead_time also reorder point +
+    safety stock (statistical via a service level → z-score, using an Acklam inverse-normal helper `invNorm`,
+    or an explicit safety_stock). For IMS/SCM/WMS.
+  - `POST /finance/breakeven {price, variable_cost, fixed_cost[, target_profit, units]}` → contribution
+    margin + ratio, break-even units + revenue, target-profit volume, and (given units) profit + margin of
+    safety. CVP for pricing/planning.
+  batch153 (23/23) — EOQ 707.11 @ classic inputs (order cost ≈ holding cost at EOQ), z=1.645 @ 95%, safety
+  stock/reorder point, explicit-SS override; break-even 500 units/$25k, target profit 750u, MoS 16.67%; all
+  guards. Full suite 136 green.
