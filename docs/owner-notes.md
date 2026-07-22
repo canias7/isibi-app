@@ -637,6 +637,9 @@ is delivered.
 - #52 Signed attachment links: `GET .../attach?sign=1[&ttl=]` returns a per-file `signed_url` (a purpose:
   attach token, id-scoped, exp-enforced) that the fetch route accepts via `?t=` WITHOUT a Bearer — for
   embedding a private file in email/<img>/share. batch97 (8/8).
+- #8 Login history: each login records ip/ua/at to `_logins` (best-effort, wrapped so it never breaks
+  auth; trimmed to last 50/member); `GET /api/db/<slug>/auth/logins` returns the caller's recent
+  sign-ins. batch98 (7/7). (#62 notifications unread/mark-read already existed.)
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
