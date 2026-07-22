@@ -6561,3 +6561,14 @@ backend's security + money correctness. Full suite 146 green.
   and list them in GAME_3D_RULES' ASSETS section** (like the voice-preview MP3 backlog) — Kenney.nl / Quaternius
   / KayKit are the right sources (uniformly CC0, low-poly, small). Model bundling adds ~1.5MB loader + the model
   to games that USE models (opt-in via referencing them); box-only 3D games stay lean.
+
+- **GAME STUDIO — Phase 7 increment 4: model animations (2026-07-22).** 3D character models now ANIMATE
+  (walk/run/attack/die) instead of sliding as statues. robot.glb ships 14 clips (Idle/Walking/Running/Jump/
+  Punch/Death/Wave/Dance/…). GAME_3D_RULES ASSETS gained an ANIMATIONS section: ONE animated model via
+  ImportMeshAsync→animationGroups; MANY independently-animated enemies via SceneLoader.LoadAssetContainerAsync
+  ONCE + container.instantiateModelsToScene() per enemy (skinned mesh clones don't animate — this is the
+  correct pattern), each with its own animationGroups. Drive clips from gameplay (Running while chasing, Punch
+  in range, Death once on kill), face the player (lookAt / rotation.y = atan2(dx,dz)). VALIDATED (real,
+  headless): a single robot playing "Running" animates (9.6% frame-diff); THREE instances via
+  instantiateModelsToScene each animate independently (17% frame-diff, different stride phases, 0 errors).
+  worker-only change (game-gen.mjs). NEXT: increment 2 (Havok/Rapier physics), expand the CC0 model pack.
