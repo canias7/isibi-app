@@ -4086,6 +4086,41 @@ async function postBooking(env, uuid, data, userId) {
   if (!ins[0]) return { err: "that time is already booked", code: "conflict" };
   return { booking: { id: ins[0].id, resource, start: start, end: end, status: "booked", party: data.party || null } };
 }
+// ── WALLET / POINTS / STORE-CREDIT LEDGER (commerce & gamification) ───────────────
+// A generic balance per (account, currency): an append-only ledger of credits (+) and
+// debits (−); balance = Σ. A debit that would overdraw is refused atomically (single-
+// statement guard) unless allowNegative. One primitive covers loyalty points, store
+// credit, gift cards (account = card code), in-app currency, and XP. Amounts in milli.
+const _walletReady = new Set();
+async function ensureWallet(env, uuid) {
+  if (_walletReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _wallet_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, currency TEXT NOT NULL DEFAULT 'points', amount_m INTEGER NOT NULL, kind TEXT, ref TEXT, note TEXT, created_by INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_wl_ac ON _wallet_ledger (account, currency)"); } catch {}
+  _walletReady.add(uuid);
+}
+const _walletCur = (v) => { const s = String(v == null || v === "" ? "points" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40); return s || "points"; };
+async function walletBalance(env, uuid, account, currency) {
+  await ensureWallet(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_m),0) AS n FROM _wallet_ledger WHERE account=? AND currency=?", [account, currency]);
+  return ((r[0] && r[0].n) || 0) / 1000;
+}
+// Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
+async function postWallet(env, uuid, data, userId) {
+  await ensureWallet(env, uuid);
+  const account = String(data.account == null ? "" : data.account).trim(); if (!account || account.length > 120) return { err: "account is required (≤120 chars)" };
+  const currency = _walletCur(data.currency);
+  const amount = toMilli(data.amount); if (amount == null || amount === 0) return { err: "amount must be a non-zero number" };
+  const kind = data.kind != null ? String(data.kind).slice(0, 24) : (amount > 0 ? "credit" : "debit");
+  const cols = [account, currency, amount, kind, data.ref != null ? String(data.ref).slice(0, 120) : null, data.note != null ? String(data.note).slice(0, 300) : null, userId || null, new Date().toISOString()];
+  let ins;
+  if (amount < 0 && !data.allowNegative) {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _wallet_ledger (account,currency,amount_m,kind,ref,note,created_by,created_at) SELECT ?,?,?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(amount_m),0) FROM _wallet_ledger WHERE account=? AND currency=?) + ? >= 0 RETURNING id", cols.concat([account, currency, amount]));
+    if (!ins[0]) return { err: "insufficient balance", code: "balance" };
+  } else {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _wallet_ledger (account,currency,amount_m,kind,ref,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id", cols);
+  }
+  return { id: ins[0] && ins[0].id, account, currency, amount: amount / 1000, kind, balance: await walletBalance(env, uuid, account, currency) };
+}
 // ── EFFECTIVE-DATED / TEMPORAL RECORDS (HCM comp/position history, price history) ──
 // Track a value that CHANGES OVER TIME for a (subject, attribute) pair, and answer "what
 // was it AS OF date X" = the row with the greatest effective_date on/before X. A snapshot
@@ -9952,6 +9987,80 @@ async function handleRequest(request, env, ctx) {
           if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
           return Response.json(Object.assign({ ok: true }, res));
         } catch (e) { console.error("leave failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leave failed" }, { status: 502 }); }
+      }
+      // WALLET / POINTS / STORE CREDIT — a generic guarded balance per (account, currency).
+      // Writes are ADMIN (server-authoritative — users can't credit themselves); a member
+      // reads their OWN balance/history; an admin reads anyone's.
+      //   POST /api/db/<slug>/wallet {account, currency?, amount(+credit/−debit), kind?, ref?, note?, allowNegative?}  (admin)
+      //   POST /api/db/<slug>/wallet/transfer {from, to, currency?, amount, note?}   (admin)
+      //   GET  /api/db/<slug>/wallet/balance?account=<a>[&currency=]   → {balance}
+      //   GET  /api/db/<slug>/wallet/balances[?currency=]             → every account's balance (admin)
+      //   GET  /api/db/<slug>/wallet?account=<a>[&currency=]          → ledger history
+      const wtm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/wallet(?:\/(balance|balances|transfer))?$/i);
+      if (wtm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wtm[1].toLowerCase(), sub = wtm[2] ? wtm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureWallet(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|wltr", 300), wr = () => rateOk(slug + "|" + ip + "|wltw", 120);
+          const accountOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 120) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (sub === "balance") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const account = accountOf(url.searchParams.get("account")); if (!account) return Response.json({ ok: false, error: "you can only view your own balance" }, { status: 403 });
+            const currency = _walletCur(url.searchParams.get("currency"));
+            return Response.json({ ok: true, account, currency, balance: await walletBalance(env, uuid, account, currency) });
+          }
+          if (sub === "balances") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            if (url.searchParams.get("currency")) { where.push("currency=?"); params.push(_walletCur(url.searchParams.get("currency"))); }
+            const rows = await cfD1Query(env, uuid, "SELECT account, currency, SUM(amount_m) AS n FROM _wallet_ledger" + (where.length ? " WHERE " + where.join(" AND ") : "") + " GROUP BY account, currency ORDER BY account LIMIT 5000", params);
+            return Response.json({ ok: true, balances: rows.map((r) => ({ account: r.account, currency: r.currency, balance: (r.n || 0) / 1000 })) });
+          }
+          if (sub === "transfer") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const from = String(body.from || "").trim(), to = String(body.to || "").trim();
+            const currency = _walletCur(body.currency); const amt = Number(body.amount);
+            if (!from || !to) return Response.json({ ok: false, error: "from and to are required" }, { status: 400 });
+            if (from === to) return Response.json({ ok: false, error: "from and to must differ" }, { status: 400 });
+            if (!Number.isFinite(amt) || amt <= 0) return Response.json({ ok: false, error: "amount must be positive" }, { status: 400 });
+            const out = await postWallet(env, uuid, { account: from, currency, amount: -amt, kind: "transfer-out", ref: "→ " + to, note: body.note }, userId);
+            if (out.err) return Response.json({ ok: false, error: out.err, code: out.code }, { status: 409 });
+            const inn = await postWallet(env, uuid, { account: to, currency, amount: amt, kind: "transfer-in", ref: "← " + from, note: body.note }, userId);
+            return Response.json({ ok: true, from: { account: from, balance: out.balance }, to: { account: to, balance: inn.balance }, currency, amount: amt });
+          }
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            const account = accountOf(url.searchParams.get("account")); if (!account) return Response.json({ ok: false, error: "you can only view your own history" }, { status: 403 });
+            const where = ["account=?"]; const params = [account];
+            if (url.searchParams.get("currency")) { where.push("currency=?"); params.push(_walletCur(url.searchParams.get("currency"))); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT id, currency, amount_m, kind, ref, note, created_at FROM _wallet_ledger WHERE " + where.join(" AND ") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, account, entries: rows.map((r) => ({ id: r.id, currency: r.currency, amount: r.amount_m / 1000, kind: r.kind, ref: r.ref, note: r.note, created_at: r.created_at })) });
+          }
+          // POST — credit/debit (admin only; server-authoritative)
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const res = await postWallet(env, uuid, body, userId);
+          if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
+          return Response.json(Object.assign({ ok: true }, res));
+        } catch (e) { console.error("wallet failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "wallet failed" }, { status: 502 }); }
       }
       // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
       // signed-in member books (owner-stamped); admin sees/manages all, members their own.

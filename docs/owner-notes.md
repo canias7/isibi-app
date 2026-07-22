@@ -6133,3 +6133,14 @@ the generation contract — no per-build audio generation, no cost.
   events. Applies to BOTH shape and sprite games.
 - Validated: a game that loads + plays the kit builds and smoke-passes (all 7 wavs
   bundled into dist/sfx/, sounds trigger on input, zero errors).
+## 2026-07-22 — COMMERCE & ENGAGEMENT + more (owner: "keep adding backend stuff … everything"). Themes: commerce → social → security → analytics. Merge-as-we-go.
+
+- **WALLET / POINTS / STORE CREDIT** (`/api/db/<slug>/wallet`, commerce): a generic guarded balance per
+  (account, currency) — the balance-ledger pattern (append-only, single-statement overdraw guard). One
+  primitive = loyalty points, store credit, gift cards (account = card code), in-app currency, XP. Writes
+  ADMIN (server-authoritative — no self-crediting); member reads OWN balance/history (accountOf), admin any.
+  `POST /wallet {account,currency?,amount(±),kind?,ref?,note?,allowNegative?}` (409 `balance` on overdraw),
+  `/wallet/transfer {from,to,amount}` (admin, guarded sender), `GET /wallet/balance`, `/wallet/balances`
+  (admin), `GET /wallet?account=` history. Amounts milli. ensureWallet/postWallet/walletBalance/_walletCur.
+  batch136 (27/27) — credit/debit/overdraw-409, allowNegative, fractional, independent currencies, giftcard-
+  by-code, transfer, member-own vs admin-all, self-credit-403. Full suite 119 green.
