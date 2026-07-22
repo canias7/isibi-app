@@ -8855,7 +8855,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8867,6 +8867,7 @@ async function handleRequest(request, env, ctx) {
         const isDupes = dm[3] === "duplicates";
         const isOverdue = dm[3] === "overdue";
         const isEvents = dm[3] === "events";
+        const isValidate = dm[3] === "validate";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -8884,7 +8885,7 @@ async function handleRequest(request, env, ctx) {
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
         const isAttach = dm[4] === "attach";
-        const rowId = dm[3] && !["stats", "histogram", "changes", "facets", "near", "tree", "duplicates", "overdue", "events"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "histogram", "changes", "facets", "near", "tree", "duplicates", "overdue", "events", "validate"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -9693,6 +9694,22 @@ async function handleRequest(request, env, ctx) {
               buckets.push({ lo: rnd(lo + i * width), hi: rnd(i === nb - 1 ? hi : lo + (i + 1) * width), count });
             }
             return Response.json({ ok: true, col, min: rnd(lo), max: rnd(hi), width: rnd(width), total, buckets });
+          }
+
+          // Dry-run validation — POST the row you're about to create/edit and get back whether
+          // it PASSES the table's field rules (required, enum, min/max, pattern, format,
+          // immutable, cross-field checks, json shapes) WITHOUT writing anything. For live
+          // form validation / a "check before submit" step. Default validates a CREATE;
+          // `?partial=1` validates an EDIT (partial body: required fields may be absent,
+          // immutable fields still rejected). Does NOT check uniqueness or referential
+          // integrity — use /duplicates for that. No data touched, so no login required.
+          //   POST /rows/<t>/validate {<fields>}  → {ok, valid, error}
+          if (isValidate) {
+            if (method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            const isPartial = url.searchParams.get("partial") === "1";
+            const body = await readBody();
+            const e = validateRow(def, body, !isPartial);
+            return Response.json({ ok: true, valid: !e, error: e || null });
           }
 
           // Faceted counts — for each requested column, the distinct values and how many

@@ -682,6 +682,11 @@ is delivered.
   provided → parse null/'' as NaN first. (Verified already-existing while auditing: bulk insert `{rows:[]}`,
   bulk PATCH/DELETE by filter, optimistic concurrency `version:true`+ifVersion/If-Match, multi-dim pivot
   `group=a,b`, cross-table + time-bucket grouping, saved views `_views`.)
+- DRY-RUN VALIDATION: `POST /rows/<t>/validate {fields}` → `{valid, error}` runs validateRow (required/enum/
+  min-max/pattern/format/immutable/checks/jsonShapes) WITHOUT writing — for live form validation. `?partial=1`
+  = edit mode (required may be absent, immutables still blocked). No uniqueness/ref check (that's /duplicates),
+  no login (no data touched). Isolated dm3 sub-action reusing the pure validateRow — zero risk to write paths.
+  batch109 (12/12). (Confirmed NOT already present: no dryRun/validate flag anywhere before this.)
 - #86 Per-key rate limits: an admin can cap a specific API key at N req/min via `POST .../apikeys
   {label, rpm}` (0/negative/non-numeric → unlimited, huge clamps to 100000); `_apikeys` gains an `rpm`
   column (best-effort ALTER for old tables). resolveApiKeyUser now returns `{user,keyId,rpm}`; the
