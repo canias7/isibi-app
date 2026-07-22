@@ -6,7 +6,7 @@ import { Container, getContainer } from "@cloudflare/containers";
 import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
-import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens } from "./builder-game/game-gen.mjs";
+import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens, GAME_3D_RULES, game3DFixRules } from "./builder-game/game-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -7830,7 +7830,8 @@ async function handleRequest(request, env, ctx) {
       let gb; try { gb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
       const brief = typeof gb.brief === "string" ? gb.brief.trim().slice(0, 2000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
-      const art = gb.art === "sprites" ? "sprites" : "shapes"; // Phase 6: AI sprites vs primitive
+      const engine = gb.engine === "3d" ? "3d" : "2d"; // Phase 7: Babylon 3D vs kaplay 2D
+      const art = engine === "3d" ? "shapes" : (gb.art === "sprites" ? "sprites" : "shapes"); // 3D uses primitives, not AI sprites
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, GB_MAX_OUT = 16000, GB_MODEL = "claude-sonnet-5";
       const RATE_IN = 3e-6, RATE_OUT = 15e-6;
@@ -7890,7 +7891,8 @@ async function handleRequest(request, env, ctx) {
         try {
           let cost = 0;
           emit({ ev: "phase", phase: "generating" });
-          const g = await streamGen(art === "sprites" ? GAME_ASSET_RULES : GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
+          const genRules = engine === "3d" ? GAME_3D_RULES : (art === "sprites" ? GAME_ASSET_RULES : GAME_RULES);
+          const g = await streamGen(genRules, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
           flushCode(true);
           let files = parseGameFiles(g.text);
           if (!files["src/main.js"]) { emit({ ev: "error", msg: "the generated game came out incomplete — try again" }); return; }
@@ -7915,10 +7917,12 @@ async function handleRequest(request, env, ctx) {
             if (attempt >= 2) break;
             attempt++;
             emit({ ev: "phase", phase: "fixing" });
-            const fixPrompt = compileFail
-              ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
-              : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
-            let fg; try { fg = await streamGen(GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
+            const fixPrompt = engine === "3d"
+              ? (game3DFixRules(compileFail ? { compile: true, list: [String(bd.error || "").slice(0, 3000)] } : bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+              : (compileFail
+                  ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+                  : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files)));
+            let fg; try { fg = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
             cost += gbCredits(fg.usedIn, fg.usedOut);
             try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
             const fixed = parseGameFiles(fg.text);
@@ -7930,7 +7934,7 @@ async function handleRequest(request, env, ctx) {
           const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
           const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
           await writeGameDistToR2(env, slug, bd.files);
-          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id, engine }), { httpMetadata: { contentType: "application/json" } }); } catch {}
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
@@ -7964,6 +7968,7 @@ async function handleRequest(request, env, ctx) {
       try { const o = await env.SITES_BUCKET.get("gamesrc/" + slug + ".json"); if (o) srcObj = JSON.parse(await o.text()); } catch {}
       if (!srcObj || !srcObj.files || !srcObj.files["src/main.js"]) return Response.json({ ok: false, error: "couldn’t find that game’s source to edit" }, { status: 404 });
       if (srcObj.uid && srcObj.uid !== gu.id) return Response.json({ ok: false, error: "not your game" }, { status: 403 });
+      const engine = srcObj.engine === "3d" ? "3d" : "2d"; // Phase 7: revise a 3D game with the Babylon rules
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, GB_MAX_OUT = 16000, GB_MODEL = "claude-sonnet-5";
       const RATE_IN = 3e-6, RATE_OUT = 15e-6;
@@ -8021,7 +8026,7 @@ async function handleRequest(request, env, ctx) {
           // rebuild keeps its art (assets aren't in the source, they're bundled files).
           const gameAssets = (srcObj.assets && typeof srcObj.assets === "object") ? srcObj.assets : {};
           emit({ ev: "phase", phase: "generating" });
-          const g = await streamGen(GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files), onDelta);
+          const g = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files), onDelta);
           flushCode(true);
           cost += gbCredits(g.usedIn, g.usedOut);
           try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
@@ -8041,10 +8046,12 @@ async function handleRequest(request, env, ctx) {
             if (attempt >= 2) break;
             attempt++;
             emit({ ev: "phase", phase: "fixing" });
-            const fixPrompt = compileFail
-              ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
-              : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
-            let fg; try { fg = await streamGen(GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
+            const fixPrompt = engine === "3d"
+              ? (game3DFixRules(compileFail ? { compile: true, list: [String(bd.error || "").slice(0, 3000)] } : bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+              : (compileFail
+                  ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+                  : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files)));
+            let fg; try { fg = await streamGen(engine === "3d" ? GAME_3D_RULES : GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
             cost += gbCredits(fg.usedIn, fg.usedOut);
             try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
             const fixed = parseGameFiles(fg.text);
@@ -8054,7 +8061,7 @@ async function handleRequest(request, env, ctx) {
           if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
           emit({ ev: "phase", phase: "publishing" });
           await writeGameDistToR2(env, slug, bd.files);
-          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id, engine }), { httpMetadata: { contentType: "application/json" } }); } catch {}
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
