@@ -12488,6 +12488,61 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
+      // BULK UPDATE / DELETE by filter — apply one change to every row matching a filter, in a
+      // single statement ("archive all completed", "delete all drafts"). ADMIN-only + a filter
+      // is REQUIRED (no accidental whole-table wipe unless you pass all:true) + affected rows are
+      // capped. On a trash table, bulk delete SOFT-deletes (consistent with a single delete).
+      //   POST /api/db/<slug>/rows/<table>/bulk {op:'update'|'delete', where:[…], set?, all?, limit?}
+      //     → {op, affected}
+      const bkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})\/bulk$/i);
+      if (bkm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bkm[1].toLowerCase(), table = bkm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|bulk", 60)) return tooMany();
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          let body = {}; try { body = await request.json(); } catch {}
+          const op = String(body.op || "").toLowerCase();
+          if (op !== "update" && op !== "delete") return Response.json({ ok: false, error: "op must be 'update' or 'delete'" }, { status: 400 });
+          const whereList = Array.isArray(body.where) ? body.where : (body.where != null ? [body.where] : []);
+          if (!whereList.length && body.all !== true) return Response.json({ ok: false, error: "a `where` filter is required (or pass all:true to affect every row)" }, { status: 400 });
+          const allow = Array.isArray(def.columns) ? def.columns : [];
+          // Build the WHERE from the same grammar as a list read.
+          const u2 = new URL("https://x/"); whereList.slice(0, 12).forEach((w) => u2.searchParams.append("where", String(w)));
+          const base = def.trash ? { clause: "deleted_at IS NULL", params: [] } : null;
+          const f = buildD1Filter(u2, allow, base);
+          const tn = sqlIdent(table);
+          const cap = Math.min(5000, Math.max(1, parseInt(body.limit, 10) || 1000));
+          // Scope the mutation to the matched ids (capped) so it's bounded + race-safe.
+          const idSel = "SELECT id FROM " + tn + f.whereSql + " LIMIT " + cap;
+          if (op === "update") {
+            const set = (body.set && typeof body.set === "object" && !Array.isArray(body.set)) ? body.set : null;
+            const cols = set ? Object.keys(set).filter((c) => allow.map((x) => String(x).toLowerCase()).includes(String(c).toLowerCase())) : [];
+            if (!cols.length) return Response.json({ ok: false, error: "update needs `set` with at least one declared column" }, { status: 400 });
+            const setSql = cols.map((c) => sqlIdent(c) + "=?").join(", ");
+            const params = cols.map((c) => set[c]).concat(f.params);
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET " + setSql + " WHERE id IN (" + idSel + ")", params);
+            return Response.json({ ok: true, op, affected: ex.changes || 0 });
+          }
+          // delete — soft on a trash table, hard otherwise.
+          let ex;
+          if (def.trash) ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET deleted_at=? WHERE id IN (" + idSel + ")", [new Date().toISOString()].concat(f.params));
+          else ex = await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id IN (" + idSel + ")", f.params);
+          return Response.json({ ok: true, op, affected: ex.changes || 0, soft: !!def.trash });
+        } catch (e) { console.error("bulk failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bulk failed" }, { status: 502 }); }
+      }
       const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
