@@ -3736,6 +3736,42 @@ function depreciationSchedule(opts) {
   }
   return { method: isDB ? "declining_balance" : "straight_line", cost: costC / 100, salvage: salvageC / 100, life, total_depreciable: depreciable / 100, schedule: sched };
 }
+// Demand forecast (stateless) over a numeric time series. linear (least-squares trend),
+// moving_average (mean of last `window`), or exp_smoothing (level via alpha). Returns the
+// next `horizon` periods. Serves SCM demand planning (feed the shortfall into reorder/MRP).
+function demandForecast(opts) {
+  const raw = Array.isArray(opts.series) ? opts.series : null;
+  if (!raw || raw.length < 2) return { err: "series must have at least 2 points" };
+  if (raw.length > 5000) return { err: "series too long (max 5000)" };
+  const vals = raw.map((p) => (p && typeof p === "object") ? Number(p.value) : Number(p));
+  if (vals.some((v) => !Number.isFinite(v))) return { err: "series values must be numbers" };
+  const n = vals.length;
+  const horizon = Math.min(100, Math.max(1, Math.floor(Number(opts.horizon) || 3)));
+  const method = String(opts.method || "linear").toLowerCase();
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const forecast = [];
+  if (method === "moving_average" || method === "ma") {
+    const w = Math.min(n, Math.max(1, Math.floor(Number(opts.window) || 3)));
+    const avg = vals.slice(n - w).reduce((s, v) => s + v, 0) / w;
+    for (let k = 1; k <= horizon; k++) forecast.push({ step: n + k, value: r2(avg) });
+    return { method: "moving_average", window: w, forecast };
+  }
+  if (method === "exp_smoothing" || method === "ses" || method === "exponential") {
+    let alpha = Number(opts.alpha); if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) alpha = 0.5;
+    let level = vals[0];
+    for (let i = 1; i < n; i++) level = alpha * vals[i] + (1 - alpha) * level;
+    for (let k = 1; k <= horizon; k++) forecast.push({ step: n + k, value: r2(level) });
+    return { method: "exp_smoothing", alpha, forecast };
+  }
+  // linear least-squares: fit y = intercept + slope·x over x = 0..n-1
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sx += i; sy += vals[i]; sxx += i * i; sxy += i * vals[i]; }
+  const denom = n * sxx - sx * sx;
+  const slope = denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
+  const intercept = (sy - slope * sx) / n;
+  for (let k = 1; k <= horizon; k++) { const x = n + k - 1; forecast.push({ step: n + k, value: r2(intercept + slope * x) }); }
+  return { method: "linear", slope: r2(slope), intercept: r2(intercept), forecast };
+}
 // ── STOCK LEDGER (ERP inventory foundation) ──────────────────────────────────────
 // Append-only movement log per item+location: on-hand = Σ(signed qty). Reservations
 // earmark stock without moving it (available = on-hand − active reservations). The
@@ -3749,6 +3785,9 @@ async function ensureStock(env, uuid) {
   if (_stockReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, kind TEXT, ref TEXT, unit_cost_c INTEGER, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_reservations (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, ref TEXT, status TEXT NOT NULL DEFAULT 'active', created_by INTEGER, created_at TEXT, released_at TEXT)");
+  try { await cfD1Query(env, uuid, "ALTER TABLE _stock_moves ADD COLUMN lot TEXT"); } catch {} // batch/serial dimension (a serial = a lot of qty 1)
+  try { await cfD1Query(env, uuid, "ALTER TABLE _stock_moves ADD COLUMN expiry TEXT"); } catch {} // lot expiry date (FEFO / expiring-soon)
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sm_lot ON _stock_moves (item, location, lot)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sm_il ON _stock_moves (item, location)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sr_il ON _stock_reservations (item, location, status)"); } catch {}
   _stockReady.add(uuid);
@@ -3776,17 +3815,44 @@ async function postStockMove(env, uuid, data, userId) {
   const kind = data.kind != null ? String(data.kind).slice(0, 24) : (qty > 0 ? "receipt" : "issue");
   const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
   const cost = data.unit_cost != null && data.unit_cost !== "" ? toCents(data.unit_cost) : null;
+  const lot = data.lot != null && data.lot !== "" ? String(data.lot).slice(0, 80) : null; // batch/serial
+  const expiry = /^\d{4}-\d{2}-\d{2}/.test(String(data.expiry || "")) ? String(data.expiry).slice(0, 10) : null;
   const now = new Date().toISOString();
   let ins;
   if (qty < 0 && !data.allowNegative) {
-    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) SELECT ?,?,?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) + ? >= 0 RETURNING id",
-      [item, location, qty, kind, ref, cost, userId || null, now, item, location, qty]);
-    if (!ins[0]) return { err: "insufficient stock", code: "stock" };
+    // Guard against negative on-hand — scoped to the LOT when one is given (can't issue more
+    // of a specific batch than that batch holds), else to the whole item+location balance.
+    const guardSql = lot ? "(SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=? AND lot=?) + ? >= 0" : "(SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) + ? >= 0";
+    const guardParams = lot ? [item, location, lot, qty] : [item, location, qty];
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,lot,expiry,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE " + guardSql + " RETURNING id",
+      [item, location, qty, kind, ref, cost, lot, expiry, userId || null, now].concat(guardParams));
+    if (!ins[0]) return { err: lot ? "insufficient stock in lot " + lot : "insufficient stock", code: "stock" };
   } else {
-    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id",
-      [item, location, qty, kind, ref, cost, userId || null, now]);
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,lot,expiry,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id",
+      [item, location, qty, kind, ref, cost, lot, expiry, userId || null, now]);
   }
-  return { move: { id: ins[0] && ins[0].id, item, location, qty: qty / 1000, kind, ref, unit_cost: cost == null ? null : cost / 100 }, level: await stockLevel(env, uuid, item, location) };
+  return { move: { id: ins[0] && ins[0].id, item, location, qty: qty / 1000, kind, ref, lot, expiry, unit_cost: cost == null ? null : cost / 100 }, level: await stockLevel(env, uuid, item, location) };
+}
+// On-hand per lot (item[, location]), with expiry. `expiring_before` filters to lots that
+// expire on/before a date; on-hand > 0 only. Ordered earliest-expiry first (FEFO).
+async function stockLots(env, uuid, filter) {
+  await ensureStock(env, uuid);
+  const where = ["lot IS NOT NULL"]; const params = [];
+  if (filter.item) { where.push("item=?"); params.push(filter.item); }
+  if (filter.location) { where.push("location=?"); params.push(filter.location); }
+  const rows = await cfD1Query(env, uuid, "SELECT item, location, lot, MAX(expiry) AS expiry, SUM(qty_m) AS oh FROM _stock_moves WHERE " + where.join(" AND ") + " GROUP BY item, location, lot HAVING SUM(qty_m) > 0 ORDER BY (expiry IS NULL), expiry, item, lot LIMIT 5000", params);
+  let out = rows.map((r) => ({ item: r.item, location: r.location, lot: r.lot, expiry: r.expiry, on_hand: (r.oh || 0) / 1000 }));
+  if (filter.expiringBefore) out = out.filter((l) => l.expiry && l.expiry <= filter.expiringBefore);
+  return out;
+}
+// Reorder rules — per item+location min (reorder point) + how much to reorder. Powers the
+// replenishment report: items whose AVAILABLE has fallen to/below the point, with a
+// suggested order qty (to `target` if set, else a fixed `reorder_qty`, else back to point).
+const _reorderReady = new Set();
+async function ensureReorder(env, uuid) {
+  if (_reorderReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reorder_rules (item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', point_m INTEGER NOT NULL, qty_m INTEGER, target_m INTEGER, supplier TEXT, PRIMARY KEY (item, location))");
+  _reorderReady.add(uuid);
 }
 // Reserve stock — earmarks qty against availability (on-hand − active reservations),
 // refused atomically if it would oversell. Returns the reservation.
@@ -3920,6 +3986,92 @@ async function postLeave(env, uuid, data, userId) {
     ins = await cfD1Query(env, uuid, "INSERT INTO _leave_ledger (employee,leave_type,days_m,kind,ref,note,entry_date,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id", cols);
   }
   return { id: ins[0] && ins[0].id, employee, leave_type: leaveType, days: days / 1000, kind, balance: await leaveBalance(env, uuid, employee, leaveType) };
+}
+// ── SCHEDULING / BOOKINGS (appointments, interviews, rooms, rentals) ──────────────
+// A booking claims a time window on a resource. Two active bookings on the SAME resource
+// can never overlap — enforced ATOMICALLY in one statement (INSERT … WHERE NOT EXISTS
+// overlapping), so concurrent requests can't double-book. Datetimes are normalized to UTC
+// ISO (fixed length) so they compare lexically. Availability generates free slots.
+const _bookingsReady = new Set();
+async function ensureBookings(env, uuid) {
+  if (_bookingsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, resource TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'booked', party TEXT, ref TEXT, note TEXT, owner_id INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_bk_res ON _bookings (resource, status, start_at)"); } catch {}
+  _bookingsReady.add(uuid);
+}
+const _normDT = (v) => { const ts = Date.parse(String(v == null ? "" : v)); return Number.isFinite(ts) ? new Date(ts).toISOString() : null; };
+// Book a slot. Returns {booking} or {err, code:'conflict'} if it overlaps an active booking.
+async function postBooking(env, uuid, data, userId) {
+  await ensureBookings(env, uuid);
+  const resource = String(data.resource == null ? "" : data.resource).trim(); if (!resource || resource.length > 80) return { err: "resource is required (≤80 chars)" };
+  const start = _normDT(data.start), end = _normDT(data.end);
+  if (!start || !end) return { err: "start and end must be valid datetimes" };
+  if (!(start < end)) return { err: "end must be after start" };
+  const now = new Date().toISOString();
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _bookings (resource,start_at,end_at,status,party,ref,note,owner_id,created_at) SELECT ?,?,?, 'booked', ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM _bookings WHERE resource=? AND status='booked' AND start_at < ? AND ? < end_at) RETURNING id",
+    [resource, start, end, data.party != null ? String(data.party).slice(0, 200) : null, data.ref != null ? String(data.ref).slice(0, 120) : null, data.note != null ? String(data.note).slice(0, 500) : null, userId || null, now, resource, end, start]);
+  if (!ins[0]) return { err: "that time is already booked", code: "conflict" };
+  return { booking: { id: ins[0].id, resource, start: start, end: end, status: "booked", party: data.party || null } };
+}
+// ── EFFECTIVE-DATED / TEMPORAL RECORDS (HCM comp/position history, price history) ──
+// Track a value that CHANGES OVER TIME for a (subject, attribute) pair, and answer "what
+// was it AS OF date X" = the row with the greatest effective_date on/before X. A snapshot
+// gives every subject's value as of one date (e.g. everyone's salary on a pay date).
+const _effReady = new Set();
+async function ensureEffective(env, uuid) {
+  if (_effReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _effective_values (id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL, attribute TEXT NOT NULL, effective_date TEXT NOT NULL, value TEXT, note TEXT, created_by INTEGER, created_at TEXT, UNIQUE(subject, attribute, effective_date))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ev_sa ON _effective_values (attribute, subject, effective_date)"); } catch {}
+  _effReady.add(uuid);
+}
+const _parseJSON = (s) => { if (s == null) return null; try { return JSON.parse(s); } catch { return s; } };
+// LMS progress: a course's ordered items (+ optional prereq) and each learner's completion.
+const _progressReady = new Set();
+async function ensureProgress(env, uuid) {
+  if (_progressReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _courses (course TEXT PRIMARY KEY, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _course_items (course TEXT NOT NULL, item TEXT NOT NULL, sort INTEGER, prereq TEXT, PRIMARY KEY (course, item))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _progress (learner TEXT NOT NULL, course TEXT NOT NULL, item TEXT NOT NULL, score REAL, completed_at TEXT, PRIMARY KEY (learner, course, item))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_prog_cl ON _progress (course, learner)"); } catch {}
+  _progressReady.add(uuid);
+}
+// Quizzes: server-side answer keys (never returned to takers) + auto-grading + attempts.
+const _quizReady = new Set();
+async function ensureQuiz(env, uuid) {
+  if (_quizReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quizzes (quiz TEXT PRIMARY KEY, pass_pct REAL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quiz_questions (quiz TEXT NOT NULL, qid TEXT NOT NULL, answer TEXT, points REAL NOT NULL DEFAULT 1, PRIMARY KEY (quiz, qid))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quiz_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, quiz TEXT NOT NULL, learner TEXT NOT NULL, score REAL, max REAL, percent REAL, passed INTEGER, at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_qa_ql ON _quiz_attempts (quiz, learner)"); } catch {}
+  _quizReady.add(uuid);
+}
+// i18n: per-(namespace,key,locale) translations with default-locale fallback. Public read.
+const _i18nReady = new Set();
+async function ensureI18n(env, uuid) {
+  if (_i18nReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _translations (namespace TEXT NOT NULL DEFAULT 'default', key TEXT NOT NULL, locale TEXT NOT NULL, value TEXT, PRIMARY KEY (namespace, key, locale))");
+  _i18nReady.add(uuid);
+}
+const _i18nNs = (v) => { const s = String(v == null || v === "" ? "default" : v).toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60); return s || "default"; };
+const _i18nLoc = (v) => { const s = String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 16); return s || null; };
+// Time & attendance: clock in opens a shift, clock out closes it (computing minutes). An
+// employee can't have two open shifts (atomic guard). Summary totals worked hours.
+const _timeReady = new Set();
+async function ensureTimeclock(env, uuid) {
+  if (_timeReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _time_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, employee TEXT NOT NULL, clock_in TEXT NOT NULL, clock_out TEXT, minutes INTEGER, note TEXT, created_by INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_te_emp ON _time_entries (employee, clock_in)"); } catch {}
+  _timeReady.add(uuid);
+}
+// Grade a submitted answer against a key. Case/whitespace-insensitive; a key that's an array
+// accepts any-of (scalar answer) or exact-set (array answer) for multi-select.
+function quizCorrect(key, ans) {
+  const norm = (v) => String(v).trim().toLowerCase();
+  if (Array.isArray(key)) {
+    if (Array.isArray(ans)) { const a = ans.map(norm).sort(); const k = key.map(norm).sort(); return a.length === k.length && a.every((x, i) => x === k[i]); }
+    return ans != null && key.map(norm).includes(norm(ans));
+  }
+  return ans != null && !Array.isArray(ans) && norm(ans) === norm(key);
 }
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
@@ -9471,10 +9623,11 @@ async function handleRequest(request, env, ctx) {
       // FINANCE CALCULATORS (ERP) — stateless, touch no data (any signed-in member).
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation)$/i);
+      //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
-        const slug = fcm[1].toLowerCase();
+        const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -9485,7 +9638,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = depreciationSchedule(body);
+        const res = calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }
@@ -9542,6 +9695,518 @@ async function handleRequest(request, env, ctx) {
           if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
           return Response.json(Object.assign({ ok: true }, res));
         } catch (e) { console.error("leave failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leave failed" }, { status: 502 }); }
+      }
+      // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
+      // signed-in member books (owner-stamped); admin sees/manages all, members their own.
+      //   POST /api/db/<slug>/bookings {resource, start, end, party?, ref?, note?}  → book (409 if it overlaps)
+      //   GET  /api/db/<slug>/bookings[?resource=&from=&to=&status=]                → list (admin: all; member: own)
+      //   GET  /api/db/<slug>/bookings/availability?resource=&from=&to=&slot=<min>[&step=] → free slots
+      //   GET  /api/db/<slug>/bookings/<id>                → one (owner/admin)
+      //   POST /api/db/<slug>/bookings/<id>/cancel         → free the slot (owner/admin)
+      //   DELETE /api/db/<slug>/bookings/<id>              → remove (owner/admin)
+      const bkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/bookings(?:\/(availability|\d+)(?:\/(cancel))?)?$/i);
+      if (bkm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bkm[1].toLowerCase(), seg = bkm[2] || null, act = bkm[3] ? bkm[3].toLowerCase() : null;
+        const bkId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isAvail = seg === "availability";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureBookings(env, uuid);
+          const role = ((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role || "user";
+          const isAdmin = role === "admin";
+          const rd = () => rateOk(slug + "|" + ip + "|bkr", 300), wr = () => rateOk(slug + "|" + ip + "|bkw", 120);
+          if (isAvail) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const resource = String(url.searchParams.get("resource") || "").trim();
+            const from = _normDT(url.searchParams.get("from")), to = _normDT(url.searchParams.get("to"));
+            const slotMin = parseInt(url.searchParams.get("slot") || "30", 10); const stepMin = parseInt(url.searchParams.get("step") || String(slotMin || 30), 10);
+            if (!resource || !from || !to) return Response.json({ ok: false, error: "resource, from and to are required" }, { status: 400 });
+            if (!(slotMin > 0) || !(stepMin > 0)) return Response.json({ ok: false, error: "slot/step must be positive minutes" }, { status: 400 });
+            const busy = await cfD1Query(env, uuid, "SELECT start_at, end_at FROM _bookings WHERE resource=? AND status='booked' AND start_at < ? AND ? < end_at", [resource, to, from]);
+            const slots = []; const fromMs = Date.parse(from), toMs = Date.parse(to), slotMs = slotMin * 60000, stepMs = stepMin * 60000;
+            for (let s = fromMs; s + slotMs <= toMs && slots.length < 500; s += stepMs) {
+              const e = s + slotMs; const sI = new Date(s).toISOString(), eI = new Date(e).toISOString();
+              if (!busy.some((b) => Date.parse(b.start_at) < e && s < Date.parse(b.end_at))) slots.push({ start: sI, end: eI });
+            }
+            return Response.json({ ok: true, resource, slot_minutes: slotMin, slots });
+          }
+          if (bkId && act === "cancel") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT owner_id, status FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            await cfD1Query(env, uuid, "UPDATE _bookings SET status='cancelled' WHERE id=?", [bkId]);
+            return Response.json({ ok: true, id: bkId, status: "cancelled" });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (bkId && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT * FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            return Response.json({ ok: true, booking: { id: b.id, resource: b.resource, start: b.start_at, end: b.end_at, status: b.status, party: b.party, ref: b.ref, note: b.note, owner_id: b.owner_id, created_at: b.created_at } });
+          }
+          if (bkId && request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT owner_id FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            await cfD1Query(env, uuid, "DELETE FROM _bookings WHERE id=?", [bkId]);
+            return Response.json({ ok: true, id: bkId, deleted: true });
+          }
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            if (!isAdmin) { where.push("owner_id=?"); params.push(userId); }
+            const resource = (url.searchParams.get("resource") || "").trim(); if (resource) { where.push("resource=?"); params.push(resource); }
+            const st = (url.searchParams.get("status") || "").toLowerCase().replace(/[^a-z]/g, ""); if (st) { where.push("status=?"); params.push(st); }
+            const from = _normDT(url.searchParams.get("from")); if (from) { where.push("end_at > ?"); params.push(from); }
+            const to = _normDT(url.searchParams.get("to")); if (to) { where.push("start_at < ?"); params.push(to); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "200", 10) || 200));
+            const rows = await cfD1Query(env, uuid, "SELECT id, resource, start_at, end_at, status, party, ref, owner_id FROM _bookings" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY start_at LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, bookings: rows.map((b) => ({ id: b.id, resource: b.resource, start: b.start_at, end: b.end_at, status: b.status, party: b.party, ref: b.ref, owner_id: b.owner_id })) });
+          }
+          // POST — book a slot
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const res = await postBooking(env, uuid, body, userId);
+          if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "conflict" ? 409 : 400 });
+          return Response.json({ ok: true, booking: res.booking });
+        } catch (e) { console.error("bookings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bookings failed" }, { status: 502 }); }
+      }
+      // EFFECTIVE-DATED RECORDS (HCM/pricing history) — a value that changes over time; query
+      // it "as of" any date. ADMIN-gated. `value` is any JSON.
+      //   POST   /api/db/<slug>/effective {subject, attribute, effective_date, value, note?}  → record a change
+      //   GET    /api/db/<slug>/effective?subject=&attribute=&as_of=   → value as of a date (omit as_of → full history)
+      //   GET    /api/db/<slug>/effective/snapshot?attribute=&as_of=   → every subject's value as of a date
+      //   DELETE /api/db/<slug>/effective/<id>                         → remove one dated entry
+      const efm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/effective(?:\/(snapshot|\d+))?$/i);
+      if (efm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = efm[1].toLowerCase(), seg = efm[2] || null;
+        const evId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isSnap = seg === "snapshot";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureEffective(env, uuid);
+          const dateOf = (v) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null; };
+          if (isSnap) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|effr", 300)) return tooMany();
+            const attribute = String(url.searchParams.get("attribute") || "").trim();
+            if (!attribute) return Response.json({ ok: false, error: "attribute required" }, { status: 400 });
+            const asOf = dateOf(url.searchParams.get("as_of")) || new Date().toISOString().slice(0, 10);
+            const rows = await cfD1Query(env, uuid, "SELECT ev.subject, ev.value, ev.effective_date FROM _effective_values ev JOIN (SELECT subject, MAX(effective_date) AS md FROM _effective_values WHERE attribute=? AND effective_date<=? GROUP BY subject) m ON ev.subject=m.subject AND ev.effective_date=m.md AND ev.attribute=? ORDER BY ev.subject LIMIT 10000", [attribute, asOf, attribute]);
+            return Response.json({ ok: true, attribute, as_of: asOf, values: rows.map((r) => ({ subject: r.subject, value: _parseJSON(r.value), effective_date: r.effective_date })) });
+          }
+          if (evId && request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|effw", 60)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _effective_values WHERE id=?", [evId]);
+            return ex.changes > 0 ? Response.json({ ok: true, id: evId, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|effr", 300)) return tooMany();
+            const subject = String(url.searchParams.get("subject") || "").trim();
+            const attribute = String(url.searchParams.get("attribute") || "").trim();
+            if (!subject || !attribute) return Response.json({ ok: false, error: "subject and attribute are required" }, { status: 400 });
+            const asOf = dateOf(url.searchParams.get("as_of"));
+            if (asOf) {
+              const r = await cfD1Query(env, uuid, "SELECT value, effective_date FROM _effective_values WHERE subject=? AND attribute=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1", [subject, attribute, asOf]);
+              return Response.json({ ok: true, subject, attribute, as_of: asOf, value: r[0] ? _parseJSON(r[0].value) : null, effective_date: r[0] ? r[0].effective_date : null });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT id, effective_date, value, note FROM _effective_values WHERE subject=? AND attribute=? ORDER BY effective_date DESC LIMIT 5000", [subject, attribute]);
+            return Response.json({ ok: true, subject, attribute, history: rows.map((r) => ({ id: r.id, effective_date: r.effective_date, value: _parseJSON(r.value), note: r.note })) });
+          }
+          // POST — record a dated value (upsert on subject+attribute+date)
+          if (!rateOk(slug + "|" + ip + "|effw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const subject = String(body.subject || "").trim(); const attribute = String(body.attribute || "").trim();
+          const eff = dateOf(body.effective_date);
+          if (!subject || !attribute) return Response.json({ ok: false, error: "subject and attribute are required" }, { status: 400 });
+          if (!eff) return Response.json({ ok: false, error: "effective_date must be a date (YYYY-MM-DD)" }, { status: 400 });
+          if (body.value === undefined) return Response.json({ ok: false, error: "value is required" }, { status: 400 });
+          await cfD1Query(env, uuid, "INSERT INTO _effective_values (subject, attribute, effective_date, value, note, created_by, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(subject, attribute, effective_date) DO UPDATE SET value=excluded.value, note=excluded.note", [subject, attribute, eff, JSON.stringify(body.value), body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString()]);
+          return Response.json({ ok: true, subject, attribute, effective_date: eff, value: body.value });
+        } catch (e) { console.error("effective failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "effective failed" }, { status: 502 }); }
+      }
+      // PROGRESS / COMPLETION TRACKING (LMS) — a course's items, a learner's completion %, and
+      // prerequisite gating. Course def is ADMIN; a signed-in member records/reads their OWN
+      // progress (admin can act for any `learner`).
+      //   POST   /api/db/<slug>/courses/<course> {items:[{item, prereq?, sort?}]}   (admin) → define/replace
+      //   GET    /api/db/<slug>/courses[/<course>]                                  → list / one definition
+      //   DELETE /api/db/<slug>/courses/<course>                                    (admin) → remove
+      //   POST   /api/db/<slug>/courses/<course>/complete {item, learner?, score?}  → mark done (409 if prereq unmet)
+      //   POST   /api/db/<slug>/courses/<course>/reset {item?, learner?}            → un-complete an item / whole course
+      //   GET    /api/db/<slug>/courses/<course>/progress[?learner=]                → {completed, total, percent, items}
+      const csm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/courses(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(complete|reset|progress))?)?$/i);
+      if (csm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = csm[1].toLowerCase(), course = csm[2] || null, act = csm[3] ? csm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureProgress(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|csr", 300), wr = () => rateOk(slug + "|" + ip + "|csw", 120);
+          // Resolve whose progress we're touching: your own, unless an admin names a learner.
+          const learnerOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (act === "progress") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const learner = learnerOf(url.searchParams.get("learner")); if (!learner) return Response.json({ ok: false, error: "you can only view your own progress" }, { status: 403 });
+            const items = await cfD1Query(env, uuid, "SELECT item, sort, prereq FROM _course_items WHERE course=? ORDER BY sort, item", [course]);
+            if (!items.length) return Response.json({ ok: false, error: "no such course" }, { status: 404 });
+            const done = new Map((await cfD1Query(env, uuid, "SELECT item, score, completed_at FROM _progress WHERE course=? AND learner=?", [course, learner])).map((r) => [r.item, r]));
+            const out = items.map((i) => ({ item: i.item, done: done.has(i.item), score: done.has(i.item) ? done.get(i.item).score : null, completed_at: done.has(i.item) ? done.get(i.item).completed_at : null, prereq: i.prereq || null }));
+            const completed = out.filter((x) => x.done).length;
+            return Response.json({ ok: true, course, learner, completed, total: items.length, percent: items.length ? Math.round((completed / items.length) * 1000) / 10 : 0, items: out });
+          }
+          if (act === "complete") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only record your own progress" }, { status: 403 });
+            const item = String(body.item || "").trim(); if (!item) return Response.json({ ok: false, error: "item is required" }, { status: 400 });
+            const def = (await cfD1Query(env, uuid, "SELECT prereq FROM _course_items WHERE course=? AND item=?", [course, item]))[0];
+            if (!def) return Response.json({ ok: false, error: "no such item in this course" }, { status: 404 });
+            if (def.prereq) { const p = await cfD1Query(env, uuid, "SELECT 1 FROM _progress WHERE course=? AND learner=? AND item=?", [course, learner, def.prereq]); if (!p[0]) return Response.json({ ok: false, error: "complete the prerequisite '" + def.prereq + "' first", code: "prereq", prereq: def.prereq }, { status: 409 }); }
+            const score = body.score != null && body.score !== "" && Number.isFinite(Number(body.score)) ? Number(body.score) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _progress (learner, course, item, score, completed_at) VALUES (?,?,?,?,?) ON CONFLICT(learner, course, item) DO UPDATE SET score=excluded.score, completed_at=excluded.completed_at", [learner, course, item, score, new Date().toISOString()]);
+            const total = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _course_items WHERE course=?", [course]))[0] || {}).n || 0;
+            const completed = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _progress p JOIN _course_items ci ON ci.course=p.course AND ci.item=p.item WHERE p.course=? AND p.learner=?", [course, learner]))[0] || {}).n || 0;
+            return Response.json({ ok: true, course, learner, item, completed, total, percent: total ? Math.round((completed / total) * 1000) / 10 : 0 });
+          }
+          if (act === "reset") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only reset your own progress" }, { status: 403 });
+            if (body.item) await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=? AND learner=? AND item=?", [course, learner, String(body.item).slice(0, 80)]);
+            else await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=? AND learner=?", [course, learner]);
+            return Response.json({ ok: true, course, learner, reset: body.item ? String(body.item) : "all" });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          // ── course definition CRUD ──
+          if (course && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const items = await cfD1Query(env, uuid, "SELECT item, sort, prereq FROM _course_items WHERE course=? ORDER BY sort, item", [course]);
+            if (!items.length) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            return Response.json({ ok: true, course, items: items.map((i) => ({ item: i.item, sort: i.sort, prereq: i.prereq || null })) });
+          }
+          if (!course && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT course, COUNT(*) AS n FROM _course_items GROUP BY course ORDER BY course LIMIT 5000");
+            return Response.json({ ok: true, courses: rows.map((r) => ({ course: r.course, item_count: r.n })) });
+          }
+          // POST/DELETE course definition → admin only
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            if (!course) return Response.json({ ok: false, error: "course required" }, { status: 400 });
+            await cfD1Query(env, uuid, "DELETE FROM _course_items WHERE course=?", [course]);
+            await cfD1Query(env, uuid, "DELETE FROM _progress WHERE course=?", [course]);
+            return Response.json({ ok: true, course, deleted: true });
+          }
+          if (!course) return Response.json({ ok: false, error: "course name required in the path" }, { status: 400 });
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.items) || !body.items.length) return Response.json({ ok: false, error: "items:[{item, prereq?}] is required" }, { status: 400 });
+          if (body.items.length > 1000) return Response.json({ ok: false, error: "too many items (max 1000)" }, { status: 400 });
+          const seen = new Set(); const defs = [];
+          for (let i = 0; i < body.items.length; i++) {
+            const it = body.items[i]; const name = String((it && it.item != null ? it.item : it) || "").trim();
+            if (!name || name.length > 80) return Response.json({ ok: false, error: "item " + (i + 1) + " needs a name (≤80)" }, { status: 400 });
+            if (seen.has(name)) return Response.json({ ok: false, error: "duplicate item " + name }, { status: 400 });
+            seen.add(name); defs.push({ item: name, sort: (it && Number.isFinite(Number(it.sort))) ? Number(it.sort) : i, prereq: (it && it.prereq != null && it.prereq !== "") ? String(it.prereq).slice(0, 80) : null });
+          }
+          for (const d of defs) if (d.prereq && !seen.has(d.prereq)) return Response.json({ ok: false, error: "prereq '" + d.prereq + "' isn't an item in this course" }, { status: 400 });
+          await cfD1Query(env, uuid, "DELETE FROM _course_items WHERE course=?", [course]);
+          await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _courses (course, created_at) VALUES (?,?)", [course, new Date().toISOString()]);
+          for (const d of defs) await cfD1Query(env, uuid, "INSERT INTO _course_items (course, item, sort, prereq) VALUES (?,?,?,?)", [course, d.item, d.sort, d.prereq]);
+          return Response.json({ ok: true, course, items: defs.length });
+        } catch (e) { console.error("courses failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "courses failed" }, { status: 502 }); }
+      }
+      // QUIZ / ASSESSMENT AUTO-GRADING (LMS) — server-side answer keys (never shown to takers)
+      // + auto-grading + attempt history. Define = ADMIN; grade = any signed-in member.
+      //   POST   /api/db/<slug>/quizzes/<quiz> {questions:[{qid, answer, points?}], pass_pct?}  (admin) → define
+      //   GET    /api/db/<slug>/quizzes[/<quiz>]   → list / one (answers only shown to admin)
+      //   DELETE /api/db/<slug>/quizzes/<quiz>     (admin)
+      //   POST   /api/db/<slug>/quizzes/<quiz>/grade {answers:{qid:answer}, learner?} → {score, max, percent, passed, results}
+      //   GET    /api/db/<slug>/quizzes/<quiz>/attempts[?learner=]  → attempt history
+      const qzm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/quizzes(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(grade|attempts))?)?$/i);
+      if (qzm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qzm[1].toLowerCase(), quiz = qzm[2] || null, act = qzm[3] ? qzm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureQuiz(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|qzr", 300), wr = () => rateOk(slug + "|" + ip + "|qzw", 120);
+          const learnerOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (act === "grade") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only submit as yourself" }, { status: 403 });
+            const answers = (body.answers && typeof body.answers === "object") ? body.answers : {};
+            const qs = await cfD1Query(env, uuid, "SELECT qid, answer, points FROM _quiz_questions WHERE quiz=?", [quiz]);
+            if (!qs.length) return Response.json({ ok: false, error: "no such quiz" }, { status: 404 });
+            const meta = (await cfD1Query(env, uuid, "SELECT pass_pct FROM _quizzes WHERE quiz=?", [quiz]))[0] || {};
+            let score = 0, max = 0; const results = [];
+            for (const q of qs) { const key = _parseJSON(q.answer); const pts = q.points || 0; max += pts; const ok = quizCorrect(key, answers[q.qid]); if (ok) score += pts; results.push({ qid: q.qid, correct: ok }); }
+            const percent = max ? Math.round((score / max) * 1000) / 10 : 0;
+            const passPct = meta.pass_pct != null ? meta.pass_pct : null;
+            const passed = passPct != null ? percent >= passPct : null;
+            await cfD1Query(env, uuid, "INSERT INTO _quiz_attempts (quiz, learner, score, max, percent, passed, at) VALUES (?,?,?,?,?,?,?)", [quiz, learner, score, max, percent, passed == null ? null : (passed ? 1 : 0), new Date().toISOString()]);
+            return Response.json({ ok: true, quiz, learner, score, max, percent, passed, results });
+          }
+          if (act === "attempts") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const learner = learnerOf(url.searchParams.get("learner")); if (!learner) return Response.json({ ok: false, error: "you can only view your own attempts" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, score, max, percent, passed, at FROM _quiz_attempts WHERE quiz=? AND learner=? ORDER BY id DESC LIMIT 200", [quiz, learner]);
+            return Response.json({ ok: true, quiz, learner, attempts: rows.map((r) => ({ id: r.id, score: r.score, max: r.max, percent: r.percent, passed: r.passed == null ? null : !!r.passed, at: r.at })) });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (quiz && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const qs = await cfD1Query(env, uuid, "SELECT qid, answer, points FROM _quiz_questions WHERE quiz=? ORDER BY qid", [quiz]);
+            if (!qs.length) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const meta = (await cfD1Query(env, uuid, "SELECT pass_pct FROM _quizzes WHERE quiz=?", [quiz]))[0] || {};
+            // Answers are ONLY exposed to an admin — a taker gets qids + points only.
+            return Response.json({ ok: true, quiz, pass_pct: meta.pass_pct != null ? meta.pass_pct : null, questions: qs.map((q) => isAdmin ? { qid: q.qid, answer: _parseJSON(q.answer), points: q.points } : { qid: q.qid, points: q.points }) });
+          }
+          if (!quiz && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT quiz, COUNT(*) AS n FROM _quiz_questions GROUP BY quiz ORDER BY quiz LIMIT 5000");
+            return Response.json({ ok: true, quizzes: rows.map((r) => ({ quiz: r.quiz, question_count: r.n })) });
+          }
+          // POST/DELETE define → admin only
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            if (!quiz) return Response.json({ ok: false, error: "quiz required" }, { status: 400 });
+            await cfD1Query(env, uuid, "DELETE FROM _quiz_questions WHERE quiz=?", [quiz]);
+            await cfD1Query(env, uuid, "DELETE FROM _quizzes WHERE quiz=?", [quiz]);
+            return Response.json({ ok: true, quiz, deleted: true });
+          }
+          if (!quiz) return Response.json({ ok: false, error: "quiz name required in the path" }, { status: 400 });
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.questions) || !body.questions.length) return Response.json({ ok: false, error: "questions:[{qid, answer, points?}] is required" }, { status: 400 });
+          if (body.questions.length > 1000) return Response.json({ ok: false, error: "too many questions (max 1000)" }, { status: 400 });
+          const seen = new Set(); const qdefs = [];
+          for (let i = 0; i < body.questions.length; i++) {
+            const q = body.questions[i] || {}; const qid = String(q.qid != null ? q.qid : (i + 1)).trim();
+            if (!qid || qid.length > 80) return Response.json({ ok: false, error: "question " + (i + 1) + " needs a qid" }, { status: 400 });
+            if (seen.has(qid)) return Response.json({ ok: false, error: "duplicate qid " + qid }, { status: 400 });
+            if (q.answer === undefined) return Response.json({ ok: false, error: "question " + qid + " needs an answer" }, { status: 400 });
+            seen.add(qid); qdefs.push({ qid, answer: JSON.stringify(q.answer), points: Number.isFinite(Number(q.points)) && Number(q.points) > 0 ? Number(q.points) : 1 });
+          }
+          const passPct = Number.isFinite(Number(body.pass_pct)) ? Math.max(0, Math.min(100, Number(body.pass_pct))) : null;
+          await cfD1Query(env, uuid, "DELETE FROM _quiz_questions WHERE quiz=?", [quiz]);
+          await cfD1Query(env, uuid, "INSERT INTO _quizzes (quiz, pass_pct, created_at) VALUES (?,?,?) ON CONFLICT(quiz) DO UPDATE SET pass_pct=excluded.pass_pct", [quiz, passPct, new Date().toISOString()]);
+          for (const q of qdefs) await cfD1Query(env, uuid, "INSERT INTO _quiz_questions (quiz, qid, answer, points) VALUES (?,?,?,?)", [quiz, q.qid, q.answer, q.points]);
+          return Response.json({ ok: true, quiz, questions: qdefs.length, pass_pct: passPct });
+        } catch (e) { console.error("quizzes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quizzes failed" }, { status: 502 }); }
+      }
+      // LOCALIZATION / i18n (CMS) — the same string/content in many languages, with fallback.
+      // Reads are PUBLIC (a multilingual site renders to anonymous visitors, like /config);
+      // writes are ADMIN. A `fallback` locale fills any key missing in the requested locale.
+      //   GET    /api/db/<slug>/i18n?namespace=&locale=<l>[&fallback=<l>]   → {values:{key:string}} (public)
+      //   GET    /api/db/<slug>/i18n/<key>?namespace=&locale=[&fallback=]   → {value} (public)
+      //   GET    /api/db/<slug>/i18n/locales[?namespace=]                   → the locales that exist (public)
+      //   POST   /api/db/<slug>/i18n {namespace?, locale, entries:{key:value}}  OR  {namespace?, key, locale, value}  (admin)
+      //   DELETE /api/db/<slug>/i18n/<key>?namespace=&locale=              (admin)
+      const i18m = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/i18n(?:\/(locales|[A-Za-z0-9_.:-]{1,120}))?$/i);
+      if (i18m && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = i18m[1].toLowerCase(), seg = i18m[2] || null, isLocales = seg === "locales", key = (seg && !isLocales) ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          await ensureI18n(env, uuid);
+          const ns = _i18nNs(url.searchParams.get("namespace"));
+          // READS — public, no auth.
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|i18r", 600)) return tooMany();
+            if (isLocales) {
+              const rows = await cfD1Query(env, uuid, "SELECT DISTINCT locale FROM _translations WHERE namespace=? ORDER BY locale LIMIT 500", [ns]);
+              return Response.json({ ok: true, namespace: ns, locales: rows.map((r) => r.locale) });
+            }
+            const locale = _i18nLoc(url.searchParams.get("locale")); if (!locale) return Response.json({ ok: false, error: "locale is required" }, { status: 400 });
+            const fb = _i18nLoc(url.searchParams.get("fallback"));
+            const locs = fb && fb !== locale ? [fb, locale] : [locale]; // fallback first, requested overrides
+            if (key) {
+              const rows = await cfD1Query(env, uuid, "SELECT locale, value FROM _translations WHERE namespace=? AND key=? AND locale IN (" + locs.map(() => "?").join(",") + ")", [ns, key].concat(locs));
+              const byLoc = new Map(rows.map((r) => [r.locale, r.value]));
+              const value = byLoc.has(locale) ? byLoc.get(locale) : (fb ? byLoc.get(fb) : undefined);
+              return Response.json({ ok: true, namespace: ns, key, locale, value: value === undefined ? null : value });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT key, locale, value FROM _translations WHERE namespace=? AND locale IN (" + locs.map(() => "?").join(",") + ") LIMIT 20000", [ns].concat(locs));
+            const values = {};
+            for (const r of rows) if (r.locale === (fb || locale)) values[r.key] = r.value; // seed with fallback
+            for (const r of rows) if (r.locale === locale) values[r.key] = r.value;           // requested wins
+            return Response.json({ ok: true, namespace: ns, locale, fallback: fb || null, values });
+          }
+          // WRITES — admin.
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          if (!(((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|i18w", 120)) return tooMany();
+          if (request.method === "DELETE") {
+            if (!key) return Response.json({ ok: false, error: "key required in the path" }, { status: 400 });
+            const locale = _i18nLoc(url.searchParams.get("locale"));
+            if (locale) { const ex = await cfD1Exec(env, uuid, "DELETE FROM _translations WHERE namespace=? AND key=? AND locale=?", [ns, key, locale]); return Response.json({ ok: true, namespace: ns, key, locale, deleted: ex.changes || 0 }); }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _translations WHERE namespace=? AND key=?", [ns, key]); // all locales of the key
+            return Response.json({ ok: true, namespace: ns, key, deleted: ex.changes || 0 });
+          }
+          // POST — bulk (entries) or single (key+value)
+          let body = {}; try { body = await request.json(); } catch {}
+          const nsBody = _i18nNs(body.namespace != null ? body.namespace : url.searchParams.get("namespace"));
+          const locale = _i18nLoc(body.locale); if (!locale) return Response.json({ ok: false, error: "locale is required" }, { status: 400 });
+          let pairs = [];
+          if (body.entries && typeof body.entries === "object" && !Array.isArray(body.entries)) pairs = Object.entries(body.entries);
+          else if (body.key != null) pairs = [[String(body.key), body.value]];
+          else return Response.json({ ok: false, error: "provide entries:{key:value} or key+value" }, { status: 400 });
+          if (!pairs.length) return Response.json({ ok: false, error: "nothing to save" }, { status: 400 });
+          if (pairs.length > 5000) return Response.json({ ok: false, error: "too many entries (max 5000)" }, { status: 400 });
+          for (const [k, v] of pairs) { const kk = String(k).slice(0, 120); if (!kk) continue; await cfD1Query(env, uuid, "INSERT INTO _translations (namespace, key, locale, value) VALUES (?,?,?,?) ON CONFLICT(namespace, key, locale) DO UPDATE SET value=excluded.value", [nsBody, kk, locale, v == null ? null : String(v).slice(0, 20000)]); }
+          return Response.json({ ok: true, namespace: nsBody, locale, saved: pairs.length });
+        } catch (e) { console.error("i18n failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "i18n failed" }, { status: 502 }); }
+      }
+      // TIME & ATTENDANCE / CLOCK (HRMS) — clock in/out → worked hours. A signed-in member
+      // clocks themselves (employee = their id); an admin can act for any `employee`.
+      //   POST /api/db/<slug>/timeclock/in {employee?, at?, note?}   → open a shift (409 if already in)
+      //   POST /api/db/<slug>/timeclock/out {employee?, at?}         → close the open shift → {minutes}
+      //   POST /api/db/<slug>/timeclock/entry {employee?, clock_in, clock_out, note?}  (admin) → add a completed shift
+      //   GET  /api/db/<slug>/timeclock/status?employee=            → {clocked_in, since}
+      //   GET  /api/db/<slug>/timeclock/entries?employee=&from=&to= → shift history
+      //   GET  /api/db/<slug>/timeclock/summary?employee=&from=&to= → total hours (per employee if unscoped, admin)
+      const tcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/timeclock\/(in|out|entry|status|entries|summary)$/i);
+      if (tcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tcm[1].toLowerCase(), action = tcm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureTimeclock(env, uuid);
+          const empOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          const rd = () => rateOk(slug + "|" + ip + "|tcr", 300), wr = () => rateOk(slug + "|" + ip + "|tcw", 120);
+          if (action === "in") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = empOf(body.employee); if (!emp) return Response.json({ ok: false, error: "you can only clock yourself in" }, { status: 403 });
+            const at = _normDT(body.at) || new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _time_entries (employee, clock_in, note, created_by, created_at) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM _time_entries WHERE employee=? AND clock_out IS NULL) RETURNING id",
+              [emp, at, body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString(), emp]);
+            if (!ins[0]) return Response.json({ ok: false, error: "already clocked in", code: "open" }, { status: 409 });
+            return Response.json({ ok: true, id: ins[0].id, employee: emp, clock_in: at });
+          }
+          if (action === "out") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = empOf(body.employee); if (!emp) return Response.json({ ok: false, error: "you can only clock yourself out" }, { status: 403 });
+            const open = (await cfD1Query(env, uuid, "SELECT id, clock_in FROM _time_entries WHERE employee=? AND clock_out IS NULL ORDER BY id DESC LIMIT 1", [emp]))[0];
+            if (!open) return Response.json({ ok: false, error: "not clocked in", code: "not_open" }, { status: 409 });
+            const at = _normDT(body.at) || new Date().toISOString();
+            const mins = Math.max(0, Math.round((Date.parse(at) - Date.parse(open.clock_in)) / 60000));
+            await cfD1Query(env, uuid, "UPDATE _time_entries SET clock_out=?, minutes=? WHERE id=?", [at, mins, open.id]);
+            return Response.json({ ok: true, id: open.id, employee: emp, clock_in: open.clock_in, clock_out: at, minutes: mins, hours: Math.round((mins / 60) * 100) / 100 });
+          }
+          if (action === "entry") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = String(body.employee || "").trim(); const ci = _normDT(body.clock_in), co = _normDT(body.clock_out);
+            if (!emp) return Response.json({ ok: false, error: "employee required" }, { status: 400 });
+            if (!ci || !co) return Response.json({ ok: false, error: "clock_in and clock_out must be datetimes" }, { status: 400 });
+            if (!(ci < co)) return Response.json({ ok: false, error: "clock_out must be after clock_in" }, { status: 400 });
+            const mins = Math.round((Date.parse(co) - Date.parse(ci)) / 60000);
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _time_entries (employee, clock_in, clock_out, minutes, note, created_by, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [emp, ci, co, mins, body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, employee: emp, minutes: mins });
+          }
+          // reads
+          if (request.method !== "GET") return Response.json({ ok: false, error: "GET only" }, { status: 405 });
+          if (!rd()) return tooMany();
+          const fromB = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("from") || "")) ? url.searchParams.get("from").slice(0, 10) : null;
+          const toRaw = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("to") || "")) ? url.searchParams.get("to").slice(0, 10) : null;
+          const toB = toRaw ? toRaw + "T23:59:59.999Z" : null;
+          if (action === "status") {
+            const emp = empOf(url.searchParams.get("employee")); if (!emp) return Response.json({ ok: false, error: "you can only view your own status" }, { status: 403 });
+            const open = (await cfD1Query(env, uuid, "SELECT clock_in FROM _time_entries WHERE employee=? AND clock_out IS NULL ORDER BY id DESC LIMIT 1", [emp]))[0];
+            return Response.json({ ok: true, employee: emp, clocked_in: !!open, since: open ? open.clock_in : null });
+          }
+          if (action === "entries") {
+            const emp = empOf(url.searchParams.get("employee")); if (!emp) return Response.json({ ok: false, error: "you can only view your own entries" }, { status: 403 });
+            const where = ["employee=?"]; const params = [emp];
+            if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+            if (toB) { where.push("clock_in<=?"); params.push(toB); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, clock_in, clock_out, minutes, note FROM _time_entries WHERE " + where.join(" AND ") + " ORDER BY clock_in DESC LIMIT 1000", params);
+            return Response.json({ ok: true, employee: emp, entries: rows.map((r) => ({ id: r.id, clock_in: r.clock_in, clock_out: r.clock_out, minutes: r.minutes, hours: r.minutes == null ? null : Math.round((r.minutes / 60) * 100) / 100, note: r.note, open: r.clock_out == null })) });
+          }
+          // summary
+          const empParam = url.searchParams.get("employee");
+          if (empParam) {
+            const emp = empOf(empParam); if (!emp) return Response.json({ ok: false, error: "you can only view your own summary" }, { status: 403 });
+            const where = ["employee=?", "clock_out IS NOT NULL"]; const params = [emp];
+            if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+            if (toB) { where.push("clock_in<=?"); params.push(toB); }
+            const r = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(minutes),0) AS m, COUNT(*) AS n FROM _time_entries WHERE " + where.join(" AND "), params))[0] || {};
+            return Response.json({ ok: true, employee: emp, shifts: r.n || 0, minutes: r.m || 0, hours: Math.round(((r.m || 0) / 60) * 100) / 100 });
+          }
+          // no employee → everyone (admin only)
+          if (!isAdmin) return Response.json({ ok: false, error: "specify an employee (admins can omit it)" }, { status: 403 });
+          const where = ["clock_out IS NOT NULL"]; const params = [];
+          if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+          if (toB) { where.push("clock_in<=?"); params.push(toB); }
+          const rows = await cfD1Query(env, uuid, "SELECT employee, SUM(minutes) AS m, COUNT(*) AS n FROM _time_entries WHERE " + where.join(" AND ") + " GROUP BY employee ORDER BY employee LIMIT 5000", params);
+          return Response.json({ ok: true, summary: rows.map((r) => ({ employee: r.employee, shifts: r.n, minutes: r.m || 0, hours: Math.round(((r.m || 0) / 60) * 100) / 100 })) });
+        } catch (e) { console.error("timeclock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "timeclock failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
@@ -9768,7 +10433,7 @@ async function handleRequest(request, env, ctx) {
       //   GET  /api/db/<slug>/stock/reservations[?item=&location=&status=]  → reservations
       //   POST /api/db/<slug>/stock/reservations/<id>/release              → free a reservation
       //   POST /api/db/<slug>/stock/reservations/<id>/fulfill              → issue the reserved qty + close it
-      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|valuation|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
+      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|valuation|lots|allocate|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
       if (stm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = stm[1].toLowerCase(), resource = stm[2].toLowerCase(), resvId = stm[3] ? parseInt(stm[3], 10) : null, resvAct = stm[4] ? stm[4].toLowerCase() : null;
@@ -9858,6 +10523,28 @@ async function handleRequest(request, env, ctx) {
             const loc = url.searchParams.get("location");
             return Response.json(Object.assign({ ok: true }, await stockValuation(env, uuid, { item: item || null, location: loc ? _stockLoc(loc) : null })));
           }
+          if (resource === "lots") {
+            // On-hand per lot/batch (with expiry). `expiring_before=<date>` → an expiring-soon report.
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            const loc = url.searchParams.get("location");
+            const eb = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("expiring_before") || "")) ? url.searchParams.get("expiring_before").slice(0, 10) : null;
+            return Response.json({ ok: true, lots: await stockLots(env, uuid, { item: item || null, location: loc ? _stockLoc(loc) : null, expiringBefore: eb }) });
+          }
+          if (resource === "allocate") {
+            // FEFO pick plan — which lots to pull (earliest expiry first) to fulfil qty. Read-only.
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : "main";
+            const need = Number(url.searchParams.get("qty"));
+            if (!item || !Number.isFinite(need) || need <= 0) return Response.json({ ok: false, error: "item and a positive qty are required" }, { status: 400 });
+            const lots = await stockLots(env, uuid, { item, location: loc }); // already FEFO-ordered
+            let remaining = Math.round(need * 1000); const plan = [];
+            for (const l of lots) { if (remaining <= 0) break; const avail = Math.round(l.on_hand * 1000); const take = Math.min(avail, remaining); if (take > 0) { plan.push({ lot: l.lot, expiry: l.expiry, take: take / 1000 }); remaining -= take; } }
+            return Response.json({ ok: true, item, location: loc, requested: need, plan, shortfall: remaining > 0 ? remaining / 1000 : 0, fulfillable: remaining <= 0 });
+          }
           if (resource === "reserve") {
             if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
             if (!wr()) return tooMany();
@@ -9883,6 +10570,75 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("stock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "stock failed" }, { status: 502 }); }
+      }
+      // REORDER RULES + REPLENISHMENT (WMS/SCM) — per-item min levels + a "what to order" report.
+      // ADMIN. (Separate route: item ids in the path aren't numeric, unlike the main stock route.)
+      //   POST   /api/db/<slug>/stock/reorder-rules {item, location?, reorder_point, reorder_qty?, target?, supplier?}
+      //   GET    /api/db/<slug>/stock/reorder-rules[?item=&location=]      → the rules
+      //   DELETE /api/db/<slug>/stock/reorder-rules/<item>[?location=]     → remove a rule
+      //   GET    /api/db/<slug>/stock/replenishment[?location=]           → items at/below reorder point + suggested qty
+      const rom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(reorder-rules|replenishment)(?:\/([A-Za-z0-9_.-]{1,80}))?$/i);
+      if (rom && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rom[1].toLowerCase(), resource = rom[2].toLowerCase(), ruleItem = rom[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureReorder(env, uuid); await ensureStock(env, uuid);
+          if (resource === "replenishment") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|stkr", 300)) return tooMany();
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : null;
+            const rules = await cfD1Query(env, uuid, "SELECT * FROM _reorder_rules" + (loc ? " WHERE location=?" : "") + " LIMIT 5000", loc ? [loc] : []);
+            const suggestions = [];
+            for (const rule of rules) {
+              const lv = await stockLevel(env, uuid, rule.item, rule.location);
+              const point = rule.point_m / 1000;
+              if (lv.available > point) continue; // above the reorder point → fine
+              let order;
+              if (rule.target_m != null) order = Math.max(0, (rule.target_m - Math.round(lv.available * 1000)) / 1000);
+              else if (rule.qty_m != null) order = rule.qty_m / 1000;
+              else order = Math.max(0, point - lv.available);
+              if (order > 0) suggestions.push({ item: rule.item, location: rule.location, available: lv.available, reorder_point: point, suggested_order: Math.round(order * 1000) / 1000, supplier: rule.supplier || null });
+            }
+            suggestions.sort((a, b) => (a.available - a.reorder_point) - (b.available - b.reorder_point));
+            return Response.json({ ok: true, location: loc, suggestions });
+          }
+          // reorder-rules
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|stkr", 300)) return tooMany();
+            const where = []; const params = [];
+            const it = _stockItem(url.searchParams.get("item")); if (it) { where.push("item=?"); params.push(it); }
+            const loc = url.searchParams.get("location"); if (loc) { where.push("location=?"); params.push(_stockLoc(loc)); }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _reorder_rules" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY item, location LIMIT 5000", params);
+            return Response.json({ ok: true, rules: rows.map((r) => ({ item: r.item, location: r.location, reorder_point: r.point_m / 1000, reorder_qty: r.qty_m == null ? null : r.qty_m / 1000, target: r.target_m == null ? null : r.target_m / 1000, supplier: r.supplier || null })) });
+          }
+          if (request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|stkw", 120)) return tooMany();
+            const it = _stockItem(ruleItem); if (!it) return Response.json({ ok: false, error: "item required" }, { status: 400 });
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : "main";
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _reorder_rules WHERE item=? AND location=?", [it, loc]);
+            return ex.changes > 0 ? Response.json({ ok: true, item: it, location: loc, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          // POST — upsert a rule
+          if (!rateOk(slug + "|" + ip + "|stkw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const it = _stockItem(body.item); if (!it) return Response.json({ ok: false, error: "item is required" }, { status: 400 });
+          const loc = _stockLoc(body.location);
+          const point = toMilli(body.reorder_point); if (point == null || point < 0) return Response.json({ ok: false, error: "reorder_point must be a number ≥ 0" }, { status: 400 });
+          const qty = body.reorder_qty != null && body.reorder_qty !== "" ? toMilli(body.reorder_qty) : null;
+          const target = body.target != null && body.target !== "" ? toMilli(body.target) : null;
+          await cfD1Query(env, uuid, "INSERT INTO _reorder_rules (item, location, point_m, qty_m, target_m, supplier) VALUES (?,?,?,?,?,?) ON CONFLICT(item, location) DO UPDATE SET point_m=excluded.point_m, qty_m=excluded.qty_m, target_m=excluded.target_m, supplier=excluded.supplier", [it, loc, point, qty, target, body.supplier != null ? String(body.supplier).slice(0, 120) : null]);
+          return Response.json({ ok: true, item: it, location: loc, reorder_point: point / 1000 });
+        } catch (e) { console.error("reorder failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reorder failed" }, { status: 502 }); }
       }
       // AR/AP AGING — open documents of a type bucketed by how overdue they are, for a
       // receivables/payables report. Uses due_date (falls back to doc_date). ADMIN-gated.

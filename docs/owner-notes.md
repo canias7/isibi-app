@@ -617,6 +617,90 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — VERTICALS BUILD-OUT (CMS/HRMS/HCM/ATS/LMS/WMS/TMS/SCM gap-fill). Owner: "build all 9".
+
+Audited the 8 software categories against the existing backend — most is already covered by the /api/db
+schema engine + ERP primitives. 9 genuine NEW primitives identified, building broadest-first as tested PRs.
+Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/serial/expiry · 4 reorder/replenish ·
+5 progress tracking · 6 quiz grading · 7 i18n · 8 time & attendance · 9 demand forecasting. **(Owner asked
+2026-07-22: open PRs, DON'T merge until they say — leaving each PR open for review.)**
+
+- **VERT 1 — SCHEDULING / BOOKINGS** (`/api/db/<slug>/bookings/*`, any signed-in member): book a time window
+  on a resource with NO double-booking — the overlap check is a single-statement atomic guard (INSERT …
+  WHERE NOT EXISTS overlapping; two active bookings on a resource can never overlap even under races).
+  Datetimes normalized to UTC ISO (fixed length → lexical compare). `POST /bookings` (409 `conflict`),
+  `GET /bookings/availability?resource=&from=&to=&slot=&step=` generates free slots (half-open, back-to-back
+  allowed), `GET /bookings` (member=own, admin=all), `/bookings/<id>` get, `/cancel`, DELETE. Owner-stamped;
+  cancel/delete owner-or-admin. `_bookings` table. postBooking/ensureBookings/_normDT helpers. batch127
+  (19/19). Full suite 110 green. Serves ATS interviews + any appointments/rentals. (Capacity>1 / multi-
+  resource common-slot = later enhancement; v1 is exclusive single-resource.)
+- **VERT 2 — EFFECTIVE-DATED RECORDS** (`/api/db/<slug>/effective`, ADMIN): a (subject, attribute) value that
+  changes over time; "as of date X" = latest effective_date ≤ X. `POST /effective {subject,attribute,
+  effective_date,value(JSON),note?}` (upsert on subject+attribute+date). `GET /effective?subject=&attribute=
+  &as_of=` → value-in-force (+ which record applied) or, without as_of, full history newest-first. `GET
+  /effective/snapshot?attribute=&as_of=` → every subject's value as of a date (correlated MAX(effective_date)
+  join — payroll-run pattern). `DELETE /effective/<id>`. `_effective_values` UNIQUE(subject,attribute,date).
+  batch128 (21/21) — inclusive on-date, between-changes, before-any→null, object values, upsert-no-dup,
+  snapshot picks pre-raise value + excludes not-yet-existing subjects. Full suite 111 green. Serves HCM
+  comp/position history + price history.
+- **VERT 3 — LOT / BATCH / SERIAL + EXPIRY** (extends the stock ledger, ADMIN): `_stock_moves` gains nullable
+  `lot` + `expiry` (best-effort ALTER). postStockMove accepts them; a NEGATIVE move that names a lot is
+  guarded per (item,location,LOT) instead of item+location (can't over-issue a batch) — else unchanged.
+  `GET /stock/lots?item=&location=&expiring_before=` → on-hand per lot w/ expiry, FEFO-ordered (nulls last),
+  on-hand>0 only; expiring_before = expiring-soon report. `GET /stock/allocate?item=&location=&qty=` → FEFO
+  pick plan [{lot,expiry,take}] + shortfall/fulfillable (read-only). A SERIAL = a lot of qty 1 (no separate
+  mechanism). Non-lot moves fully unchanged. stockLots helper; added lots|allocate to the stock route.
+  batch129 (20/20) — FEFO order, lot-scoped 409, expiring filter, serial ship-twice-409, non-lot untouched.
+  Full suite 112 green. Serves WMS/SCM.
+- **VERT 4 — REORDER / REPLENISHMENT** (WMS/SCM, ADMIN): `_reorder_rules` (PK item+location, point_m, qty_m,
+  target_m, supplier). `POST /stock/reorder-rules` upsert, `GET /stock/reorder-rules[?item=&location=]`,
+  `DELETE /stock/reorder-rules/<item>[?location=]`. `GET /stock/replenishment[?location=]` → for each rule
+  computes stockLevel.available; if ≤ point, suggests order = target−available (if target) | fixed qty | back
+  to point; sorted most-negative-first; carries supplier. Separate route (item path ≠ numeric). ensureReorder
+  helper. batch130 (16/16) — fixed qty, top-up-to-target, healthy-excluded, reservation-triggers, default=up-
+  to-point, delete. Full suite 113 green.
+- **VERT 5 — COURSE PROGRESS** (LMS, `/api/db/<slug>/courses/*`): `_courses` + `_course_items`(course,item,
+  sort,prereq) + `_progress`(learner,course,item,score). Course def = ADMIN (`POST /courses/<course>
+  {items:[{item,prereq?,sort?}]}`, prereq must be a real item in the course; replace-on-write). A signed-in
+  member records/reads THEIR OWN (learnerOf forces own unless admin passes `learner`): `/complete {item,
+  score?}` (409 `prereq` if the item's prereq isn't done), `/progress` → {completed,total,percent,items},
+  `/reset {item?}`. `GET /courses` list, `DELETE /courses/<course>` (admin, cascades progress). ensureProgress
+  helper. batch131 (27/27) — prereq gate, 66.7%/100% math, score, per-learner isolation, admin-for-any,
+  member-can't-see-others (403), reset item/all, prereq-validation. Full suite 114 green. Serves LMS.
+- **VERT 6 — QUIZ AUTO-GRADING** (LMS, `/api/db/<slug>/quizzes/*`): answer keys stored SERVER-SIDE, never
+  returned to takers. `_quizzes`(quiz,pass_pct) + `_quiz_questions`(quiz,qid,answer(JSON),points) +
+  `_quiz_attempts`. Define=ADMIN (`POST /quizzes/<quiz> {questions:[{qid,answer,points?}],pass_pct?}`).
+  Grade=any member (own): `POST /quizzes/<quiz>/grade {answers:{qid:ans}}` → {score,max,percent,passed,
+  results:[{qid,correct}]} — response has NO answers; attempt recorded. quizCorrect: case/space-insensitive;
+  array key = any-of (scalar answer) or exact-set (array answer, multi-select). `GET /quizzes/<quiz>` hides
+  key from non-admins; `/attempts` own-or-admin. batch132 (26/26) — perfect/partial, multi-select set,
+  no-leak assertion, pass_pct null, attempts, authz. Full suite 115 green. Serves LMS/ATS assessments.
+- **VERT 7 — LOCALIZATION / i18n** (CMS, `/api/db/<slug>/i18n`): `_translations`(namespace,key,locale,value)
+  PK. Reads PUBLIC (like /config — a multilingual site renders to anon visitors); writes ADMIN. `GET /i18n
+  ?namespace=&locale=&fallback=` → {values:{key:string}} where fallback-locale seeds then requested-locale
+  overrides (one flat dict). `GET /i18n/<key>?locale=&fallback=` single, `GET /i18n/locales` list. `POST
+  /i18n {locale, entries:{k:v}}` bulk or `{key,value}` single upsert. `DELETE /i18n/<key>[?locale=]` (one
+  locale or all). ensureI18n + _i18nNs/_i18nLoc sanitizers. batch133 (21/21) — fallback fills gaps + requested
+  wins, single-key, namespaces isolate, public-read/admin-write, delete one-locale-or-all. Full suite 116
+  green. Serves CMS.
+- **VERT 8 — TIME & ATTENDANCE / CLOCK** (HRMS, `/api/db/<slug>/timeclock/*`): `_time_entries`(employee,
+  clock_in,clock_out,minutes). `POST /timeclock/in {at?,note?}` opens a shift via atomic guard (NOT EXISTS
+  open shift → 409 `open`); `/out {at?}` closes newest open shift, minutes=(out−in)/60000 (409 `not_open`).
+  `/entry {employee,clock_in,clock_out}` (admin) adds a corrected completed shift. `/status`, `/entries
+  ?from=&to=`, `/summary?employee=&from=&to=` (hours; admin omits employee → per-employee groupby). Member =
+  self (empOf forces own unless admin names employee). to-date bound → +T23:59:59.999Z. batch134 (24/24) —
+  8.5h calc, double-in 409, out-when-not-in 409, date-scoped, manual entry, org summary admin-only. Full
+  suite 117 green. Serves HRMS.
+- **VERT 9 — DEMAND FORECASTING** (SCM, `POST /api/db/<slug>/finance/forecast`): stateless calc, added to the
+  /finance route beside depreciation. `{series:[nums or {value}], method?, horizon?, window?, alpha?}` →
+  `{forecast:[{step,value}]}` for the next horizon (cap 100). linear (least-squares y=intercept+slope·x,
+  default, returns slope/intercept), moving_average (flat mean of last `window`), exp_smoothing (level via
+  alpha 0.5 default, flat). demandForecast helper. batch135 (17/17) — perfect-line extrapolation, {period,
+  value} objects, MA(3)=30 flat, SES level 31.25, flat/downward, horizon cap. Full suite 118 green. Serves
+  SCM planning (feed shortfall → reorder/MRP).
+  **── VERTICALS BUILD-OUT COMPLETE: all 9 primitives shipped as commits on ONE unmerged PR #639 (owner's
+  call: open PR, don't merge until they say). 74→118 suites across the two build-outs. Awaiting owner review. ──**
+
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
 Framing: the backend is a schema-driven data API, so ERP = a small set of new backend PRIMITIVES the
