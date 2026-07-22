@@ -617,6 +617,22 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: unified activity timeline (notes + approvals + audit)
+
+The record history panel — `GET /rows/<t>/<id>/timeline[?types=&limit=]` merges a record's `_notes`,
+`_approvals`, and (when the table declares `audit:true`) `_audit` field-change events into ONE
+reverse-chronological feed, each entry `{type:'note'|'approval'|'audit', at (ISO), actor_id,
+actor:{…}, …type-specific}`. `?types=note,approval` narrows sources; `?limit=` caps (default 100,
+max 300). Same memberCanSeeRow visibility gate + collect/401 guards as notes. Read-only GET.
+Two gotchas handled: (1) `audit` was normalized but NOT carried through norm.push — added
+`audit:!!t.audit` so `def.audit` exists at request time (that was the one bug in testing); (2) the
+sources timestamp differently — _notes/_approvals store ISO (…T…Z), the _audit trigger stores SQLite
+`datetime('now')` (`YYYY-MM-DD HH:MM:SS`), which DON'T sort lexically against each other — so the
+handler parses both to epoch ms (space-form treated as UTC) for the sort and normalizes every `at`
+to ISO in the response. Note: submit/approve also produce an audit `update` row (they UPDATE the
+status col), so the feed shows both the decision AND its field-change — intended. Offline batch75
+(19/19), full suite (58) green. BACKEND_RULES documents it after the activity-notes entry.
+
 ## 2026-07-22 — CRM gap layer: activity notes / logging (per-record activity log)
 
 CRM activity log — the central "log a call/email/meeting note against a contact/deal" feature that

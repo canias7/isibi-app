@@ -3105,7 +3105,7 @@ async function applySiteSchema(env, uuid, spec) {
       } catch (e) { console.error("history trigger failed:", t.name, e && e.detail); }
     }
     made.push(t.name);
-    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null });
+    norm.push({ name: t.name, access, columns: colNames, refs, refModes: Object.keys(refModes).length ? refModes : null, rules, num: numCols, json: jsonCols, trash: !!t.trash, slug: slugFrom ? { from: slugFrom } : null, writeRoles: (writeRoles && writeRoles.length) ? writeRoles : null, version: !!t.version, timestamps: !!t.timestamps, ordered: !!t.ordered, expires: !!t.expires, pinnable: !!t.pinnable, defaultSort: t.defaultSort || null, scheduled: !!t.scheduled, checks: t.checks || null, computed: t.computed || null, requireVerified: !!t.requireVerified, audit: !!t.audit, history: !!t.history, archivable: !!t.archivable, sync: !!t.sync, searchWeights: t.searchWeights || null, rateLimit: t.rateLimit || 0, geo: t.geo || null, transitions: t.transitions || null, formulas: t.formulas || null, fieldRoles: t.fieldRoles || null, teamRead: !!t.teamRead, currency: t.currency || null, approval: t.approval || null });
   }
   // Persist the normalized access rules + column allow-list in the site's own DB so
   // the data API can enforce them per request. MERGE into whatever's already
@@ -8182,7 +8182,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8203,6 +8203,7 @@ async function handleRequest(request, env, ctx) {
         const isApprovalAct = dm[4] === "submit" || dm[4] === "approve" || dm[4] === "reject";
         const isApprovalsLog = dm[4] === "approvals";
         const isNotes = dm[4] === "notes";
+        const isTimeline = dm[4] === "timeline";
         const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -8607,6 +8608,49 @@ async function handleRequest(request, env, ctx) {
             const at = new Date().toISOString();
             const ins = await cfD1Query(env, uuid, "INSERT INTO _notes (row_table,row_id,author_id,kind,body,created_at) VALUES (?,?,?,?,?,?) RETURNING id", [table, rowId, userId, kind, text, at]);
             return Response.json({ ok: true, note: { id: ins[0] && ins[0].id, row_id: rowId, kind, body: text, author_id: userId, created_at: at } });
+          }
+          // Unified activity TIMELINE — GET /rows/<t>/<id>/timeline merges a record's notes
+          // (_notes), approval decisions (_approvals), and field-change audit events (_audit,
+          // when the table declares `audit:true`) into ONE reverse-chronological feed, each entry
+          // tagged with its `type` and the actor's public profile. The single source for a CRM
+          // record's history panel. Same visibility gate as notes (memberCanSeeRow). Optional
+          // `?types=note,approval,audit` narrows the sources; `?limit=` caps (default 100).
+          if (isTimeline) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no timeline on a write-only table" }, { status: 400 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!(await memberCanSeeRow(env, uuid, def, tn, rowId, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const lim = Math.min(300, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const wantTypes = String(url.searchParams.get("types") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+            const wants = (ty) => !wantTypes.length || wantTypes.includes(ty);
+            const events = [];
+            if (wants("note")) {
+              try { const ns = await cfD1Query(env, uuid, "SELECT id, author_id, kind, body, created_at FROM _notes WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT " + lim, [table, rowId]);
+                for (const n of ns) events.push({ type: "note", id: n.id, at: n.created_at, actor_id: n.author_id, kind: n.kind, body: n.body }); } catch {}
+            }
+            if (wants("approval")) {
+              try { const ap = await cfD1Query(env, uuid, "SELECT id, action, actor_id, note, at FROM _approvals WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT " + lim, [table, rowId]);
+                for (const a of ap) events.push({ type: "approval", id: a.id, at: a.at, actor_id: a.actor_id, action: a.action, note: a.note }); } catch {}
+            }
+            if (wants("audit") && def.audit) {
+              try { const au = await cfD1Query(env, uuid, "SELECT id, action, actor_id, at FROM _audit WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT " + lim, [table, rowId]);
+                for (const a of au) events.push({ type: "audit", id: a.id, at: a.at, actor_id: a.actor_id, action: a.action }); } catch {}
+            }
+            // Sources timestamp differently — _notes/_approvals store ISO (…T…Z) while the
+            // _audit trigger stores SQLite `datetime('now')` (YYYY-MM-DD HH:MM:SS, UTC). Parse
+            // both to epoch ms for a correct cross-source sort, and normalize each `at` to ISO
+            // so the client sees one format.
+            const tsMs = (s) => { if (!s) return 0; let v = String(s); if (v.indexOf(" ") !== -1 && v.indexOf("T") === -1) v = v.replace(" ", "T") + "Z"; const n = Date.parse(v); return Number.isFinite(n) ? n : 0; };
+            for (const e of events) { const ms = tsMs(e.at); e._ms = ms; if (ms) { try { e.at = new Date(ms).toISOString(); } catch {} } }
+            events.sort((a, b) => (b._ms - a._ms) || (b.type > a.type ? 1 : b.type < a.type ? -1 : 0));
+            const feed = events.slice(0, lim);
+            for (const e of feed) delete e._ms;
+            const ids = [...new Set(feed.map((e) => e.actor_id).filter((v) => v != null))];
+            let byId = new Map();
+            if (ids.length) { try { const us = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); byId = new Map(us.map((u) => [u.id, u])); } catch {} }
+            for (const e of feed) e.actor = e.actor_id != null ? (byId.get(e.actor_id) || null) : null;
+            return Response.json({ ok: true, id: rowId, events: feed });
           }
           // Reassign a record's owner — POST /rows/<t>/<id>/assign {user:<id|email>}. On a
           // table WITH an owner (user/feed), an ADMIN — or the current owner's MANAGER on a
