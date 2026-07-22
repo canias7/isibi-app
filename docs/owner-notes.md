@@ -617,6 +617,21 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: cross-table reporting (group by a parent column)
+
+Reporting gap (CRM gap #2). `buildD1Stats(url, tn, allowCols, base, def, spec)` — extra
+`def`+`spec` args — now understands a `group` token containing a dot: `<fkcol>.<parentcol>`.
+`GET .../rows/opportunities/stats?group=account_id.industry&sum=amount` groups the pipeline by
+each opportunity's ACCOUNT's industry (a join you'd otherwise do client-side), returning the
+single-dim `{group:'account_id.industry', groups:[{value, count, sum:{}}]}` shape. Implementation:
+resolves the parent via `def.refs[fk]`, validates the parent column against its tableDef, then
+runs `SELECT p.<pcol>, <aggs> FROM (SELECT * FROM <child> <where>) t LEFT JOIN <parent> p ON
+t.<fk>=p.id GROUP BY p.<pcol>` — the child's base filter (incl. owner/trash/tag scoping) is
+isolated in the subquery so the JOIN can never make a base column ambiguous. Unknown fk or
+missing parent column falls back to the plain group path (no 500). One cross dimension. Call site
+updated to pass `def, spec`. Offline batch71 (12/12), full suite (54 suites) green. BACKEND_RULES
+STATS section documents the `<fkcol>.<parentcol>` token so the generator emits it.
+
 ## 2026-07-22 — CRM gap layer: record merge (dedupe)
 
 Data-model gap. New `POST /api/db/<slug>/rows/<t>/<id>/merge {from:<otherId>, fillBlanks?}`

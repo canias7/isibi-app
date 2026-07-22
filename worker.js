@@ -3844,7 +3844,7 @@ function buildD1List(url, tn, allowCols, base, extra, opts) {
 // Reuses the filter above (so stats respect where/q). Aggregate + group columns are
 // validated against the table's own columns; everything is parameterized. Returns the
 // SQL, params, the requested aggregates, and the resolved group column.
-function buildD1Stats(url, tn, allowCols, base) {
+function buildD1Stats(url, tn, allowCols, base, def, spec) {
   const f = buildD1Filter(url, allowCols, base);
   const wanted = { sum: [], avg: [], min: [], max: [] };
   for (const k of ["sum", "avg", "min", "max"]) {
@@ -3855,11 +3855,29 @@ function buildD1Stats(url, tn, allowCols, base) {
       }
     }
   }
+  const groupRaw = (url.searchParams.get("group") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
+  // CROSS-TABLE group — a token `fkcol.parentcol` groups by a column on the table that fk
+  // points to (e.g. group opportunities by `account_id.industry` → pipeline by account
+  // industry). One cross dimension supported; the base filter (incl. owner scoping) is
+  // isolated in a subquery so the JOIN can never make a base column ambiguous.
+  const crossTok = groupRaw.find((g) => g.includes("."));
+  if (crossTok && def && spec) {
+    const [fk, pcol] = crossTok.split(".");
+    const parent = def.refs && def.refs[fk];
+    const pdef = parent ? tableDef(spec, parent) : null;
+    const pcols = pdef ? new Set([].concat((pdef.columns || []).map((c) => String(c).toLowerCase()), ["id", "created_at", "slug"])) : null;
+    if (pdef && pcols && pcols.has(pcol) && f.filterable.has(fk)) {
+      const qsel = ["COUNT(*) AS _count"];
+      for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(t." + sqlIdent(col) + ") AS " + k + "__" + col);
+      const sql = "SELECT p." + sqlIdent(pcol) + " AS _g0, " + qsel.join(", ") + " FROM (SELECT * FROM " + tn + f.whereSql + ") t LEFT JOIN " + sqlIdent(parent) + " p ON t." + sqlIdent(fk) + " = p.id GROUP BY p." + sqlIdent(pcol) + " ORDER BY _count DESC LIMIT 500";
+      return { sql, params: f.params.slice(), wanted, groupCols: [crossTok] };
+    }
+  }
   const selects = ["COUNT(*) AS _count"];
   for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + sqlIdent(col) + ") AS " + k + "__" + col);
-  // GROUP BY one OR MORE columns (comma-separated) → multi-dimensional "matrix" reports
+  // GROUP BY one OR MORE base columns (comma-separated) → multi-dimensional "matrix" reports
   // ("pipeline by stage AND by rep"). Up to 4 dimensions; each must be a filterable column.
-  const groupCols = (url.searchParams.get("group") || "").toLowerCase().split(",").map((s) => s.trim()).filter((c) => c && f.filterable.has(c)).slice(0, 4);
+  const groupCols = groupRaw.filter((c) => f.filterable.has(c)).slice(0, 4);
   let sql;
   if (groupCols.length) {
     const gsel = groupCols.map((c, i) => sqlIdent(c) + " AS _g" + i).join(", ");
@@ -8609,7 +8627,7 @@ async function handleRequest(request, env, ctx) {
             let base = null;
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = userReadBase(); }
             base = withTagFilter(withVisible(base)); // stats respect trash + ?tag= filter
-            const b = buildD1Stats(url, tn, allow, base);
+            const b = buildD1Stats(url, tn, allow, base, def, spec);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCols && b.groupCols.length) {
               const groups = r.map((row) => {
