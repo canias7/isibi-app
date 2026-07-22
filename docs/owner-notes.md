@@ -6505,3 +6505,30 @@ all flag-gated. batch157 (20/20) — shared reads (B sees A's row), membership-r
 team isolation (team-2 rows hidden from a team-1-only member), author-only edit/delete (teammate gets 404),
 single-GET sharing, no-team-sees-nothing, batch refused, guards. Full suite 140 green. This closes the
 teams arc: membership+roles → invites → per-team config → shared team data.
+
+## 2026-07-22 — HARDENING PASS (adversarial testing, no bugs found)
+Wrote 4 adversarial batches probing the riskiest/newest surface. All green — no real bugs; the actual
+"failures" during authoring were my own wrong test assertions (documented below), which is reassuring.
+- **batch158 (15)** — teamScope security & mass-assignment: no cross-team read leak (list + single-GET),
+  forged `owner_id`/`team_id` in the body IGNORED (creator owns it; team_id validated against membership),
+  team_id immutable via PATCH (can't move a row between teams), author-only writes (teammate gets 404 on
+  edit/delete), removal instantly revokes read access, no-team member fails CLOSED (sees nothing), trash
+  still hides soft-deleted team rows.
+- **batch159 (12)** — webhook SSRF + team escalation: every metadata/private target refused at registration
+  (169.254.169.254, metadata.google.internal, 0.0.0.0, 10/172.16/192.168/100.64, [::1], localhost,
+  .internal/.local, non-https) — confirmed `ipv4Blocked` covers cloud-metadata + CGNAT + all private
+  ranges, `hostIsBlocked` covers IPv6 loopback/link-local/ULA. Team: can't transfer to a non-member,
+  sole owner can't self-demote (409), admin can't change roles/delete/grant-admin, member/non-member can't
+  manage, demoted ex-owner loses powers.
+- **batch160 (14)** — finance money-correctness invariants: amortization ALWAYS ties out to the cent
+  (Σprincipal == principal, final balance exactly 0, no negative interest/principal, totals consistent)
+  across 7 cases incl. 0%, 29.99% APR, 100% extreme, odd principal, and +extra early-payoff. Investment
+  edge cases (all-zero → NPV 0 / IRR null; all-outflow → IRR null; 10× return → IRR ≈ 900%). Bulk
+  mass-assignment: a `set` of only owner_id/id → 400; a mixed set applies ONLY the declared column and
+  never overwrites id/owner_id.
+- **batch161 (9)** — teamScope aggregate leakage: stats COUNT/SUM are team-scoped (B sees count 2 / sum 300,
+  never the other team's 9999), group-by can't expose another team's grouped values, no-team member
+  aggregates to nothing. (Learned: `/count/<name>` is the NAMED-COUNTER primitive, not a row-count — it
+  returning 0 for a table name is correct, not a leak; row counts come from `/rows/<t>/stats`. And stats
+  `sum` is keyed by column: `{amount: N}`.)
+Full suite 144 green.
