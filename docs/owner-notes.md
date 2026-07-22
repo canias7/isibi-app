@@ -667,6 +667,14 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   `/reset {item?}`. `GET /courses` list, `DELETE /courses/<course>` (admin, cascades progress). ensureProgress
   helper. batch131 (27/27) — prereq gate, 66.7%/100% math, score, per-learner isolation, admin-for-any,
   member-can't-see-others (403), reset item/all, prereq-validation. Full suite 114 green. Serves LMS.
+- **VERT 6 — QUIZ AUTO-GRADING** (LMS, `/api/db/<slug>/quizzes/*`): answer keys stored SERVER-SIDE, never
+  returned to takers. `_quizzes`(quiz,pass_pct) + `_quiz_questions`(quiz,qid,answer(JSON),points) +
+  `_quiz_attempts`. Define=ADMIN (`POST /quizzes/<quiz> {questions:[{qid,answer,points?}],pass_pct?}`).
+  Grade=any member (own): `POST /quizzes/<quiz>/grade {answers:{qid:ans}}` → {score,max,percent,passed,
+  results:[{qid,correct}]} — response has NO answers; attempt recorded. quizCorrect: case/space-insensitive;
+  array key = any-of (scalar answer) or exact-set (array answer, multi-select). `GET /quizzes/<quiz>` hides
+  key from non-admins; `/attempts` own-or-admin. batch132 (26/26) — perfect/partial, multi-select set,
+  no-leak assertion, pass_pct null, attempts, authz. Full suite 115 green. Serves LMS/ATS assessments.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 

@@ -3999,6 +3999,26 @@ async function ensureProgress(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_prog_cl ON _progress (course, learner)"); } catch {}
   _progressReady.add(uuid);
 }
+// Quizzes: server-side answer keys (never returned to takers) + auto-grading + attempts.
+const _quizReady = new Set();
+async function ensureQuiz(env, uuid) {
+  if (_quizReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quizzes (quiz TEXT PRIMARY KEY, pass_pct REAL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quiz_questions (quiz TEXT NOT NULL, qid TEXT NOT NULL, answer TEXT, points REAL NOT NULL DEFAULT 1, PRIMARY KEY (quiz, qid))");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _quiz_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, quiz TEXT NOT NULL, learner TEXT NOT NULL, score REAL, max REAL, percent REAL, passed INTEGER, at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_qa_ql ON _quiz_attempts (quiz, learner)"); } catch {}
+  _quizReady.add(uuid);
+}
+// Grade a submitted answer against a key. Case/whitespace-insensitive; a key that's an array
+// accepts any-of (scalar answer) or exact-set (array answer) for multi-select.
+function quizCorrect(key, ans) {
+  const norm = (v) => String(v).trim().toLowerCase();
+  if (Array.isArray(key)) {
+    if (Array.isArray(ans)) { const a = ans.map(norm).sort(); const k = key.map(norm).sort(); return a.length === k.length && a.every((x, i) => x === k[i]); }
+    return ans != null && key.map(norm).includes(norm(ans));
+  }
+  return ans != null && !Array.isArray(ans) && norm(ans) === norm(key);
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9873,6 +9893,97 @@ async function handleRequest(request, env, ctx) {
           for (const d of defs) await cfD1Query(env, uuid, "INSERT INTO _course_items (course, item, sort, prereq) VALUES (?,?,?,?)", [course, d.item, d.sort, d.prereq]);
           return Response.json({ ok: true, course, items: defs.length });
         } catch (e) { console.error("courses failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "courses failed" }, { status: 502 }); }
+      }
+      // QUIZ / ASSESSMENT AUTO-GRADING (LMS) — server-side answer keys (never shown to takers)
+      // + auto-grading + attempt history. Define = ADMIN; grade = any signed-in member.
+      //   POST   /api/db/<slug>/quizzes/<quiz> {questions:[{qid, answer, points?}], pass_pct?}  (admin) → define
+      //   GET    /api/db/<slug>/quizzes[/<quiz>]   → list / one (answers only shown to admin)
+      //   DELETE /api/db/<slug>/quizzes/<quiz>     (admin)
+      //   POST   /api/db/<slug>/quizzes/<quiz>/grade {answers:{qid:answer}, learner?} → {score, max, percent, passed, results}
+      //   GET    /api/db/<slug>/quizzes/<quiz>/attempts[?learner=]  → attempt history
+      const qzm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/quizzes(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(grade|attempts))?)?$/i);
+      if (qzm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = qzm[1].toLowerCase(), quiz = qzm[2] || null, act = qzm[3] ? qzm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureQuiz(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|qzr", 300), wr = () => rateOk(slug + "|" + ip + "|qzw", 120);
+          const learnerOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (act === "grade") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const learner = learnerOf(body.learner); if (!learner) return Response.json({ ok: false, error: "you can only submit as yourself" }, { status: 403 });
+            const answers = (body.answers && typeof body.answers === "object") ? body.answers : {};
+            const qs = await cfD1Query(env, uuid, "SELECT qid, answer, points FROM _quiz_questions WHERE quiz=?", [quiz]);
+            if (!qs.length) return Response.json({ ok: false, error: "no such quiz" }, { status: 404 });
+            const meta = (await cfD1Query(env, uuid, "SELECT pass_pct FROM _quizzes WHERE quiz=?", [quiz]))[0] || {};
+            let score = 0, max = 0; const results = [];
+            for (const q of qs) { const key = _parseJSON(q.answer); const pts = q.points || 0; max += pts; const ok = quizCorrect(key, answers[q.qid]); if (ok) score += pts; results.push({ qid: q.qid, correct: ok }); }
+            const percent = max ? Math.round((score / max) * 1000) / 10 : 0;
+            const passPct = meta.pass_pct != null ? meta.pass_pct : null;
+            const passed = passPct != null ? percent >= passPct : null;
+            await cfD1Query(env, uuid, "INSERT INTO _quiz_attempts (quiz, learner, score, max, percent, passed, at) VALUES (?,?,?,?,?,?,?)", [quiz, learner, score, max, percent, passed == null ? null : (passed ? 1 : 0), new Date().toISOString()]);
+            return Response.json({ ok: true, quiz, learner, score, max, percent, passed, results });
+          }
+          if (act === "attempts") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const learner = learnerOf(url.searchParams.get("learner")); if (!learner) return Response.json({ ok: false, error: "you can only view your own attempts" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT id, score, max, percent, passed, at FROM _quiz_attempts WHERE quiz=? AND learner=? ORDER BY id DESC LIMIT 200", [quiz, learner]);
+            return Response.json({ ok: true, quiz, learner, attempts: rows.map((r) => ({ id: r.id, score: r.score, max: r.max, percent: r.percent, passed: r.passed == null ? null : !!r.passed, at: r.at })) });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (quiz && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const qs = await cfD1Query(env, uuid, "SELECT qid, answer, points FROM _quiz_questions WHERE quiz=? ORDER BY qid", [quiz]);
+            if (!qs.length) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const meta = (await cfD1Query(env, uuid, "SELECT pass_pct FROM _quizzes WHERE quiz=?", [quiz]))[0] || {};
+            // Answers are ONLY exposed to an admin — a taker gets qids + points only.
+            return Response.json({ ok: true, quiz, pass_pct: meta.pass_pct != null ? meta.pass_pct : null, questions: qs.map((q) => isAdmin ? { qid: q.qid, answer: _parseJSON(q.answer), points: q.points } : { qid: q.qid, points: q.points }) });
+          }
+          if (!quiz && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT quiz, COUNT(*) AS n FROM _quiz_questions GROUP BY quiz ORDER BY quiz LIMIT 5000");
+            return Response.json({ ok: true, quizzes: rows.map((r) => ({ quiz: r.quiz, question_count: r.n })) });
+          }
+          // POST/DELETE define → admin only
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            if (!quiz) return Response.json({ ok: false, error: "quiz required" }, { status: 400 });
+            await cfD1Query(env, uuid, "DELETE FROM _quiz_questions WHERE quiz=?", [quiz]);
+            await cfD1Query(env, uuid, "DELETE FROM _quizzes WHERE quiz=?", [quiz]);
+            return Response.json({ ok: true, quiz, deleted: true });
+          }
+          if (!quiz) return Response.json({ ok: false, error: "quiz name required in the path" }, { status: 400 });
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.questions) || !body.questions.length) return Response.json({ ok: false, error: "questions:[{qid, answer, points?}] is required" }, { status: 400 });
+          if (body.questions.length > 1000) return Response.json({ ok: false, error: "too many questions (max 1000)" }, { status: 400 });
+          const seen = new Set(); const qdefs = [];
+          for (let i = 0; i < body.questions.length; i++) {
+            const q = body.questions[i] || {}; const qid = String(q.qid != null ? q.qid : (i + 1)).trim();
+            if (!qid || qid.length > 80) return Response.json({ ok: false, error: "question " + (i + 1) + " needs a qid" }, { status: 400 });
+            if (seen.has(qid)) return Response.json({ ok: false, error: "duplicate qid " + qid }, { status: 400 });
+            if (q.answer === undefined) return Response.json({ ok: false, error: "question " + qid + " needs an answer" }, { status: 400 });
+            seen.add(qid); qdefs.push({ qid, answer: JSON.stringify(q.answer), points: Number.isFinite(Number(q.points)) && Number(q.points) > 0 ? Number(q.points) : 1 });
+          }
+          const passPct = Number.isFinite(Number(body.pass_pct)) ? Math.max(0, Math.min(100, Number(body.pass_pct))) : null;
+          await cfD1Query(env, uuid, "DELETE FROM _quiz_questions WHERE quiz=?", [quiz]);
+          await cfD1Query(env, uuid, "INSERT INTO _quizzes (quiz, pass_pct, created_at) VALUES (?,?,?) ON CONFLICT(quiz) DO UPDATE SET pass_pct=excluded.pass_pct", [quiz, passPct, new Date().toISOString()]);
+          for (const q of qdefs) await cfD1Query(env, uuid, "INSERT INTO _quiz_questions (quiz, qid, answer, points) VALUES (?,?,?,?)", [quiz, q.qid, q.answer, q.points]);
+          return Response.json({ ok: true, quiz, questions: qdefs.length, pass_pct: passPct });
+        } catch (e) { console.error("quizzes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quizzes failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
