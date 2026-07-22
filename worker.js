@@ -8217,7 +8217,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8225,6 +8225,7 @@ async function handleRequest(request, env, ctx) {
         const isFacets = dm[3] === "facets";
         const isNear = dm[3] === "near";
         const isTree = dm[3] === "tree";
+        const isDupes = dm[3] === "duplicates";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -8239,7 +8240,7 @@ async function handleRequest(request, env, ctx) {
         const isApprovalsLog = dm[4] === "approvals";
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
-        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree", "duplicates"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -8909,6 +8910,42 @@ async function handleRequest(request, env, ctx) {
               catch { facets[col] = []; }
             }
             return Response.json({ ok: true, facets });
+          }
+
+          // Duplicate check — GET /rows/<t>/duplicates?email=a@b.com[&phone=…] returns existing
+          // rows that match ANY of the supplied declared columns (case-insensitive, trimmed) — the
+          // "does this contact/lead already exist?" lookup before a create. `?exclude=<id>` skips a
+          // row (checking during an EDIT). Same read visibility as the table (user → own/team via
+          // userReadBase; public-read tables → all; collect exposes nothing), trash-aware, and
+          // field-level security is applied. Composes with /merge (dedupe) and uniqueCI (hard block).
+          if (isDupes) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no lookups on a write-only table" }, { status: 403 });
+            let base = null;
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = userReadBase(); }
+            base = withVisible(base); // trash-aware
+            const allowSet = new Set(allow.map((c) => String(c).toLowerCase()));
+            const ctrl = new Set(["limit", "exclude", "fields"]);
+            const matchClauses = [], matchParams = [], usedCols = [];
+            for (const [k, v] of url.searchParams.entries()) {
+              const col = k.toLowerCase();
+              if (ctrl.has(col) || !allowSet.has(col) || usedCols.includes(col)) continue;
+              if (v == null || String(v).trim() === "") continue;
+              matchClauses.push("LOWER(TRIM(" + sqlIdent(col) + ")) = LOWER(TRIM(?))");
+              matchParams.push(String(v));
+              usedCols.push(col);
+            }
+            if (!matchClauses.length) return Response.json({ ok: false, error: "pass at least one declared column to check, e.g. ?email=a@b.com" }, { status: 400 });
+            const parts = [], allParams = [];
+            if (base && base.clause) { parts.push(base.clause); allParams.push(...base.params); }
+            parts.push("(" + matchClauses.join(" OR ") + ")");
+            allParams.push(...matchParams);
+            const excl = parseInt(url.searchParams.get("exclude") || "", 10);
+            if (excl > 0) { parts.push("id != ?"); allParams.push(excl); }
+            const lim = Math.min(50, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + parts.join(" AND ") + " ORDER BY id DESC LIMIT " + lim, allParams);
+            await doExpand(rows);
+            return Response.json({ ok: true, matches: rows, count: rows.length, on: usedCols });
           }
 
           // Realtime feed — return only rows NEWER than the caller's cursor (`since`
