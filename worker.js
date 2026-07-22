@@ -3666,6 +3666,72 @@ async function ledgerBalances(env, uuid, ledger, opts) {
   const accounts = rows.map((r) => { const d = r.d || 0, c = r.c || 0; td += d; tc += c; return { account: r.account, debit: d / 100, credit: c / 100, balance: (d - c) / 100 }; });
   return { accounts, total_debit: td / 100, total_credit: tc / 100, balanced: td === tc };
 }
+// ── STOCK LEDGER (ERP inventory foundation) ──────────────────────────────────────
+// Append-only movement log per item+location: on-hand = Σ(signed qty). Reservations
+// earmark stock without moving it (available = on-hand − active reservations). The
+// no-negative-stock invariant is enforced ATOMICALLY in a SINGLE D1 statement — an issue
+// (or reservation) is an `INSERT … SELECT … WHERE (SELECT SUM…) + ? >= 0`, so the balance
+// check and the write commit together; since D1 is single-writer, two concurrent issues
+// can't both pass. Quantities are stored in milli-units (×1000 integer) so sums are exact
+// (no float drift) while still allowing 3-decimal quantities (kg, litres).
+const _stockReady = new Set();
+async function ensureStock(env, uuid) {
+  if (_stockReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_moves (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, kind TEXT, ref TEXT, unit_cost_c INTEGER, created_by INTEGER, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _stock_reservations (id INTEGER PRIMARY KEY AUTOINCREMENT, item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', qty_m INTEGER NOT NULL, ref TEXT, status TEXT NOT NULL DEFAULT 'active', created_by INTEGER, created_at TEXT, released_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sm_il ON _stock_moves (item, location)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sr_il ON _stock_reservations (item, location, status)"); } catch {}
+  _stockReady.add(uuid);
+}
+function toMilli(v) { const n = Number(v); if (!Number.isFinite(n)) return null; return Math.round(n * 1000); }
+const _stockItem = (v) => { const s = String(v == null ? "" : v).trim(); return s && s.length <= 80 ? s : null; };
+const _stockLoc = (v) => { const s = String(v == null || v === "" ? "main" : v).trim().slice(0, 60); return s || "main"; };
+// on-hand / reserved / available for one item (optionally at one location; else aggregate).
+async function stockLevel(env, uuid, item, location) {
+  await ensureStock(env, uuid);
+  const locSql = location ? " AND location=?" : "";
+  const p = location ? [item, location] : [item];
+  const m = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(qty_m),0) AS n FROM _stock_moves WHERE item=?" + locSql, p);
+  const r = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(qty_m),0) AS n FROM _stock_reservations WHERE item=? AND status='active'" + locSql, p);
+  const onHand = (m[0] && m[0].n) || 0, reserved = (r[0] && r[0].n) || 0;
+  return { item, location: location || null, on_hand: onHand / 1000, reserved: reserved / 1000, available: (onHand - reserved) / 1000 };
+}
+// Record a movement (+receipt / −issue / ±adjust). A negative move is refused if it would
+// drive on-hand below zero, unless allowNegative. Atomic single-statement guard.
+async function postStockMove(env, uuid, data, userId) {
+  await ensureStock(env, uuid);
+  const item = _stockItem(data.item); if (!item) return { err: "item is required (≤80 chars)" };
+  const location = _stockLoc(data.location);
+  const qty = toMilli(data.qty); if (qty == null || qty === 0) return { err: "qty must be a non-zero number" };
+  const kind = data.kind != null ? String(data.kind).slice(0, 24) : (qty > 0 ? "receipt" : "issue");
+  const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
+  const cost = data.unit_cost != null && data.unit_cost !== "" ? toCents(data.unit_cost) : null;
+  const now = new Date().toISOString();
+  let ins;
+  if (qty < 0 && !data.allowNegative) {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) SELECT ?,?,?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) + ? >= 0 RETURNING id",
+      [item, location, qty, kind, ref, cost, userId || null, now, item, location, qty]);
+    if (!ins[0]) return { err: "insufficient stock", code: "stock" };
+  } else {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _stock_moves (item,location,qty_m,kind,ref,unit_cost_c,created_by,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id",
+      [item, location, qty, kind, ref, cost, userId || null, now]);
+  }
+  return { move: { id: ins[0] && ins[0].id, item, location, qty: qty / 1000, kind, ref, unit_cost: cost == null ? null : cost / 100 }, level: await stockLevel(env, uuid, item, location) };
+}
+// Reserve stock — earmarks qty against availability (on-hand − active reservations),
+// refused atomically if it would oversell. Returns the reservation.
+async function reserveStock(env, uuid, data, userId) {
+  await ensureStock(env, uuid);
+  const item = _stockItem(data.item); if (!item) return { err: "item is required" };
+  const location = _stockLoc(data.location);
+  const qty = toMilli(data.qty); if (qty == null || qty <= 0) return { err: "qty must be a positive number" };
+  const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
+  const now = new Date().toISOString();
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _stock_reservations (item,location,qty_m,ref,status,created_by,created_at) SELECT ?,?,?,?, 'active', ?,? WHERE ((SELECT COALESCE(SUM(qty_m),0) FROM _stock_moves WHERE item=? AND location=?) - (SELECT COALESCE(SUM(qty_m),0) FROM _stock_reservations WHERE item=? AND location=? AND status='active') - ?) >= 0 RETURNING id",
+    [item, location, qty, ref, userId || null, now, item, location, item, location, qty]);
+  if (!ins[0]) return { err: "not enough available to reserve", code: "stock" };
+  return { reservation: { id: ins[0].id, item, location, qty: qty / 1000, ref, status: "active" }, level: await stockLevel(env, uuid, item, location) };
+}
 // Approvals — a sign-off workflow on a table declaring `approval:{approvers,status}`. A row is
 // submitted (status→pending), then an approver (a member whose role is in `approvers`, or admin)
 // approves (→approved) or rejects (→rejected). The status lives in the row's platform-added
@@ -8737,6 +8803,126 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("ledger failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ledger failed" }, { status: 502 }); }
+      }
+      // STOCK LEDGER (ERP inventory) — append-only movements; on-hand = Σqty; reservations
+      // earmark availability. No-negative-stock is enforced atomically. ADMIN-gated.
+      //   POST /api/db/<slug>/stock/moves {item, location?, qty(+recv/−issue), kind?, ref?, unit_cost?, allowNegative?} → {move, level}
+      //   GET  /api/db/<slug>/stock/moves[?item=&location=&limit=&offset=]  → movement history
+      //   GET  /api/db/<slug>/stock/level?item=<i>[&location=<l>]           → {on_hand, reserved, available}
+      //   GET  /api/db/<slug>/stock/levels[?location=&item=&below=N]        → every item+location's levels
+      //   POST /api/db/<slug>/stock/transfer {item, from, to, qty, ref?}    → guarded issue+receipt across locations
+      //   POST /api/db/<slug>/stock/reserve {item, location?, qty, ref?}    → {reservation, level} (409 if oversell)
+      //   GET  /api/db/<slug>/stock/reservations[?item=&location=&status=]  → reservations
+      //   POST /api/db/<slug>/stock/reservations/<id>/release              → free a reservation
+      //   POST /api/db/<slug>/stock/reservations/<id>/fulfill              → issue the reserved qty + close it
+      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
+      if (stm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = stm[1].toLowerCase(), resource = stm[2].toLowerCase(), resvId = stm[3] ? parseInt(stm[3], 10) : null, resvAct = stm[4] ? stm[4].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureStock(env, uuid);
+          const wr = () => rateOk(slug + "|" + ip + "|stkw", 120), rd = () => rateOk(slug + "|" + ip + "|stkr", 300);
+          if (resource === "reservations") {
+            if (resvId && resvAct) {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+              if (!wr()) return tooMany();
+              const rv = await cfD1Query(env, uuid, "SELECT * FROM _stock_reservations WHERE id=?", [resvId]);
+              if (!rv[0]) return Response.json({ ok: false, error: "reservation not found" }, { status: 404 });
+              if (rv[0].status !== "active") return Response.json({ ok: false, error: "reservation is already " + rv[0].status, code: "closed" }, { status: 409 });
+              const now = new Date().toISOString();
+              if (resvAct === "release") {
+                await cfD1Query(env, uuid, "UPDATE _stock_reservations SET status='released', released_at=? WHERE id=? AND status='active'", [now, resvId]);
+                return Response.json({ ok: true, id: resvId, status: "released", level: await stockLevel(env, uuid, rv[0].item, rv[0].location) });
+              }
+              // fulfill — issue the reserved qty, then close the reservation. Free it FIRST so the
+              // issue guard sees the freed availability (the reservation itself was holding it).
+              await cfD1Query(env, uuid, "UPDATE _stock_reservations SET status='fulfilled', released_at=? WHERE id=? AND status='active'", [now, resvId]);
+              const mv = await postStockMove(env, uuid, { item: rv[0].item, location: rv[0].location, qty: -(rv[0].qty_m / 1000), kind: "issue", ref: rv[0].ref }, userId);
+              if (mv.err) { await cfD1Query(env, uuid, "UPDATE _stock_reservations SET status='active', released_at=NULL WHERE id=?", [resvId]); return Response.json({ ok: false, error: mv.err, code: mv.code || "stock" }, { status: 409 }); }
+              return Response.json({ ok: true, id: resvId, status: "fulfilled", move: mv.move, level: mv.level });
+            }
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            const it = _stockItem(url.searchParams.get("item")); if (it) { where.push("item=?"); params.push(it); }
+            const loc = url.searchParams.get("location"); if (loc) { where.push("location=?"); params.push(_stockLoc(loc)); }
+            const st = (url.searchParams.get("status") || "").toLowerCase().replace(/[^a-z]/g, ""); if (st) { where.push("status=?"); params.push(st); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT id, item, location, qty_m, ref, status, created_at, released_at FROM _stock_reservations" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, reservations: rows.map((r) => ({ id: r.id, item: r.item, location: r.location, qty: r.qty_m / 1000, ref: r.ref, status: r.status, created_at: r.created_at, released_at: r.released_at })) });
+          }
+          if (resource === "moves") {
+            if (request.method === "POST") {
+              if (!wr()) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const res = await postStockMove(env, uuid, body, userId);
+              if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "stock" ? 409 : 400 });
+              return Response.json({ ok: true, move: res.move, level: res.level });
+            }
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            const it = _stockItem(url.searchParams.get("item")); if (it) { where.push("item=?"); params.push(it); }
+            const loc = url.searchParams.get("location"); if (loc) { where.push("location=?"); params.push(_stockLoc(loc)); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT id, item, location, qty_m, kind, ref, unit_cost_c, created_at FROM _stock_moves" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT ? OFFSET ?", params.concat([lim, off]));
+            return Response.json({ ok: true, moves: rows.map((r) => ({ id: r.id, item: r.item, location: r.location, qty: r.qty_m / 1000, kind: r.kind, ref: r.ref, unit_cost: r.unit_cost_c == null ? null : r.unit_cost_c / 100, created_at: r.created_at })) });
+          }
+          if (resource === "level") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            if (!item) return Response.json({ ok: false, error: "item required" }, { status: 400 });
+            const loc = url.searchParams.get("location");
+            return Response.json(Object.assign({ ok: true }, await stockLevel(env, uuid, item, loc ? _stockLoc(loc) : null)));
+          }
+          if (resource === "levels") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            const it = _stockItem(url.searchParams.get("item")); if (it) { where.push("m.item=?"); params.push(it); }
+            const loc = url.searchParams.get("location"); if (loc) { where.push("m.location=?"); params.push(_stockLoc(loc)); }
+            const rows = await cfD1Query(env, uuid, "SELECT m.item, m.location, SUM(m.qty_m) AS oh, COALESCE((SELECT SUM(qty_m) FROM _stock_reservations r WHERE r.item=m.item AND r.location=m.location AND r.status='active'),0) AS rs FROM _stock_moves m" + (where.length ? " WHERE " + where.join(" AND ") : "") + " GROUP BY m.item, m.location ORDER BY m.item, m.location LIMIT 5000", params);
+            let levels = rows.map((r) => ({ item: r.item, location: r.location, on_hand: (r.oh || 0) / 1000, reserved: (r.rs || 0) / 1000, available: ((r.oh || 0) - (r.rs || 0)) / 1000 }));
+            const below = Number(url.searchParams.get("below"));
+            if (Number.isFinite(below)) levels = levels.filter((l) => l.available < below);
+            return Response.json({ ok: true, levels });
+          }
+          if (resource === "reserve") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const res = await reserveStock(env, uuid, body, userId);
+            if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "stock" ? 409 : 400 });
+            return Response.json({ ok: true, reservation: res.reservation, level: res.level });
+          }
+          if (resource === "transfer") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const item = _stockItem(body.item); if (!item) return Response.json({ ok: false, error: "item required" }, { status: 400 });
+            const from = _stockLoc(body.from), to = _stockLoc(body.to);
+            if (from === to) return Response.json({ ok: false, error: "from and to must differ" }, { status: 400 });
+            const q = Number(body.qty); if (!Number.isFinite(q) || q <= 0) return Response.json({ ok: false, error: "qty must be positive" }, { status: 400 });
+            const ref = body.ref != null ? String(body.ref).slice(0, 120) : "TRANSFER";
+            // Guarded issue from source FIRST; only on success add to destination.
+            const out = await postStockMove(env, uuid, { item, location: from, qty: -q, kind: "transfer-out", ref }, userId);
+            if (out.err) return Response.json({ ok: false, error: out.err, code: out.code || "stock" }, { status: 409 });
+            const inn = await postStockMove(env, uuid, { item, location: to, qty: q, kind: "transfer-in", ref }, userId);
+            return Response.json({ ok: true, from: out.move, to: inn.move, levels: { from: out.level, to: inn.level } });
+          }
+          return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
+        } catch (e) { console.error("stock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "stock failed" }, { status: 502 }); }
       }
       // Mentions → notifications — a member @mentions others in a post/comment; the app
       // detects the handles client-side and calls this with the mentioned user ids, which
