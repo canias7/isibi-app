@@ -6155,3 +6155,14 @@ the generation contract — no per-build audio generation, no cost.
   WHERE count<cap → limited code can't be oversold under races); pre-check catches caps first ("exhausted"/
   "user_limit"), atomic guard is the race backstop ("limit_reached"). Codes case-insensitive (UPPER).
   ensurePromos/promoCheck/_promoCode. batch137 (26/26). Full suite 120 green.
+
+- **ENTITLEMENTS / SUBSCRIPTIONS** (`/api/db/<slug>/entitlements`, commerce): per-account plan/feature
+  unlock state + expiry (the entitlement STATE, not payments — Stripe is platform-level). `_entitlements`
+  PK(account,feature). `POST` (admin) upsert {account,feature?='default',plan?,status?='active',starts?,
+  expires?,meta?}. `GET /entitlements/check?account=&feature=` → {active,plan,status,expires} where active =
+  status==='active' AND within start/expiry window (entIsActive) — expired reads inactive automatically.
+  `GET /entitlements?account=` lists all (member own / admin any via accountOf); `DELETE /entitlements/
+  <feature>?account=` revoke. Renew = re-grant (upsert, no dup). ensureEntitlements/entIsActive/_entFeature.
+  batch138 (22/22) — active/expired/future-start/cancelled, per-feature independence, list, upsert-renew,
+  member-own vs admin, revoke. Full suite 121 green. Commerce theme: wallet + promotions + entitlements
+  (+ existing cart/coupons) — solid. Next theme: SOCIAL (follow graph + feed, DMs).
