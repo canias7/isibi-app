@@ -13749,8 +13749,13 @@ async function handleRequest(request, env, ctx) {
             let scopeSql = "", scopeParams = [];
             if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); scopeSql = " AND owner_id=?"; scopeParams = [userId]; }
             const latq = sqlIdent(latCol), lngq = sqlIdent(lngCol);
-            const box = latq + " BETWEEN ? AND ? AND " + lngq + " BETWEEN ? AND ?";
-            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + box + (visClause ? " AND " + visClause : "") + scopeSql + " LIMIT 2000", [lat - dLat, lat + dLat, lng - dLng, lng + dLng].concat(scopeParams));
+            // The latitude box never wraps, so it's always safe. The LONGITUDE box is a pre-filter that
+            // breaks across the ±180° antimeridian and near the poles (where a small distance spans a huge
+            // longitude range) — in those cases drop it and let the haversine below do the real filtering.
+            const lngSafe = dLng < 180 && (lng - dLng) >= -180 && (lng + dLng) <= 180 && (Math.abs(lat) + dLat) < 89.5;
+            const box = latq + " BETWEEN ? AND ?" + (lngSafe ? " AND " + lngq + " BETWEEN ? AND ?" : "");
+            const boxParams = lngSafe ? [lat - dLat, lat + dLat, lng - dLng, lng + dLng] : [lat - dLat, lat + dLat];
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + box + (visClause ? " AND " + visClause : "") + scopeSql + " LIMIT 2000", boxParams.concat(scopeParams));
             const R = 6371; // km
             const hav = (la1, lo1, la2, lo2) => { const p = Math.PI / 180; const a = 0.5 - Math.cos((la2 - la1) * p) / 2 + Math.cos(la1 * p) * Math.cos(la2 * p) * (1 - Math.cos((lo2 - lo1) * p)) / 2; return 2 * R * Math.asin(Math.sqrt(a)); };
             const out = [];
