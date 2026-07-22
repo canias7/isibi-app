@@ -6234,3 +6234,20 @@ account lockout, password strength. So no new primitive was needed — instead I
   is skipped). batch142 (17/17) — white-box row counts before/after (harness `getDb`) + black-box
   (the OTHER party's DM thread empties when you erase yourself; their account is untouched). Full suite
   125 green. Lesson: when you add a personal-data table, wire it into the erase THEN.
+
+## 2026-07-22 — ANALYTICS theme
+Traffic is already CAPTURED (`/track` → `_analytics(day,event,path,n)` daily aggregate counters) and
+the ISIBI OWNER can read any site's traffic from the dashboard (`/api/site/backend/analytics`,
+authUser + owner-scoped). But the GENERATED APP's own admin had NO way to read its traffic back through
+the data API — so a generated app couldn't build an in-app analytics page from the events it fires.
+
+- **App-facing analytics read** (analytics): `GET /api/db/<slug>/analytics` — ADMIN site-user only
+  (traffic = business data; separate from the platform-owner dashboard). Reads `_analytics` over a window
+  (`?days=14` default, max 90, OR explicit `?from=&to=` YYYY-MM-DD; reversed range is normalized; explicit
+  span capped ~366d so the zero-fill stays bounded), optional `?event=`/`?path=` filters. Returns
+  `{total, from, to, byEvent, byPath (top 50, desc), series (ZERO-FILLED daily — one point per day, gaps 0,
+  chart-ready), events (distinct names)}`. Reuses the data the app already writes with `/track` — no new
+  table, no new write path. Placed right after the `/audit` route (same admin-gate boilerplate). batch143
+  (22/22) — deterministic seed via harness `getDb`: window totals exclude out-of-window rows, byEvent/byPath
+  breakdowns, zero-filled continuous series (verified the gap days = 0), event/path filters, reversed-window
+  normalize, `?days=1` captures today, non-admin 403 / signed-out 401 / empty-window 0. Full suite 126 green.
