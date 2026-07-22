@@ -631,6 +631,9 @@ is delivered.
   member, `imp:<adminId>` claim, logged to _audit. batch94 (10/10).
 - #10 Per-user data export (GDPR): `GET /api/db/<slug>/auth/export` (auth) → JSON bundle of the member's
   profile + their rows in every user/feed table + notes authored + attachments uploaded. batch95 (13/13).
+- #11 Consent tracking: `POST/GET /api/db/<slug>/auth/consent {doc,version}` (auth) → records/returns latest
+  accepted policy version per doc, in `_consents`. batch96 (10/10). (Note: badReq isn't in auth-route scope
+  — use inline Response.json 400 there.)
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`

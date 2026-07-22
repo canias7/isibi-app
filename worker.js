@@ -7442,6 +7442,33 @@ async function handleRequest(request, env, ctx) {
       // Per-user data export (GDPR self-service) — GET /api/db/<slug>/auth/export returns a JSON
       // bundle of everything the signed-in member owns: their profile, their rows in every
       // user/feed table (owner_id = them), and the notes they wrote + attachments they uploaded.
+      // Consent / policy-acceptance tracking — POST /api/db/<slug>/auth/consent {doc, version}
+      // records that the signed-in member accepted a document (e.g. doc:"tos", version:"2026-07");
+      // GET returns their latest accepted version per doc. For compliance ("who accepted which ToS").
+      const csm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/consent$/i);
+      if (csm && (request.method === "POST" || request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = csm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const p = await verifySiteUserToken(secret, (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, ""));
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        try {
+          await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _consents (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, doc TEXT NOT NULL, version TEXT, at TEXT)");
+          if (request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT doc, version, at FROM _consents WHERE user_id=? AND id IN (SELECT MAX(id) FROM _consents WHERE user_id=? GROUP BY doc) ORDER BY doc", [p.sub, p.sub]);
+            return Response.json({ ok: true, consents: rows });
+          }
+          let body = {}; try { body = await request.json(); } catch {}
+          const doc = String(body.doc || body.document || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40);
+          if (!doc) return Response.json({ ok: false, error: "doc required (e.g. \"tos\", \"privacy\")" }, { status: 400 });
+          const version = String(body.version || body.v || "").slice(0, 40) || null;
+          await cfD1Query(env, uuid, "INSERT INTO _consents (user_id,doc,version,at) VALUES (?,?,?,?)", [p.sub, doc, version, new Date().toISOString()]);
+          return Response.json({ ok: true, doc, version, at: new Date().toISOString() });
+        } catch (e) { console.error("consent failed:", e && e.message); return Response.json({ ok: false, error: "consent failed" }, { status: 502 }); }
+      }
       const exm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/export$/i);
       if (exm && (request.method === "GET" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
