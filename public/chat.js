@@ -5448,10 +5448,15 @@ async function pushAssets() {
       if (!a || !a.id) continue;
       avatars.push({ id: String(a.id), name: String(a.name || 'Avatar').slice(0, 80), image: await compactAssetImage(a.image) });
     }
+    // Games are tiny {slug,url} pointers (the media lives in R2) — sync them in
+    // the same row, no compaction needed.
+    const games = gamesLoad().slice(0, 40)
+      .map((g) => ({ slug: String(g && g.slug || '').slice(0, 80), url: String(g && g.url || '').slice(0, 200) }))
+      .filter((g) => g.slug && g.url);
     const up = await fetch(ASSETS_ENDPOINT + '?on_conflict=user_id', {
       method: 'POST',
       headers: Object.assign({}, h, { Prefer: 'resolution=merge-duplicates' }),
-      body: JSON.stringify({ user_id: uid, avatars, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
+      body: JSON.stringify({ user_id: uid, avatars, games, updated_at: new Date(assetsAt || Date.now()).toISOString() }),
     });
     // A rejected upsert (expired token, RLS, 4xx) must retry — otherwise the
     // avatar edit silently never syncs cross-device (2026-07-17, mirrors
@@ -5463,13 +5468,13 @@ async function pullAssets() {
   const h = await syncHeaders();
   if (!h) return;
   try {
-    const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,updated_at&limit=1', { headers: h });
+    const res = await fetch(ASSETS_ENDPOINT + '?select=avatars,games,updated_at&limit=1', { headers: h });
     if (!res.ok) return;
     const rows = await res.json();
     if (!Array.isArray(rows) || !rows.length) {
       // No server row yet — seed it from this device's existing collections,
       // so a plain refresh (no edit) is enough to start following the account.
-      if (loadAvatars().length) touchAssets();
+      if (loadAvatars().length || gamesLoad().length) touchAssets();
       return;
     }
     const r = rows[0];
@@ -5481,10 +5486,17 @@ async function pullAssets() {
         .slice(0, 60);
       try { localStorage.setItem(AVATARS_KEY, JSON.stringify(av)); } catch {}
     }
+    if (Array.isArray(r.games)) {
+      const gm = r.games.filter((g) => g && g.slug && g.url)
+        .map((g) => ({ slug: String(g.slug).slice(0, 80), url: String(g.url).slice(0, 200) }))
+        .slice(0, 40);
+      try { localStorage.setItem(GAMES_KEY, JSON.stringify(gm)); } catch {}
+    }
     assetsAt = remoteAt;
     try { localStorage.setItem(ASSETS_AT_KEY, String(remoteAt)); } catch {}
-    // Repaint whichever of the two pages is on screen right now.
+    // Repaint whichever page is on screen right now.
     try { const v = document.getElementById('viewAvatar'); if (v && v.classList.contains('active')) renderAvatar(); } catch {}
+    try { if (document.body.classList.contains('in-games')) renderGames(); } catch {}
   } catch {}
 }
 
@@ -6429,7 +6441,7 @@ function enterApp() {
     const prevOwner = localStorage.getItem('zephyr_owner_v1');
     if (prevOwner && prevOwner !== uid) {
       try {
-        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+        [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', 'zephyr_games_v1', CRED_MAX_KEY, WELCOME_KEY]
           .forEach((k) => localStorage.removeItem(k));
       } catch {}
       stagedDbClear(); // staged attachments belong to the outgoing account too
@@ -6510,7 +6522,7 @@ async function doSignOut(everywhere) {
     await Promise.all(pending.map((j) => requestRefund(j.statusUrl).catch(() => {})));
   } catch {}
   try {
-    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', CRED_MAX_KEY, WELCOME_KEY]
+    [STORE_KEY, OLD_STORE_KEY, JOBS_KEY, SAVES_KEY, CHAT_TOMB_KEY, MEMORY_KEY, DELIVERED_KEY, ASSETS_AT_KEY, 'zephyr_owner_v1', 'zephyr_studio_v1', 'zephyr_avatars_v1', 'zephyr_products_v1', 'zephyr_games_v1', CRED_MAX_KEY, WELCOME_KEY]
       .forEach((k) => localStorage.removeItem(k));
   } catch {}
   assetsAt = 0; // reset the in-memory avatar-sync clock too (see account-switch note)
@@ -8976,17 +8988,19 @@ function paintCrt() {
   const box = document.getElementById('crtChatbox');
   const inp = document.getElementById('crtLandInput');
   const kind = sel && sel.dataset.kind;
-  const gameCh = kind === 'game';
+  // GAME and WEBSITE are real standalone builders — their chatbox is active and
+  // Enter opens the respective builder, so they must NOT read as coming-soon.
+  const builder = kind === 'game' || kind === 'website';
   const live = !sel || sel.dataset.live === '1';
-  // GAME is a real, standalone builder (like WEBSITE) — its chatbox is active
-  // and Enter opens the Game Studio, so it must NOT read as coming-soon.
-  const active = live || gameCh;
+  const active = live || builder;
   if (box) box.classList.toggle('crt-chatbox-soon', !active);
-  if (inp) inp.placeholder = gameCh
+  if (inp) inp.placeholder = kind === 'game'
     ? 'Describe a game — press Enter and isibi builds it →'
-    : live
-      ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
-      : 'Coming soon — pick Video / Image / Voice to create';
+    : kind === 'website'
+      ? 'Describe a website or app — press Enter and isibi builds it →'
+      : live
+        ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
+        : 'Coming soon — pick Video / Image / Voice to create';
 }
 // swap the visible preview panel; lazy-load the website iframes on first show
 function crtShowPanel(panel) {
@@ -11626,7 +11640,7 @@ let gameView = 'preview'; // 'preview' | 'code' — the open game's active tab
 let gameArt = 'shapes';   // 'shapes' | 'sprites' — Phase 6 AI art toggle
 function gsEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function gamesLoad() { try { return JSON.parse(localStorage.getItem(GAMES_KEY) || '[]'); } catch { return []; } }
-function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} }
+function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} try { touchAssets(); } catch {} }
 
 const GAME_GENRES = [
   { key: 'runner', label: 'Endless runner', prompt: 'An endless runner where you dash and double-jump over neon obstacles and grab glowing orbs. It gets faster over time.' },

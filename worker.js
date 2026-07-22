@@ -2471,6 +2471,12 @@ async function runScheduledSiteFunctions(env, ctx) {
 // Supabase storage, and swap the real URL in — real photography, not CSS art.
 const SITE_IMG_MODEL = "fal-ai/nano-banana-pro";
 const SITE_IMG_USD = 0.15; // 2K nano-banana-pro (fal), = ceil(0.15/0.008)=19 credits
+// Game sprites use a CHEAPER model than hero site images: the quality bar is lower
+// (a stylised sprite on a flat green screen, then chroma-keyed) and they're made in
+// bulk (≤5/game), so nano-banana-pro at 19 credits each made AI-art games costly.
+// flux/schnell ≈ $0.003/img → 1 credit each (a ~4-sprite game drops ~76→~4 credits).
+const SPRITE_IMG_MODEL = "fal-ai/flux/schnell";
+const SPRITE_IMG_USD = 0.01;
 async function genOneSiteImage(env, prompt, aspect) {
   const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
     method: "POST",
@@ -2628,10 +2634,10 @@ async function genSpritePng(env, prompt) {
   // Green-screen prompt so the chroma-key has a clean edge; PNG + 1:1 for a sprite.
   const p = String(prompt || "game character").slice(0, 240) +
     ", single centered subject, full body, video-game sprite, bold clean shapes, thick outline, on a solid pure chroma-key green (#00ff00) seamless flat background, no shadow, no gradient background";
-  const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
+  const r = await fetch(`https://fal.run/${SPRITE_IMG_MODEL}`, {
     method: "POST",
     headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: p, aspect_ratio: "1:1", resolution: "1K", output_format: "png", num_images: 1 }),
+    body: JSON.stringify({ prompt: p, image_size: "square_hd", num_inference_steps: 4, num_images: 1, output_format: "png", enable_safety_checker: true }),
     signal: AbortSignal.timeout(120000),
   });
   const d = await r.json().catch(() => ({}));
@@ -7751,7 +7757,7 @@ async function handleRequest(request, env, ctx) {
             emit({ ev: "phase", phase: "arting" });
             const ga = await injectGameAssets(files, env, 5);
             files = ga.files; gameAssets = ga.assets || {};
-            const sc = Math.max(0, ga.charged) * Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
+            const sc = Math.max(0, ga.charged) * Math.max(1, Math.ceil(SPRITE_IMG_USD / CREDIT_USD));
             if (sc) { cost += sc; try { await useCredits(auth, sc); } catch {} }
           }
           let bd, buildMs, attempt = 0;

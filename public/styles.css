@@ -5009,7 +5009,9 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
 .lp-arc-slot:first-child{grid-column:1 / -1}
 .lp-arc-slot:hover{border-color:rgba(255,121,198,.5);transform:translateY(-2px)}
 .mkt-chrome-game .mkt-url{color:#ffb84d}
-.lp-arc-body{position:relative;width:100%;aspect-ratio:16/9;background:#0a0812}
+/* neon-gradient fallback shows through if a showcase game ever 404s (never a black void) */
+.lp-arc-body{position:relative;width:100%;aspect-ratio:16/9;
+  background:linear-gradient(135deg,rgba(255,121,198,.16),rgba(255,184,77,.12)),#0a0812}
 .lp-arc-frame{position:absolute;inset:0;width:100%;height:100%;border:0;pointer-events:none}
 .lp-arc-tag{position:absolute;right:8px;bottom:8px;z-index:1;font-size:.56rem;font-weight:800;letter-spacing:.12em;
   text-transform:uppercase;color:#0a0812;background:linear-gradient(90deg,var(--split-1,#ff79c6),var(--split-2,#ffb84d));

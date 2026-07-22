@@ -6344,3 +6344,15 @@ the data API — so a generated app couldn't build an in-app analytics page from
   `_segments` table. batch149 (19/19) — string + object filters, count/preview/limit, list, fetch-one,
   upsert-updates, delete→404, all guards (non-admin 403 r/w, signed-out 401, unknown table 404, missing
   name 400, unknown segment 404). Full suite 132 green.
+- **GAME STUDIO — gap pass (2026-07-22).** Knocked out the 4 gaps flagged after the sweep:
+  - **Cross-device sync:** games now sync like avatars — added a `games` jsonb column to `user_assets`
+    (migration user_assets_add_games), pushGames/pullGames folded into pushAssets/pullAssets (same LWW row,
+    tiny {slug,url} payloads, no compaction). gamesSave→touchAssets; zephyr_games_v1 added to the sign-out wipes.
+  - **WEBSITE "coming soon" fixed:** paintCrt now treats BOTH game & website as live builder channels (active
+    chatbox + "Describe a website or app — press Enter…"); no channel that actually works reads as coming-soon.
+  - **Sprite cost cut ~19×:** game sprites moved off nano-banana-pro (19cr) to `fal-ai/flux/schnell`
+    (SPRITE_IMG_MODEL/SPRITE_IMG_USD=0.01 → 1cr each; ~4-sprite game 76→4cr). genSpritePng uses flux's
+    image_size:square_hd schema; build metering uses SPRITE_IMG_USD. VALIDATE the chroma-key quality on flux's
+    green screen live — if it keys worse than nano-banana, revert SPRITE_IMG_MODEL to nano-banana-pro (1 line).
+  - **Landing showcase robustness:** .lp-arc-body got a neon-gradient fallback so a missing showcase game degrades
+    to an on-brand tile, not a black void. (Curated-permanent swap is now cheap via flux — offer it later.)
