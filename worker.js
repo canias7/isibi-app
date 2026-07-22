@@ -3542,21 +3542,24 @@ async function writeConfig(env, uuid, key, value) {
 const _apiKeysReady = new Set();
 async function ensureApiKeys(env, uuid) {
   if (_apiKeysReady.has(uuid)) return;
-  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _apikeys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT UNIQUE NOT NULL, prefix TEXT, label TEXT, user_id INTEGER, created_at TEXT, last_used TEXT, revoked INTEGER DEFAULT 0)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _apikeys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT UNIQUE NOT NULL, prefix TEXT, label TEXT, user_id INTEGER, created_at TEXT, last_used TEXT, revoked INTEGER DEFAULT 0, rpm INTEGER)");
+  // Back-fill the per-key rate-limit column on tables minted before it existed.
+  try { await cfD1Query(env, uuid, "ALTER TABLE _apikeys ADD COLUMN rpm INTEGER"); } catch {}
   _apiKeysReady.add(uuid);
 }
-// Resolve an X-API-Key header to the member id it acts as (or null). Non-throwing;
-// bumps last_used opportunistically so the owner can spot stale keys.
+// Resolve an X-API-Key header to the key it identifies. Returns {user, keyId, rpm}
+// (rpm = per-key requests/minute cap, null = unlimited) or null. Non-throwing; bumps
+// last_used opportunistically so the owner can spot stale keys.
 async function resolveApiKeyUser(env, ctx, uuid, request) {
   const raw = (request.headers.get("X-API-Key") || request.headers.get("x-api-key") || "").trim();
   if (!raw || !/^sk_[a-z0-9]{24,64}$/i.test(raw)) return null;
   try {
     await ensureApiKeys(env, uuid);
     const hash = await sha256hex(raw);
-    const r = await cfD1Query(env, uuid, "SELECT id, user_id, revoked FROM _apikeys WHERE key_hash=?", [hash]);
-    if (!r[0] || r[0].revoked) return null;
+    const r = await cfD1Query(env, uuid, "SELECT id, user_id, revoked, rpm FROM _apikeys WHERE key_hash=?", [hash]);
+    if (!r[0] || r[0].revoked || !r[0].user_id) return null;
     if (ctx && ctx.waitUntil) ctx.waitUntil(cfD1Query(env, uuid, "UPDATE _apikeys SET last_used=? WHERE id=?", [new Date().toISOString(), r[0].id]).catch(() => {}));
-    return r[0].user_id || null;
+    return { user: r[0].user_id, keyId: r[0].id, rpm: r[0].rpm > 0 ? r[0].rpm : null };
   } catch { return null; }
 }
 // Content reports / flags → a moderation queue. A member flags a row (target `<table>:<id>`)
@@ -8437,9 +8440,9 @@ async function handleRequest(request, env, ctx) {
       // that another server presents as `X-API-Key` to the data API (instead of a login).
       // Each key is bound to the minting admin's identity, so it inherits that role. Only
       // a hash is stored; the plaintext `sk_…` is returned ONCE at mint time.
-      //   GET    /api/db/<slug>/apikeys            → {keys:[{id,label,prefix,created_at,last_used,revoked}]} (admin)
-      //   POST   /api/db/<slug>/apikeys {label?}   → {id, key:"sk_…"} shown once (admin)
-      //   DELETE /api/db/<slug>/apikeys/<id>       → revoke (admin)
+      //   GET    /api/db/<slug>/apikeys                → {keys:[{id,label,prefix,created_at,last_used,revoked,rpm}]} (admin)
+      //   POST   /api/db/<slug>/apikeys {label?,rpm?}  → {id, key:"sk_…", rpm} shown once (admin); rpm = per-key req/min cap
+      //   DELETE /api/db/<slug>/apikeys/<id>           → revoke (admin)
       const akm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/apikeys(?:\/(\d+))?$/i);
       if (akm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
@@ -8459,8 +8462,8 @@ async function handleRequest(request, env, ctx) {
           if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
           await ensureApiKeys(env, uuid);
           if (request.method === "GET") {
-            const rows = await cfD1Query(env, uuid, "SELECT id, label, prefix, created_at, last_used, revoked FROM _apikeys ORDER BY id DESC LIMIT 200");
-            return Response.json({ ok: true, keys: rows.map((r) => Object.assign(r, { revoked: !!r.revoked })) });
+            const rows = await cfD1Query(env, uuid, "SELECT id, label, prefix, created_at, last_used, revoked, rpm FROM _apikeys ORDER BY id DESC LIMIT 200");
+            return Response.json({ ok: true, keys: rows.map((r) => Object.assign(r, { revoked: !!r.revoked, rpm: r.rpm > 0 ? r.rpm : null })) });
           }
           if (request.method === "DELETE") {
             if (!(keyId > 0)) return Response.json({ ok: false, error: "key id required" }, { status: 400 });
@@ -8470,15 +8473,19 @@ async function handleRequest(request, env, ctx) {
           // POST — mint
           let body = {}; try { body = await request.json(); } catch {}
           const label = String(body.label || "").replace(/[\r\n]+/g, " ").slice(0, 80) || null;
+          // Optional per-key rate limit (requests/minute). Clamp to a sane range; anything
+          // falsy/≤0 → null (unlimited).
+          let rpm = null;
+          if (body.rpm != null && body.rpm !== "") { const n = Math.floor(Number(body.rpm)); if (Number.isFinite(n) && n > 0) rpm = Math.min(n, 100000); }
           const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _apikeys WHERE revoked=0");
           if (cnt[0] && cnt[0].n >= 50) return Response.json({ ok: false, error: "too many active keys (max 50) — revoke some first" }, { status: 400 });
           const rand = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, "0")).join("");
           const plain = "sk_" + rand; // 48 hex chars after the prefix
           const hash = await sha256hex(plain);
           const prefix = plain.slice(0, 10); // shown in listings so keys are identifiable
-          await cfD1Query(env, uuid, "INSERT INTO _apikeys (key_hash, prefix, label, user_id, created_at, revoked) VALUES (?,?,?,?,?,0)", [hash, prefix, label, userId, new Date().toISOString()]);
+          await cfD1Query(env, uuid, "INSERT INTO _apikeys (key_hash, prefix, label, user_id, created_at, revoked, rpm) VALUES (?,?,?,?,?,0,?)", [hash, prefix, label, userId, new Date().toISOString(), rpm]);
           const idr = await cfD1Query(env, uuid, "SELECT id FROM _apikeys WHERE key_hash=?", [hash]);
-          return Response.json({ ok: true, id: idr[0] && idr[0].id, key: plain, label, note: "Copy this key now — it won't be shown again." });
+          return Response.json({ ok: true, id: idr[0] && idr[0].id, key: plain, label, rpm, note: "Copy this key now — it won't be shown again." });
         } catch (e) {
           console.error("apikeys failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "apikeys failed" }, { status: 502 });
@@ -8874,7 +8881,16 @@ async function handleRequest(request, env, ctx) {
           // caller as the member the key is bound to, so it flows through the same
           // per-access authz as a logged-in visitor. Only consulted when there's no
           // site-user token, so a real login always wins.
-          if (!userId) { const kid = await resolveApiKeyUser(env, ctx, uuid, request); if (kid) userId = kid; }
+          if (!userId) {
+            const ak = await resolveApiKeyUser(env, ctx, uuid, request);
+            if (ak) {
+              userId = ak.user;
+              // Per-key throttle — an admin can cap a specific key at N req/min (across all
+              // tables), independent of the shared per-IP limit, so one busy integration
+              // can't starve the others sharing its egress IP. 429 with Retry-After.
+              if (ak.rpm && !rateOk(slug + "|akey|" + ak.keyId, ak.rpm)) return tooMany("API key rate limit reached — slow down.");
+            }
+          }
           // Field-level security — on a `fieldRoles:{col:[roles]}` table, sensitive columns are
           // stripped from READ responses for members whose role isn't in the allow-list (an
           // `admin` always sees everything). Resolve the caller's role ONCE, and only when the
