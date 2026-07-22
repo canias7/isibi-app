@@ -5909,3 +5909,55 @@ untouched.
   NOT wired into the client yet — tested by direct call.
 - Live paid test (one real React build ≈ Sonnet + up to 6 images ≈ ~$1) pending
   owner go.
+
+## 2026-07-22 — Game builder: kaplay track + runtime smoke test, wired into the composer
+Built a GAME builder that forks the React app-builder pipeline (same generate →
+container build → publish plumbing), engine swapped to **kaplay**, plus the one
+net-new system a game needs: a **runtime smoke test** (a game that compiles can
+still crash on frame 1 or draw nothing).
+- **builder-game/** (new container package, mirrors builder/): kaplay+Vite template,
+  Dockerfile (bakes kaplay + a headless Chromium), `game-gen.mjs`
+  (GAME_RULES/REVISE/fix contract + parser + `pickGenre`), `smoke.mjs` (boots the
+  built game headless, feeds input, catches uncaught/console errors + a non-blank
+  canvas check), and 5 genre scaffolds (runner, flappy, breakout, topdown,
+  platformer) — each a complete neon game used as a skeleton for Sonnet.
+- **worker.js:** `GameBuildContainer` DO + `GAME_BUILD_CONTAINER` binding;
+  `POST /api/game/build` (Sonnet(GAME_RULES) → parse → container build+smoke →
+  auto-fix loop ≤2 over compile AND runtime failures → publish to games/<slug>/ →
+  `/g/<slug>/`); `/g/<slug>/` serve route + `writeGameDistToR2` (reuses
+  SITES_BUCKET, games/ prefix); `GET /api/game/build-health`.
+- **wrangler.jsonc:** 2nd container (./builder-game/Dockerfile) + binding + migration v2.
+- **Frontend (index.html/chat.js/styles.css):** a **Game** mode in the composer
+  mode-switch. Game mode hides the media controls (model/settings/attach/orchestrator
+  via `body.mode-game`) and routes `send()` → `buildGame()` → `/api/game/build`;
+  the finished game lands as a PLAYABLE iframe card (`.game-card`, 🎮 badge, Open ↗,
+  play-tested note) in the thread — same "result lands in the chat" pattern as media.
+- **Validated locally** (no Docker in the sandbox, but Chromium is): the scaffolds
+  build with Vite and pass the smoke test (non-blank, zero errors); a deliberately
+  broken game that COMPILES is caught by the smoke test with its runtime error
+  (proving the auto-fix loop has signal); the composer Game-mode UI + playable card
+  render correctly (screenshotted with a real breakout build in the iframe).
+- **OWNER TODO before it can go live:** enable the 2nd Cloudflare Container on the
+  account so the first deploy builds the ./builder-game Docker image; confirm with
+  `GET /api/game/build-health`. Phase 6 (generated sprites w/ alpha + SFX/music)
+  is deferred — v1 ships primitive/vector neon art.
+
+## 2026-07-22 (rev) — Game Studio moved to its OWN screen (not a composer mode)
+Owner's call: the game builder is its own product screen, exactly like the Website
+Builder — do NOT mix it into the video-generator composer. Reverted the "Game mode
+in the media composer" wiring and rebuilt it as a standalone view.
+- **viewGames** (new view, `renderGames()`): entered from the landing GAME channel
+  (`crtSelect` → `showView('games')`, mirrors the WEBSITE→sites door). `body.in-games`
+  hides the studio chrome (chats sidebar + top tabs), same as `body.in-sites`.
+- Screen = header (‹ Studio back + 🎮 Game Studio) → "What are we playing?" compose
+  (genre chips runner/flappy/breakout/topdown/platformer prefill the prompt, a
+  textarea, Build game →, a live status line) → on build, a big PLAYABLE iframe of
+  `/g/<slug>/` (Open ↗ / + New game). Built games persist in `zephyr_games_v1` and
+  show as live-thumbnail cards under "Your games".
+- `gameStudioBuild()` posts to `/api/game/build`; 402→openCredits, balance→setCredits.
+- The media composer + video generator are untouched (mode switch back to Audio/
+  Image/Video only). Verified: renderGames compose + playable preview render with a
+  real build in the iframe, zero JS errors.
+- NOTE: the landing GAME channel still shows the "coming soon" placeholder text while
+  tuned (data-live="0"); selecting it works and routes to the studio. A landing
+  polish (flip it to read live) is a small follow-up.

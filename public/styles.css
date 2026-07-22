@@ -5123,3 +5123,113 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
     var(--split, linear-gradient(90deg, #ff79c6, #ffb84d)) border-box;
 }
 #srVidGroup, #srAudGroup { display: flex; flex-direction: column; gap: .35rem; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Claude Focus — empty new-chat layout (owner pick 2026-07-21)
+   In the empty Builder home state (#viewHome.home-empty, toggled in
+   toggleHomeHero), the greeting + composer read as ONE centered stack instead
+   of a bottom-docked bar shifted right past a floating attach rail. The moment
+   a message exists the class drops and the normal chat layout returns, so this
+   only restyles the empty state. Scoped to .home-empty; nothing else changes.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Center the whole greeting→composer column in the viewport. */
+.view-home.home-empty .home-screen { justify-content: center; }
+.view-home.home-empty .chat { flex: 0 0 auto; }
+.view-home.home-empty .thread {
+  flex: 0 0 auto; overflow: visible; padding: 0 1.5rem;
+}
+/* Greeting flows in normal order directly above the composer (was absolute). */
+.view-home.home-empty .home-hero {
+  position: static; inset: auto; padding: 0 26px 1.6rem;
+}
+.view-home.home-empty .hh-title { font-size: 2.5rem; margin: 0; }
+/* Keep the ambient orb centered behind the whole stack, not just the greeting box. */
+.view-home.home-empty .hh-amb {
+  position: fixed; inset: 0; z-index: 0;
+}
+.view-home.home-empty .composer-wrap { padding: 0 1.5rem; }
+
+/* Undo the wide-screen right-shift + vertical mode-switch: the composer is
+   centered and its controls sit on one horizontal row (Claude Focus). */
+.view-home.home-empty .composer {
+  max-width: 720px;
+  padding: 1.35rem 1.35rem 1.1rem 1.5rem !important;
+  transform: none !important; left: 0 !important;
+}
+.view-home.home-empty .thread-inner { transform: none !important; left: 0 !important; }
+.view-home.home-empty .composer-row .mode-switch {
+  position: static !important; flex-direction: row !important;
+  transform: none !important; top: auto !important; left: auto !important;
+}
+
+/* Tuck the advanced effort pill + the contextual attach rail into the centered
+   stack (max-width matched, centered) instead of floating them top-left/right. */
+.view-home.home-empty .effort-pick {
+  position: static !important; top: auto !important; left: auto !important;
+  max-width: 720px; margin: 0 auto .5rem; width: 100%;
+  display: flex; justify-content: flex-end; padding: 0 1.5rem;
+}
+.view-home.home-empty .attach-panel {
+  position: static !important; max-width: 720px; margin: 0 auto .6rem;
+  width: 100%; padding: 0 1.5rem; transform: none !important;
+}
+
+/* Keep the whole control row (mode · model · settings · send) on one line under
+   the prompt: compact the send and tighten gaps so it doesn't orphan a row. */
+.view-home.home-empty .composer-row { gap: .6rem; flex-wrap: nowrap; }
+.view-home.home-empty .composer-row .send { min-width: 0; padding: 0 16px; height: 54px; }
+.view-home.home-empty .composer-row .mode-switch,
+.view-home.home-empty .composer-row .opt-wrap { flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Game Studio — its own screen (owner 2026-07-22), like the Website Builder.
+   Entered from the landing GAME channel → showView('games'). Chrome hidden while
+   open (mirrors body.in-sites); NOT part of the media composer.
+   ══════════════════════════════════════════════════════════════════════════ */
+body.in-games .sidebar { display: none; }
+body.in-games .top-tab, body.in-games .top-back { display: none !important; }
+
+#viewGames.active { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.gs-top { display: flex; align-items: center; gap: 14px; padding: 16px 26px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.gs-brand { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.02rem; }
+.gs-brand b { font-weight: 600; }
+.gs-back { background: none; border: 1px solid var(--line-2); color: var(--muted); border-radius: 9px; padding: 7px 13px; font: inherit; font-size: .86rem; cursor: pointer; }
+.gs-back:hover { color: var(--text); border-color: #4a4a52; }
+.gs-open { font-size: .86rem; font-weight: 600; text-decoration: none; background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.gs-new { background: var(--split); color: #0a0a0b; border: none; border-radius: 10px; padding: 8px 15px; font: inherit; font-weight: 600; font-size: .86rem; cursor: pointer; }
+
+/* Compose (empty) state */
+.gs-compose { flex: 1; overflow-y: auto; display: flex; flex-direction: column; align-items: center; padding: 6vh 24px 60px; text-align: center; }
+.gs-h1 { font-family: 'Space Grotesk', Inter, sans-serif; font-weight: 600; font-size: 2.7rem; letter-spacing: -.02em; margin-bottom: 12px; }
+.gs-grad { background: var(--split); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.gs-sub { color: var(--muted); font-size: 1.02rem; max-width: 520px; margin-bottom: 26px; }
+.gs-chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-bottom: 18px; }
+.gs-chip { background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); border-radius: 999px; padding: 8px 15px; font: inherit; font-size: .84rem; cursor: pointer; transition: border-color .12s, color .12s; }
+.gs-chip:hover { color: var(--text); border-color: rgba(255,121,198,.5); }
+.gs-box { width: 100%; max-width: 640px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px; padding: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.45); backdrop-filter: blur(24px); }
+.gs-box textarea { width: 100%; background: none; border: none; outline: none; color: var(--text); font: inherit; font-size: 1rem; resize: none; line-height: 1.5; padding: 6px 6px 12px; }
+.gs-box textarea::placeholder { color: #5c5c66; }
+.gs-box-foot { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+.gs-status { flex: 1; text-align: left; color: var(--muted); font-size: .84rem; min-height: 1.2em; }
+.gs-build { background: var(--split); color: #0a0a0b; border: none; border-radius: 12px; padding: 12px 22px; font: inherit; font-weight: 600; font-size: .95rem; cursor: pointer; white-space: nowrap; }
+.gs-build:disabled { opacity: .7; cursor: default; }
+
+/* Recent games grid */
+.gs-recent { width: 100%; max-width: 900px; margin-top: 46px; }
+.gs-recent-lab { text-align: left; font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); font-weight: 600; margin-bottom: 14px; }
+.gs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.gs-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; cursor: pointer; padding: 0; text-align: left; transition: border-color .12s, transform .12s; }
+.gs-card:hover { border-color: rgba(255,121,198,.5); transform: translateY(-2px); }
+.gs-card-frame { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; background: #0a0812; overflow: hidden; pointer-events: none; }
+.gs-card-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+.gs-card-t { display: block; padding: 10px 12px; font-size: .88rem; font-weight: 600; color: var(--text); text-transform: capitalize; }
+
+/* Preview (a game open) */
+.gs-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 26px; }
+.gs-frame-wrap { width: 100%; max-width: 1000px; }
+.gs-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #0a0812; border: 1px solid var(--line-2); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 90px -30px #000; }
+.gs-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.gs-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin-top: 14px; }
+.gs-meta b { font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.1rem; text-transform: capitalize; }
+.gs-meta span { color: var(--muted); font-size: .84rem; }
