@@ -617,6 +617,18 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — /merge now moves the loser's satellites to the survivor
+
+Closes a follow-up from the delete-cascade PR. New `reassignRowSatellites(env,uuid,table,fromId,toId)`
+MOVES a merged-away record's notes/attachments/approvals/history (row_id UPDATE) and tags/shares +
+reaction/report/bookmark/link targets (`<table>:<id>` rewrite) onto the survivor. Composite-PK tables
+use `UPDATE OR IGNORE` then DELETE the loser leftover, so a value the survivor already has (e.g. the
+same tag) isn't duplicated. Wired into the merge handler right before the loser row is deleted (which
+is a plain DELETE, no purge — so the moved satellites survive). So dedup keeps full activity history
+now. Offline batch87 (10/10): both notes on survivor, both attachment files intact + fetchable,
+tags merged/deduped (vip once + hot), loser side empty. Full suite (70) green. BACKEND_RULES merge
+entry updated.
+
 ## 2026-07-22 — Hardening: hard-delete cascades to a row's satellite data (no orphans)
 
 Hygiene/cost layer. New `purgeRowSatellites(env,uuid,table,ids)` sweeps a hard-deleted row's
