@@ -2898,6 +2898,9 @@ let pendingFirstMsg = null; // a ?q= prompt held until a signed-out visitor logs
 // A website brief typed on the landing's WEBSITE channel, held through login —
 // consumed by enterApp into the standalone Website Builder (never the studio).
 let pendingSiteBrief = null;
+// Same idea for the landing's GAME channel — a game brief held through login,
+// consumed when the Game Studio first renders (prefills the compose box).
+let pendingGameBrief = null;
 
 // Reschedule a push (used when a flush rejects and the dirty set was requeued),
 // so those edits get another try instead of waiting for the next manual touch.
@@ -8825,7 +8828,8 @@ function initAuthGate() {
     // Backing out of a WEBSITE-channel signup must not strand the NEXT login
     // in the sites view — drop the brief and point the boot view back home.
     pendingSiteBrief = null;
-    try { if (localStorage.getItem(VIEW_KEY) === 'sites') localStorage.setItem(VIEW_KEY, 'home'); } catch (e) {}
+    pendingGameBrief = null;
+    try { if (localStorage.getItem(VIEW_KEY) === 'sites' || localStorage.getItem(VIEW_KEY) === 'games') localStorage.setItem(VIEW_KEY, 'home'); } catch (e) {}
     hideAuthGate(); showMarketing();
   };
   const back = document.getElementById('authHome');
@@ -8971,11 +8975,18 @@ function paintCrt() {
   // coming-soon channel, dim it and swap the placeholder so it reads inert.
   const box = document.getElementById('crtChatbox');
   const inp = document.getElementById('crtLandInput');
+  const kind = sel && sel.dataset.kind;
+  const gameCh = kind === 'game';
   const live = !sel || sel.dataset.live === '1';
-  if (box) box.classList.toggle('crt-chatbox-soon', !live);
-  if (inp) inp.placeholder = live
-    ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
-    : 'Coming soon — pick Video / Image / Voice to create';
+  // GAME is a real, standalone builder (like WEBSITE) — its chatbox is active
+  // and Enter opens the Game Studio, so it must NOT read as coming-soon.
+  const active = live || gameCh;
+  if (box) box.classList.toggle('crt-chatbox-soon', !active);
+  if (inp) inp.placeholder = gameCh
+    ? 'Describe a game — press Enter and isibi builds it →'
+    : live
+      ? 'a neon tiger prowling a rainy Tokyo alley, cinematic'
+      : 'Coming soon — pick Video / Image / Voice to create';
 }
 // swap the visible preview panel; lazy-load the website iframes on first show
 function crtShowPanel(panel) {
@@ -8984,6 +8995,12 @@ function crtShowPanel(panel) {
   stage.querySelectorAll('.lp-panel').forEach((p) => p.classList.toggle('mkt-on', p.dataset.panel === panel));
   if (panel === 'website') {
     stage.querySelectorAll('.mb-slot[data-src]').forEach((s) => {
+      const f = s.querySelector('iframe');
+      if (f && !f.src) f.src = s.getAttribute('data-src');
+    });
+  }
+  if (panel === 'game') {
+    stage.querySelectorAll('.lp-arc-slot[data-src]').forEach((s) => {
       const f = s.querySelector('iframe');
       if (f && !f.src) f.src = s.getAttribute('data-src');
     });
@@ -9122,6 +9139,16 @@ function initCrt() {
       const b = (landInput && landInput.value.trim()) || '';
       if (b) pendingSiteBrief = b;
       try { localStorage.setItem(VIEW_KEY, 'sites'); } catch (e) {}
+      if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+      if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+      return;
+    }
+    // GAME channel: the typed text is a game brief for the standalone Game
+    // Studio — never a media prompt (mirrors the WEBSITE branch above).
+    if (sel && sel.dataset.kind === 'game') {
+      const b = (landInput && landInput.value.trim()) || '';
+      if (b) pendingGameBrief = b;
+      try { localStorage.setItem(VIEW_KEY, 'games'); } catch (e) {}
       if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
       if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
       return;
@@ -11661,7 +11688,11 @@ function renderGames() {
       '</div>';
     const cards = games.length
       ? '<div class="gs-recent"><div class="gs-recent-lab">Your games</div><div class="gs-grid">' +
-          games.map((g) => '<button class="gs-card" type="button" data-slug="' + g.slug + '"><span class="gs-card-frame"><iframe tabindex="-1" title="" src="' + g.url + '" scrolling="no"></iframe></span><span class="gs-card-t">' + gameTitle(g.slug) + '</span></button>').join('') +
+          games.map((g) => '<div class="gs-card" role="button" tabindex="0" data-slug="' + g.slug + '">' +
+            '<span class="gs-card-frame"><iframe tabindex="-1" title="" src="' + g.url + '" scrolling="no"></iframe></span>' +
+            '<span class="gs-card-t">' + gameTitle(g.slug) + '</span>' +
+            '<button class="gs-card-del" type="button" data-del="' + g.slug + '" title="Delete game" aria-label="Delete game"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>' +
+          '</div>').join('') +
         '</div></div>'
       : '';
     body =
@@ -11686,7 +11717,13 @@ function renderGames() {
   const back = view.querySelector('#gsBack'); if (back) back.onclick = () => showView('home');
   const nw = view.querySelector('#gsNew'); if (nw) nw.onclick = () => { gameOpenSlug = null; gameView = 'preview'; renderGames(); };
   view.querySelectorAll('.gs-tab').forEach((t) => { t.onclick = () => { gameView = t.dataset.gv; renderGames(); }; });
-  view.querySelectorAll('.gs-card').forEach((c) => { c.onclick = () => { gameOpenSlug = c.dataset.slug; gameView = 'preview'; renderGames(); }; });
+  view.querySelectorAll('.gs-card').forEach((c) => {
+    c.onclick = () => { gameOpenSlug = c.dataset.slug; gameView = 'preview'; renderGames(); };
+    c.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); gameOpenSlug = c.dataset.slug; gameView = 'preview'; renderGames(); } };
+  });
+  view.querySelectorAll('.gs-card-del').forEach((d) => { d.onclick = (e) => { e.stopPropagation(); gameDelete(d.dataset.del); }; });
+  // A game brief typed on the landing GAME channel, carried through login.
+  if (!open && pendingGameBrief) { const ta = view.querySelector('#gsPrompt'); if (ta) { ta.value = pendingGameBrief; pendingGameBrief = null; ta.focus(); } }
   if (open && gameView === 'code') loadGameCode(open.slug);
   view.querySelectorAll('.gs-chip').forEach((ch) => { ch.onclick = () => {
     const g = GAME_GENRES.find((x) => x.key === ch.dataset.genre);
@@ -11790,6 +11827,23 @@ function downloadGameSource(slug, files) {
   a.download = (slug || 'game') + '-source.txt';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// Delete a published game: wipe it server-side (dist + stashed source) and drop
+// it from the local list. Optimistic — the local list is the source of truth for
+// the grid, and the server call is idempotent.
+async function gameDelete(slug) {
+  if (!slug) return;
+  if (!window.confirm('Delete “' + gameTitle(slug) + '”? This removes the game and its link for good.')) return;
+  try {
+    const r = await apiFetch('/api/game/delete?slug=' + encodeURIComponent(slug), { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); if (typeof sbToast === 'function') sbToast(d && d.error === 'not your game' ? 'That game isn’t yours to delete.' : 'Couldn’t delete that game — try again.'); return; }
+  } catch (e) { if (typeof sbToast === 'function') sbToast('Couldn’t reach the server — try again.'); return; }
+  const list = gamesLoad().filter((g) => g.slug !== slug);
+  gamesSave(list);
+  if (gameOpenSlug === slug) { gameOpenSlug = null; gameView = 'preview'; }
+  renderGames();
+  if (typeof sbToast === 'function') sbToast('Game deleted.');
 }
 
 // Live phase labels for the streamed build.

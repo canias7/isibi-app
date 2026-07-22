@@ -7885,6 +7885,22 @@ async function handleRequest(request, env, ctx) {
       return Response.json({ ok: true, files: srcObj.files });
     }
 
+    // DELETE /api/game/delete?slug=… — remove a published game (owner-only): wipes
+    // the served dist under games/<slug>/ AND the stashed source gamesrc/<slug>.json.
+    if (url.pathname === "/api/game/delete" && request.method === "DELETE") {
+      const gu = await authUser(request);
+      if (!gu) return UNAUTHED();
+      if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "not configured" }, { status: 501 });
+      const slug = (url.searchParams.get("slug") || "").replace(/[^a-z0-9-]/gi, "").slice(0, 80);
+      if (!slug) return Response.json({ ok: false, error: "no slug" }, { status: 400 });
+      // Owner check via the stashed source (if it exists). Missing source → treat as
+      // already-gone, still clear any orphaned dist so the call is idempotent.
+      try { const o = await env.SITES_BUCKET.get("gamesrc/" + slug + ".json"); if (o) { const s = JSON.parse(await o.text()); if (s && s.uid && s.uid !== gu.id) return Response.json({ ok: false, error: "not your game" }, { status: 403 }); } } catch {}
+      try { const old = await env.SITES_BUCKET.list({ prefix: "games/" + slug + "/" }); for (const ob of (old.objects || [])) await env.SITES_BUCKET.delete(ob.key); } catch {}
+      try { await env.SITES_BUCKET.delete("gamesrc/" + slug + ".json"); } catch {}
+      return Response.json({ ok: true, slug });
+    }
+
     // Phase 3b — the REACT build pipeline (behind its own endpoint; the static
     // /api/site path is untouched). Sonnet(REACT_RULES) → parseGeneratedFiles →
     // inject real images into the SOURCE → container `vite build` → dist → R2 at
