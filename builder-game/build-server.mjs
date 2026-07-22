@@ -28,6 +28,8 @@ const APP = process.env.APP_DIR || "/app";
 const SRC = path.join(APP, "src");
 const DIST = path.join(APP, "dist");
 const ASSETS = path.join(APP, "public", "assets");
+const MODELS = path.join(APP, "public", "models");
+const MODELPACK = process.env.MODELPACK_DIR || path.join(APP, "modelpack");
 const MAX_BODY = 12 * 1024 * 1024;
 const BUILD_TIMEOUT = 90_000;
 
@@ -45,6 +47,20 @@ function safeRel(rel) {
 function wipeSrc() { try { fs.rmSync(SRC, { recursive: true, force: true }); } catch {} fs.mkdirSync(SRC, { recursive: true }); }
 function wipeDist() { try { fs.rmSync(DIST, { recursive: true, force: true }); } catch {} }
 function wipeAssets() { try { fs.rmSync(ASSETS, { recursive: true, force: true }); } catch {} fs.mkdirSync(ASSETS, { recursive: true }); }
+function wipeModels() { try { fs.rmSync(MODELS, { recursive: true, force: true }); } catch {} fs.mkdirSync(MODELS, { recursive: true }); }
+// Copy the requested CC0 models from the baked pack into public/models/ so Vite
+// bundles them into dist/. Names are sanitised to a flat .glb filename; only files
+// that actually exist in the trusted pack are copied (no user-provided binaries).
+function copyModels(models) {
+  let n = 0;
+  for (const name of (Array.isArray(models) ? models : [])) {
+    const safe = String(name).replace(/[^a-z0-9._-]/gi, "-");
+    if (!/\.glb$/i.test(safe)) continue;
+    const from = path.join(MODELPACK, safe);
+    try { if (fs.existsSync(from)) { fs.copyFileSync(from, path.join(MODELS, safe)); n++; } } catch {}
+  }
+  return n;
+}
 // Write binary game assets to public/assets/<name>. Names are sanitised to a flat
 // filename (no path traversal); only known media extensions are allowed.
 function writeAssets(assets) {
@@ -98,8 +114,9 @@ const server = http.createServer((req, res) => {
     const files = payload && payload.files;
     if (!files || typeof files !== "object") return send(res, 400, { ok: false, error: "no files" });
     try {
-      wipeSrc(); wipeDist(); wipeAssets();
+      wipeSrc(); wipeDist(); wipeAssets(); wipeModels();
       writeAssets(payload.assets);
+      copyModels(payload.models);
       let wrote = 0;
       for (const [rel, content] of Object.entries(files)) {
         const safe = safeRel(rel);
