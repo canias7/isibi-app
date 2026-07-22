@@ -4511,6 +4511,72 @@ async function ensureSavedSearches(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _searches (user_id INTEGER NOT NULL, name TEXT NOT NULL, table_name TEXT NOT NULL, query TEXT, created_at TEXT, PRIMARY KEY (user_id, name))");
   _searchesReady.add(uuid);
 }
+// Ratings & reviews over any subject (a product id, listing slug, any key). One review per member per
+// subject — PK(subject,user_id) so re-submitting UPSERTS. Reads (list + summary) are public; writing
+// or deleting your own needs a site-user token (an admin may delete anyone's). Ensured once per isolate.
+const _reviewsReady = new Set();
+async function ensureReviews(env, uuid) {
+  if (_reviewsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reviews (subject TEXT NOT NULL, user_id INTEGER NOT NULL, rating INTEGER NOT NULL, title TEXT, body TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (subject, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reviews_subject ON _reviews (subject)"); } catch {}
+  _reviewsReady.add(uuid);
+}
+// Waitlist / fair FIFO queue — a member JOINS a named list ONCE (a strictly-increasing `seq` via a
+// single atomic INSERT...SELECT), sees their live POSITION (count of still-'waiting' rows ahead + 1),
+// or LEAVES; an admin views the ordered queue and CLAIMs the front (or a named user) via a single
+// atomic guarded UPDATE. PRIMARY KEY (list, user_id) enforces one row per member per list.
+const _waitlistReady = new Set();
+async function ensureWaitlist(env, uuid) {
+  if (_waitlistReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _waitlist (list TEXT NOT NULL, user_id INTEGER NOT NULL, joined_at TEXT, status TEXT NOT NULL DEFAULT 'waiting', seq INTEGER, PRIMARY KEY (list, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_waitlist_seq ON _waitlist (list, seq)"); } catch {}
+  _waitlistReady.add(uuid);
+}
+// Daily check-in streaks (habit / gamification). One row per (user_id, day) — a member checks in at
+// most once per UTC day. Ensured once per isolate.
+const _checkinsReady = new Set();
+async function ensureCheckins(env, uuid) {
+  if (_checkinsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _checkins (user_id INTEGER NOT NULL, day TEXT NOT NULL, created_at TEXT, PRIMARY KEY (user_id, day))");
+  _checkinsReady.add(uuid);
+}
+// Validate a YYYY-MM-DD string via a UTC round-trip (rejects malformed + calendar-impossible dates
+// like 2026-02-30). Returns the string or null. dayEpoch = the integer UTC day number (for gap math).
+function validDay(s) {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d) ? s : null;
+}
+function dayEpoch(s) { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); }
+// Streak stats from a member's day strings. current = the consecutive run ending today OR yesterday
+// (a gap breaks it); longest = the max consecutive run ever; days come in already sorted ascending.
+function checkinStreaks(daysAsc, todayStr) {
+  const total = daysAsc.length;
+  if (!total) return { current_streak: 0, longest_streak: 0, total: 0, last_day: null };
+  const eds = daysAsc.map(dayEpoch);
+  let longest = 1, run = 1;
+  for (let i = 1; i < eds.length; i++) {
+    if (eds[i] === eds[i - 1] + 1) { run++; if (run > longest) longest = run; }
+    else if (eds[i] !== eds[i - 1]) run = 1;
+  }
+  const todayE = dayEpoch(todayStr), lastE = eds[eds.length - 1];
+  let current = 0;
+  if (lastE === todayE || lastE === todayE - 1) {
+    current = 1;
+    for (let i = eds.length - 2; i >= 0; i--) { if (eds[i] === eds[i + 1] - 1) current++; else if (eds[i] !== eds[i + 1]) break; }
+  }
+  return { current_streak: current, longest_streak: longest, total, last_day: daysAsc[daysAsc.length - 1] };
+}
+// Reminders — per-member scheduled notes the app polls for. Every row is owned by user_id and every
+// query filters on it, so a reminder is private to its owner. Ensured once per isolate.
+const _remindersReady = new Set();
+async function ensureReminders(env, uuid) {
+  if (_remindersReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reminders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, remind_at TEXT NOT NULL, subject TEXT, note TEXT, done INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reminders_user ON _reminders (user_id, done, remind_at)"); } catch {}
+  _remindersReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9263,6 +9329,10 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _consents WHERE user_id=?", [u.id]],
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
             ["DELETE FROM _searches WHERE user_id=?", [u.id]],                               // saved searches
+            ["DELETE FROM _reviews WHERE user_id=?", [u.id]],                                // ratings & reviews
+            ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
+            ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
+            ["DELETE FROM _reminders WHERE user_id=?", [u.id]],                              // reminders
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10531,6 +10601,307 @@ async function handleRequest(request, env, ctx) {
             : await cfD1Query(env, uuid, "SELECT name, table_name, query, created_at FROM _searches WHERE user_id=? ORDER BY name LIMIT 500", [userId]);
           return Response.json({ ok: true, searches: rows.map((r) => ({ name: r.name, table: r.table_name, query: r.query, created_at: r.created_at })) });
         } catch (e) { console.error("searches failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "searches failed" }, { status: 502 }); }
+      }
+      // RATINGS & REVIEWS — one review per member per subject (a product id, listing slug, any key);
+      // re-submitting UPSERTS. Reads are PUBLIC (a reviews widget renders to anyone); writing/deleting
+      // your own needs a site-user token, and an admin may delete anyone's to moderate.
+      //   POST   /api/db/<slug>/reviews {subject, rating(1-5), title?, body?}  → upsert my review
+      //   GET    /api/db/<slug>/reviews?subject=<s>[&sort=recent|top&limit=&offset=]  → the reviews (public)
+      //   GET    /api/db/<slug>/reviews/summary?subject=<s>  → {count, average, distribution:{1..5}} (public)
+      //   GET    /api/db/<slug>/reviews/mine?subject=<s>     → my review or null (member)
+      //   DELETE /api/db/<slug>/reviews?subject=<s>          → delete mine ; admin +&user=<id> moderates any
+      const rvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reviews(?:\/(summary|mine))?$/i);
+      if (rvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rvm[1].toLowerCase(), sub = rvm[2] ? rvm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureReviews(env, uuid);
+          const qsSubject = () => String(url.searchParams.get("subject") || "").trim().slice(0, 160);
+          // POST — upsert MY review (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const subject = String(body.subject || "").trim().slice(0, 160);
+            if (!subject) return Response.json({ ok: false, error: "a subject is required" }, { status: 400 });
+            const rating = Math.floor(Number(body.rating));
+            if (!Number.isFinite(rating) || rating < 1 || rating > 5) return Response.json({ ok: false, error: "rating must be an integer 1–5" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 160) : null;
+            const rbody = body.body != null && body.body !== "" ? String(body.body).slice(0, 4000) : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _reviews (subject, user_id, rating, title, body, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(subject, user_id) DO UPDATE SET rating=excluded.rating, title=excluded.title, body=excluded.body, updated_at=excluded.updated_at", [subject, userId, rating, title, rbody, now, now]);
+            return Response.json({ ok: true, subject, rating, title, body: rbody });
+          }
+          // SUMMARY — aggregate (public).
+          if (sub === "summary") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|rvs", 300)) return tooMany();
+            const a = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN rating=1 THEN 1 ELSE 0 END) AS r1, SUM(CASE WHEN rating=2 THEN 1 ELSE 0 END) AS r2, SUM(CASE WHEN rating=3 THEN 1 ELSE 0 END) AS r3, SUM(CASE WHEN rating=4 THEN 1 ELSE 0 END) AS r4, SUM(CASE WHEN rating=5 THEN 1 ELSE 0 END) AS r5 FROM _reviews WHERE subject=?", [subject]))[0];
+            const count = a && a.n ? a.n : 0;
+            return Response.json({ ok: true, subject, count, average: count ? Math.round(a.avg * 100) / 100 : 0, distribution: { 1: (a && a.r1) || 0, 2: (a && a.r2) || 0, 3: (a && a.r3) || 0, 4: (a && a.r4) || 0, 5: (a && a.r5) || 0 } });
+          }
+          // MINE — my own review for a subject (member).
+          if (sub === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT subject, rating, title, body, created_at, updated_at FROM _reviews WHERE subject=? AND user_id=?", [subject, userId]))[0];
+            return Response.json({ ok: true, subject, review: row || null });
+          }
+          // DELETE — mine by default; an admin may moderate any with &user=<id>.
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            let target = userId;
+            const other = url.searchParams.get("user");
+            if (other != null && other !== "" && String(other) !== String(userId)) {
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+              target = parseInt(other, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+            }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _reviews WHERE subject=? AND user_id=?", [subject, target]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such review" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, subject });
+          }
+          // GET list (public) — a subject's reviews, newest-first or highest-first.
+          const subject = qsSubject();
+          if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|rvl", 300)) return tooMany();
+          const order = String(url.searchParams.get("sort") || "recent").toLowerCase() === "top" ? "rating DESC, created_at DESC" : "created_at DESC";
+          const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+          const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+          const rows = await cfD1Query(env, uuid, "SELECT user_id, rating, title, body, created_at, updated_at FROM _reviews WHERE subject=? ORDER BY " + order + " LIMIT ? OFFSET ?", [subject, lim, off]);
+          return Response.json({ ok: true, subject, reviews: rows });
+        } catch (e) { console.error("reviews failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reviews failed" }, { status: 502 }); }
+      }
+      // WAITLIST / QUEUE — a fair FIFO queue per named list. A member JOINS once (a strictly-increasing
+      // `seq` is assigned by a SINGLE atomic INSERT...SELECT with seq = MAX(seq)+1, guarded by
+      // WHERE NOT EXISTS so a re-join changes 0 rows), sees their live POSITION (count of still-'waiting'
+      // rows with a smaller seq, +1), or LEAVES. An admin views the ordered queue + counts and CLAIMs
+      // the front (or a named user) — a SINGLE atomic guarded UPDATE (seq = the current MIN waiting seq)
+      // flips them out of 'waiting', so concurrent claim-front calls drain DIFFERENT members, never
+      // double-claim, and everyone behind advances (position counts only 'waiting' rows).
+      //   POST /api/db/<slug>/waitlist/<list>/join   → join once → {joined, status, position, seq}
+      //   GET  /api/db/<slug>/waitlist/<list>/me     → {status, position, seq} · 404 if not on it
+      //   POST /api/db/<slug>/waitlist/<list>/leave  → remove myself · 404 if not on it
+      //   GET  /api/db/<slug>/waitlist/<list>        → (ADMIN) ordered entries + counts
+      //   POST /api/db/<slug>/waitlist/<list>/claim {user?, as?} → (ADMIN) claim front or a named user
+      const wlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/waitlist\/([A-Za-z0-9_.:-]{1,60})(?:\/(join|me|leave|claim))?$/i);
+      if (wlm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wlm[1].toLowerCase(), list = wlm[2], sub = wlm[3] ? wlm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureWaitlist(env, uuid);
+          const positionOf = async (seq) => (await cfD1Query(env, uuid, "SELECT COUNT(*) AS ahead FROM _waitlist WHERE list=? AND status='waiting' AND seq < ?", [list, seq]))[0].ahead + 1;
+          // JOIN — once per (list,user). SINGLE atomic INSERT...SELECT; seq = MAX+1; NOT EXISTS → re-join is a no-op.
+          if (sub === "join") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlj", 60)) return tooMany();
+            const now = new Date().toISOString();
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _waitlist (list, user_id, joined_at, status, seq) SELECT ?, ?, ?, 'waiting', (SELECT COALESCE(MAX(seq),0)+1 FROM _waitlist WHERE list=?) WHERE NOT EXISTS (SELECT 1 FROM _waitlist WHERE list=? AND user_id=?)", [list, userId, now, list, list, userId]);
+            const row = (await cfD1Query(env, uuid, "SELECT status, seq FROM _waitlist WHERE list=? AND user_id=?", [list, userId]))[0];
+            if (!row) return Response.json({ ok: false, error: "join failed" }, { status: 502 });
+            const position = row.status === "waiting" ? await positionOf(row.seq) : null;
+            return Response.json({ ok: true, joined: !!ex.changes, status: row.status, position, seq: row.seq });
+          }
+          // ME — my own standing (private: only ever reads the caller's own row).
+          if (sub === "me") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlme", 300)) return tooMany();
+            const row = (await cfD1Query(env, uuid, "SELECT status, seq FROM _waitlist WHERE list=? AND user_id=?", [list, userId]))[0];
+            if (!row) return Response.json({ ok: false, error: "you're not on this waitlist" }, { status: 404 });
+            const position = row.status === "waiting" ? await positionOf(row.seq) : null;
+            return Response.json({ ok: true, status: row.status, position, seq: row.seq });
+          }
+          // LEAVE — remove myself (only ever deletes the caller's own row).
+          if (sub === "leave") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wll", 60)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _waitlist WHERE list=? AND user_id=?", [list, userId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "you're not on this waitlist" }, { status: 404 });
+            return Response.json({ ok: true, left: true });
+          }
+          // Everything below is ADMIN.
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // CLAIM — a SINGLE atomic guarded UPDATE. Front = the current MIN waiting seq (re-evaluated
+          // inside the one statement), or a named user. RETURNING reports who was claimed.
+          if (sub === "claim") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let as = String(body.as || "invited").toLowerCase();
+            if (!/^[a-z_]{1,20}$/.test(as) || as === "waiting") as = "invited";
+            let claimed;
+            if (body.user != null && body.user !== "") {
+              const target = parseInt(body.user, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+              claimed = await cfD1Query(env, uuid, "UPDATE _waitlist SET status=? WHERE list=? AND user_id=? AND status='waiting' RETURNING user_id, seq", [as, list, target]);
+            } else {
+              claimed = await cfD1Query(env, uuid, "UPDATE _waitlist SET status=? WHERE list=? AND status='waiting' AND seq=(SELECT MIN(seq) FROM _waitlist WHERE list=? AND status='waiting') RETURNING user_id, seq", [as, list, list]);
+            }
+            if (!claimed || !claimed.length) return Response.json({ ok: false, error: "no waiting member to claim" }, { status: 409 });
+            return Response.json({ ok: true, status: as, claimed: { user_id: claimed[0].user_id, seq: claimed[0].seq } });
+          }
+          // LIST (admin) — the ordered queue (front-2000 by seq) + full counts (independent of the page).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "use GET" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|wllist", 300)) return tooMany();
+          const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS total, SUM(CASE WHEN status='waiting' THEN 1 ELSE 0 END) AS waiting FROM _waitlist WHERE list=?", [list]))[0];
+          const rows = await cfD1Query(env, uuid, "SELECT user_id, status, seq, joined_at FROM _waitlist WHERE list=? ORDER BY seq ASC LIMIT 2000", [list]);
+          let pos = 0;
+          const entries = rows.map((r) => ({ user_id: r.user_id, status: r.status, seq: r.seq, position: r.status === "waiting" ? ++pos : null, joined_at: r.joined_at }));
+          return Response.json({ ok: true, list, total: (cnt && cnt.total) || 0, waiting: (cnt && cnt.waiting) || 0, entries });
+        } catch (e) { console.error("waitlist failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "waitlist failed" }, { status: 502 }); }
+      }
+      // DAILY CHECK-IN STREAKS (habit / gamification) — a member checks in at most ONCE per UTC day
+      // (a composite-PK atomic INSERT...WHERE NOT EXISTS; a 2nd check-in the same day is a no-op, not an
+      // error), and reads their current + longest streak. current = the consecutive run ending today or
+      // yesterday; longest = the max run ever. All per-member (no cross-member surface).
+      //   POST /api/db/<slug>/streak/checkin {day?}  → {checked_in, current_streak, longest_streak, total}
+      //   GET  /api/db/<slug>/streak                 → {current_streak, longest_streak, total, last_day, days:[…]}
+      const skm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/streak(?:\/(checkin))?$/i);
+      if (skm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = skm[1].toLowerCase(), sub = skm[2] ? skm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureCheckins(env, uuid);
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const allDays = async () => (await cfD1Query(env, uuid, "SELECT day FROM _checkins WHERE user_id=? ORDER BY day DESC LIMIT 3660", [userId])).map((r) => r.day).reverse(); // ascending, capped ~10y
+          // CHECK IN for a day (default today). Atomic once-per-day guard.
+          if (sub === "checkin") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|stc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let day = todayStr;
+            if (body.day !== undefined && body.day !== null) {
+              const v = validDay(String(body.day));
+              if (!v) return Response.json({ ok: false, error: "day must be YYYY-MM-DD" }, { status: 400 });
+              if (dayEpoch(v) > dayEpoch(todayStr)) return Response.json({ ok: false, error: "can't check in for a future day" }, { status: 400 });
+              day = v;
+            }
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _checkins (user_id, day, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM _checkins WHERE user_id=? AND day=?)", [userId, day, new Date().toISOString(), userId, day]);
+            const stats = checkinStreaks(await allDays(), todayStr);
+            return Response.json({ ok: true, checked_in: !!ex.changes, day, current_streak: stats.current_streak, longest_streak: stats.longest_streak, total: stats.total });
+          }
+          // GET streak stats + a recent-days list (most-recent-first, capped).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|sts", 300)) return tooMany();
+          const asc = await allDays();
+          const stats = checkinStreaks(asc, todayStr);
+          return Response.json({ ok: true, current_streak: stats.current_streak, longest_streak: stats.longest_streak, total: stats.total, last_day: stats.last_day, days: asc.slice(-60).reverse() });
+        } catch (e) { console.error("streak failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "streak failed" }, { status: 502 }); }
+      }
+      // REMINDERS — per-member scheduled notes; the app POLLS /due for ones that have come due. Every
+      // reminder is PRIVATE to its owner (every query filters user_id=?, so another member's id 404s and
+      // never leaks). remind_at is normalized to a canonical ISO string on write so /due compares cleanly.
+      //   POST   /api/db/<slug>/reminders {remind_at, note, subject?}     → {id}
+      //   GET    /api/db/<slug>/reminders[?done=1|&upcoming=1]            → mine (default: not-done, soonest first)
+      //   GET    /api/db/<slug>/reminders/due                            → mine, not-done, remind_at <= now
+      //   POST   /api/db/<slug>/reminders/<id>/done                      → mark mine done
+      //   PATCH  /api/db/<slug>/reminders/<id> {remind_at?, note?, subject?}  → edit mine
+      //   DELETE /api/db/<slug>/reminders/<id>                           → delete mine
+      const rmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reminders(?:\/(due|\d+))?(?:\/(done))?$/i);
+      if (rmm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rmm[1].toLowerCase(), tail = rmm[2] ? rmm[2].toLowerCase() : null, act = rmm[3] ? rmm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const id = tail && /^\d+$/.test(tail) ? parseInt(tail, 10) : null;
+        try {
+          await ensureReminders(env, uuid);
+          const normAt = (v) => { if (v === undefined || v === null || v === "") return undefined; const d = new Date(v); return isNaN(d.getTime()) ? null : d.toISOString(); };
+          // CREATE.
+          if (!tail && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|rmw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const remindAt = normAt(body.remind_at);
+            if (remindAt === undefined) return Response.json({ ok: false, error: "remind_at is required" }, { status: 400 });
+            if (remindAt === null) return Response.json({ ok: false, error: "remind_at must be a valid date/time" }, { status: 400 });
+            const note = body.note != null ? String(body.note).slice(0, 2000) : "";
+            if (!note) return Response.json({ ok: false, error: "a note is required" }, { status: 400 });
+            const subject = body.subject != null && body.subject !== "" ? String(body.subject).slice(0, 160) : null;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _reminders (user_id, remind_at, subject, note, done, created_at) VALUES (?,?,?,?,0,?) RETURNING id", [userId, remindAt, subject, note, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, remind_at: remindAt });
+          }
+          // DUE — my not-done reminders that have come due (for a poller).
+          if (tail === "due") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|rmd", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, created_at FROM _reminders WHERE user_id=? AND done=0 AND remind_at <= ? ORDER BY remind_at ASC LIMIT 500", [userId, new Date().toISOString()]);
+            return Response.json({ ok: true, reminders: rows });
+          }
+          // A specific reminder: /<id> (PATCH/DELETE) or /<id>/done (POST). Always scoped to user_id.
+          if (id != null) {
+            if (act === "done") {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _reminders SET done=1 WHERE id=? AND user_id=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, done: true });
+            }
+            if (request.method === "PATCH") {
+              if (!rateOk(slug + "|" + ip + "|rmp", 120)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const sets = [], params = [];
+              if (body.remind_at !== undefined) { const at = normAt(body.remind_at); if (at === null || at === undefined) return Response.json({ ok: false, error: "remind_at must be a valid date/time" }, { status: 400 }); sets.push("remind_at=?"); params.push(at); }
+              if (body.note !== undefined) { const n = String(body.note == null ? "" : body.note).slice(0, 2000); if (!n) return Response.json({ ok: false, error: "note can't be empty" }, { status: 400 }); sets.push("note=?"); params.push(n); }
+              if (body.subject !== undefined) { sets.push("subject=?"); params.push(body.subject != null && body.subject !== "" ? String(body.subject).slice(0, 160) : null); }
+              if (body.done !== undefined) { sets.push("done=?"); params.push(body.done === true || body.done === 1 || body.done === "true" ? 1 : 0); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "UPDATE _reminders SET " + sets.join(", ") + " WHERE id=? AND user_id=?", params.concat([id, userId]));
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, updated: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _reminders WHERE id=? AND user_id=?", [id, userId]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such reminder" }, { status: 404 });
+              return Response.json({ ok: true, id, deleted: true });
+            }
+            return Response.json({ ok: false, error: "use PATCH, DELETE, or POST /<id>/done" }, { status: 405 });
+          }
+          // LIST (GET, no id) — mine. Default: not-done, soonest first. ?done=1 → completed; ?upcoming=1 → future not-done.
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported reminders request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|rml", 300)) return tooMany();
+          let where = "user_id=?", params = [userId], order = "remind_at ASC";
+          if (url.searchParams.get("done") === "1") { where += " AND done=1"; order = "remind_at DESC"; }
+          else if (url.searchParams.get("upcoming") === "1") { where += " AND done=0 AND remind_at > ?"; params.push(new Date().toISOString()); }
+          else where += " AND done=0";
+          const rows = await cfD1Query(env, uuid, "SELECT id, remind_at, subject, note, done, created_at FROM _reminders WHERE " + where + " ORDER BY " + order + " LIMIT 500", params);
+          return Response.json({ ok: true, reminders: rows });
+        } catch (e) { console.error("reminders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reminders failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.

@@ -6661,6 +6661,28 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-22 — engagement primitives: reviews · waitlist · streaks · reminders (data API)
+- Next backlog batch (all genuinely absent — grep-checked: `reactions` already covers likes/upvotes/RSVPs,
+  `bookmarks`/`notifications`/`polls` exist, so these are new). Designed + adversarially reviewed via a
+  read-only design workflow (`wf_10873466-239`); reviews/reminders agents hit the StructuredOutput retry
+  cap so I built those two from spec, but the waitlist + streaks reviews were gold (see below).
+- **`/reviews`** — ratings & reviews on any subject. PK(subject,user_id) → one per member (re-post upserts);
+  `/summary` is a single AVG + per-star CASE aggregate; reads public, writes owner-only, admin `&user=`
+  moderates. batch177 (26/26).
+- **`/waitlist/<list>`** — fair FIFO queue. join/me/leave (member) + list/claim (admin). **Review caught a
+  real atomicity race**: the first-cut claim-front pre-read the MIN-seq row then did a guarded UPDATE by
+  user_id — two concurrent claim-fronts read the same front, one wins, the other spuriously 409s even
+  though another front exists. Fixed to a SINGLE `UPDATE … WHERE status='waiting' AND seq=(SELECT MIN(seq)
+  …) RETURNING` so concurrent claims drain different members. Also: admin counts come from a separate
+  COUNT/SUM (page-derived counts undercount past the 2000 LIMIT). batch178 (22/22).
+- **`/streak`** — daily check-in streaks. Once-per-UTC-day atomic INSERT…WHERE NOT EXISTS; current/longest
+  computed in JS over UTC epoch-day ints (no TZ drift); day validated by UTC round-trip (rejects 2026-02-30
+  / future). Review: approved. batch179 (17/17).
+- **`/reminders`** — per-member private scheduled notes; `/due` for polling. Every query filters user_id=?
+  (IDOR-safe — another member's id 404s). remind_at normalized to canonical ISO on write. batch180 (26/26).
+- All four wired into GDPR erase. Full suite 163 green. **Workflow note:** this time the design agents were
+  instructed READ-ONLY + structured-output — git stayed clean throughout (no tree thrash like last batch).
+
 ## 2026-07-22 — saved searches (data API)
 - **`/searches`** — per-member saved searches. A member saves a named `{table, query}` (query = a list
   query-string or `{where,q,sort,order,limit}` object) and re-RUNs it. Private per member (PK
