@@ -8282,6 +8282,43 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, id: rid, status });
         } catch (e) { console.error("reports failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reports failed" }, { status: 502 }); }
       }
+      // Full-site export (ADMIN) — download EVERY app table's rows in one JSON bundle, so a
+      // generated app can offer its own admin a "Download all data" backup button (the
+      // per-table export below only does one table at a time). Members are included with
+      // safe columns only (never password hashes). Owner-scoped user/feed data is NOT
+      // filtered — an app admin sees the whole dataset by design (it's their site's data).
+      //   GET /api/db/<slug>/export[?limit=N]  → {ok, slug, exported_at, tables:{name:[rows]}, users:[…]}
+      const fxm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/export$/i);
+      if (fxm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fxm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // Heavier than a single-table export — reads every table — so a tighter cap.
+          if (!rateOk(slug + "|" + ip + "|fexpr", 6)) return tooMany();
+          const spec = await loadSiteSchema(env, uuid);
+          const lim = Math.min(50000, Math.max(1, parseInt(url.searchParams.get("limit") || "10000", 10) || 10000));
+          const out = {};
+          for (const tdef of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+            if (!tdef || !tdef.name) continue;
+            try { const rows = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(tdef.name) + " ORDER BY id ASC LIMIT ?", [lim]); parseJsonRows(tdef, rows); out[tdef.name] = rows; } catch { out[tdef.name] = []; }
+          }
+          // Members — safe columns only; never the password hash.
+          let users = [];
+          try { await initSiteAuth(env, uuid); users = await cfD1Query(env, uuid, "SELECT id, email, role, verified, display_name, created_at FROM _users ORDER BY id ASC LIMIT ?", [lim]); users = users.map((u) => Object.assign(u, { verified: !!u.verified })); } catch {}
+          const body = JSON.stringify({ ok: true, slug, exported_at: new Date().toISOString(), tables: out, users });
+          return new Response(body, { headers: { "content-type": "application/json; charset=utf-8", "content-disposition": 'attachment; filename="' + slug + '-export.json"', "cache-control": "no-store" } });
+        } catch (e) { console.error("full export failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "export failed" }, { status: 502 }); }
+      }
       // Data export (ADMIN) — download a table as CSV (default) or JSON.
       //   GET /api/db/<slug>/export/<table>[?format=csv|json&limit=N]
       const exm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/export\/([a-z_][a-z0-9_]{0,40})$/i);
