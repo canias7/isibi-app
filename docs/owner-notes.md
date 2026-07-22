@@ -6628,3 +6628,13 @@ Full suite 149 green.
   −179.9, ~22km not ~40000km), POLES (opposite-longitude point near the pole is close), far point excluded.
 12 adversarial batches total (158–169): 2 real bugs found + fixed (transition "*" wildcard; geo
 antimeridian/pole box), 10 clean. Full suite 152 green.
+- **GAME STUDIO — Phase 7 quality: rendering/post-processing pipeline (2026-07-22).** The biggest visual jump
+  yet, and asset-free. GAME_3D_RULES now REQUIRES every 3D game to add Babylon's DefaultRenderingPipeline
+  (bloom → neon glow, tone mapping, FXAA, vignette, film grain, chromatic aberration) + a DirectionalLight
+  with a ShadowGenerator (casters + ground.receiveShadows) + a low hemispheric fill. Strong emissiveColor on
+  neon materials makes bloom glow (the signature look). Imports added to the 3D allowlist (defaultRenderingPipeline,
+  shadowGenerator, depthRendererSceneComponent side-effect). VALIDATED headless: the same flat boxes render with
+  bloom/shadows/tonemap/vignette (66.8% non-blank, 0 errors, +~900KB → 2.5MB bundle). This is quality-ladder
+  step #1 of the "how do we get toward AAA" plan; remaining ladder: better/more PBR models, VFX + game-feel +
+  sound, physics, animation blending. HARD CEILING (told owner): photoreal COD is out of reach on WebGL/browser
+  (native engine + AAA art team + years); the reachable target is a POLISHED STYLIZED 3D game.
