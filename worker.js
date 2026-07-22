@@ -9685,6 +9685,46 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, type: ty, as_of: asOf, buckets: labels, parties, totals: { aged: totals.map((n) => n / 100), total: grand / 100 }, documents: docs });
         } catch (e) { console.error("aging failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "aging failed" }, { status: 502 }); }
       }
+      // TAX SUMMARY — output tax (on sales docs) vs input tax (on purchase docs) over a period,
+      // broken down by rate, for a VAT/GST/sales-tax return. ADMIN-gated.
+      //   GET /api/db/<slug>/documents/tax-summary?from=&to=[&sales_types=invoice&purchase_types=bill]
+      //     → {output:{by_rate:[{rate,base,tax}], total_base, total_tax}, input:{…}, net_tax}
+      const txm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents\/tax-summary$/i);
+      if (txm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = txm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureDocuments(env, uuid);
+          if (!rateOk(slug + "|" + ip + "|docr", 300)) return tooMany();
+          const parseTypes = (v, def) => { const set = String(v || def).split(",").map((s) => _docType(s)).filter(Boolean).slice(0, 20); return set.length ? set : [def]; };
+          const salesTypes = parseTypes(url.searchParams.get("sales_types"), "invoice");
+          const purchaseTypes = parseTypes(url.searchParams.get("purchase_types"), "bill");
+          const isSales = new Set(salesTypes); const allTypes = [...new Set([...salesTypes, ...purchaseTypes])];
+          const where = ["d.status NOT IN ('draft','cancelled','void')", "d.type IN (" + allTypes.map(() => "?").join(",") + ")"]; const params = [...allTypes];
+          const from = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("from") || "")) ? url.searchParams.get("from").slice(0, 10) : null; if (from) { where.push("d.doc_date>=?"); params.push(from); }
+          const to = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("to") || "")) ? url.searchParams.get("to").slice(0, 10) : null; if (to) { where.push("d.doc_date<=?"); params.push(to); }
+          const rows = await cfD1Query(env, uuid, "SELECT d.type, l.tax_rate_bp AS bp, SUM(l.subtotal_c) AS base, SUM(l.tax_c) AS tax FROM _document_lines l JOIN _documents d ON d.id=l.doc_id WHERE " + where.join(" AND ") + " GROUP BY d.type, l.tax_rate_bp", params);
+          const mk = () => ({ rates: new Map(), base: 0, tax: 0 });
+          const output = mk(), input = mk();
+          for (const r of rows) {
+            const side = isSales.has(r.type) ? output : input; const bp = r.bp || 0;
+            const cur = side.rates.get(bp) || { base: 0, tax: 0 }; cur.base += r.base || 0; cur.tax += r.tax || 0; side.rates.set(bp, cur);
+            side.base += r.base || 0; side.tax += r.tax || 0;
+          }
+          const shape = (s) => ({ by_rate: [...s.rates.entries()].sort((a, b) => a[0] - b[0]).map(([bp, v]) => ({ rate: bp / 100, base: v.base / 100, tax: v.tax / 100 })), total_base: s.base / 100, total_tax: s.tax / 100 });
+          return Response.json({ ok: true, from: from || null, to: to || null, output: shape(output), input: shape(input), net_tax: (output.tax - input.tax) / 100 });
+        } catch (e) { console.error("tax-summary failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tax summary failed" }, { status: 502 }); }
+      }
       // DOCUMENT ALLOCATIONS — payments/credits applied to a document, driving paid/outstanding.
       //   GET    /api/db/<slug>/documents/<id>/allocations              → {allocations, paid, outstanding}
       //   POST   /api/db/<slug>/documents/<id>/allocations {amount, ref?, memo?, date?, allowOverpay?} → apply

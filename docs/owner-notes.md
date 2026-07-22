@@ -763,6 +763,12 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   accounts are excluded (no cash-line clutter). Added budgets|budget-report to the statements route. batch124
   (22/22) — revenue under 2000, rent over 200 @106.7%, salaries on budget, cash excluded, unbudgeted expense
   surfaced. Full suite 107 green.
+- **PHASE 13 — TAX SUMMARY** (finance glue): `GET /documents/tax-summary?from=&to=[&sales_types=&purchase_
+  types=]` aggregates document-LINE tax (subtotal_c as base, tax_c) grouped by doc type + tax_rate_bp, then
+  splits sales (output tax) vs purchases (input tax) → `{output:{by_rate:[{rate,base,tax}],total_base,
+  total_tax}, input:{…}, net_tax}` (net = output − input). Default sales=invoice, purchase=bill; override via
+  query. Excludes draft/cancelled/void. One GROUP BY query, classify in JS. batch125 (14/14) — 20%/10% split,
+  draft excluded, date window, custom pos type folding. Full suite 108 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
