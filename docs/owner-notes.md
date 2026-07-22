@@ -675,6 +675,14 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   the enforcement). Date strings compare lexically (ISO). Applies to the ledger only (stock/documents
   unaffected — noted). ensurePeriods/getFiscalLock/setFiscalLock beside createDocument. batch114 (22/22),
   incl. inclusive on-lock-date refusal + reversal-into-closed-period 409. Full suite 97 green.
+- **PHASE 5 — INVENTORY VALUATION** (weighted-average): `GET /api/db/<slug>/stock/valuation[?item=&location=]`
+  (ADMIN) → per item+location `{on_hand, avg_cost, value}` + `total_value`. avg_cost = Σ(qty×unit_cost)÷Σqty
+  over POSITIVE moves that carry a unit_cost (issues/transfers don't move it — filtered on unit_cost_c NOT
+  NULL); item-level average applied to each location's on-hand; value uses the UNROUNDED avg (avg_cost shown
+  rounded to the cent, so display avg×qty may differ by a cent from value — value is authoritative). No-cost
+  item → avg/value null. Read-only, builds on the existing `_stock_moves.unit_cost_c`; added `valuation` to
+  the stock route. stockValuation() helper. batch115 (15/15). Full suite 98 green. (FIFO/LIFO cost layers =
+  a later enhancement; weighted-average is the common SMB default and needs no new storage.)
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
