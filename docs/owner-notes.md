@@ -653,6 +653,19 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   Tables `_stock_moves` + `_stock_reservations`. Helpers ensureStock/postStockMove/reserveStock/stockLevel/
   toMilli beside the ledger helpers. batch112 (35/35) — incl. the atomic guard verified through node:sqlite.
   Full suite 95 green.
+- **PHASE 3 — DOCUMENT FLOW** (`/api/db/<slug>/documents/*`, ADMIN): generic business documents (quote,
+  sales_order, invoice, purchase_order, bill, credit_note, payment — `type` is any string). Header + lines
+  with server-computed totals (line subtotal=qty×price, tax via `tax_rate` PERCENT→basis points, doc
+  subtotal/tax/total), auto number per type (QUOTE-00001, independent counters via `_doc_counters` atomic
+  ON CONFLICT). Key action **convert** (`POST /documents/<id>/convert {type,source_status?}`) copies lines
+  into a new doc linked by `from_id` — quote→order→invoice; `source_status` stamps the source. `POST
+  /documents/<id>/status {status}` (app-defined flow). CRUD: create, GET single (header+lines), GET list
+  (filters type/party/status/from_id/number/date), PATCH (header anytime; lines only while 'draft' else
+  409-locked), DELETE (draft-only). Money in cents, qty milli-units, tax basis points — all exact. Tables
+  `_documents`+`_document_lines`+`_doc_counters`; helpers createDocument/getDocument/normalizeDocLines/
+  nextDocNumber/insertDocLines beside the stock helpers. batch113 (33/33). Full suite 96 green. (NOTE:
+  auto-posting a confirmed invoice to the ledger / issuing its stock is deliberately NOT wired yet — that
+  coupling is a later "document actions" phase or an app `on:{update}` function; keeps the primitive clean.)
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 

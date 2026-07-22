@@ -3732,6 +3732,79 @@ async function reserveStock(env, uuid, data, userId) {
   if (!ins[0]) return { err: "not enough available to reserve", code: "stock" };
   return { reservation: { id: ins[0].id, item, location, qty: qty / 1000, ref, status: "active" }, level: await stockLevel(env, uuid, item, location) };
 }
+// ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
+// Generic business documents — quote, sales_order, invoice, purchase_order, bill,
+// payment, credit_note — each a header + line items with auto-computed totals, an
+// auto number per type, a status, and a `from_id` link to the document it was created
+// from. The key action is CONVERT (quote → order → invoice): copies the lines forward
+// into a new document and links them, which is how an ERP threads a deal end-to-end.
+// Line math is exact integers: qty in milli-units, prices/totals in cents, tax in basis
+// points (input as a percent). Documents are MUTABLE business records (unlike the ledger)
+// — the app locks them via status; line edits are refused once a doc leaves 'draft'.
+const _docsReady = new Set();
+async function ensureDocuments(env, uuid) {
+  if (_docsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _documents (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, number TEXT, party TEXT, doc_date TEXT, status TEXT NOT NULL DEFAULT 'draft', currency TEXT, ref TEXT, memo TEXT, from_id INTEGER, subtotal_c INTEGER NOT NULL DEFAULT 0, tax_c INTEGER NOT NULL DEFAULT 0, total_c INTEGER NOT NULL DEFAULT 0, meta TEXT, created_by INTEGER, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _document_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER NOT NULL, item TEXT, description TEXT, qty_m INTEGER NOT NULL, unit_price_c INTEGER NOT NULL, tax_rate_bp INTEGER NOT NULL DEFAULT 0, subtotal_c INTEGER NOT NULL, tax_c INTEGER NOT NULL, total_c INTEGER NOT NULL, dim TEXT, meta TEXT, sort INTEGER)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _doc_counters (type TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dl_doc ON _document_lines (doc_id)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_doc_type ON _documents (type, status)"); } catch {}
+  _docsReady.add(uuid);
+}
+const _docType = (v) => { const s = String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40); return s || null; };
+// Validate + price a document's lines. Returns {lines, subtotal_c, tax_c, total_c} or {err}.
+function normalizeDocLines(raw) {
+  if (!Array.isArray(raw) || !raw.length) return { err: "at least one line is required" };
+  if (raw.length > 500) return { err: "too many lines (max 500)" };
+  const lines = []; let sub = 0, tax = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const ln = raw[i] || {};
+    const qty = toMilli(ln.qty); if (qty == null || qty === 0) return { err: "line " + (i + 1) + ": qty must be a non-zero number" };
+    const price = toCents(ln.unit_price != null ? ln.unit_price : ln.price); if (price == null) return { err: "line " + (i + 1) + ": unit_price must be a number" };
+    const pct = Number(ln.tax_rate || 0); if (!Number.isFinite(pct) || pct < 0 || pct > 100) return { err: "line " + (i + 1) + ": tax_rate is a percent 0–100" };
+    const bp = Math.round(pct * 100);
+    const lineSub = Math.round((qty * price) / 1000); // qty_m/1000 × price_c
+    const lineTax = Math.round((lineSub * bp) / 10000);
+    sub += lineSub; tax += lineTax;
+    lines.push({ item: ln.item != null ? String(ln.item).slice(0, 80) : null, description: ln.description != null ? String(ln.description).slice(0, 500) : null, qty_m: qty, unit_price_c: price, tax_rate_bp: bp, subtotal_c: lineSub, tax_c: lineTax, total_c: lineSub + lineTax, dim: ln.dim != null && ln.dim !== "" ? String(ln.dim).slice(0, 64) : null, meta: ln.meta !== undefined ? JSON.stringify(ln.meta) : null, sort: i });
+  }
+  return { lines, subtotal_c: sub, tax_c: tax, total_c: sub + tax };
+}
+async function nextDocNumber(env, uuid, type) {
+  const r = await cfD1Query(env, uuid, "INSERT INTO _doc_counters (type, n) VALUES (?, 1) ON CONFLICT(type) DO UPDATE SET n = n + 1 RETURNING n", [type]);
+  const n = (r[0] && r[0].n) || 1;
+  return type.toUpperCase() + "-" + String(n).padStart(5, "0"); // `type` is already sanitized to [a-z0-9_-]
+}
+async function getDocument(env, uuid, id) {
+  const d = await cfD1Query(env, uuid, "SELECT * FROM _documents WHERE id=?", [id]);
+  if (!d[0]) return null;
+  const ls = await cfD1Query(env, uuid, "SELECT * FROM _document_lines WHERE doc_id=? ORDER BY sort, id", [id]);
+  const h = d[0];
+  return {
+    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id,
+    subtotal: h.subtotal_c / 100, tax: h.tax_c / 100, total: h.total_c / 100, meta: h.meta ? (() => { try { return JSON.parse(h.meta); } catch { return null; } })() : null,
+    created_at: h.created_at, updated_at: h.updated_at,
+    lines: ls.map((l) => ({ id: l.id, item: l.item, description: l.description, qty: l.qty_m / 1000, unit_price: l.unit_price_c / 100, tax_rate: l.tax_rate_bp / 100, subtotal: l.subtotal_c / 100, tax: l.tax_c / 100, total: l.total_c / 100, dim: l.dim, meta: l.meta ? (() => { try { return JSON.parse(l.meta); } catch { return null; } })() : null })),
+  };
+}
+async function insertDocLines(env, uuid, docId, lines) {
+  for (const l of lines) await cfD1Query(env, uuid, "INSERT INTO _document_lines (doc_id, item, description, qty_m, unit_price_c, tax_rate_bp, subtotal_c, tax_c, total_c, dim, meta, sort) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", [docId, l.item, l.description, l.qty_m, l.unit_price_c, l.tax_rate_bp, l.subtotal_c, l.tax_c, l.total_c, l.dim, l.meta, l.sort]);
+}
+// Create a document (header + priced lines + auto number). Returns {doc} or {err}.
+async function createDocument(env, uuid, data, userId) {
+  await ensureDocuments(env, uuid);
+  const type = _docType(data.type); if (!type) return { err: "type is required (letters/digits/-/_)" };
+  const norm = normalizeDocLines(data.lines); if (norm.err) return { err: norm.err };
+  const number = data.number != null && data.number !== "" ? String(data.number).slice(0, 60) : await nextDocNumber(env, uuid, type);
+  const date = /^\d{4}-\d{2}-\d{2}/.test(String(data.date || "")) ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const status = data.status != null ? String(data.status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "draft" : "draft";
+  const now = new Date().toISOString();
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _documents (type, number, party, doc_date, status, currency, ref, memo, from_id, subtotal_c, tax_c, total_c, meta, created_by, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+    [type, number, data.party != null ? String(data.party).slice(0, 200) : null, date, status, data.currency != null ? String(data.currency).slice(0, 8) : null, data.ref != null ? String(data.ref).slice(0, 120) : null, data.memo != null ? String(data.memo).slice(0, 1000) : null, data.from_id || null, norm.subtotal_c, norm.tax_c, norm.total_c, data.meta !== undefined ? JSON.stringify(data.meta) : null, userId || null, now, now]);
+  const docId = ins[0] && ins[0].id; if (!docId) return { err: "could not create document" };
+  await insertDocLines(env, uuid, docId, norm.lines);
+  return { doc: await getDocument(env, uuid, docId) };
+}
 // Approvals — a sign-off workflow on a table declaring `approval:{approvers,status}`. A row is
 // submitted (status→pending), then an approver (a member whose role is in `approvers`, or admin)
 // approves (→approved) or rejects (→rejected). The status lives in the row's platform-added
@@ -8923,6 +8996,120 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("stock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "stock failed" }, { status: 502 }); }
+      }
+      // DOCUMENT FLOW (ERP sales/procurement) — quotes/orders/invoices/etc. with line-item
+      // totals, auto numbering, status, and quote→order→invoice CONVERT. ADMIN-gated.
+      //   POST   /api/db/<slug>/documents {type, party?, date?, currency?, ref?, memo?, status?, number?, lines:[{item?,description?,qty,unit_price,tax_rate?,dim?,meta?}]} → {doc}
+      //   GET    /api/db/<slug>/documents[?type=&party=&status=&from_id=&number=&from=&to=&limit=&offset=] → {documents:[…header+totals]}
+      //   GET    /api/db/<slug>/documents/<id>                    → {doc} (header + lines)
+      //   PATCH  /api/db/<slug>/documents/<id> {…header, lines?}  → update header; lines only replaceable while 'draft'
+      //   DELETE /api/db/<slug>/documents/<id>                    → delete (only while 'draft')
+      //   POST   /api/db/<slug>/documents/<id>/status {status}    → set status
+      //   POST   /api/db/<slug>/documents/<id>/convert {type, status?, date?, source_status?} → copy lines into a new linked doc
+      const dcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents(?:\/(\d+)(?:\/(status|convert))?)?$/i);
+      if (dcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dcm[1].toLowerCase(), docId = dcm[2] ? parseInt(dcm[2], 10) : null, act = dcm[3] ? dcm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureDocuments(env, uuid);
+          const wr = () => rateOk(slug + "|" + ip + "|docw", 120), rd = () => rateOk(slug + "|" + ip + "|docr", 300);
+          // ── single-document sub-actions ──
+          if (docId && act === "status") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const status = String(body.status || "").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24);
+            if (!status) return Response.json({ ok: false, error: "status required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _documents SET status=?, updated_at=? WHERE id=?", [status, new Date().toISOString(), docId]);
+            if (ex.changes === 0) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            return Response.json({ ok: true, id: docId, status });
+          }
+          if (docId && act === "convert") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = _docType(body.type); if (!target) return Response.json({ ok: false, error: "target type required" }, { status: 400 });
+            const src = await getDocument(env, uuid, docId);
+            if (!src) return Response.json({ ok: false, error: "source not found" }, { status: 404 });
+            const lines = src.lines.map((l) => ({ item: l.item, description: l.description, qty: l.qty, unit_price: l.unit_price, tax_rate: l.tax_rate, dim: l.dim, meta: l.meta }));
+            const res = await createDocument(env, uuid, { type: target, party: src.party, currency: src.currency, ref: src.ref, memo: src.memo, from_id: src.id, status: body.status, date: body.date, lines }, userId);
+            if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+            if (body.source_status) await cfD1Query(env, uuid, "UPDATE _documents SET status=?, updated_at=? WHERE id=?", [String(body.source_status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24), new Date().toISOString(), docId]);
+            return Response.json({ ok: true, doc: res.doc, from_id: docId });
+          }
+          // ── collection + single CRUD ──
+          if (request.method === "POST" && !docId) {
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const res = await createDocument(env, uuid, body, userId);
+            if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+            return Response.json({ ok: true, doc: res.doc });
+          }
+          if (request.method === "GET" && docId) {
+            if (!rd()) return tooMany();
+            const doc = await getDocument(env, uuid, docId);
+            return doc ? Response.json({ ok: true, doc }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            const ty = _docType(url.searchParams.get("type")); if (ty) { where.push("type=?"); params.push(ty); }
+            const party = (url.searchParams.get("party") || "").trim(); if (party) { where.push("party=?"); params.push(party); }
+            const st = (url.searchParams.get("status") || "").toLowerCase().replace(/[^a-z0-9_-]/g, ""); if (st) { where.push("status=?"); params.push(st); }
+            const fid = parseInt(url.searchParams.get("from_id") || "", 10); if (Number.isFinite(fid)) { where.push("from_id=?"); params.push(fid); }
+            const num = (url.searchParams.get("number") || "").trim(); if (num) { where.push("number=?"); params.push(num); }
+            const from = (url.searchParams.get("from") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(from)) { where.push("doc_date>=?"); params.push(from.slice(0, 10)); }
+            const to = (url.searchParams.get("to") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(to)) { where.push("doc_date<=?"); params.push(to.slice(0, 10)); }
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+            const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+            const rows = await cfD1Query(env, uuid, "SELECT id, type, number, party, doc_date, status, currency, ref, from_id, subtotal_c, tax_c, total_c, created_at FROM _documents" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT ? OFFSET ?", params.concat([lim, off]));
+            return Response.json({ ok: true, documents: rows.map((r) => ({ id: r.id, type: r.type, number: r.number, party: r.party, doc_date: r.doc_date, status: r.status, currency: r.currency, ref: r.ref, from_id: r.from_id, subtotal: r.subtotal_c / 100, tax: r.tax_c / 100, total: r.total_c / 100, created_at: r.created_at })) });
+          }
+          if (request.method === "PATCH" && docId) {
+            if (!wr()) return tooMany();
+            const cur = await cfD1Query(env, uuid, "SELECT status FROM _documents WHERE id=?", [docId]);
+            if (!cur[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const set = []; const params = [];
+            const strField = (k, col, max) => { if (body[k] !== undefined) { set.push(col + "=?"); params.push(body[k] == null ? null : String(body[k]).slice(0, max)); } };
+            strField("party", "party", 200); strField("ref", "ref", 120); strField("memo", "memo", 1000); strField("currency", "currency", 8);
+            if (body.date !== undefined && /^\d{4}-\d{2}-\d{2}/.test(String(body.date || ""))) { set.push("doc_date=?"); params.push(String(body.date).slice(0, 10)); }
+            if (body.status !== undefined) { set.push("status=?"); params.push(String(body.status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "draft"); }
+            if (body.meta !== undefined) { set.push("meta=?"); params.push(JSON.stringify(body.meta)); }
+            // Line replacement is only allowed while the document is still a draft.
+            if (body.lines !== undefined) {
+              if (cur[0].status !== "draft") return Response.json({ ok: false, error: "lines can only be edited while the document is a draft", code: "locked" }, { status: 409 });
+              const norm = normalizeDocLines(body.lines);
+              if (norm.err) return Response.json({ ok: false, error: norm.err }, { status: 400 });
+              await cfD1Query(env, uuid, "DELETE FROM _document_lines WHERE doc_id=?", [docId]);
+              await insertDocLines(env, uuid, docId, norm.lines);
+              set.push("subtotal_c=?", "tax_c=?", "total_c=?"); params.push(norm.subtotal_c, norm.tax_c, norm.total_c);
+            }
+            set.push("updated_at=?"); params.push(new Date().toISOString());
+            await cfD1Query(env, uuid, "UPDATE _documents SET " + set.join(", ") + " WHERE id=?", params.concat([docId]));
+            return Response.json({ ok: true, doc: await getDocument(env, uuid, docId) });
+          }
+          if (request.method === "DELETE" && docId) {
+            if (!wr()) return tooMany();
+            const cur = await cfD1Query(env, uuid, "SELECT status FROM _documents WHERE id=?", [docId]);
+            if (!cur[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (cur[0].status !== "draft") return Response.json({ ok: false, error: "only a draft document can be deleted (cancel it via status instead)", code: "locked" }, { status: 409 });
+            await cfD1Query(env, uuid, "DELETE FROM _document_lines WHERE doc_id=?", [docId]);
+            await cfD1Query(env, uuid, "DELETE FROM _documents WHERE id=?", [docId]);
+            return Response.json({ ok: true, id: docId, deleted: true });
+          }
+          return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+        } catch (e) { console.error("documents failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "documents failed" }, { status: 502 }); }
       }
       // Mentions → notifications — a member @mentions others in a post/comment; the app
       // detects the handles client-side and calls this with the mentioned user ids, which
