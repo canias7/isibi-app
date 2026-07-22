@@ -709,6 +709,13 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   entry (respects the period lock). Extended the ledger route resource set (+templates) and sub (+post), and
   added DELETE to the ledger route's method guard (was GET/POST/OPTIONS — a DELETE previously fell through to
   404). batch118 (16/16). Full suite 101 green.
+- **PHASE 8 — DEPRECIATION** (finance calc): `POST /api/db/<slug>/finance/depreciation {cost,salvage?,life,
+  method?,factor?,start?,freq?}` → stateless schedule (straight_line even, or declining_balance front-loaded
+  factor default 2). Cents throughout; the FINAL period absorbs rounding residual so total = cost−salvage and
+  book_value ends exactly at salvage; DB floors at salvage (never dips below). Optional per-period dates from
+  start+freq (month/quarter/year, UTC). New `/finance/*` calculator namespace (any signed-in member, no data
+  touched). depreciationSchedule() helper beside ledgerBalances. Composes with a normal assets table + Phase-7
+  recurring journals to post each period. batch119 (22/22). Full suite 102 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
