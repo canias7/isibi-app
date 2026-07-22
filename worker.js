@@ -4556,6 +4556,47 @@ function shapeD1Stats(row, wanted, wantedExpr) {
   if (wanted.distinct && wanted.distinct.length) { out.distinct = {}; for (const col of wanted.distinct) out.distinct[col] = Number(row ? row["distinct__" + col] : 0) || 0; }
   return out;
 }
+// Zero-fill a time-bucket stats result so a trend chart has no gaps: given the ASC-ordered
+// present groups and the time token `<col>:<gran>`, emit a group for EVERY period between the
+// first and last present bucket, inserting count:0 buckets where no rows fell. Only
+// year/month/day/hour are filled (week's %W numbering isn't reliably reproducible in JS);
+// other granularities pass through unchanged. Capped at 2000 buckets — a wider span returns
+// the sparse result untouched. UTC throughout to match SQLite strftime on the stored ISO.
+function fillTimeSeries(groups, token, wanted, wantedExpr) {
+  const gran = String(token.split(":")[1] || "").toLowerCase();
+  if (!["year", "month", "day", "date", "hour"].includes(gran) || !groups.length) return groups;
+  const pad = (n, w) => String(n).padStart(w, "0");
+  const fmt = (d) => {
+    const Y = d.getUTCFullYear(), M = pad(d.getUTCMonth() + 1, 2), D = pad(d.getUTCDate(), 2), H = pad(d.getUTCHours(), 2);
+    if (gran === "year") return String(Y);
+    if (gran === "month") return Y + "-" + M;
+    if (gran === "hour") return Y + "-" + M + "-" + D + " " + H + ":00";
+    return Y + "-" + M + "-" + D; // day / date
+  };
+  const parse = (label) => {
+    if (label == null) return null;
+    if (gran === "year") { const y = parseInt(label, 10); return Number.isFinite(y) ? new Date(Date.UTC(y, 0, 1)) : null; }
+    if (gran === "month") { const m = String(label).match(/^(\d+)-(\d+)$/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, 1)) : null; }
+    if (gran === "hour") { const m = String(label).match(/^(\d+)-(\d+)-(\d+) (\d+)/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4])) : null; }
+    const m = String(label).match(/^(\d+)-(\d+)-(\d+)$/); return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+  };
+  const step = (d) => {
+    if (gran === "year") d.setUTCFullYear(d.getUTCFullYear() + 1);
+    else if (gran === "month") d.setUTCMonth(d.getUTCMonth() + 1);
+    else if (gran === "hour") d.setUTCHours(d.getUTCHours() + 1);
+    else d.setUTCDate(d.getUTCDate() + 1);
+  };
+  const start = parse(groups[0].value), end = parse(groups[groups.length - 1].value);
+  if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return groups;
+  const byLabel = new Map(groups.map((g) => [g.value, g]));
+  const out = []; const cur = start; let guard = 0;
+  while (cur <= end && guard <= 2000) {
+    const label = fmt(cur);
+    out.push(byLabel.get(label) || Object.assign({ [token]: label, value: label }, shapeD1Stats(null, wanted, wantedExpr)));
+    step(cur); guard++;
+  }
+  return guard > 2000 ? groups : out; // span too wide → leave the sparse result as-is
+}
 
 // ---- Phase C: built-site auth (each site's OWN visitor login) -----------------
 // Visitors of a built site log into THAT site — their accounts live in the site's
@@ -9635,12 +9676,15 @@ async function handleRequest(request, env, ctx) {
             const b = buildD1Stats(url, tn, allow, base, def, spec);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
             if (b.groupCols && b.groupCols.length) {
-              const groups = r.map((row) => {
+              let groups = r.map((row) => {
                 const g = {};
                 b.groupCols.forEach((c, i) => { g[c] = row["_g" + i]; });
                 if (b.groupCols.length === 1) g.value = row["_g0"]; // backward-compatible single-dim shape (`value` + aggs)
                 return Object.assign(g, shapeD1Stats(row, b.wanted, b.wantedExpr));
               });
+              // `?fill=1` on a single time-bucket group zero-fills empty periods so a trend
+              // line is continuous (no missing months/days). Only applies to a time token.
+              if (b.groupCols.length === 1 && url.searchParams.get("fill") === "1" && b.groupCols[0].includes(":")) groups = fillTimeSeries(groups, b.groupCols[0], b.wanted, b.wantedExpr);
               return Response.json(b.groupCols.length === 1 ? { ok: true, group: b.groupCols[0], groups } : { ok: true, groupBy: b.groupCols, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted, b.wantedExpr)));
