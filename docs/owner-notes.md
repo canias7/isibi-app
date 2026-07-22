@@ -617,6 +617,18 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: time-bucketed stats (trend / time-series reports)
+
+Reporting gap. `buildD1Stats` now recognizes a group token `datecol:granularity`
+(year|month|week|day|date|hour) → buckets rows by a truncated timestamp via SQLite
+`strftime` (month→`%Y-%m`, day→`%Y-%m-%d`, week→`%Y-W%W`, hour→`%Y-%m-%d %H:00`), ordered
+CHRONOLOGICALLY (bucket ASC) so it plots directly. `?group=closed_at:month&sum=amount` →
+revenue-per-month; works on created_at/updated_at or any declared ISO-date column; honors `where=`
+and the aggExpr currency conversion. Returns the single-dim `{group, groups:[{value:bucket,…}]}`
+shape. Detection requires the granularity to be known AND the column filterable, else it falls
+through to the normal group path (an unknown granularity degrades to a global aggregate, no error).
+Offline batch79 (14/14), full suite (62) green. BACKEND_RULES STATS section documents it.
+
 ## 2026-07-22 — CRM gap layer: duplicate check (does-this-already-exist lookup)
 
 Data-quality gap. `GET /rows/<t>/duplicates?email=…&phone=…` (dm[3] `duplicates` added to the rows

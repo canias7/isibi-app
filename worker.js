@@ -3975,6 +3975,20 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
       return { sql, params: f.params.slice(), wanted, groupCols: [crossTok] };
     }
   }
+  // TIME-BUCKET group — a token `datecol:granularity` (year|month|week|day|hour) buckets rows by
+  // a truncated timestamp for a trend/time-series report ("revenue per month", "leads per week").
+  // Ordered CHRONOLOGICALLY (bucket ASC) so it plots directly. The column must be filterable and
+  // hold an ISO/SQLite datetime (created_at, updated_at, or a declared date column).
+  const TIME_FMT = { year: "%Y", month: "%Y-%m", week: "%Y-W%W", day: "%Y-%m-%d", date: "%Y-%m-%d", hour: "%Y-%m-%d %H:00" };
+  const timeTok = groupRaw.find((g) => { const p = g.split(":"); return p.length === 2 && TIME_FMT[p[1]] && f.filterable.has(p[0]); });
+  if (timeTok) {
+    const [tcol, gran] = timeTok.split(":");
+    const tsel = ["COUNT(*) AS _count"];
+    for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
+    const bucket = "strftime('" + TIME_FMT[gran] + "', " + sqlIdent(tcol) + ")";
+    const sql = "SELECT " + bucket + " AS _g0, " + tsel.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY _g0 ORDER BY _g0 ASC LIMIT 500";
+    return { sql, params: f.params.slice(), wanted, groupCols: [timeTok] };
+  }
   const selects = ["COUNT(*) AS _count"];
   for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
   // GROUP BY one OR MORE base columns (comma-separated) → multi-dimensional "matrix" reports
