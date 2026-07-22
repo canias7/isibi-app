@@ -4,12 +4,22 @@
 import { PhotonImage, watermark, resize, SamplingFilter } from "@cf-wasm/photon";
 import { Container, getContainer } from "@cloudflare/containers";
 import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
+// Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
+// kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
+import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_REVISE_RULES, gameFixRules } from "./builder-game/game-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
 // its /build and gets back the compiled static dist. Sleeps after idle to scale
 // to zero. Configured in wrangler.jsonc (containers + BUILD_CONTAINER binding).
 export class BuildContainer extends Container {
+  defaultPort = 8080;
+  sleepAfter = "3m";
+}
+
+// Game build-service container (Phase 3). Same shape as BuildContainer; the image
+// (./builder-game/Dockerfile) bakes kaplay + a headless Chromium for the smoke test.
+export class GameBuildContainer extends Container {
   defaultPort = 8080;
   sleepAfter = "3m";
 }
@@ -3932,6 +3942,22 @@ async function writeDistToR2(env, slug, dist) {
   }
 }
 
+// Publish a built GAME's dist to games/<slug>/ (reuses SITES_BUCKET, own prefix).
+// Same shape as writeDistToR2 — kaplay games are pure static bundles too.
+async function writeGameDistToR2(env, slug, dist) {
+  try { const old = await env.SITES_BUCKET.list({ prefix: "games/" + slug + "/" }); for (const o of (old.objects || [])) await env.SITES_BUCKET.delete(o.key); } catch {}
+  for (const [rel, v] of Object.entries(dist || {})) {
+    const safeRel = String(rel).replace(/[^a-z0-9/._-]/gi, "-");
+    const ext = (safeRel.match(/\.([a-z0-9]{1,8})$/i) || [])[1] || "";
+    const ct = R2_MIME[ext.toLowerCase()] || "application/octet-stream";
+    let bodyOut;
+    if (v && typeof v.t === "string") bodyOut = v.t;
+    else if (v && typeof v.b === "string") { const bin = atob(v.b); const u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); bodyOut = u8; }
+    else continue;
+    await env.SITES_BUCKET.put("games/" + slug + "/" + safeRel, bodyOut, { httpMetadata: { contentType: ct } });
+  }
+}
+
 // Cheap, high-precision defect scan on a generated page — no JS execution, so it
 // only flags things we're SURE are wrong: a truncated document, leftover lorem,
 // nav links to pages that don't exist, and hotlinked external images (which the
@@ -4209,6 +4235,33 @@ async function handleRequest(request, env, ctx) {
         });
       }
       if (sm) return new Response("Not found", { status: 404 });
+    }
+
+    // Serve a PUBLISHED game from R2: isibi.ai/g/<slug>/… — the compiled kaplay
+    // dist (index.html + assets/*). Root/no-extension → index.html; a path with an
+    // extension → that exact asset. Mirrors the /s/ React-site branch.
+    {
+      const gm = url.pathname.match(/^\/g\/([a-z0-9][a-z0-9-]{0,80})(?:\/(.*))?$/i);
+      if (gm && env.SITES_BUCKET) {
+        const slug = gm[1].toLowerCase();
+        const rest = (gm[2] || "").replace(/\/+$/, "");
+        const last = rest.split("/").pop() || "";
+        const ext = (last.match(/\.([a-z0-9]{1,8})$/i) || [])[1];
+        let key, ctype, immutable = false;
+        if (rest === "") { key = "games/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
+        else if (ext) { key = "games/" + slug + "/" + rest.replace(/[^a-z0-9/._-]/gi, "-"); ctype = R2_MIME[ext.toLowerCase()] || "application/octet-stream"; immutable = ext.toLowerCase() !== "html"; }
+        else { key = "games/" + slug + "/index.html"; ctype = "text/html; charset=utf-8"; }
+        const obj = await env.SITES_BUCKET.get(key);
+        if (!obj) return new Response("Not found", { status: 404 });
+        return new Response(obj.body, {
+          headers: {
+            "content-type": ctype,
+            "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=60",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      }
+      if (gm) return new Response("Not found", { status: 404 });
     }
 
     // Serve a builder DRAFT preview: isibi.ai/preview/<uid>/<nonce>. The workspace
@@ -5905,6 +5958,105 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
       }
     }
+
+    // ── Game builder (Phase 3) ────────────────────────────────────────────
+    // Health probe for the game build-service container (mirrors site build-health).
+    if (url.pathname === "/api/game/build-health" && request.method === "GET") {
+      const ghUser = await authUser(request);
+      if (!ghUser) return UNAUTHED();
+      if (!env.GAME_BUILD_CONTAINER) return Response.json({ ok: false, error: "container binding not configured" }, { status: 501 });
+      const t0 = Date.now();
+      try {
+        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        const r = await c.fetch(new Request("http://build/health", { method: "GET" }));
+        const body = await r.text();
+        return Response.json({ ok: r.ok, status: r.status, body: body.slice(0, 100), ms: Date.now() - t0 });
+      } catch (e) {
+        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300), ms: Date.now() - t0 }, { status: 502 });
+      }
+    }
+    // POST /api/game/build — Sonnet(GAME_RULES) → parseGameFiles → container
+    // `vite build` + RUNTIME SMOKE TEST → Phase-4 auto-fix loop (compile AND
+    // runtime failures) → publish to games/<slug>/ → live at /g/<slug>/. Metered
+    // at Sonnet rates, charge-as-you-go. Kaplay games are pure client-side, so
+    // there's no schema/backend provisioning (unlike the React app builder).
+    if (url.pathname === "/api/game/build" && request.method === "POST") {
+      const gu = await authUser(request);
+      if (!gu) return UNAUTHED();
+      if (!env.ANTHROPIC_API_KEY) return Response.json({ ok: false, error: "engine not configured" }, { status: 501 });
+      if (!env.GAME_BUILD_CONTAINER || !env.SITES_BUCKET) return Response.json({ ok: false, error: "build service not configured" }, { status: 501 });
+      const tlG = tooLargeBody(request, 200_000); if (tlG) return tlG;
+      let gb; try { gb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
+      const brief = typeof gb.brief === "string" ? gb.brief.trim().slice(0, 2000) : "";
+      if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+      const auth = request.headers.get("Authorization") || "";
+      const CREDIT_USD = 0.008, GB_MAX_OUT = 16000, GB_MODEL = "claude-sonnet-5";
+      const RATE_IN = 3e-6, RATE_OUT = 15e-6;
+      const gbCredits = (i, o) => Math.max(1, Math.ceil((i * RATE_IN + o * RATE_OUT) / CREDIT_USD));
+      let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
+      if (!(bal0 >= gbCredits(2500, GB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+      const dumpFiles = (f) => Object.entries(f).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
+      // Non-streaming Sonnet call (builds are short; a first cut doesn't stream).
+      const gen = async (system, user) => {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, system, messages: [{ role: "user", content: user }] }),
+          signal: AbortSignal.timeout(180000),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; throw e; }
+        const j = await r.json();
+        const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+        return { text, usedIn: (j.usage && j.usage.input_tokens) || 0, usedOut: (j.usage && j.usage.output_tokens) || Math.ceil(text.length / 4) };
+      };
+      const buildGame = async (files) => {
+        const c = getContainer(env.GAME_BUILD_CONTAINER);
+        const t0 = Date.now();
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, smoke: true }) }));
+        const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
+        return { bd, buildMs: Date.now() - t0 };
+      };
+      try {
+        let cost = 0;
+        const g = await gen(GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief);
+        let files = parseGameFiles(g.text);
+        if (!files["src/main.js"]) return Response.json({ ok: false, error: "the generated game came out incomplete — try again" }, { status: 200 });
+        cost += gbCredits(g.usedIn, g.usedOut);
+        try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+        // Build + Phase-4 auto-fix loop: up to 2 fix passes across BOTH compile
+        // failures (bd.ok === false) and runtime smoke failures (smoke.passed false).
+        let bd, buildMs, attempt = 0;
+        for (;;) {
+          ({ bd, buildMs } = await buildGame(files));
+          const compileFail = !bd.ok;
+          const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
+          if (!compileFail && !runtimeFail) break;
+          if (attempt >= 2) break;
+          attempt++;
+          const fixPrompt = compileFail
+            ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+            : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
+          let fg; try { fg = await gen(GAME_RULES, fixPrompt); } catch { break; }
+          cost += gbCredits(fg.usedIn, fg.usedOut);
+          try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+          const fixed = parseGameFiles(fg.text);
+          if (!Object.keys(fixed).length) break;
+          Object.assign(files, fixed);
+        }
+        if (!bd.ok) return Response.json({ ok: false, stage: "build", error: String(bd.error || "build failed").slice(0, 1200), fixed: attempt }, { status: 200 });
+        // Publish → live at /g/<slug>/, and stash source for later revise/rollback.
+        const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
+        const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
+        await writeGameDistToR2(env, slug, bd.files);
+        try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+        let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
+        return Response.json({ ok: true, url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter, model: GB_MODEL });
+      } catch (e) {
+        if (e && e.status === 402) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
+        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 200 });
+      }
+    }
+
     // Phase 3b — the REACT build pipeline (behind its own endpoint; the static
     // /api/site path is untouched). Sonnet(REACT_RULES) → parseGeneratedFiles →
     // inject real images into the SOURCE → container `vite build` → dist → R2 at

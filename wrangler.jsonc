@@ -23,21 +23,32 @@
   // AI-generated React projects. Image built from ./builder/Dockerfile at deploy;
   // the Worker talks to it via the BUILD_CONTAINER Durable Object binding.
   // instance_type "standard" (4 GiB) so the compile has memory headroom.
+  // Game build-service (Phase 3): runs `vite build` on AI-generated kaplay games
+  // AND a headless-Chromium runtime smoke test. Image ./builder-game/Dockerfile;
+  // the Worker talks to it via the GAME_BUILD_CONTAINER Durable Object binding.
   "containers": [
     {
       "class_name": "BuildContainer",
       "image": "./builder/Dockerfile",
       "max_instances": 5,
       "instance_type": "standard-1"
+    },
+    {
+      "class_name": "GameBuildContainer",
+      "image": "./builder-game/Dockerfile",
+      "max_instances": 5,
+      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {
     "bindings": [
-      { "class_name": "BuildContainer", "name": "BUILD_CONTAINER" }
+      { "class_name": "BuildContainer", "name": "BUILD_CONTAINER" },
+      { "class_name": "GameBuildContainer", "name": "GAME_BUILD_CONTAINER" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["BuildContainer"] }
+    { "tag": "v1", "new_sqlite_classes": ["BuildContainer"] },
+    { "tag": "v2", "new_sqlite_classes": ["GameBuildContainer"] }
   ],
   // Auto-reply engine: wake every 2 minutes to answer new inbound DMs for
   // accounts that have DM auto-reply switched on (see scheduled() in worker.js).
