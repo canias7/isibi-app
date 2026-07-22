@@ -7591,7 +7591,7 @@ async function handleRequest(request, env, ctx) {
           body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: user }] }),
           signal: AbortSignal.timeout(180000),
         });
-        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; throw e; }
+        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
         const reader = r.body.getReader(); const dec = new TextDecoder();
         let buf = "", text = "", usedIn = 0, usedOut = 0;
         for (;;) {
@@ -7670,7 +7670,7 @@ async function handleRequest(request, env, ctx) {
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
-          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200) });
+          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200), detail: (e && e.detail) || undefined });
         } finally {
           try { await writer.close(); } catch {}
         }
@@ -7719,7 +7719,7 @@ async function handleRequest(request, env, ctx) {
           body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: user }] }),
           signal: AbortSignal.timeout(180000),
         });
-        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; throw e; }
+        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; e.detail = JSON.stringify(d).slice(0, 500); throw e; }
         const reader = r.body.getReader(); const dec = new TextDecoder();
         let buf = "", text = "", usedIn = 0, usedOut = 0;
         for (;;) {
@@ -7794,7 +7794,7 @@ async function handleRequest(request, env, ctx) {
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
-          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200) });
+          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200), detail: (e && e.detail) || undefined });
         } finally {
           try { await writer.close(); } catch {}
         }
