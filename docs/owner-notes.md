@@ -6532,3 +6532,18 @@ Wrote 4 adversarial batches probing the riskiest/newest surface. All green — n
   returning 0 for a table name is correct, not a leak; row counts come from `/rows/<t>/stats`. And stats
   `sum` is keyed by column: `{amount: N}`.)
 Full suite 144 green.
+
+## 2026-07-22 — HARDENING PASS 2 (money/inventory guards + auth/authz — still no bugs)
+- **batch162 (20)** — money & inventory atomic-guard BOUNDARIES (exactly-on-line passes, one cent/unit
+  over fails): ledger out-of-balance-by-1¢ refused / balanced 3-line posts / all-zero refused / double-
+  reverse 409 / trial balance stays balanced. Wallet: debit exactly to 0 ok, overdraw by 1¢ → 409,
+  transfer over source refused (source untouched). Stock: issue exactly to 0 ok, past 0 → 409, reserve
+  exactly available ok, oversell → 409 (available floors at 0). Promotions: redeem to max_uses ok, one
+  past cap refused.
+- **batch163 (14)** — auth & authorization: cross-TENANT token reuse rejected (s1 token 401s on s2, incl.
+  admin endpoints), role escalation via signup body BLOCKED (2nd user stays 'user'), role/email/verified
+  NOT editable via profile PATCH (only display_name/avatar/bio), tampered/garbage tokens → 401, all 8
+  sampled admin-only endpoints uniformly 403 for a non-admin, public profile leaks no email/pass_hash,
+  duplicate-email signup refused.
+Six adversarial batches total (158–163), ALL green, ZERO real bugs found — high confidence in the
+backend's security + money correctness. Full suite 146 green.
