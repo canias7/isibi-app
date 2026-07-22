@@ -617,6 +617,11 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
+- #1 Schema introspection: `GET /api/db/<slug>/schema` (Phase D.-1, public, read-only) → tables with
+  columns (type/required/enum/format/max/min/ref/immutable), relations, enabled features, writeRoles.
+  Structure only, no row data. Built from the persisted norm spec. batch91 (17/17).
+
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
