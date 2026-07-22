@@ -11596,6 +11596,7 @@ const GAMES_KEY = 'zephyr_games_v1';
 let gameOpenSlug = null;
 let gameBuilding = false;
 let gameView = 'preview'; // 'preview' | 'code' — the open game's active tab
+let gameArt = 'shapes';   // 'shapes' | 'sprites' — Phase 6 AI art toggle
 function gsEsc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function gamesLoad() { try { return JSON.parse(localStorage.getItem(GAMES_KEY) || '[]'); } catch { return []; } }
 function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} }
@@ -11653,6 +11654,11 @@ function renderGames() {
       '</div>';
   } else {
     const chips = GAME_GENRES.map((g) => '<button class="gs-chip" type="button" data-genre="' + g.key + '">' + g.label + '</button>').join('');
+    const artToggle =
+      '<div class="gs-arttoggle">' +
+        '<button class="gs-artbtn' + (gameArt === 'sprites' ? ' on' : '') + '" type="button" id="gsArt" role="switch" aria-checked="' + (gameArt === 'sprites' ? 'true' : 'false') + '"><span class="gs-artknob"></span>✨ AI art</button>' +
+        '<span class="gs-arthint" id="gsArtHint">' + (gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast &amp; free') + '</span>' +
+      '</div>';
     const cards = games.length
       ? '<div class="gs-recent"><div class="gs-recent-lab">Your games</div><div class="gs-grid">' +
           games.map((g) => '<button class="gs-card" type="button" data-slug="' + g.slug + '"><span class="gs-card-frame"><iframe tabindex="-1" title="" src="' + g.url + '" scrolling="no"></iframe></span><span class="gs-card-t">' + gameTitle(g.slug) + '</span></button>').join('') +
@@ -11663,6 +11669,7 @@ function renderGames() {
         '<h1 class="gs-h1">What are we <span class="gs-grad">playing</span>?</h1>' +
         '<p class="gs-sub">Describe a game. isibi writes it, compiles it, and play-tests it before you see it.</p>' +
         '<div class="gs-chips">' + chips + '</div>' +
+        artToggle +
         '<div class="gs-box">' +
           '<textarea id="gsPrompt" rows="3" placeholder="e.g. a neon endless runner where you dodge obstacles and collect orbs…"></textarea>' +
           '<div class="gs-box-foot">' +
@@ -11685,6 +11692,14 @@ function renderGames() {
     const g = GAME_GENRES.find((x) => x.key === ch.dataset.genre);
     const ta = view.querySelector('#gsPrompt'); if (g && ta) { ta.value = g.prompt; ta.focus(); }
   }; });
+  const artBtn = view.querySelector('#gsArt');
+  if (artBtn) artBtn.onclick = () => {
+    gameArt = gameArt === 'sprites' ? 'shapes' : 'sprites';
+    artBtn.classList.toggle('on', gameArt === 'sprites');
+    artBtn.setAttribute('aria-checked', gameArt === 'sprites' ? 'true' : 'false');
+    const hint = view.querySelector('#gsArtHint');
+    if (hint) hint.textContent = gameArt === 'sprites' ? 'Generated sprites — richer look, uses more credits' : 'Clean neon shapes — fast & free';
+  };
   const buildBtn = view.querySelector('#gsBuild');
   if (buildBtn) buildBtn.onclick = () => {
     const ta = view.querySelector('#gsPrompt');
@@ -11778,7 +11793,7 @@ function downloadGameSource(slug, files) {
 }
 
 // Live phase labels for the streamed build.
-const GAME_PHASES = { generating: 'Designing & writing the code…', compiling: 'Compiling…', fixing: 'Fixing a hiccup…', publishing: 'Publishing…' };
+const GAME_PHASES = { generating: 'Designing & writing the code…', arting: 'Creating the art…', compiling: 'Compiling…', fixing: 'Fixing a hiccup…', publishing: 'Publishing…' };
 async function gameStudioBuild(brief) {
   if (gameBuilding) return;
   gameBuilding = true;
@@ -11791,7 +11806,7 @@ async function gameStudioBuild(brief) {
   const appendCode = (t) => { if (!codeEl) return; codeEl.textContent += t; if (codeEl.textContent.length > 12000) codeEl.textContent = codeEl.textContent.slice(-9000); codeEl.scrollTop = codeEl.scrollHeight; };
   let done = null, err = null;
   try {
-    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
+    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief, art: gameArt }) });
     if (r.status === 402) { if (status) status.textContent = 'Out of credits — top up to build a game.'; if (typeof openCredits === 'function') openCredits(true); return; }
     if (!r.ok || !r.body) { if (status) status.textContent = '⚠️ Couldn’t start the build — try again.'; return; }
     // Consume the NDJSON stream: {ev:"phase"|"code"|"done"|"error"}.

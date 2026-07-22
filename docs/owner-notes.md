@@ -6006,3 +6006,32 @@ timeout, and the Studio watches the code get written (Lovable-style).
 - Validated in-browser: the Code view renders the real source (main.js + scenes.js)
   with the download button, zero JS errors; streaming revise shares the proven
   build stream consumer.
+
+## 2026-07-22 — Game Studio Phase 6: AI sprites (generate → chroma-key → bundle)
+Games can now use AI-generated sprites instead of primitive shapes (opt-in "AI art"
+toggle). No image model outputs true alpha, so we generate each sprite on a solid
+pure-GREEN chroma-key background and cut it out with **Photon** (already a dep) — no
+new paid rembg call. Assets are BUNDLED into the build (self-contained; the smoke
+test loads them locally).
+- **builder-game/build-server.mjs**: `/build` now accepts `{assets:{name:base64}}` →
+  writes them to `public/assets/<name>` → Vite copies public/ into dist/ → the game
+  loads them by relative path (`assets/<name>`).
+- **builder-game/game-gen.mjs**: `GAME_ASSET_RULES` (sprites via
+  `k.loadSprite("n","@@SPRITE:<prompt>@@")`, ≤5, short prompts, shapes still for
+  HUD/ground) + `parseSpriteTokens`.
+- **worker.js**: `genSpritePng` (fal image on green screen) + `chromaKeyGreenToPng`
+  (Photon raw-pixel green→alpha, falls back to the opaque original on any Photon
+  hiccup) + `injectGameAssets` (resolves @@SPRITE@@ → bundled `assets/sprite-N.png`,
+  **placeholder square on gen failure so a game NEVER breaks**). `/api/game/build`
+  takes `art:'sprites'`, runs it (phase `arting`), meters each sprite at SITE_IMG_USD,
+  bundles + persists assets in `gamesrc` so **revise re-bundles the art**.
+- **Frontend**: an "✨ AI art" toggle in the Game Studio compose (sends `art:'sprites'`).
+- **VALIDATED (real):** the whole asset FOUNDATION — a kaplay game with a real alpha
+  PNG + WAV builds and smoke-passes THROUGH THE ACTUAL container build-server
+  (base64 asset → public/assets → dist → smoke PASS non-blank/zero-errors, sprite
+  renders with transparency). Contract + parser + toggle validated.
+- **NEEDS A LIVE TEST (can't spend fal / run workerd here):** `genSpritePng` (fal
+  image gen) and `chromaKeyGreenToPng` (the exact Photon `get_raw_pixels`/
+  `new PhotonImage`/`get_bytes` API). Safety nets mean the worst case is
+  placeholder/opaque sprites, never a broken game. Sounds/music deferred (fal audio
+  is voice/music-oriented) — v1 games are silent.

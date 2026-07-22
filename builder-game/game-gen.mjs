@@ -52,6 +52,26 @@ export const GAME_RULES =
   "ART: use PRIMITIVE/vector art only — kaplay shape components `k.rect(w,h)`, `k.circle(r)`, `k.polygon()`, `k.text()`, with `k.color()`, `k.outline()`, and `k.pos()/k.anchor()`. Do NOT load sprite/image/sound files (there are none). Lean into a clean neon look (pink #ff79c6 / amber #ffb84d on near-black) to match the brand. " +
   "ROBUSTNESS: guard every `get()`/collision handler against destroyed objects, clamp the player inside bounds, and make sure the FIRST FRAME already renders something (add the scene's core objects in the scene body, not after a timer). No dead controls, no TODO stubs. Keep the whole game focused and under ~600 lines total.";
 
+// Phase 6 — asset (sprite) mode. Same contract as GAME_RULES but the main visual
+// entities use AI-GENERATED sprites via @@SPRITE:<prompt>@@ tokens instead of
+// primitive shapes. The platform generates each sprite (image model → chroma-key
+// cutout → transparent PNG), bundles it into the build, and swaps the token for
+// its relative path; the game loads it with k.loadSprite + the k.sprite() component.
+export const GAME_ASSET_RULES = GAME_RULES.replace(
+  "ART: use PRIMITIVE/vector art only — kaplay shape components `k.rect(w,h)`, `k.circle(r)`, `k.polygon()`, `k.text()`, with `k.color()`, `k.outline()`, and `k.pos()/k.anchor()`. Do NOT load sprite/image/sound files (there are none). Lean into a clean neon look (pink #ff79c6 / amber #ffb84d on near-black) to match the brand. ",
+  "ART: use AI-GENERATED SPRITES for the main visual entities (player, enemies, collectibles, obstacles). In `src/main.js`, load each with `k.loadSprite(\"<name>\", \"@@SPRITE: <short vivid description>@@\")` — the `@@SPRITE:...@@` token becomes a real transparent-background image the platform generates and bundles. Then use the `k.sprite(\"<name>\")` component on that object (add `k.anchor(\"center\")` and `k.scale()` to size it; the art arrives centered on transparency). Use AT MOST 5 sprites; keep each prompt SHORT + concrete (\"a cute round robot\", \"a jagged glowing asteroid\", \"a neon coin\"). Load ALL sprites in main.js BEFORE calling the scene setups. Still use primitive shapes (`k.rect`/`k.text`) for the ground/platforms, HUD (score/lives), and simple particles. Keep the near-black neon backdrop. "
+);
+
+// Sprite tokens the platform must resolve before building (mirrors @@IMG@@).
+export function parseSpriteTokens(files) {
+  const tokens = new Map(); // token → prompt
+  for (const src of Object.values(files || {})) {
+    const rr = /@@SPRITE:([\s\S]*?)@@/g; let m;
+    while ((m = rr.exec(String(src)))) { if (!tokens.has(m[0])) tokens.set(m[0], m[1].trim().slice(0, 300)); }
+  }
+  return tokens;
+}
+
 // Revise contract (change requests from the Studio composer). Same guardrails.
 export const GAME_REVISE_RULES =
   "Apply the requested change to the existing kaplay game and return the FULL updated file blocks (same `===FILE: <path>===` format, raw contents in full, only the files you change). Stay inside the same rules: import ONLY kaplay, the pass-`k`-around module pattern (never top-level engine calls / globals), primitive art only, keyboard + pointer input, a working restart, first frame renders. Output ONLY file blocks — NO prose, NO fences.";

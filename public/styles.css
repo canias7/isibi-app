@@ -5262,3 +5262,13 @@ body.in-games .top-tab, body.in-games .top-back { display: none !important; }
 .gs-file { margin-bottom: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .gs-file-h { padding: 9px 14px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .78rem; color: var(--neon); background: rgba(255,255,255,.02); border-bottom: 1px solid var(--line); }
 .gs-code-static { max-height: none; margin: 0; border: 0; border-radius: 0; background: rgba(0,0,0,.28); color: rgba(237,234,243,.85); }
+
+/* AI-art toggle (Game Studio, Phase 6) */
+.gs-arttoggle { display: flex; align-items: center; gap: 12px; margin: 0 0 18px; }
+.gs-artbtn { display: inline-flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line-2); color: var(--muted); font: inherit; font-size: .84rem; font-weight: 600; padding: 7px 14px 7px 8px; border-radius: 999px; cursor: pointer; }
+.gs-artbtn.on { background: linear-gradient(120deg, rgba(255,121,198,.18), rgba(255,184,77,.18)); border-color: rgba(255,121,198,.5); color: var(--text); }
+.gs-artknob { width: 30px; height: 18px; border-radius: 999px; background: rgba(255,255,255,.12); position: relative; transition: background .15s; flex-shrink: 0; }
+.gs-artknob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.gs-artbtn.on .gs-artknob { background: var(--split); }
+.gs-artbtn.on .gs-artknob::after { transform: translateX(12px); }
+.gs-arthint { color: var(--faint); font-size: .82rem; }

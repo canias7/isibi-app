@@ -6,7 +6,7 @@ import { Container, getContainer } from "@cloudflare/containers";
 import { parseGeneratedFiles, REACT_RULES, REACT_FIX_RULES, REACT_REVISE_RULES, SCHEMA_REPAIR_RULES, WIRING_REPAIR_RULES } from "./builder/react-gen.mjs";
 // Game builder (Phase 3): same generate→build→publish pipeline, engine swapped for
 // kaplay + a runtime smoke test. See builder-game/. Parser format is identical.
-import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_REVISE_RULES, gameFixRules } from "./builder-game/game-gen.mjs";
+import { parseGeneratedFiles as parseGameFiles, GAME_RULES, GAME_ASSET_RULES, GAME_REVISE_RULES, gameFixRules, parseSpriteTokens } from "./builder-game/game-gen.mjs";
 
 // React-builder build-service container (Phase 3). Runs the build-server.mjs
 // image (Node + Vite + pinned deps); the Worker POSTs generated project files to
@@ -2572,6 +2572,79 @@ async function injectReactImages(files, request, env, uid, budget, onImage) {
     out[path] = s;
   }
   return { files: out, charged };
+}
+
+// ── Phase 6: game sprite generation (image model → chroma-key cutout → PNG) ──────
+// No image model outputs true alpha, so we generate each sprite on a solid pure-
+// GREEN chroma-key background and cut it out with Photon (already a dep) — no new
+// paid rembg call. Returns a base64 transparent PNG. A generation failure falls
+// back to a neon placeholder square so a game NEVER breaks on a missing sprite.
+const SPRITE_PLACEHOLDER_PNG = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAOUlEQVR4nO3OMQEAAAgDoK1/aM3g4QcJqE1mZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2f/9wADkQAB/YvcHwAAAABJRU5ErkJggg==";
+function chromaKeyGreenToPng(bytes) {
+  // Decode → strip near-green pixels to alpha 0 → re-encode PNG. Best-effort:
+  // any Photon hiccup falls back to the original bytes (opaque, but a real image).
+  try {
+    const img = PhotonImage.new_from_byteslice(new Uint8Array(bytes));
+    const w = img.get_width(), h = img.get_height();
+    const px = img.get_raw_pixels(); // Uint8Array RGBA
+    for (let i = 0; i < px.length; i += 4) {
+      const r = px[i], g = px[i + 1], b = px[i + 2];
+      if (g > 108 && r < 115 && b < 115 && g - r > 40 && g - b > 40) px[i + 3] = 0; // green screen → transparent
+    }
+    const out = new PhotonImage(px, w, h);
+    const pngBytes = out.get_bytes(); // PNG
+    let bin = ""; const u8 = new Uint8Array(pngBytes);
+    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+    return btoa(bin);
+  } catch (e) {
+    console.log("chroma-key failed:", e && e.message);
+    let bin = ""; const u8 = new Uint8Array(bytes);
+    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+    return btoa(bin);
+  }
+}
+async function genSpritePng(env, prompt) {
+  // Green-screen prompt so the chroma-key has a clean edge; PNG + 1:1 for a sprite.
+  const p = String(prompt || "game character").slice(0, 240) +
+    ", single centered subject, full body, video-game sprite, bold clean shapes, thick outline, on a solid pure chroma-key green (#00ff00) seamless flat background, no shadow, no gradient background";
+  const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
+    method: "POST",
+    headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt: p, aspect_ratio: "1:1", resolution: "1K", output_format: "png", num_images: 1 }),
+    signal: AbortSignal.timeout(120000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error("sprite gen " + r.status);
+  const url = d.images && d.images[0] && d.images[0].url;
+  if (!url) throw new Error("sprite gen empty");
+  const media = await fetch(url, { signal: AbortSignal.timeout(30000) });
+  const bytes = await media.arrayBuffer();
+  return chromaKeyGreenToPng(bytes);
+}
+// Resolve @@SPRITE:…@@ tokens → bundled assets. Returns { files (tokens replaced
+// with assets/<name>), assets ({name: base64}), charged (# real sprites) }.
+async function injectGameAssets(files, env, budget) {
+  const tokens = parseSpriteTokens(files); // token → prompt
+  const list = [...tokens.entries()].slice(0, Math.max(0, budget || 5));
+  const overflow = [...tokens.entries()].slice(Math.max(0, budget || 5));
+  const assets = {}, pathByToken = {};
+  let charged = 0;
+  await Promise.all(list.map(async ([tok, prompt], i) => {
+    const name = "sprite-" + i + ".png";
+    try { assets[name] = await genSpritePng(env, prompt); charged++; }
+    catch (e) { assets[name] = SPRITE_PLACEHOLDER_PNG; } // never break the game
+    pathByToken[tok] = "assets/" + name;
+  }));
+  // Any sprites past the budget also map to a bundled placeholder so k.loadSprite works.
+  overflow.forEach(([tok], j) => { const name = "sprite-x" + j + ".png"; assets[name] = SPRITE_PLACEHOLDER_PNG; pathByToken[tok] = "assets/" + name; });
+  const out = {};
+  for (const [path, src] of Object.entries(files)) {
+    let s = src;
+    for (const [tok, rel] of Object.entries(pathByToken)) s = s.split(tok).join(rel);
+    s = s.replace(/@@SPRITE:[\s\S]*?@@/g, () => "assets/sprite-0.png"); // stray tokens → first sprite
+    out[path] = s;
+  }
+  return { files: out, assets, charged };
 }
 
 // ---- Layer-2: per-site backend on Cloudflare D1 --------------------------------
@@ -7252,6 +7325,7 @@ async function handleRequest(request, env, ctx) {
       let gb; try { gb = await request.json(); } catch { return Response.json({ ok: false, error: "invalid JSON" }, { status: 400 }); }
       const brief = typeof gb.brief === "string" ? gb.brief.trim().slice(0, 2000) : "";
       if (!brief) return Response.json({ ok: false, error: "no brief" }, { status: 400 });
+      const art = gb.art === "sprites" ? "sprites" : "shapes"; // Phase 6: AI sprites vs primitive
       const auth = request.headers.get("Authorization") || "";
       const CREDIT_USD = 0.008, GB_MAX_OUT = 16000, GB_MODEL = "claude-sonnet-5";
       const RATE_IN = 3e-6, RATE_OUT = 15e-6;
@@ -7296,10 +7370,10 @@ async function handleRequest(request, env, ctx) {
         if (!usedOut) usedOut = Math.ceil(text.length / 4);
         return { text, usedIn, usedOut };
       };
-      const buildGame = async (files) => {
+      const buildGame = async (files, assets) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
         const t0 = Date.now();
-        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, smoke: true }) }));
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
@@ -7311,16 +7385,25 @@ async function handleRequest(request, env, ctx) {
         try {
           let cost = 0;
           emit({ ev: "phase", phase: "generating" });
-          const g = await streamGen(GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
+          const g = await streamGen(art === "sprites" ? GAME_ASSET_RULES : GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
           flushCode(true);
           let files = parseGameFiles(g.text);
           if (!files["src/main.js"]) { emit({ ev: "error", msg: "the generated game came out incomplete — try again" }); return; }
           cost += gbCredits(g.usedIn, g.usedOut);
           try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+          // Phase 6: generate + cut out the AI sprites, bundle them into the build.
+          let gameAssets = {};
+          if (art === "sprites" && env.FAL_KEY) {
+            emit({ ev: "phase", phase: "arting" });
+            const ga = await injectGameAssets(files, env, 5);
+            files = ga.files; gameAssets = ga.assets || {};
+            const sc = Math.max(0, ga.charged) * Math.max(1, Math.ceil(SITE_IMG_USD / CREDIT_USD));
+            if (sc) { cost += sc; try { await useCredits(auth, sc); } catch {} }
+          }
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files));
+            ({ bd, buildMs } = await buildGame(files, gameAssets));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;
@@ -7342,7 +7425,7 @@ async function handleRequest(request, env, ctx) {
           const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
           const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
           await writeGameDistToR2(env, slug, bd.files);
-          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
@@ -7415,10 +7498,10 @@ async function handleRequest(request, env, ctx) {
         if (!usedOut) usedOut = Math.ceil(text.length / 4);
         return { text, usedIn, usedOut };
       };
-      const buildGame = async (files) => {
+      const buildGame = async (files, assets) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
         const t0 = Date.now();
-        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, smoke: true }) }));
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
@@ -7429,6 +7512,9 @@ async function handleRequest(request, env, ctx) {
         try {
           let cost = 0;
           let files = { ...srcObj.files };
+          // Phase 6: the game's sprite PNGs are re-bundled from the stash so a revise
+          // rebuild keeps its art (assets aren't in the source, they're bundled files).
+          const gameAssets = (srcObj.assets && typeof srcObj.assets === "object") ? srcObj.assets : {};
           emit({ ev: "phase", phase: "generating" });
           const g = await streamGen(GAME_REVISE_RULES, "CHANGE REQUEST: " + instruction + "\n\nCurrent game files:\n\n" + dumpFiles(files), onDelta);
           flushCode(true);
@@ -7437,10 +7523,13 @@ async function handleRequest(request, env, ctx) {
           const changed = parseGameFiles(g.text);
           if (!Object.keys(changed).length) { emit({ ev: "error", msg: "the edit came back empty — try rephrasing" }); return; }
           Object.assign(files, changed);
+          // A revise that emits a stray @@SPRITE@@ token (revise doesn't generate new
+          // art) → point it at an existing bundled sprite so it never 404s.
+          for (const p of Object.keys(files)) if (/@@SPRITE:/.test(files[p])) files[p] = files[p].replace(/@@SPRITE:[\s\S]*?@@/g, () => (gameAssets["sprite-0.png"] ? "assets/sprite-0.png" : ""));
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files));
+            ({ bd, buildMs } = await buildGame(files, gameAssets));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;
@@ -7460,7 +7549,7 @@ async function handleRequest(request, env, ctx) {
           if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
           emit({ ev: "phase", phase: "publishing" });
           await writeGameDistToR2(env, slug, bd.files);
-          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, assets: gameAssets, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
           let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
           emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
         } catch (e) {
