@@ -725,6 +725,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   doc_date), grouped by party + totals + a per-doc list; correlated-subquery outstanding in one query;
   Date.parse day math. batch120 (26/26). Full suite 103 green. (Payments are tracked as allocations, not yet
   auto-posted to the ledger/cash — that's an app choice or a later doc-action; keeps AR/AP decoupled from GL.)
+- **PHASE 10a — BILL OF MATERIALS** (manufacturing): `_boms` (product UNIQUE) + `_bom_lines`. `POST /bom
+  {product,notes?,lines:[{component,qty}]}` upserts a recipe (SKU-safe names, self-component rejected);
+  `GET /bom` (list w/ component_count), `GET|DELETE /bom/<product>`. **EXPLODE**: `GET /bom/<product>/explode
+  ?qty=N` loads all BOMs in-memory (loadBomMap) and recursively walks (explodeBom) → aggregated LEAF
+  `components` (items with no BOM) + `subassemblies` (intermediate built items), scaled by qty, fractional
+  exact (round to 3 dp). Cycle + depth>30 detection → 409 `cycle`; no-BOM top → 404. qty in milli-units.
+  Route `/bom(/<sku>(/explode)?)?`. batch121 (26/26) — 2-level bike/wheel, cross-branch aggregation,
+  fractional, replace, cycle. Full suite 104 green. (Next 10b: work orders that explode→issue components→
+  receive the finished product, + MRP netting requirements against on-hand.)
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
