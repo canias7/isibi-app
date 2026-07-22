@@ -3774,6 +3774,7 @@ async function ensureDocuments(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _document_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER NOT NULL, item TEXT, description TEXT, qty_m INTEGER NOT NULL, unit_price_c INTEGER NOT NULL, tax_rate_bp INTEGER NOT NULL DEFAULT 0, subtotal_c INTEGER NOT NULL, tax_c INTEGER NOT NULL, total_c INTEGER NOT NULL, dim TEXT, meta TEXT, sort INTEGER)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _doc_counters (type TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)");
   try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN ledger_entry_id INTEGER"); } catch {} // set when a doc is posted to the ledger (idempotency)
+  try { await cfD1Query(env, uuid, "ALTER TABLE _documents ADD COLUMN stock_posted INTEGER DEFAULT 0"); } catch {} // set when a doc's lines are posted to stock (idempotency)
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_dl_doc ON _document_lines (doc_id)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_doc_type ON _documents (type, status)"); } catch {}
   _docsReady.add(uuid);
@@ -3808,7 +3809,7 @@ async function getDocument(env, uuid, id) {
   const ls = await cfD1Query(env, uuid, "SELECT * FROM _document_lines WHERE doc_id=? ORDER BY sort, id", [id]);
   const h = d[0];
   return {
-    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id, ledger_entry_id: h.ledger_entry_id || null,
+    id: h.id, type: h.type, number: h.number, party: h.party, doc_date: h.doc_date, status: h.status, currency: h.currency, ref: h.ref, memo: h.memo, from_id: h.from_id, ledger_entry_id: h.ledger_entry_id || null, stock_posted: !!h.stock_posted,
     subtotal: h.subtotal_c / 100, tax: h.tax_c / 100, total: h.total_c / 100, meta: h.meta ? (() => { try { return JSON.parse(h.meta); } catch { return null; } })() : null,
     created_at: h.created_at, updated_at: h.updated_at,
     lines: ls.map((l) => ({ id: l.id, item: l.item, description: l.description, qty: l.qty_m / 1000, unit_price: l.unit_price_c / 100, tax_rate: l.tax_rate_bp / 100, subtotal: l.subtotal_c / 100, tax: l.tax_c / 100, total: l.total_c / 100, dim: l.dim, meta: l.meta ? (() => { try { return JSON.parse(l.meta); } catch { return null; } })() : null })),
@@ -9110,7 +9111,7 @@ async function handleRequest(request, env, ctx) {
       //   DELETE /api/db/<slug>/documents/<id>                    → delete (only while 'draft')
       //   POST   /api/db/<slug>/documents/<id>/status {status}    → set status
       //   POST   /api/db/<slug>/documents/<id>/convert {type, status?, date?, source_status?} → copy lines into a new linked doc
-      const dcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents(?:\/(\d+)(?:\/(status|convert|post))?)?$/i);
+      const dcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/documents(?:\/(\d+)(?:\/(status|convert|post-stock|post))?)?$/i);
       if (dcm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = dcm[1].toLowerCase(), docId = dcm[2] ? parseInt(dcm[2], 10) : null, act = dcm[3] ? dcm[3].toLowerCase() : null;
@@ -9165,6 +9166,38 @@ async function handleRequest(request, env, ctx) {
             if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "period_locked" ? 409 : 400 });
             await cfD1Query(env, uuid, "UPDATE _documents SET ledger_entry_id=?, updated_at=? WHERE id=?", [res.entry.id, new Date().toISOString(), docId]);
             return Response.json({ ok: true, entry: res.entry, document_id: docId });
+          }
+          if (docId && act === "post-stock") {
+            // Fulfil a document against the stock ledger — issue (sales) or receive (purchase)
+            // each line that names an item. Idempotent via _documents.stock_posted. Issues are
+            // pre-checked for availability so it's all-or-nothing in the common (single-writer)
+            // case; each move is still individually guarded against negative stock.
+            //   {location?, direction?='issue'|'receive'}  (default inferred from doc type)
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            const doc = await getDocument(env, uuid, docId);
+            if (!doc) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (doc.stock_posted) return Response.json({ ok: false, error: "already posted to stock", code: "stock_posted" }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const location = _stockLoc(body.location);
+            const isPurchase = /purchase|bill|grn|receipt/.test(doc.type);
+            const direction = body.direction ? (String(body.direction).toLowerCase() === "receive" ? "receive" : "issue") : (isPurchase ? "receive" : "issue");
+            const itemLines = doc.lines.filter((l) => l.item && l.qty > 0);
+            if (!itemLines.length) return Response.json({ ok: false, error: "no stockable line items (each needs an `item` and qty)", code: "no_items" }, { status: 400 });
+            // Pre-check availability for an issue (aggregate the need per item), so we don't
+            // half-issue a multi-line order.
+            if (direction === "issue") {
+              const need = {}; for (const l of itemLines) need[l.item] = (need[l.item] || 0) + l.qty;
+              for (const it of Object.keys(need)) { const lv = await stockLevel(env, uuid, it, location); if (lv.available < need[it]) return Response.json({ ok: false, error: "insufficient stock of " + it + " at " + location, code: "stock", item: it, needed: need[it], available: lv.available }, { status: 409 }); }
+            }
+            const moves = [];
+            for (const l of itemLines) {
+              const mv = await postStockMove(env, uuid, { item: l.item, location, qty: direction === "issue" ? -l.qty : l.qty, kind: direction === "issue" ? "issue" : "receipt", ref: doc.number, unit_cost: direction === "receive" ? l.unit_price : undefined }, userId);
+              if (mv.err) return Response.json({ ok: false, error: mv.err + " (partially posted — resolve the remaining lines manually)", code: mv.code || "stock", posted: moves.map((m) => m.id) }, { status: 409 });
+              moves.push(mv.move);
+            }
+            await cfD1Query(env, uuid, "UPDATE _documents SET stock_posted=1, updated_at=? WHERE id=?", [new Date().toISOString(), docId]);
+            return Response.json({ ok: true, direction, location, moves, document_id: docId });
           }
           if (docId && act === "convert") {
             if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
