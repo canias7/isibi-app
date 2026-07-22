@@ -2182,13 +2182,16 @@ function setMode(m) {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  buildMenu();
+  // Game mode is a BUILD pipeline (kaplay → container → /g/<slug>/), not a media
+  // generation — hide the media-only controls (model/settings/attach/effort/
+  // orchestrator) via a body class and skip the media menu builders.
+  document.body.classList.toggle('mode-game', m === 'game');
   document.getElementById('input').placeholder =
+    m === 'game' ? 'Describe your game — “a neon endless runner”…' :
     m === 'image' ? 'Describe your image…' :
     m === 'audio' ? 'Type what you want the voice to say…' :
     'Describe your scene…';
-  buildOptMenus();
-  stampComposer();
+  if (m !== 'game') { buildMenu(); buildOptMenus(); stampComposer(); }
 }
 
 // Effort picker (top-left of the main chat) — how detailed the director's
@@ -6034,6 +6037,13 @@ function send(fromButton) {
   // Lip-sync models are prompt-less — they run off the attachments, not text.
   const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
+  // Game mode: a whole separate build pipeline. Route here before any of the
+  // media-generation checks/attachments below, which don't apply to games.
+  if (mode === 'game') {
+    input.value = ''; input.style.height = 'auto';
+    buildGame(text);
+    return;
+  }
   // Voice is capped at 2,000 characters server-side; block over-length scripts
   // here (keeping the text) instead of letting the tail get silently cut off.
   if (mode === 'audio' && text.length > 2000) {
@@ -6110,6 +6120,67 @@ function send(fromButton) {
   // the orchestrator off OR they don't have the add-on (or its budget is spent).
   if (directorMode === 'off' || !orchActive()) { generateMedia(sendText); return; }
   startDirector(sendText);
+}
+
+// ── Game builder (frontend) ───────────────────────────────────────────────
+// Game mode → POST /api/game/build → the worker runs Sonnet(GAME_RULES) →
+// container `vite build` + runtime smoke test → auto-fix loop → publishes to
+// /g/<slug>/. We show a build status while it works, then drop a PLAYABLE card
+// (an iframe of the live game) into the chat — same "result lands in the thread"
+// pattern as a media generation. (No streaming yet; a build is ~30–60s.)
+let _gameBuilding = false;
+async function buildGame(brief) {
+  if (_gameBuilding) return;
+  _gameBuilding = true;
+  addMsg('user', brief);
+  const loader = addMsg('agent', '🎮 Building your game… ~30–60s (designing → compiling → play-testing).');
+  try {
+    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
+    const d = await r.json().catch(() => ({}));
+    if (loader) loader.remove();
+    if (r.status === 402 || d.need === 'credits') {
+      addMsg('agent', 'You’re out of credits for a game build — top up and try again.');
+      if (typeof openCredits === 'function') openCredits(true);
+      return;
+    }
+    if (!r.ok || !d.ok) {
+      addMsg('agent', '⚠️ ' + (d.error || 'That build didn’t come together — try again, maybe a little simpler.'));
+      return;
+    }
+    renderGameCard(d);
+    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
+  } catch (e) {
+    if (loader) loader.remove();
+    addMsg('agent', '⚠️ Couldn’t reach the game builder just now — give it a moment and try again.');
+  } finally {
+    _gameBuilding = false;
+  }
+}
+
+// A finished game: a framed, playable iframe of the live /g/<slug>/ build plus
+// an Open-in-new-tab link and a play-tested note. Title derived from the slug.
+function renderGameCard(d) {
+  const box = document.getElementById('messages');
+  if (!box) return;
+  const card = document.createElement('div');
+  card.className = 'msg agent game-card landed';
+  card.innerHTML =
+    '<div class="gc-head">' +
+      '<span class="gc-badge">🎮 Game</span>' +
+      '<span class="gc-title"></span>' +
+      '<a class="gc-open" target="_blank" rel="noopener">Open ↗</a>' +
+    '</div>' +
+    '<div class="gc-frame"><iframe title="Game preview" loading="lazy" allow="autoplay; fullscreen"></iframe></div>' +
+    '<div class="gc-note"></div>';
+  const title = String(d.slug || 'game').split('-').slice(0, -1).join(' ') || 'Your game';
+  card.querySelector('.gc-title').textContent = title;
+  card.querySelector('.gc-open').href = d.url;
+  card.querySelector('iframe').src = d.url;
+  card.querySelector('.gc-note').textContent =
+    'Play-tested ✓' + (d.fixed ? ' · auto-fixed ' + d.fixed + '×' : '') +
+    (typeof d.cost === 'number' ? ' · ' + d.cost + ' credits' : '');
+  box.appendChild(card);
+  try { card.scrollIntoView({ behavior: 'smooth', block: 'end' }); } catch {}
 }
 
 // ── Auth gate ────────────────────────────────────────
