@@ -666,6 +666,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   nextDocNumber/insertDocLines beside the stock helpers. batch113 (33/33). Full suite 96 green. (NOTE:
   auto-posting a confirmed invoice to the ledger / issuing its stock is deliberately NOT wired yet — that
   coupling is a later "document actions" phase or an app `on:{update}` function; keeps the primitive clean.)
+- **PHASE 4 — FISCAL PERIODS / period close** (`/api/db/<slug>/periods/*`, ADMIN): a monotonic lock-through
+  DATE (stored in `_meta` key `fiscal_lock`) freezes the LEDGER — postLedgerEntry now checks it and refuses
+  any entry/reversal with `entry_date <= lock` (409 `period_locked`), so finalized books can't be altered
+  by a backdated post (ledger create + reverse handlers map the code → 409). `POST /periods/close {through}`
+  sets it; `POST /periods/reopen [{through}]` clears or moves it earlier; `GET /periods` returns
+  `lock_through` + named periods (`POST /periods {name,start,end}` → `_periods`, reporting only, lock date is
+  the enforcement). Date strings compare lexically (ISO). Applies to the ledger only (stock/documents
+  unaffected — noted). ensurePeriods/getFiscalLock/setFiscalLock beside createDocument. batch114 (22/22),
+  incl. inclusive on-lock-date refusal + reversal-into-closed-period 409. Full suite 97 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 

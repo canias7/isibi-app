@@ -3634,6 +3634,9 @@ async function postLedgerEntry(env, uuid, ledger, data, userId) {
   const { lines, err } = normalizeLedgerLines(data && data.lines);
   if (err) return { err };
   const date = /^\d{4}-\d{2}-\d{2}/.test(String(data.date || "")) ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  // Period lock — refuse a post dated on/before the close date (finalized books are frozen).
+  const lock = await getFiscalLock(env, uuid);
+  if (lock && date <= lock) return { err: "the books are closed through " + lock + " — post into an open period", code: "period_locked" };
   const now = new Date().toISOString();
   const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
   const memo = data.memo != null ? String(data.memo).slice(0, 500) : null;
@@ -3804,6 +3807,27 @@ async function createDocument(env, uuid, data, userId) {
   const docId = ins[0] && ins[0].id; if (!docId) return { err: "could not create document" };
   await insertDocLines(env, uuid, docId, norm.lines);
   return { doc: await getDocument(env, uuid, docId) };
+}
+// ── FISCAL PERIODS / period-close lock (ERP finance integrity) ───────────────────
+// "Closing the books": a monotonic lock-through DATE (stored in _meta) freezes the
+// ledger — no entry (or reversal) with entry_date on/before the lock date can post, so
+// finalized periods can't be altered by a backdated write. Named periods can also be
+// defined for reporting; the lock date is the enforcement. Reopening is an explicit admin
+// action. Applies to the LEDGER (where period-close matters); stock/documents are unaffected.
+const _periodsReady = new Set();
+async function ensurePeriods(env, uuid) {
+  if (_periodsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _periods (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, start_date TEXT, end_date TEXT, status TEXT NOT NULL DEFAULT 'open', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _meta (k TEXT PRIMARY KEY, v TEXT)"); // defensive; usually made by initSiteAuth
+  _periodsReady.add(uuid);
+}
+async function getFiscalLock(env, uuid) {
+  try { const r = await cfD1Query(env, uuid, "SELECT v FROM _meta WHERE k='fiscal_lock'"); return (r[0] && r[0].v) || null; } catch { return null; }
+}
+async function setFiscalLock(env, uuid, date) {
+  await ensurePeriods(env, uuid);
+  if (date) await cfD1Query(env, uuid, "INSERT INTO _meta (k,v) VALUES ('fiscal_lock', ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v", [date]);
+  else await cfD1Query(env, uuid, "DELETE FROM _meta WHERE k='fiscal_lock'");
 }
 // Approvals — a sign-off workflow on a table declaring `approval:{approvers,status}`. A row is
 // submitted (status→pending), then an approver (a member whose role is in `approvers`, or admin)
@@ -8825,7 +8849,7 @@ async function handleRequest(request, env, ctx) {
               let body = {}; try { body = await request.json(); } catch {}
               const revLines = orig.lines.map((l) => ({ account: l.account, dim: l.dim, debit: l.credit, credit: l.debit, memo: l.memo, meta: l.meta }));
               const res = await postLedgerEntry(env, uuid, orig.ledger, { lines: revLines, date: body.date, ref: body.ref != null ? body.ref : "REVERSAL of #" + entryId, memo: body.memo != null ? body.memo : orig.memo, _reverses: entryId }, userId);
-              if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+              if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "period_locked" ? 409 : 400 });
               await cfD1Query(env, uuid, "UPDATE _ledger_entries SET reversed_by=? WHERE id=?", [res.entry.id, entryId]);
               return Response.json({ ok: true, entry: res.entry, reverses: entryId });
             }
@@ -8854,7 +8878,7 @@ async function handleRequest(request, env, ctx) {
             if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
             let body = {}; try { body = await request.json(); } catch {}
             const res = await postLedgerEntry(env, uuid, ledgerOf(body), body, userId);
-            if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+            if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "period_locked" ? 409 : 400 });
             return Response.json({ ok: true, entry: res.entry });
           }
           if (resource === "balance" || resource === "trial-balance") {
@@ -8876,6 +8900,55 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("ledger failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ledger failed" }, { status: 502 }); }
+      }
+      // FISCAL PERIODS / period close (ERP finance) — freeze the ledger through a date so
+      // finalized books can't be altered by a backdated post. ADMIN-gated.
+      //   GET  /api/db/<slug>/periods                 → {lock_through, periods:[…]}
+      //   POST /api/db/<slug>/periods {name,start,end} → define a named period (reporting)
+      //   POST /api/db/<slug>/periods/close {through}  → close the books through this date (lock)
+      //   POST /api/db/<slug>/periods/reopen [{through}] → reopen (clear the lock, or move it earlier)
+      const pdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/periods(?:\/(close|reopen))?$/i);
+      if (pdm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pdm[1].toLowerCase(), act = pdm[2] ? pdm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensurePeriods(env, uuid);
+          const dateOf = (v) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null; };
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|pdr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, start_date, end_date, status, created_at FROM _periods ORDER BY start_date DESC, id DESC LIMIT 500");
+            return Response.json({ ok: true, lock_through: await getFiscalLock(env, uuid), periods: rows });
+          }
+          if (!rateOk(slug + "|" + ip + "|pdw", 60)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (act === "close") {
+            const through = dateOf(body.through);
+            if (!through) return Response.json({ ok: false, error: "through must be a date (YYYY-MM-DD)" }, { status: 400 });
+            await setFiscalLock(env, uuid, through);
+            return Response.json({ ok: true, lock_through: through });
+          }
+          if (act === "reopen") {
+            const through = body.through !== undefined ? dateOf(body.through) : null; // omitted → clear the lock entirely
+            await setFiscalLock(env, uuid, through);
+            return Response.json({ ok: true, lock_through: through });
+          }
+          // define a named period
+          const name = body.name != null ? String(body.name).slice(0, 80) : null;
+          const start = dateOf(body.start), end = dateOf(body.end);
+          if (!name || !start || !end) return Response.json({ ok: false, error: "name, start and end (dates) are required" }, { status: 400 });
+          const ins = await cfD1Query(env, uuid, "INSERT INTO _periods (name, start_date, end_date, status, created_at) VALUES (?,?,?, 'open', ?) RETURNING id", [name, start, end, new Date().toISOString()]);
+          return Response.json({ ok: true, id: ins[0] && ins[0].id, name, start_date: start, end_date: end, status: "open" });
+        } catch (e) { console.error("periods failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "periods failed" }, { status: 502 }); }
       }
       // STOCK LEDGER (ERP inventory) — append-only movements; on-hand = Σqty; reservations
       // earmark availability. No-negative-stock is enforced atomically. ADMIN-gated.
