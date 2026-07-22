@@ -6608,3 +6608,23 @@ Full suite 149 green.
   PATCH or DELETE (404); an EDIT collaborator CAN PATCH but NOT delete (delete stays owner-only); only the
   OWNER lists/adds/revokes shares (collaborator gets 404); revoke instantly cuts read+edit; you can't share
   a row you don't own. 10 adversarial batches total (158–167): 1 real bug found+fixed, 9 clean. Suite 150 green.
+
+## 2026-07-22 — HARDENING PASS 6 (maxRows/formulas + geo) — FOUND + FIXED A 2ND REAL BUG
+- **batch168 (18)** — maxRows quota (PER-MEMBER on feed/user: A capped at 2, B has own quota; GLOBAL on
+  admin), boundary (Nth ok, N+1 → 409 code:limit), delete-frees-quota deterministic; formula fields:
+  DIVISION BY ZERO → null/0 (never Infinity/NaN — valid JSON), null operand handled, precedence correct.
+  No bug.
+- **BUG FIXED — geo /near missed points across the ANTIMERIDIAN and near the POLES.** The haversine
+  distance calc was correct, but the SQL bounding-box PRE-FILTER (perf optimization: fetch rows roughly in
+  range, then haversine) broke at edges: near lng −179.9 the box `lng BETWEEN −180.4 AND −179.4` filtered
+  out a point at lng 179.9 BEFORE haversine ran (antimeridian); near lat 89.95 the longitude box `[−36,36]`
+  excluded a physically-close point at lng 180 (pole convergence). Fix: the latitude box always applies
+  (never wraps); the LONGITUDE box is dropped when it would cross ±180 or span a pole
+  (`lngSafe = dLng<180 && lng−dLng>=−180 && lng+dLng<=180 && |lat|+dLat<89.5`) — haversine then does the
+  real filtering. Normal (non-edge) queries keep the fast full box unchanged. Real for any app with global
+  data near the Pacific or high latitudes. Found by batch169 (10).
+- **batch169 (10)** — geo distance correctness: known distances within tolerance (SF→Oakland ~13km,
+  SF→NYC ~4130km), same point = 0, sorted ascending, radius boundary, ANTIMERIDIAN (lng 179.9 found near
+  −179.9, ~22km not ~40000km), POLES (opposite-longitude point near the pole is close), far point excluded.
+12 adversarial batches total (158–169): 2 real bugs found + fixed (transition "*" wildcard; geo
+antimeridian/pole box), 10 clean. Full suite 152 green.
