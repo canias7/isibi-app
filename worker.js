@@ -4138,6 +4138,26 @@ async function walletBalance(env, uuid, account, currency) {
   const r = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_m),0) AS n FROM _wallet_ledger WHERE account=? AND currency=?", [account, currency]);
   return ((r[0] && r[0].n) || 0) / 1000;
 }
+// ── ENTITLEMENTS / SUBSCRIPTIONS (per-app membership + feature-unlock state) ──────
+// Tracks whether an account has an active plan / feature entitlement, with an expiry —
+// so an app can gate "Pro" or a feature. NOT payment processing (Stripe does that at the
+// platform level); this is the entitlement STATE. `check` = active now (status active AND
+// within any start/expiry window). One row per (account, feature); feature 'default' = the
+// whole-account plan.
+const _entReady = new Set();
+async function ensureEntitlements(env, uuid) {
+  if (_entReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _entitlements (account TEXT NOT NULL, feature TEXT NOT NULL DEFAULT 'default', plan TEXT, status TEXT NOT NULL DEFAULT 'active', starts TEXT, expires TEXT, meta TEXT, updated_at TEXT, PRIMARY KEY (account, feature))");
+  _entReady.add(uuid);
+}
+const _entFeature = (v) => { const s = String(v == null || v === "" ? "default" : v).toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60); return s || "default"; };
+function entIsActive(row) {
+  if (!row || row.status !== "active") return false;
+  const now = new Date().toISOString();
+  if (row.starts && now < row.starts) return false;
+  if (row.expires && now > row.expires) return false;
+  return true;
+}
 // Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
 async function postWallet(env, uuid, data, userId) {
   await ensureWallet(env, uuid);
@@ -10174,6 +10194,64 @@ async function handleRequest(request, env, ctx) {
             [cc, kind, value_num, minC, intOrNull(body.max_uses), intOrNull(body.per_user_max), dt(body.starts), dt(body.expires), body.active === false ? 0 : 1, body.note != null ? String(body.note).slice(0, 300) : null, new Date().toISOString()]);
           return Response.json({ ok: true, code: cc, kind });
         } catch (e) { console.error("promotions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "promotions failed" }, { status: 502 }); }
+      }
+      // ENTITLEMENTS / SUBSCRIPTIONS (commerce) — per-account plan/feature state + expiry.
+      // Grants are ADMIN (server-authoritative); a member checks/reads their OWN, admin any.
+      //   POST   /api/db/<slug>/entitlements {account, feature?, plan?, status?, starts?, expires?, meta?}  (admin) upsert
+      //   GET    /api/db/<slug>/entitlements/check?account=<a>[&feature=]   → {active, plan, expires, status}
+      //   GET    /api/db/<slug>/entitlements?account=<a>                    → all of an account's entitlements
+      //   DELETE /api/db/<slug>/entitlements/<feature>?account=<a>          (admin) revoke
+      const enm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/entitlements(?:\/(check|[a-z0-9_.:-]{1,60}))?$/i);
+      if (enm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = enm[1].toLowerCase(), seg = enm[2] || null, isCheck = seg === "check", featSeg = (seg && !isCheck) ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureEntitlements(env, uuid);
+          const accountOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 120) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          if (isCheck) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|entr", 600)) return tooMany();
+            const account = accountOf(url.searchParams.get("account")); if (!account) return Response.json({ ok: false, error: "you can only check your own entitlements" }, { status: 403 });
+            const feature = _entFeature(url.searchParams.get("feature"));
+            const row = (await cfD1Query(env, uuid, "SELECT * FROM _entitlements WHERE account=? AND feature=?", [account, feature]))[0];
+            return Response.json({ ok: true, account, feature, active: entIsActive(row), plan: row ? row.plan : null, status: row ? row.status : null, expires: row ? row.expires : null });
+          }
+          if (request.method === "GET" && !featSeg) {
+            if (!rateOk(slug + "|" + ip + "|entr", 300)) return tooMany();
+            const account = accountOf(url.searchParams.get("account")); if (!account) return Response.json({ ok: false, error: "you can only view your own entitlements" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _entitlements WHERE account=? ORDER BY feature", [account]);
+            return Response.json({ ok: true, account, entitlements: rows.map((r) => ({ feature: r.feature, plan: r.plan, status: r.status, active: entIsActive(r), starts: r.starts, expires: r.expires, meta: r.meta ? _parseJSON(r.meta) : null })) });
+          }
+          // writes → admin
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|entw", 120)) return tooMany();
+            const account = String(url.searchParams.get("account") || "").trim(); if (!account) return Response.json({ ok: false, error: "account required" }, { status: 400 });
+            const feature = _entFeature(featSeg);
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _entitlements WHERE account=? AND feature=?", [account, feature]);
+            return ex.changes > 0 ? Response.json({ ok: true, account, feature, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          if (request.method !== "POST") return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|entw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const account = String(body.account || "").trim(); if (!account || account.length > 120) return Response.json({ ok: false, error: "account is required" }, { status: 400 });
+          const feature = _entFeature(body.feature);
+          const status = body.status != null ? String(body.status).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 24) || "active" : "active";
+          const expires = _normDT(body.expires), starts = _normDT(body.starts);
+          await cfD1Query(env, uuid, "INSERT INTO _entitlements (account, feature, plan, status, starts, expires, meta, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(account, feature) DO UPDATE SET plan=excluded.plan, status=excluded.status, starts=excluded.starts, expires=excluded.expires, meta=excluded.meta, updated_at=excluded.updated_at",
+            [account, feature, body.plan != null ? String(body.plan).slice(0, 60) : null, status, starts, expires, body.meta !== undefined ? JSON.stringify(body.meta) : null, new Date().toISOString()]);
+          const row = (await cfD1Query(env, uuid, "SELECT * FROM _entitlements WHERE account=? AND feature=?", [account, feature]))[0];
+          return Response.json({ ok: true, account, feature, plan: row.plan, status: row.status, active: entIsActive(row), expires: row.expires });
+        } catch (e) { console.error("entitlements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "entitlements failed" }, { status: 502 }); }
       }
       // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
       // signed-in member books (owner-stamped); admin sees/manages all, members their own.
