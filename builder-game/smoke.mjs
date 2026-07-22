@@ -71,6 +71,16 @@ export async function smokeTest(distDir) {
       await page.keyboard.down(key); await page.waitForTimeout(120);
       await page.keyboard.up(key); await page.waitForTimeout(80);
     }
+    // WASD (3D / first-person movement) + POINTER actions. Clicking matters: a
+    // shooter that ray-picks on click (e.g. a 3D FPS) throws only when you fire,
+    // so a keys-only test would pass a game that breaks the instant the player
+    // shoots. Exercise the click/tap path so the auto-fix loop catches it.
+    for (const key of ["KeyW", "KeyD", "KeyA", "KeyS"]) { await page.keyboard.down(key); await page.waitForTimeout(90); await page.keyboard.up(key); }
+    try {
+      const cv = await page.$("canvas");
+      if (cv) await cv.click({ position: { x: 480, y: 270 }, force: true }).catch(() => {});
+      for (let i = 0; i < 4; i++) { await page.mouse.move(360 + i * 60, 250 + (i % 2) * 40); await page.mouse.click(360 + i * 60, 250).catch(() => {}); await page.waitForTimeout(90); }
+    } catch {}
     await page.waitForTimeout(PLAY_MS - 1000);
 
     // Non-blank check: screenshot the canvas; a rendered scene yields a far larger
