@@ -6356,3 +6356,14 @@ the data API — so a generated app couldn't build an in-app analytics page from
     green screen live — if it keys worse than nano-banana, revert SPRITE_IMG_MODEL to nano-banana-pro (1 line).
   - **Landing showcase robustness:** .lp-arc-body got a neon-gradient fallback so a missing showcase game degrades
     to an on-brand tile, not a black void. (Curated-permanent swap is now cheap via flux — offer it later.)
+
+- **Bulk update/delete by filter** (data API): `POST /api/db/<slug>/rows/<table>/bulk {op,where,set?,all?,limit?}`
+  (ADMIN) — one change to every matching row in a single statement ("archive all completed", "delete all
+  drafts"). op update (needs `set` of declared cols) or delete. `where` (list-read grammar, array) REQUIRED
+  unless `all:true` (guards against accidental whole-table wipes). Scoped + capped via
+  `WHERE id IN (SELECT id FROM t <filter> LIMIT cap)` (default 1000, max 5000) — bounded + race-safe.
+  Delete SOFT-deletes on a trash table (`soft:true`, consistent with single-delete), hard otherwise.
+  Reuses buildD1Filter. Added as a DEDICATED route before the main /rows dispatch (isolates risk — no
+  change to the core CRUD path). batch150 (21/21) — update, soft vs hard delete, limit cap, all:true,
+  every guard (no-where 400, update-without-set 400, invalid op 400, unknown table 404, non-admin 403,
+  signed-out 401, set-with-no-valid-column 400). Full suite 133 green.
