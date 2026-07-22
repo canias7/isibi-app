@@ -6393,3 +6393,21 @@ next). Everything else was already there.
   route. Unlocks LMS-loan/mortgage/BNPL/auto-loan/AMS/lease apps. batch151 (24/24) — verified the classic
   $100k@6%×360 → $599.55/mo, 0% loan, extra-principal early payoff saves interest, principal ties out,
   dates, all guards. Full suite 134 green.
+
+## 2026-07-22 — MRP already existed (backed out dup) + investment/NPV calc
+- **MRP / BOM explosion — ALREADY BUILT, backed out my duplicate.** Went to build MRP (user asked);
+  discovered a full data-backed implementation already exists AND is documented: BOM CRUD (`/bom`,
+  `/bom/<product>/explode`), `explodeBom` (recursive multi-level + cycle detection), and `POST /mrp`
+  {demand:[{product,qty}], location?} that nets against LIVE stock (`stockLevel`) → {requirements,
+  shortfalls}. My stateless `bomExplode` + `/mrp` route collided (dup `const mrm`, dup route) and was
+  strictly worse (not wired to inventory). Reverted cleanly — worker.js back to HEAD. Lesson (again):
+  grep BEFORE writing, not after. The existing one is better; nothing to ship for MRP.
+- **Investment / capital-budgeting calc** (finance/ERP — genuinely new, grepped first): `POST /api/db/
+  <slug>/finance/investment {cashflows, rate}` → `{npv, irr, irr_pct, payback_period, discounted_payback,
+  profitability_index, total_inflow, total_outflow, periods}`. NPV at the hurdle rate; IRR solved by
+  scan-for-sign-change + bisection (null when flows never cross 0); fractional payback + discounted
+  payback; PI = PV(in)/PV(out). Cashflows as numbers or {amount}. Stateless, wired into the existing
+  /finance/(depreciation|forecast|amortization) route as a 4th calc. Unlocks FP&A/CPM/EPM project
+  ranking. batch152 (22/22) — textbook -1000/500/500/500@10% → NPV 243.43, IRR 23.4%, payback 2.0,
+  disc-payback 2.35, PI 1.243; break-even project (NPV 0, IRR=rate); never-profitable (irr/payback null);
+  higher-rate-lowers-NPV; all guards. Full suite 135 green.
