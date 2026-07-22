@@ -4500,6 +4500,28 @@ function flagOnFor(flag, userId, role) {
   if (rollout <= 0) return false;
   return flagBucket(flag.key, userId) < rollout;
 }
+// Saved searches (per-member) — a member saves a named {table, query} and RUNs it later. `_searches`
+// is keyed (user_id, name) so each member's set is private and a re-save upserts in place. The stored
+// `query` is just a list query-string (where/q/sort/order/limit); RUN rebuilds a URL from it and reuses
+// buildD1List UNDER the caller's read scope + the default visibility, so a saved search can never
+// surface a row the caller couldn't read directly. Ensured once per isolate.
+const _searchesReady = new Set();
+async function ensureSavedSearches(env, uuid) {
+  if (_searchesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _searches (user_id INTEGER NOT NULL, name TEXT NOT NULL, table_name TEXT NOT NULL, query TEXT, created_at TEXT, PRIMARY KEY (user_id, name))");
+  _searchesReady.add(uuid);
+}
+// The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
+// / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
+// query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
+function defaultVisClause(def) {
+  const vis = [];
+  if (def.trash) vis.push("deleted_at IS NULL");
+  if (def.expires) vis.push("(expires_at IS NULL OR datetime(expires_at) > datetime('now'))");
+  if (def.scheduled) vis.push("(publish_at IS NULL OR datetime(publish_at) <= datetime('now'))");
+  if (def.archivable) vis.push("archived_at IS NULL");
+  return vis.join(" AND ");
+}
 // Deterministic, stable referral code for a member: base36(userId) + a short FNV-1a-derived suffix
 // (so codes aren't trivially sequential/guessable), UPPERCASE. Same (uuid,userId) → same code, and
 // the base36(userId) prefix already guarantees uniqueness across members (no random collisions).
@@ -9240,6 +9262,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _presence WHERE user_id=?", [u.id]],
             ["DELETE FROM _consents WHERE user_id=?", [u.id]],
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
+            ["DELETE FROM _searches WHERE user_id=?", [u.id]],                               // saved searches
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10415,6 +10438,99 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported flags request" }, { status: 405 });
         } catch (e) { console.error("flags failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "flags failed" }, { status: 502 }); }
+      }
+      // SAVED SEARCHES (per-member) — a member saves a named {table, query} and re-RUNs it to get
+      // matching rows UNDER THEIR OWN read scope (own rows on a `user` table, public rows on
+      // display/feed/admin, refused on write-only `collect`; trashed/expired/unpublished/archived rows
+      // always hidden). Private per member — GET/RUN/DELETE only ever touch the caller's own rows.
+      //   POST   /api/db/<slug>/searches {name, table, query}   → save/upsert (any member)
+      //   GET    /api/db/<slug>/searches[?table=]               → my saved searches
+      //   GET    /api/db/<slug>/searches/<name>                 → one of mine (metadata)
+      //   GET    /api/db/<slug>/searches/<name>/run[?limit=&offset=]  → run it → {rows}
+      //   DELETE /api/db/<slug>/searches/<name>                 → delete mine
+      const svm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/searches(?:\/([a-z0-9_.:-]{1,60}))?(?:\/(run))?$/i);
+      if (svm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = svm[1].toLowerCase(); const name = svm[2] ? svm[2].toLowerCase() : null; const isRun = svm[3] === "run";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureSavedSearches(env, uuid);
+          // RUN — /searches/<name>/run is GET-only (so DELETE /searches/<name>/run can't delete a search).
+          if (isRun) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "run is read-only (GET)" }, { status: 405 });
+            if (!name) return Response.json({ ok: false, error: "which search? /searches/<name>/run" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|srun", 300)) return tooMany();
+            const s = (await cfD1Query(env, uuid, "SELECT table_name, query FROM _searches WHERE user_id=? AND name=?", [userId, name]))[0];
+            if (!s) return Response.json({ ok: false, error: "no such search" }, { status: 404 }); // private: another member's is invisible
+            const spec = await loadSiteSchema(env, uuid);
+            const def = tableDef(spec, s.table_name);
+            if (!def) return Response.json({ ok: false, error: "that search's table no longer exists" }, { status: 409 });
+            const access = def.access;
+            if (access === "collect") return Response.json({ ok: false, error: "this table is write-only — nothing to read" }, { status: 403 });
+            // Read scope: `user` → my own rows only; display/feed/admin → public rows. (No team widening —
+            // a saved search is deliberately scoped to the caller, never broader than their own read.)
+            let base = access === "user" ? { clause: "owner_id=?", params: [userId] } : null;
+            const visClause = defaultVisClause(def);
+            if (visClause) base = base ? { clause: base.clause + " AND " + visClause, params: base.params.slice() } : { clause: visClause, params: [] };
+            const u2 = new URL("https://x/?" + String(s.query || ""));
+            const rl = url.searchParams.get("limit"); if (rl) u2.searchParams.set("limit", rl);
+            const ro = url.searchParams.get("offset"); if (ro) u2.searchParams.set("offset", ro);
+            const allow = Array.isArray(def.columns) ? def.columns : [];
+            const b = buildD1List(u2, sqlIdent(s.table_name), allow, base, null, { defaultSort: def.defaultSort });
+            let rows = [], total = 0;
+            try { rows = await cfD1Query(env, uuid, b.sql, b.params); parseJsonRows(def, rows); } catch { rows = []; }
+            try { const cr = await cfD1Query(env, uuid, b.countSql, b.countParams); total = (cr[0] && cr[0].n) || 0; } catch {}
+            return Response.json({ ok: true, name, table: s.table_name, total, rows });
+          }
+          // SAVE / UPSERT.
+          if (request.method === "POST") {
+            if (name) return Response.json({ ok: false, error: "POST to /searches (no name in the path)" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|ssw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const nm = String(body.name || "").toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60);
+            if (!nm) return Response.json({ ok: false, error: "a search name is required" }, { status: 400 });
+            const table = String(body.table || "").toLowerCase();
+            if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid table is required" }, { status: 400 });
+            const spec = await loadSiteSchema(env, uuid);
+            if (!tableDef(spec, table)) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+            // The query is a list query-string, or an object {where:[…], q, sort, order, limit}.
+            let query = "";
+            if (typeof body.query === "string") query = body.query.replace(/^\?/, "").slice(0, 2000);
+            else if (body.query && typeof body.query === "object") {
+              const sp = new URLSearchParams();
+              for (const [k, v] of Object.entries(body.query)) { if (!/^[a-z]{1,20}$/i.test(k)) continue; (Array.isArray(v) ? v : [v]).slice(0, 12).forEach((x) => sp.append(k, String(x).slice(0, 200))); }
+              query = sp.toString().slice(0, 2000);
+            }
+            await cfD1Query(env, uuid, "INSERT INTO _searches (user_id, name, table_name, query, created_at) VALUES (?,?,?,?,?) ON CONFLICT(user_id, name) DO UPDATE SET table_name=excluded.table_name, query=excluded.query", [userId, nm, table, query, new Date().toISOString()]);
+            return Response.json({ ok: true, name: nm, table, query });
+          }
+          // DELETE mine.
+          if (request.method === "DELETE") {
+            if (!name) return Response.json({ ok: false, error: "which search? DELETE /searches/<name>" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _searches WHERE user_id=? AND name=?", [userId, name]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such search" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, name });
+          }
+          // GET one / list mine.
+          if (!rateOk(slug + "|" + ip + "|ssr", 300)) return tooMany();
+          if (name) {
+            const s = (await cfD1Query(env, uuid, "SELECT name, table_name, query, created_at FROM _searches WHERE user_id=? AND name=?", [userId, name]))[0];
+            if (!s) return Response.json({ ok: false, error: "no such search" }, { status: 404 });
+            return Response.json({ ok: true, name: s.name, table: s.table_name, query: s.query, created_at: s.created_at });
+          }
+          const wantTable = String(url.searchParams.get("table") || "").toLowerCase();
+          const rows = wantTable
+            ? await cfD1Query(env, uuid, "SELECT name, table_name, query, created_at FROM _searches WHERE user_id=? AND table_name=? ORDER BY name LIMIT 500", [userId, wantTable])
+            : await cfD1Query(env, uuid, "SELECT name, table_name, query, created_at FROM _searches WHERE user_id=? ORDER BY name LIMIT 500", [userId]);
+          return Response.json({ ok: true, searches: rows.map((r) => ({ name: r.name, table: r.table_name, query: r.query, created_at: r.created_at })) });
+        } catch (e) { console.error("searches failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "searches failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
