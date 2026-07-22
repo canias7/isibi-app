@@ -650,6 +650,10 @@ is delivered.
 - #18 JSON shape validation: table-level `jsonShapes:{col:{field:type}}` (type string|number|boolean|
   array|object) validates a json column's inner fields on write (400 naming the field) via validateRow.
   batch101 (8/8).
+- #116 A/B testing: `GET /api/db/<slug>/experiment/<name>?variants=a,b[&key=]` deterministically buckets
+  a visitor (djb2 hash of name|user_key; signed-in member or ?key=; stable per key), records exposure in
+  `_experiments`; `POST .../convert` marks conversion; `GET .../results` (admin) → per-variant
+  exposures/conversions/rate. Route tolerates trailing slash. batch102 (13/13).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`

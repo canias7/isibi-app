@@ -8460,6 +8460,57 @@ async function handleRequest(request, env, ctx) {
       // drops a "mention" notification into each one's inbox. Capped (≤10/call), rate-limited,
       // and deduped per (recipient, target) within an hour so it can't be used to spam.
       //   POST /api/db/<slug>/mention {target, users:[ids], text?}  (auth) → {notified}
+      // A/B testing / experiments — deterministically bucket a visitor into a variant and track
+      // conversions. GET /api/db/<slug>/experiment/<name>?variants=a,b[&key=] → {variant} (stable
+      // per user_key: the signed-in member, or a passed `key`); POST …/convert marks a conversion;
+      // GET …/results (admin) → per-variant exposures + conversions + rate.
+      const xpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/experiment\/([a-z0-9_-]{1,40})(?:\/(convert|results))?\/?$/i);
+      if (xpm) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = xpm[1].toLowerCase(), xname = xpm[2].toLowerCase(), xsub = (xpm[3] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        if (!rateOk(slug + "|" + ip + "|xp", 300)) return tooMany();
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _experiments (name TEXT NOT NULL, user_key TEXT NOT NULL, variant TEXT, converted INTEGER DEFAULT 0, at TEXT, PRIMARY KEY (name, user_key))");
+          if (xsub === "results") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admin only" }, { status: 403 });
+            const rows = await cfD1Query(env, uuid, "SELECT variant, COUNT(*) AS exposures, SUM(converted) AS conversions FROM _experiments WHERE name=? GROUP BY variant ORDER BY variant", [xname]);
+            const variants = rows.map((r) => { const ex = Number(r.exposures) || 0, cv = Number(r.conversions) || 0; return { variant: r.variant, exposures: ex, conversions: cv, rate: ex ? Math.round((cv / ex) * 10000) / 10000 : 0 }; });
+            return Response.json({ ok: true, name: xname, variants });
+          }
+          const userKey = userId ? ("u" + userId) : String(url.searchParams.get("key") || "").replace(/[^a-z0-9_-]/gi, "").slice(0, 64);
+          if (!userKey) return Response.json({ ok: false, error: "sign in or pass a stable ?key= to bucket an anonymous visitor" }, { status: 400 });
+          if (xsub === "convert") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE _experiments SET converted=1 WHERE name=? AND user_key=?", [xname, userKey]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no exposure to convert — request the variant first" }, { status: 404 });
+            return Response.json({ ok: true, converted: true });
+          }
+          if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+          const variants = String(url.searchParams.get("variants") || "a,b").toLowerCase().split(",").map((s) => s.trim().replace(/[^a-z0-9_-]/g, "").slice(0, 24)).filter(Boolean).slice(0, 8);
+          if (variants.length < 2) return Response.json({ ok: false, error: "pass at least two ?variants=a,b" }, { status: 400 });
+          // already bucketed? keep the same variant (stable), else deterministically assign.
+          const seen = await cfD1Query(env, uuid, "SELECT variant FROM _experiments WHERE name=? AND user_key=?", [xname, userKey]);
+          let variant;
+          if (seen[0] && variants.includes(seen[0].variant)) variant = seen[0].variant;
+          else {
+            let hsh = 5381; const src = xname + "|" + userKey; for (let i = 0; i < src.length; i++) hsh = ((hsh << 5) + hsh + src.charCodeAt(i)) >>> 0;
+            variant = variants[hsh % variants.length];
+            await cfD1Query(env, uuid, "INSERT OR IGNORE INTO _experiments (name,user_key,variant,at) VALUES (?,?,?,?)", [xname, userKey, variant, new Date().toISOString()]);
+            const back = await cfD1Query(env, uuid, "SELECT variant FROM _experiments WHERE name=? AND user_key=?", [xname, userKey]);
+            if (back[0]) variant = back[0].variant; // in case of a race, honor the stored bucket
+          }
+          return Response.json({ ok: true, name: xname, variant });
+        } catch (e) { console.error("experiment failed:", e && e.message); return Response.json({ ok: false, error: "experiment failed" }, { status: 502 }); }
+      }
       const mnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mention$/i);
       if (mnm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
