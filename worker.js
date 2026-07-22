@@ -4061,12 +4061,37 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
   const cfg = def && def.currency;
   const convExpr = (prefix) => "(" + prefix + sqlIdent(cfg.amount) + " * CASE UPPER(" + prefix + sqlIdent(cfg.code) + ") " + Object.entries(cfg.rates).map(([cc, r]) => "WHEN '" + cc + "' THEN " + Number(r)).join(" ") + " ELSE NULL END)";
   const aggExpr = (prefix, col) => (cfg && col === cfg.as) ? convExpr(prefix) : (prefix + sqlIdent(col));
+  // Expression aggregate — a `sum=<alias>:<expr>` where <expr> is safe arithmetic (+ - * / and
+  // parens) over filterable columns and numeric literals, so `sum=weighted:amount*probability`
+  // returns a WEIGHTED pipeline forecast summed in SQL (formulas are read-time JS and can't be
+  // SUMmed). Columns → sqlIdent (or the currency conversion), numbers → literals, operators are a
+  // fixed safe set — no injection. Returns the parenthesized SQL, or null if the expr is malformed
+  // or references an unknown column (then that aggregate is skipped).
+  const exprToSql = (prefix, expr) => {
+    const toks = String(expr).match(/[a-z_][a-z0-9_]{0,40}|\d+(?:\.\d+)?|[-+*/()]/gi);
+    if (!toks) return null;
+    let out = "", depth = 0, expectOperand = true, hasCol = false;
+    for (const tk of toks) {
+      if (tk === "(") { if (!expectOperand) return null; depth++; out += "("; continue; }
+      if (tk === ")") { if (expectOperand || depth === 0) return null; depth--; out += ")"; continue; }
+      if (tk.length === 1 && "+-*/".indexOf(tk) !== -1) { if (expectOperand) return null; out += " " + tk + " "; expectOperand = true; continue; }
+      if (!expectOperand) return null;
+      if (/^[a-z_]/i.test(tk)) { const col = tk.toLowerCase(); if (!(f.filterable.has(col) || (cfg && col === cfg.as))) return null; out += (cfg && col === cfg.as) ? convExpr(prefix) : (prefix + sqlIdent(col)); hasCol = true; }
+      else { const n = Number(tk); if (!Number.isFinite(n)) return null; out += String(n); }
+      expectOperand = false;
+    }
+    if (expectOperand || depth !== 0 || !hasCol) return null;
+    return "(" + out + ")";
+  };
   const wanted = { sum: [], avg: [], min: [], max: [] };
+  const wantedExpr = { sum: [], avg: [], min: [], max: [] };
   for (const k of ["sum", "avg", "min", "max"]) {
     for (const raw of url.searchParams.getAll(k)) {
       for (const c of String(raw).split(",")) {
-        const col = c.trim().toLowerCase();
-        if (col && (f.filterable.has(col) || (cfg && col === cfg.as)) && !wanted[k].includes(col)) wanted[k].push(col);
+        const piece = c.trim().toLowerCase();
+        if (!piece) continue;
+        if (/^[a-z0-9_]{1,40}$/.test(piece)) { if ((f.filterable.has(piece) || (cfg && piece === cfg.as)) && !wanted[k].includes(piece)) wanted[k].push(piece); }
+        else { const m = piece.match(/^([a-z][a-z0-9_]{0,39}):(.+)$/); if (m && exprToSql("", m[2]) && !wantedExpr[k].some((e) => e.alias === m[1])) wantedExpr[k].push({ alias: m[1], expr: m[2] }); }
       }
     }
   }
@@ -4078,7 +4103,11 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
     if (s === "count" || s === "") return "COUNT(*)";
     if (s === "value" || s === "group") return "_g0";
     const m = s.match(/^(sum|avg|min|max):([a-z0-9_]+)$/);
-    if (m && (f.filterable.has(m[2]) || (cfg && m[2] === cfg.as))) return m[1].toUpperCase() + "(" + aggExpr("", m[2]) + ")";
+    if (m) {
+      if (f.filterable.has(m[2]) || (cfg && m[2] === cfg.as)) return m[1].toUpperCase() + "(" + aggExpr("", m[2]) + ")";
+      const e = wantedExpr[m[1]] && wantedExpr[m[1]].find((x) => x.alias === m[2]); // sort/having by an expression alias
+      if (e) return m[1].toUpperCase() + "(" + exprToSql("", e.expr) + ")";
+    }
     return null;
   };
   const HOPS = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", ne: "!=" };
@@ -4108,9 +4137,9 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
     const pcols = pdef ? new Set([].concat((pdef.columns || []).map((c) => String(c).toLowerCase()), ["id", "created_at", "slug"])) : null;
     if (pdef && pcols && pcols.has(pcol) && f.filterable.has(fk)) {
       const qsel = ["COUNT(*) AS _count"];
-      for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(" + aggExpr("t.", col) + ") AS " + k + "__" + col);
+      for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(" + aggExpr("t.", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) qsel.push(k.toUpperCase() + "(" + exprToSql("t.", e.expr) + ") AS " + k + "__" + e.alias); }
       const sql = "SELECT p." + sqlIdent(pcol) + " AS _g0, " + qsel.join(", ") + " FROM (SELECT * FROM " + tn + f.whereSql + ") t LEFT JOIN " + sqlIdent(parent) + " p ON t." + sqlIdent(fk) + " = p.id GROUP BY p." + sqlIdent(pcol) + havingSql + " ORDER BY " + (orderOverride || "_count DESC") + " LIMIT " + groupLimit;
-      return { sql, params: f.params.slice().concat(havingParams), wanted, groupCols: [crossTok] };
+      return { sql, params: f.params.slice().concat(havingParams), wanted, wantedExpr, groupCols: [crossTok] };
     }
   }
   // TIME-BUCKET group — a token `datecol:granularity` (year|month|week|day|hour) buckets rows by
@@ -4122,13 +4151,13 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
   if (timeTok) {
     const [tcol, gran] = timeTok.split(":");
     const tsel = ["COUNT(*) AS _count"];
-    for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
+    for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) tsel.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); }
     const bucket = "strftime('" + TIME_FMT[gran] + "', " + sqlIdent(tcol) + ")";
     const sql = "SELECT " + bucket + " AS _g0, " + tsel.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY _g0" + havingSql + " ORDER BY " + (orderOverride || "_g0 ASC") + " LIMIT " + groupLimit;
-    return { sql, params: f.params.slice().concat(havingParams), wanted, groupCols: [timeTok] };
+    return { sql, params: f.params.slice().concat(havingParams), wanted, wantedExpr, groupCols: [timeTok] };
   }
   const selects = ["COUNT(*) AS _count"];
-  for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
+  for (const k of ["sum", "avg", "min", "max"]) { for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col); for (const e of wantedExpr[k]) selects.push(k.toUpperCase() + "(" + exprToSql("", e.expr) + ") AS " + k + "__" + e.alias); }
   // GROUP BY one OR MORE base columns (comma-separated) → multi-dimensional "matrix" reports
   // ("pipeline by stage AND by rep"). Up to 4 dimensions; each must be a filterable column.
   const groupCols = groupRaw.filter((c) => f.filterable.has(c)).slice(0, 4);
@@ -4141,7 +4170,7 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
   } else {
     sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql; // HAVING/top-N need a GROUP BY — ignored on an ungrouped total
   }
-  return { sql, params: outParams, wanted, groupCols };
+  return { sql, params: outParams, wanted, wantedExpr, groupCols };
 }
 // Relations: for a set of rows, `?expand=<fk_col>[,<fk_col>]` attaches each row's
 // referenced parent (declared via a column `ref`). Batched (one SELECT … WHERE id IN
@@ -4429,12 +4458,14 @@ async function insertMany(env, uuid, tn, allow, rowsArr, owner, def) {
 }
 // Shape one aggregate result row into { count, sum:{col:v}, avg:{…}, … } (only
 // requested aggregate families are present).
-function shapeD1Stats(row, wanted) {
+function shapeD1Stats(row, wanted, wantedExpr) {
   const out = { count: Number((row && row._count) || 0) };
   for (const k of ["sum", "avg", "min", "max"]) {
-    if (!wanted[k].length) continue;
+    const exprs = (wantedExpr && wantedExpr[k]) || [];
+    if (!wanted[k].length && !exprs.length) continue;
     out[k] = {};
     for (const col of wanted[k]) out[k][col] = row ? row[k + "__" + col] : null;
+    for (const e of exprs) out[k][e.alias] = row ? row[k + "__" + e.alias] : null;
   }
   return out;
 }
@@ -9167,11 +9198,11 @@ async function handleRequest(request, env, ctx) {
                 const g = {};
                 b.groupCols.forEach((c, i) => { g[c] = row["_g" + i]; });
                 if (b.groupCols.length === 1) g.value = row["_g0"]; // backward-compatible single-dim shape (`value` + aggs)
-                return Object.assign(g, shapeD1Stats(row, b.wanted));
+                return Object.assign(g, shapeD1Stats(row, b.wanted, b.wantedExpr));
               });
               return Response.json(b.groupCols.length === 1 ? { ok: true, group: b.groupCols[0], groups } : { ok: true, groupBy: b.groupCols, groups });
             }
-            return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted)));
+            return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted, b.wantedExpr)));
           }
 
           // Faceted counts — for each requested column, the distinct values and how many

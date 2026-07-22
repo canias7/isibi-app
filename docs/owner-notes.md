@@ -617,6 +617,20 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — Reporting: expression aggregates (weighted forecast)
+
+`sum=<alias>:<expr>` in stats — aggregate a SQL arithmetic expression (`+ - * /` + parens over
+filterable columns and number literals) instead of a bare column, so `sum=weighted:amount*probability/100`
+returns a WEIGHTED pipeline forecast summed in SQL (a formula field is read-time JS, can't be SUMmed).
+New `exprToSql(prefix, expr)` in buildD1Stats: tokenizes, validates structure (balanced parens,
+operand/operator alternation, ≥1 real column), maps cols→sqlIdent/currency-convExpr and numbers→
+literals (no injection — operators are a fixed set); returns null (→ aggregate skipped) on malformed/
+unknown-col. Parallel `wantedExpr` collected in the wanted loop, emitted into all 3 SELECT paths
+(cross/time/main), threaded through the returns + shapeD1Stats. aggSqlExpr resolves an expr alias too,
+so groupSort/having work by it. Gotcha: integer cols → integer math (multiply before dividing);
+`+` must be URL-encoded `%2B` (query-string `+`=space). Offline batch88 (13/13), full suite (71)
+green. BACKEND_RULES STATS section documents it.
+
 ## 2026-07-22 — /merge now moves the loser's satellites to the survivor
 
 Closes a follow-up from the delete-cascade PR. New `reassignRowSatellites(env,uuid,table,fromId,toId)`
