@@ -7931,7 +7931,7 @@ async function handleRequest(request, env, ctx) {
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/models\/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.split("/").pop().toLowerCase()))] : null));
+            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.toLowerCase()))] : null));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;
@@ -8060,7 +8060,7 @@ async function handleRequest(request, env, ctx) {
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/models\/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.split("/").pop().toLowerCase()))] : null));
+            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.toLowerCase()))] : null));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;
