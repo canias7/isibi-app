@@ -665,6 +665,13 @@ is delivered.
   existing rows). `?fts=<query>` on the list read runs a ranked bm25 search (prefix terms, AND) over the
   index, base-visibility isolated in a subquery, paginated. Confirmed node:sqlite AND D1 support FTS5.
   batch105 (13/13).
+- #86 Per-key rate limits: an admin can cap a specific API key at N req/min via `POST .../apikeys
+  {label, rpm}` (0/negative/non-numeric → unlimited, huge clamps to 100000); `_apikeys` gains an `rpm`
+  column (best-effort ALTER for old tables). resolveApiKeyUser now returns `{user,keyId,rpm}`; the
+  data-API resolve site enforces `rateOk(slug|akey|keyId, rpm)` → 429 across all tables for that key,
+  independent of the shared per-IP cap, so one busy integration can't starve others on the same egress
+  IP. rpm surfaces in the admin listing + mint response. batch106 (15/15). (Confirmed: API keys DO
+  authenticate data reads/writes — line ~8877 — so this was applicable, not moot.)
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
