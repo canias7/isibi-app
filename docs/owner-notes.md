@@ -617,6 +617,24 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — VERTICALS BUILD-OUT (CMS/HRMS/HCM/ATS/LMS/WMS/TMS/SCM gap-fill). Owner: "build all 9".
+
+Audited the 8 software categories against the existing backend — most is already covered by the /api/db
+schema engine + ERP primitives. 9 genuine NEW primitives identified, building broadest-first as tested PRs.
+Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/serial/expiry · 4 reorder/replenish ·
+5 progress tracking · 6 quiz grading · 7 i18n · 8 time & attendance · 9 demand forecasting. **(Owner asked
+2026-07-22: open PRs, DON'T merge until they say — leaving each PR open for review.)**
+
+- **VERT 1 — SCHEDULING / BOOKINGS** (`/api/db/<slug>/bookings/*`, any signed-in member): book a time window
+  on a resource with NO double-booking — the overlap check is a single-statement atomic guard (INSERT …
+  WHERE NOT EXISTS overlapping; two active bookings on a resource can never overlap even under races).
+  Datetimes normalized to UTC ISO (fixed length → lexical compare). `POST /bookings` (409 `conflict`),
+  `GET /bookings/availability?resource=&from=&to=&slot=&step=` generates free slots (half-open, back-to-back
+  allowed), `GET /bookings` (member=own, admin=all), `/bookings/<id>` get, `/cancel`, DELETE. Owner-stamped;
+  cancel/delete owner-or-admin. `_bookings` table. postBooking/ensureBookings/_normDT helpers. batch127
+  (19/19). Full suite 110 green. Serves ATS interviews + any appointments/rentals. (Capacity>1 / multi-
+  resource common-slot = later enhancement; v1 is exclusive single-resource.)
+
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
 Framing: the backend is a schema-driven data API, so ERP = a small set of new backend PRIMITIVES the

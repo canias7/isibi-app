@@ -3921,6 +3921,32 @@ async function postLeave(env, uuid, data, userId) {
   }
   return { id: ins[0] && ins[0].id, employee, leave_type: leaveType, days: days / 1000, kind, balance: await leaveBalance(env, uuid, employee, leaveType) };
 }
+// ── SCHEDULING / BOOKINGS (appointments, interviews, rooms, rentals) ──────────────
+// A booking claims a time window on a resource. Two active bookings on the SAME resource
+// can never overlap — enforced ATOMICALLY in one statement (INSERT … WHERE NOT EXISTS
+// overlapping), so concurrent requests can't double-book. Datetimes are normalized to UTC
+// ISO (fixed length) so they compare lexically. Availability generates free slots.
+const _bookingsReady = new Set();
+async function ensureBookings(env, uuid) {
+  if (_bookingsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _bookings (id INTEGER PRIMARY KEY AUTOINCREMENT, resource TEXT NOT NULL, start_at TEXT NOT NULL, end_at TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'booked', party TEXT, ref TEXT, note TEXT, owner_id INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_bk_res ON _bookings (resource, status, start_at)"); } catch {}
+  _bookingsReady.add(uuid);
+}
+const _normDT = (v) => { const ts = Date.parse(String(v == null ? "" : v)); return Number.isFinite(ts) ? new Date(ts).toISOString() : null; };
+// Book a slot. Returns {booking} or {err, code:'conflict'} if it overlaps an active booking.
+async function postBooking(env, uuid, data, userId) {
+  await ensureBookings(env, uuid);
+  const resource = String(data.resource == null ? "" : data.resource).trim(); if (!resource || resource.length > 80) return { err: "resource is required (≤80 chars)" };
+  const start = _normDT(data.start), end = _normDT(data.end);
+  if (!start || !end) return { err: "start and end must be valid datetimes" };
+  if (!(start < end)) return { err: "end must be after start" };
+  const now = new Date().toISOString();
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _bookings (resource,start_at,end_at,status,party,ref,note,owner_id,created_at) SELECT ?,?,?, 'booked', ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM _bookings WHERE resource=? AND status='booked' AND start_at < ? AND ? < end_at) RETURNING id",
+    [resource, start, end, data.party != null ? String(data.party).slice(0, 200) : null, data.ref != null ? String(data.ref).slice(0, 120) : null, data.note != null ? String(data.note).slice(0, 500) : null, userId || null, now, resource, end, start]);
+  if (!ins[0]) return { err: "that time is already booked", code: "conflict" };
+  return { booking: { id: ins[0].id, resource, start: start, end: end, status: "booked", party: data.party || null } };
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9542,6 +9568,93 @@ async function handleRequest(request, env, ctx) {
           if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
           return Response.json(Object.assign({ ok: true }, res));
         } catch (e) { console.error("leave failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leave failed" }, { status: 502 }); }
+      }
+      // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
+      // signed-in member books (owner-stamped); admin sees/manages all, members their own.
+      //   POST /api/db/<slug>/bookings {resource, start, end, party?, ref?, note?}  → book (409 if it overlaps)
+      //   GET  /api/db/<slug>/bookings[?resource=&from=&to=&status=]                → list (admin: all; member: own)
+      //   GET  /api/db/<slug>/bookings/availability?resource=&from=&to=&slot=<min>[&step=] → free slots
+      //   GET  /api/db/<slug>/bookings/<id>                → one (owner/admin)
+      //   POST /api/db/<slug>/bookings/<id>/cancel         → free the slot (owner/admin)
+      //   DELETE /api/db/<slug>/bookings/<id>              → remove (owner/admin)
+      const bkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/bookings(?:\/(availability|\d+)(?:\/(cancel))?)?$/i);
+      if (bkm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = bkm[1].toLowerCase(), seg = bkm[2] || null, act = bkm[3] ? bkm[3].toLowerCase() : null;
+        const bkId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null, isAvail = seg === "availability";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureBookings(env, uuid);
+          const role = ((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role || "user";
+          const isAdmin = role === "admin";
+          const rd = () => rateOk(slug + "|" + ip + "|bkr", 300), wr = () => rateOk(slug + "|" + ip + "|bkw", 120);
+          if (isAvail) {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const resource = String(url.searchParams.get("resource") || "").trim();
+            const from = _normDT(url.searchParams.get("from")), to = _normDT(url.searchParams.get("to"));
+            const slotMin = parseInt(url.searchParams.get("slot") || "30", 10); const stepMin = parseInt(url.searchParams.get("step") || String(slotMin || 30), 10);
+            if (!resource || !from || !to) return Response.json({ ok: false, error: "resource, from and to are required" }, { status: 400 });
+            if (!(slotMin > 0) || !(stepMin > 0)) return Response.json({ ok: false, error: "slot/step must be positive minutes" }, { status: 400 });
+            const busy = await cfD1Query(env, uuid, "SELECT start_at, end_at FROM _bookings WHERE resource=? AND status='booked' AND start_at < ? AND ? < end_at", [resource, to, from]);
+            const slots = []; const fromMs = Date.parse(from), toMs = Date.parse(to), slotMs = slotMin * 60000, stepMs = stepMin * 60000;
+            for (let s = fromMs; s + slotMs <= toMs && slots.length < 500; s += stepMs) {
+              const e = s + slotMs; const sI = new Date(s).toISOString(), eI = new Date(e).toISOString();
+              if (!busy.some((b) => Date.parse(b.start_at) < e && s < Date.parse(b.end_at))) slots.push({ start: sI, end: eI });
+            }
+            return Response.json({ ok: true, resource, slot_minutes: slotMin, slots });
+          }
+          if (bkId && act === "cancel") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT owner_id, status FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            await cfD1Query(env, uuid, "UPDATE _bookings SET status='cancelled' WHERE id=?", [bkId]);
+            return Response.json({ ok: true, id: bkId, status: "cancelled" });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (bkId && request.method === "GET") {
+            if (!rd()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT * FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            return Response.json({ ok: true, booking: { id: b.id, resource: b.resource, start: b.start_at, end: b.end_at, status: b.status, party: b.party, ref: b.ref, note: b.note, owner_id: b.owner_id, created_at: b.created_at } });
+          }
+          if (bkId && request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            const b = (await cfD1Query(env, uuid, "SELECT owner_id FROM _bookings WHERE id=?", [bkId]))[0];
+            if (!b) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (!isAdmin && b.owner_id !== userId) return Response.json({ ok: false, error: "not your booking" }, { status: 403 });
+            await cfD1Query(env, uuid, "DELETE FROM _bookings WHERE id=?", [bkId]);
+            return Response.json({ ok: true, id: bkId, deleted: true });
+          }
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            const where = []; const params = [];
+            if (!isAdmin) { where.push("owner_id=?"); params.push(userId); }
+            const resource = (url.searchParams.get("resource") || "").trim(); if (resource) { where.push("resource=?"); params.push(resource); }
+            const st = (url.searchParams.get("status") || "").toLowerCase().replace(/[^a-z]/g, ""); if (st) { where.push("status=?"); params.push(st); }
+            const from = _normDT(url.searchParams.get("from")); if (from) { where.push("end_at > ?"); params.push(from); }
+            const to = _normDT(url.searchParams.get("to")); if (to) { where.push("start_at < ?"); params.push(to); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "200", 10) || 200));
+            const rows = await cfD1Query(env, uuid, "SELECT id, resource, start_at, end_at, status, party, ref, owner_id FROM _bookings" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY start_at LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, bookings: rows.map((b) => ({ id: b.id, resource: b.resource, start: b.start_at, end: b.end_at, status: b.status, party: b.party, ref: b.ref, owner_id: b.owner_id })) });
+          }
+          // POST — book a slot
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const res = await postBooking(env, uuid, body, userId);
+          if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "conflict" ? 409 : 400 });
+          return Response.json({ ok: true, booking: res.booking });
+        } catch (e) { console.error("bookings failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bookings failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
