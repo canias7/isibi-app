@@ -654,6 +654,9 @@ is delivered.
   a visitor (djb2 hash of name|user_key; signed-in member or ?key=; stable per key), records exposure in
   `_experiments`; `POST .../convert` marks conversion; `GET .../results` (admin) → per-variant
   exposures/conversions/rate. Route tolerates trailing slash. batch102 (13/13).
+- CLONE: `POST /rows/<t>/<id>/clone [{overrides}]` duplicates a row (auto id/slug/number/timestamps
+  regenerate), applies overrides, stamps caller as owner on user/feed; same write scope; UNIQUE clash
+  → 409 (via the existing outer catch). batch103 (14/14).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
