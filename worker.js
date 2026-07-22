@@ -12982,7 +12982,7 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, op, affected: ex.changes || 0, soft: !!def.trash });
         } catch (e) { console.error("bulk failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bulk failed" }, { status: 502 }); }
       }
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events|validate|profile)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -12995,6 +12995,7 @@ async function handleRequest(request, env, ctx) {
         const isOverdue = dm[3] === "overdue";
         const isEvents = dm[3] === "events";
         const isValidate = dm[3] === "validate";
+        const isProfile = dm[3] === "profile";
         const isIncr = dm[4] === "incr";
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
@@ -13790,6 +13791,38 @@ async function handleRequest(request, env, ctx) {
               return Response.json(b.groupCols.length === 1 ? { ok: true, group: b.groupCols[0], groups } : { ok: true, groupBy: b.groupCols, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted, b.wantedExpr)));
+          }
+
+          // Column PROFILE / "describe this table" — one call returns per-column data-quality stats
+          // (non-null / nulls / distinct / min / max, plus avg+sum for numeric columns) over the
+          // visible rows. For data-profiling, admin dashboards, and "what's in this table" views.
+          // Same read visibility + trash/tag filters as stats. GET /rows/<t>/profile → {total, columns}.
+          if (isProfile) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no profile on a write-only table" }, { status: 403 });
+            let pbase = null;
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); pbase = userReadBase(); }
+            pbase = withTagFilter(withVisible(pbase));
+            const pcols = allow.slice(0, 40);
+            const numSet = new Set((Array.isArray(def.num) ? def.num : []).map((c) => String(c).toLowerCase()));
+            const jsonSet = new Set((Array.isArray(def.json) ? def.json : []).map((c) => String(c).toLowerCase()));
+            const sel = ["COUNT(*) AS _total"];
+            pcols.forEach((col, i) => {
+              const q = sqlIdent(col);
+              sel.push("COUNT(" + q + ") AS c" + i, "COUNT(DISTINCT " + q + ") AS d" + i, "MIN(" + q + ") AS mn" + i, "MAX(" + q + ") AS mx" + i);
+              if (numSet.has(String(col).toLowerCase())) sel.push("AVG(" + q + ") AS av" + i, "SUM(" + q + ") AS sm" + i);
+            });
+            const whereSql = (pbase && pbase.clause) ? " WHERE " + pbase.clause : "";
+            const pparams = (pbase && pbase.params) ? pbase.params.slice() : [];
+            let pr = {}; try { pr = (await cfD1Query(env, uuid, "SELECT " + sel.join(", ") + " FROM " + tn + whereSql, pparams))[0] || {}; } catch (e) { console.error("profile failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "profile failed" }, { status: 502 }); }
+            const total = Number(pr._total) || 0;
+            const columns = pcols.map((col, i) => {
+              const lc = String(col).toLowerCase(), nonNull = Number(pr["c" + i]) || 0;
+              const o = { name: col, type: numSet.has(lc) ? "number" : jsonSet.has(lc) ? "json" : "text", non_null: nonNull, nulls: total - nonNull, distinct: Number(pr["d" + i]) || 0, min: pr["mn" + i] == null ? null : pr["mn" + i], max: pr["mx" + i] == null ? null : pr["mx" + i] };
+              if (numSet.has(lc)) { o.avg = pr["av" + i] == null ? null : Math.round(Number(pr["av" + i]) * 1e6) / 1e6; o.sum = pr["sm" + i] == null ? null : Number(pr["sm" + i]); }
+              return o;
+            });
+            return Response.json({ ok: true, table, total, columns });
           }
 
           // Numeric histogram — bucket a numeric column's values into N equal-width ranges and
