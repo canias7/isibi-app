@@ -6669,3 +6669,16 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   as cover). All primitives — ZERO new assets, worker-only rules change. VALIDATED headless: an arena with
   fog+skybox+grid+walls+14 props reads as a real neon place (0 errors). Real prop MODELS (crates/containers from
   Kenney/Quaternius CC0 kits) are the asset-path follow-up, same sourcing challenge as characters.
+
+- **GAME STUDIO — Phase 7 / native-ladder rung 1: WebGPU (2026-07-22).** Owner wants to climb past the browser
+  ceiling toward native GPU. Rung 1 = WebGPU (modern browser graphics API, perf/feature headroom over WebGL2).
+  GAME_3D_RULES module pattern now creates the engine WebGPU-first with a bulletproof WebGL fallback (try/catch
+  around `WebGPUEngine.IsSupportedAsync`+`initAsync`, top-level await, esnext) — added WebGPUEngine to the import
+  allowlist. VALIDATED headless: the fallback path renders on WebGL with 0 errors (backend reported "WebGL");
+  FORCED WebGPU in headless swiftshader CRASHES (software WebGPU broken → "shaderLanguage"/target crash), which is
+  WHY the try/catch is mandatory (IsSupportedAsync can be true but init still fail). The container smoke test has
+  no WebGPU flags so IsSupportedAsync→false→WebGL→smoke passes; real Chrome/Edge on a real GPU get WebGPU. HONEST:
+  WebGPU is HEADROOM, not an instant visual change on our simple StandardMaterial+bloom scenes — the visible
+  payoff comes from USING the headroom (heavier geometry/shadows/compute) in later rungs. Ladder ahead (owner's
+  "try all of them"): rung 2 Electron/Tauri wrapper, rung 3 native engine export (Godot → downloadable .exe on
+  the user's GPU), rung 4 cloud pixel-streaming (AAA-in-a-link, GPU-server cost). Asset wall persists at every rung.
