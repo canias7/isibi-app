@@ -8093,7 +8093,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8105,6 +8105,7 @@ async function handleRequest(request, env, ctx) {
         const isRestore = dm[4] === "restore";
         const isTags = dm[4] === "tags";
         const isShare = dm[4] === "share";
+        const isAssign = dm[4] === "assign";
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isRevert = dm[4] === "revert";
@@ -8392,6 +8393,30 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
           }
 
+          // Reassign a record's owner — POST /rows/<t>/<id>/assign {user:<id|email>}. On a
+          // table WITH an owner (user/feed), an ADMIN — or the current owner's MANAGER on a
+          // `teamRead` table — hands the row to another member (CRM lead routing / case
+          // reassignment). The assignee must be a real member. Fires on:{update} functions.
+          if (isAssign) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!(access === "user" || access === "feed")) return Response.json({ ok: false, error: "assignment only applies to user/feed tables (they have an owner)" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            let mayAssign = !!(rr[0] && rr[0].role === "admin");
+            if (!mayAssign && def.teamRead) { const own = await cfD1Query(env, uuid, "SELECT owner_id FROM " + tn + " WHERE id=?", [rowId]); const oid = own[0] && own[0].owner_id; if (oid) { const dl = await cfD1Query(env, uuid, "WITH RECURSIVE dl(id) AS (SELECT ? UNION SELECT u.id FROM _users u JOIN dl ON u.manager_id = dl.id) SELECT 1 FROM dl WHERE id=? LIMIT 1", [userId, oid]); if (dl[0]) mayAssign = true; } }
+            if (!mayAssign) return Response.json({ ok: false, error: "only an admin or the current owner's manager can reassign this record" }, { status: 403 });
+            let b = {}; try { b = await request.json(); } catch {}
+            const who = b.user != null ? b.user : (b.owner_id != null ? b.owner_id : b.assignee);
+            let assignee = null;
+            if (typeof who === "number" || /^\d+$/.test(String(who || ""))) { const r = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE id=?", [parseInt(who, 10)]); if (r[0]) assignee = r[0].id; }
+            else if (typeof who === "string" && who.includes("@")) { const r = await cfD1Query(env, uuid, "SELECT id FROM _users WHERE email=?", [who.trim().toLowerCase()]); if (r[0]) assignee = r[0].id; }
+            if (!assignee) return Response.json({ ok: false, error: "assignee not found — pass a member id or email", code: "no_user" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "UPDATE " + tn + " SET owner_id=?" + tsFrag + " WHERE id=?", [assignee, rowId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            fireUpdateTriggers(env, ctx, slug, table, { id: rowId, owner_id: assignee, _assigned: true });
+            return Response.json({ ok: true, id: rowId, owner_id: assignee });
+          }
           // Reorder — POST /rows/<t>/<id>/move {after|before:<refId>} | {to:<n>}. On an
           // `ordered:true` table, sets this row's `position` to the MIDPOINT between the
           // named neighbour and the next row on that side (REAL positions → no renumber),

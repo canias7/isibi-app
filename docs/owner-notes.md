@@ -617,6 +617,15 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: record assignment (/assign — lead routing)
+
+Workflow gap. New `POST /api/db/<slug>/rows/<t>/<id>/assign {user:<id|email>}` on a user/feed
+table sets owner_id to that member. Gated to an ADMIN, or (on a teamRead table) the current
+owner's MANAGER (recursive CTE check). Assignee resolved by id or email; fires on:{update}
+automations. Added `assign` to the rows dm regex + isAssign handler. Combines with teamRead
+(the new owner's manager still sees the record) for CRM lead routing / case reassignment.
+Offline batch69 (7/7), full suite green.
+
 ## 2026-07-22 — CRM gap layer: on:{update} function triggers
 
 Workflow gap. Functions could trigger on:{insert} only; added on:{update} so an automation
