@@ -6144,3 +6144,14 @@ the generation contract — no per-build audio generation, no cost.
   (admin), `GET /wallet?account=` history. Amounts milli. ensureWallet/postWallet/walletBalance/_walletCur.
   batch136 (27/27) — credit/debit/overdraw-409, allowNegative, fractional, independent currencies, giftcard-
   by-code, transfer, member-own vs admin-all, self-credit-403. Full suite 119 green.
+
+- **PROMOTIONS / PROMO ENGINE** (`/api/db/<slug>/promotions`, commerce): a RICHER discount engine distinct
+  from the pre-existing basic `/coupons` (opaque discount blob) — DISCOVERED coupons already existed at
+  worker.js ~4558 (couponState/redeemCoupon, table `_coupons`), so renamed mine to promotions/`_promotions`
+  + `_promotion_redemptions` to coexist (no collision, existing coupons + tests untouched). kind percent|
+  fixed|free_shipping with SERVER-COMPUTED discount (percent=basis points, fixed=cents, capped at order),
+  min_order, starts/expires window, max_uses + per_user_max. `/validate` (any member) previews {valid,
+  discount, reason}; `/redeem` (ADMIN, server-authoritative) records a redemption ATOMICALLY (INSERT …
+  WHERE count<cap → limited code can't be oversold under races); pre-check catches caps first ("exhausted"/
+  "user_limit"), atomic guard is the race backstop ("limit_reached"). Codes case-insensitive (UPPER).
+  ensurePromos/promoCheck/_promoCode. batch137 (26/26). Full suite 120 green.

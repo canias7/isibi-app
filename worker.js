@@ -4099,6 +4099,40 @@ async function ensureWallet(env, uuid) {
   _walletReady.add(uuid);
 }
 const _walletCur = (v) => { const s = String(v == null || v === "" ? "points" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40); return s || "points"; };
+// ── PROMOTIONS / PROMO ENGINE (commerce) ─────────────────────────────────────────
+// A richer discount engine than the basic `/coupons` (which stores an opaque discount
+// blob): percent | fixed | free_shipping with SERVER-COMPUTED discount, min-order,
+// start/expiry window, and total + per-user usage caps. `validate` previews the discount;
+// `redeem` records a redemption atomically (a limited promo can't be oversold under races).
+// Codes are case-insensitive (stored UPPER). Money in cents; percent in basis points.
+const _promosReady = new Set();
+async function ensurePromos(env, uuid) {
+  if (_promosReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _promotions (code TEXT PRIMARY KEY, kind TEXT NOT NULL, value_num INTEGER, min_order_c INTEGER, max_uses INTEGER, per_user_max INTEGER, starts TEXT, expires TEXT, active INTEGER NOT NULL DEFAULT 1, note TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _promotion_redemptions (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, account TEXT, order_ref TEXT, discount_c INTEGER, at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_pr_code ON _promotion_redemptions (code, account)"); } catch {}
+  _promosReady.add(uuid);
+}
+const _promoCode = (v) => { const s = String(v == null ? "" : v).trim().toUpperCase().replace(/[^A-Z0-9_-]/g, ""); return s && s.length <= 60 ? s : null; };
+// Check a promo against an order (dates/active/min-order/usage). Returns
+// {valid, discount_c, free_shipping, reason}. Usage counts are point-in-time (redeem
+// re-guards them atomically).
+async function promoCheck(env, uuid, code, orderC, account) {
+  const row = (await cfD1Query(env, uuid, "SELECT * FROM _promotions WHERE code=?", [code]))[0];
+  if (!row || !row.active) return { valid: false, reason: "invalid" };
+  const now = new Date().toISOString();
+  if (row.starts && now < row.starts) return { valid: false, reason: "not_started" };
+  if (row.expires && now > row.expires) return { valid: false, reason: "expired" };
+  if (row.min_order_c && orderC < row.min_order_c) return { valid: false, reason: "min_order", min_order: row.min_order_c / 100 };
+  if (row.max_uses != null) { const n = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _promotion_redemptions WHERE code=?", [code]))[0] || {}).n || 0; if (n >= row.max_uses) return { valid: false, reason: "exhausted" }; }
+  if (row.per_user_max != null) { if (!account) return { valid: false, reason: "account_required" }; const n = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _promotion_redemptions WHERE code=? AND account=?", [code, account]))[0] || {}).n || 0; if (n >= row.per_user_max) return { valid: false, reason: "user_limit" }; }
+  let discount_c = 0, free_shipping = false;
+  if (row.kind === "percent") discount_c = Math.round(orderC * (row.value_num || 0) / 10000); // value_num = basis points
+  else if (row.kind === "fixed") discount_c = Math.min(row.value_num || 0, orderC); // value_num = cents
+  else if (row.kind === "free_shipping") free_shipping = true;
+  if (discount_c > orderC) discount_c = orderC;
+  return { valid: true, discount: discount_c / 100, discount_c, free_shipping, kind: row.kind, row };
+}
 async function walletBalance(env, uuid, account, currency) {
   await ensureWallet(env, uuid);
   const r = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(amount_m),0) AS n FROM _wallet_ledger WHERE account=? AND currency=?", [account, currency]);
@@ -10061,6 +10095,85 @@ async function handleRequest(request, env, ctx) {
           if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
           return Response.json(Object.assign({ ok: true }, res));
         } catch (e) { console.error("wallet failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "wallet failed" }, { status: 502 }); }
+      }
+      // PROMOTIONS / PROMO ENGINE (commerce) — a richer promo engine (distinct from the basic /coupons): server-computed discount + rules.
+      // Manage + redeem = ADMIN (server-authoritative); validate (preview) = any member.
+      //   POST   /api/db/<slug>/promotions {code, kind:'percent'|'fixed'|'free_shipping', value?, min_order?, max_uses?, per_user_max?, starts?, expires?, active?}  (admin) upsert
+      //   GET    /api/db/<slug>/promotions[/<code>]                              (admin) list / one (+usage)
+      //   DELETE /api/db/<slug>/promotions/<code>                               (admin)
+      //   POST   /api/db/<slug>/promotions/<code>/validate {order_total, account?}  → {valid, discount, reason?}
+      //   POST   /api/db/<slug>/promotions/<code>/redeem  {order_total, account?, order_ref?}  (admin) → records a redemption
+      const pm2 = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/promotions(?:\/([A-Za-z0-9_-]{1,60})(?:\/(validate|redeem))?)?$/i);
+      if (pm2 && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = pm2[1].toLowerCase(), code = pm2[2] ? _promoCode(pm2[2]) : null, act = pm2[3] ? pm2[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensurePromos(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|pmr", 300), wr = () => rateOk(slug + "|" + ip + "|pmw", 120);
+          if (act === "validate" || act === "redeem") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (act === "redeem" && !isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!wr()) return tooMany();
+            if (!code) return Response.json({ ok: false, error: "invalid code" }, { status: 400 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const orderC = toCents(body.order_total); if (orderC == null || orderC < 0) return Response.json({ ok: false, error: "order_total must be a number ≥ 0" }, { status: 400 });
+            const account = body.account != null && body.account !== "" ? String(body.account).slice(0, 120) : null;
+            const chk = await promoCheck(env, uuid, code, orderC, account);
+            if (act === "validate") return Response.json({ ok: true, code, valid: chk.valid, discount: chk.valid ? chk.discount : 0, free_shipping: !!chk.free_shipping, kind: chk.kind || null, reason: chk.valid ? null : chk.reason });
+            // redeem — re-guard the usage caps ATOMICALLY (dates/min-order already checked).
+            if (!chk.valid) return Response.json({ ok: false, valid: false, reason: chk.reason, error: "coupon not applicable (" + chk.reason + ")" }, { status: 409 });
+            const row = chk.row;
+            const capGuard = "(SELECT COUNT(*) FROM _promotion_redemptions WHERE code=?) < ?" + (row.per_user_max != null ? " AND (SELECT COUNT(*) FROM _promotion_redemptions WHERE code=? AND account=?) < ?" : "");
+            const capParams = [code, row.max_uses != null ? row.max_uses : 1000000000].concat(row.per_user_max != null ? [code, account, row.per_user_max] : []);
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _promotion_redemptions (code, account, order_ref, discount_c, at) SELECT ?,?,?,?,? WHERE " + capGuard + " RETURNING id",
+              [code, account, body.order_ref != null ? String(body.order_ref).slice(0, 120) : null, chk.discount_c, new Date().toISOString()].concat(capParams));
+            if (!ins[0]) return Response.json({ ok: false, valid: false, reason: "limit_reached", error: "coupon usage limit reached" }, { status: 409 });
+            return Response.json({ ok: true, code, redeemed: true, id: ins[0].id, discount: chk.discount, free_shipping: !!chk.free_shipping, kind: chk.kind });
+          }
+          // ── management (admin) ──
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            if (code) {
+              const row = (await cfD1Query(env, uuid, "SELECT * FROM _promotions WHERE code=?", [code]))[0];
+              if (!row) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              const used = ((await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _promotion_redemptions WHERE code=?", [code]))[0] || {}).n || 0;
+              return Response.json({ ok: true, promotion: { code: row.code, kind: row.kind, value: row.kind === "percent" ? (row.value_num || 0) / 100 : (row.value_num || 0) / 100, min_order: row.min_order_c == null ? null : row.min_order_c / 100, max_uses: row.max_uses, per_user_max: row.per_user_max, starts: row.starts, expires: row.expires, active: !!row.active, used } });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT c.*, (SELECT COUNT(*) FROM _promotion_redemptions r WHERE r.code=c.code) AS used FROM _promotions c ORDER BY c.code LIMIT 5000");
+            return Response.json({ ok: true, promotions: rows.map((row) => ({ code: row.code, kind: row.kind, value: (row.value_num || 0) / 100, min_order: row.min_order_c == null ? null : row.min_order_c / 100, max_uses: row.max_uses, per_user_max: row.per_user_max, expires: row.expires, active: !!row.active, used: row.used })) });
+          }
+          if (request.method === "DELETE") {
+            if (!wr()) return tooMany();
+            if (!code) return Response.json({ ok: false, error: "code required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _promotions WHERE code=?", [code]);
+            return ex.changes > 0 ? Response.json({ ok: true, code, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          // POST — upsert a coupon
+          if (!wr()) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const cc = _promoCode(body.code || (code && pm2[2])); if (!cc) return Response.json({ ok: false, error: "code is required (letters/digits/_/-)" }, { status: 400 });
+          const kind = String(body.kind || "").toLowerCase();
+          if (!["percent", "fixed", "free_shipping"].includes(kind)) return Response.json({ ok: false, error: "kind must be percent|fixed|free_shipping" }, { status: 400 });
+          let value_num = null;
+          if (kind === "percent") { const pct = Number(body.value); if (!Number.isFinite(pct) || pct <= 0 || pct > 100) return Response.json({ ok: false, error: "percent value must be 1–100" }, { status: 400 }); value_num = Math.round(pct * 100); }
+          else if (kind === "fixed") { const v = toCents(body.value); if (v == null || v <= 0) return Response.json({ ok: false, error: "fixed value must be a positive amount" }, { status: 400 }); value_num = v; }
+          const dt = (v) => { const s = _normDT(v); return s || null; };
+          const minC = body.min_order != null && body.min_order !== "" ? toCents(body.min_order) : null;
+          const intOrNull = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
+          await cfD1Query(env, uuid, "INSERT INTO _promotions (code, kind, value_num, min_order_c, max_uses, per_user_max, starts, expires, active, note, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(code) DO UPDATE SET kind=excluded.kind, value_num=excluded.value_num, min_order_c=excluded.min_order_c, max_uses=excluded.max_uses, per_user_max=excluded.per_user_max, starts=excluded.starts, expires=excluded.expires, active=excluded.active, note=excluded.note",
+            [cc, kind, value_num, minC, intOrNull(body.max_uses), intOrNull(body.per_user_max), dt(body.starts), dt(body.expires), body.active === false ? 0 : 1, body.note != null ? String(body.note).slice(0, 300) : null, new Date().toISOString()]);
+          return Response.json({ ok: true, code: cc, kind });
+        } catch (e) { console.error("promotions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "promotions failed" }, { status: 502 }); }
       }
       // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
       // signed-in member books (owner-stamped); admin sees/manages all, members their own.
