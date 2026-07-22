@@ -6713,3 +6713,13 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   payoff comes from USING the headroom (heavier geometry/shadows/compute) in later rungs. Ladder ahead (owner's
   "try all of them"): rung 2 Electron/Tauri wrapper, rung 3 native engine export (Godot → downloadable .exe on
   the user's GPU), rung 4 cloud pixel-streaming (AAA-in-a-link, GPU-server cost). Asset wall persists at every rung.
+
+- **GAME STUDIO — Phase 7 "feed it": particles + denser environments (2026-07-22).** Using the WebGPU headroom
+  for a VISIBLE jump (owner: "feed it"). GAME_3D_RULES now adds: (1) a procedural particle sprite (DynamicTexture
+  radial dot — no image asset), (2) an ambient ParticleSystem of drifting neon embers/dust over the arena (air
+  feels alive), (3) VFX bursts wired to gameplay (muzzle flash on shoot, spark on hit, burst on enemy death —
+  manualEmitCount one-shots, additive so bloom pops), and (4) DENSER structured props (~24-36 at varied heights
+  incl. raised platforms, not a bare floor). Imports added: ParticleSystem, DynamicTexture. VALIDATED headless
+  (WebGL fallback): dense 34-prop arena + 800 ambient embers renders clean, 0 errors, procedural sprite works (no
+  asset). worker-only. NOTE: CPU ParticleSystem (works on WebGL fallback AND WebGPU); could move to GPUParticleSystem
+  on WebGPU later for even more. Still primitives — real prop/character MODELS remain the asset wall.
