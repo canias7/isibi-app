@@ -8583,7 +8583,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8601,6 +8601,7 @@ async function handleRequest(request, env, ctx) {
         const isMerge = dm[4] === "merge";
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
+        const isDiff = dm[4] === "diff";
         const isRevert = dm[4] === "revert";
         const isArchive = dm[4] === "archive" || dm[4] === "unarchive";
         const isApprovalAct = dm[4] === "submit" || dm[4] === "approve" || dm[4] === "reject";
@@ -9187,7 +9188,7 @@ async function handleRequest(request, env, ctx) {
           // row and restore of any prior version. GET /rows/<t>/<id>/history lists snapshots
           // (newest first); POST /rows/<t>/<id>/revert/<historyId> restores that snapshot's
           // data columns (itself recorded, so a revert is undoable).
-          if (isHistory || isRevert) {
+          if (isHistory || isRevert || isDiff) {
             if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
             if (!def.history) return badReq("this table has no history (declare \"history\":true)");
             let hscope = "", hsp = [];
@@ -9203,6 +9204,25 @@ async function handleRequest(request, env, ctx) {
               const rows = await cfD1Query(env, uuid, "SELECT id, snapshot, at FROM _history WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT ?", [table, rowId, lim]);
               for (const r of rows) { try { r.snapshot = JSON.parse(r.snapshot); } catch {} }
               return Response.json({ ok: true, history: rows });
+            }
+            // Version DIFF — GET /rows/<t>/<id>/diff[/<histId>] compares a snapshot (the given
+            // history id, or ?rev=, else the latest) against the CURRENT row → the fields that
+            // changed since, each {from, to}. Answers "what did that edit change?".
+            if (isDiff) {
+              if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+              const rev = (dm[5] && /^\d+$/.test(dm[5])) ? parseInt(dm[5], 10) : (parseInt(url.searchParams.get("rev") || "", 10) || 0);
+              const snapRow = rev
+                ? (await cfD1Query(env, uuid, "SELECT id, snapshot, at FROM _history WHERE id=? AND row_table=? AND row_id=?", [rev, table, rowId]))[0]
+                : (await cfD1Query(env, uuid, "SELECT id, snapshot, at FROM _history WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT 1", [table, rowId]))[0];
+              if (!snapRow) return Response.json({ ok: false, error: "no snapshot to compare" }, { status: 404 });
+              let snap = {}; try { snap = JSON.parse(snapRow.snapshot) || {}; } catch {}
+              const cur = (await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?", [rowId]))[0] || {};
+              const changes = {};
+              for (const col of allow) {
+                const a = snap[col], b = cur[col];
+                if (String(a == null ? "" : a) !== String(b == null ? "" : b)) changes[col] = { from: a === undefined ? null : a, to: b === undefined ? null : b };
+              }
+              return Response.json({ ok: true, id: rowId, rev: snapRow.id, at: snapRow.at, changed: Object.keys(changes).length, changes });
             }
             // revert
             if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
