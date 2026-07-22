@@ -7406,6 +7406,36 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, enabled: false });
         } catch (e) { console.error("2fa failed:", act, e && e.message, e && e.detail); return Response.json({ ok: false, error: "2fa error" }, { status: 502 }); }
       }
+      // Admin impersonation ("log in as") — an ADMIN mints a short-lived token that acts AS another
+      // member, for support. The token carries `imp:<adminId>` so it's traceable, expires in 1h, and
+      // every use is written to _audit. POST /api/db/<slug>/auth/impersonate {user:<id|email>}.
+      const imm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/auth\/impersonate$/i);
+      if (imm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = imm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let secret; try { secret = await initSiteAuth(env, uuid); } catch { return Response.json({ ok: false, error: "auth unavailable" }, { status: 502 }); }
+        const p = await verifySiteUserToken(secret, (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, ""));
+        if (!p || p.slug !== slug) return Response.json({ ok: false, error: "not signed in" }, { status: 401 });
+        try {
+          await ensureAuthExtras(env, uuid);
+          const me = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [p.sub]);
+          if (!(me[0] && me[0].role === "admin")) return Response.json({ ok: false, error: "admin only" }, { status: 403 });
+          let body = {}; try { body = await request.json(); } catch {}
+          const who = body.user != null ? body.user : (body.email != null ? body.email : body.id);
+          let target = null;
+          if (typeof who === "number" || /^\d+$/.test(String(who || ""))) target = (await cfD1Query(env, uuid, "SELECT id, email, role, token_epoch FROM _users WHERE id=?", [parseInt(who, 10)]))[0];
+          else if (typeof who === "string" && who.includes("@")) target = (await cfD1Query(env, uuid, "SELECT id, email, role, token_epoch FROM _users WHERE email=?", [who.trim().toLowerCase()]))[0];
+          if (!target) return Response.json({ ok: false, error: "member not found — pass a member id or email" }, { status: 400 });
+          if (target.id === p.sub) return Response.json({ ok: false, error: "that's already you" }, { status: 400 });
+          const now = Math.floor(Date.now() / 1000);
+          const token = await signSiteUserToken(secret, { sub: target.id, slug, email: target.email, role: target.role || "user", ep: target.token_epoch || 0, imp: p.sub, iat: now, exp: now + 60 * 60 });
+          try { await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _audit (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT, row_id INTEGER, action TEXT, actor_id INTEGER, at TEXT)"); await cfD1Query(env, uuid, "INSERT INTO _audit (row_table,row_id,action,actor_id,at) VALUES ('_users',?,?,?,?)", [target.id, "impersonate", p.sub, new Date().toISOString()]); } catch {}
+          return Response.json({ ok: true, token, impersonating: { id: target.id, email: target.email }, expires_in: 3600 });
+        } catch (e) { console.error("impersonate failed:", e && e.message); return Response.json({ ok: false, error: "impersonation failed" }, { status: 502 }); }
+      }
       // Log out other devices — bumps the member's token_epoch so every EXISTING token stops
       // validating at /auth/me; returns a FRESH token so the current device stays signed in.
       //   POST /api/db/<slug>/auth/logout-all  (auth) → {ok, token}
