@@ -3870,6 +3870,53 @@ function amortizationSchedule(opts) {
   if (start && monthsPer) { const [y, mo, d] = start.split("-").map(Number); for (let i = 0; i < sched.length; i++) { const dt = new Date(Date.UTC(y, mo - 1, d)); dt.setUTCMonth(dt.getUTCMonth() + (i + 1) * monthsPer); sched[i].date = dt.toISOString().slice(0, 10); } }
   return { principal: principalC / 100, rate, term, freq, payment: paymentC / 100, periods: sched.length, total_interest: totalInterest / 100, total_paid: (principalC + totalInterest) / 100, schedule: sched };
 }
+// Capital-budgeting / investment analysis (stateless calculator) — given a series of period net
+// cashflows (index 0 = t0, usually the negative up-front investment) and a discount rate, compute
+// NPV, IRR (solved numerically), payback + discounted payback, and the profitability index. Powers
+// FP&A / CPM / EPM "should we do this project?" analysis. Any signed-in member (touches no data).
+function investmentAnalysis(opts) {
+  const raw = opts.cashflows || opts.cash_flows || opts.flows;
+  if (!Array.isArray(raw) || raw.length < 2) return { err: "cashflows must be an array of ≥2 period amounts (t0 first)" };
+  const cf = raw.slice(0, 600).map((x) => Number((x && typeof x === "object") ? (x.amount != null ? x.amount : x.value) : x));
+  if (cf.some((x) => !Number.isFinite(x))) return { err: "every cashflow must be a number" };
+  const rate = Number(opts.rate);
+  if (!Number.isFinite(rate) || rate <= -100 || rate > 100000) return { err: "rate must be a percentage > -100" };
+  const r = rate / 100;
+  const npvAt = (rr) => { let s = 0; for (let t = 0; t < cf.length; t++) s += cf[t] / Math.pow(1 + rr, t); return s; };
+  const npv = npvAt(r);
+  // IRR — scan for the first sign change in NPV(rate), then bisect to the root.
+  let irr = null;
+  { let prev = npvAt(-0.99);
+    for (let g = -0.98; g <= 10.0001; g = Math.round((g + 0.01) * 1e6) / 1e6) {
+      const cur = npvAt(g);
+      if (Number.isFinite(prev) && Number.isFinite(cur) && (prev <= 0) !== (cur <= 0)) {
+        let a = g - 0.01, b = g, fa = npvAt(a), mid = (a + b) / 2;
+        for (let i = 0; i < 200; i++) { mid = (a + b) / 2; const fm = npvAt(mid); if (Math.abs(fm) < 1e-9 || (b - a) < 1e-12) break; if ((fa <= 0) !== (fm <= 0)) b = mid; else { a = mid; fa = fm; } }
+        irr = Math.round(mid * 1e6) / 1e6; break;
+      }
+      prev = cur;
+    }
+  }
+  // Payback (fractional): the time cumulative cashflow first turns non-negative. `disc` = discounted.
+  const payback = (disc) => {
+    let cum = 0;
+    for (let t = 0; t < cf.length; t++) {
+      const v = disc ? cf[t] / Math.pow(1 + r, t) : cf[t];
+      const before = cum; cum += v;
+      if (before < 0 && cum >= 0) return Math.round(((t - 1) + (v !== 0 ? (-before) / v : 0)) * 1e6) / 1e6;
+    }
+    return null;
+  };
+  let pvIn = 0, pvOut = 0, totalIn = 0, totalOut = 0;
+  for (let t = 0; t < cf.length; t++) { const d = cf[t] / Math.pow(1 + r, t); if (cf[t] >= 0) { pvIn += d; totalIn += cf[t]; } else { pvOut += -d; totalOut += -cf[t]; } }
+  const c2 = (x) => Math.round(x * 100) / 100;
+  return {
+    rate, npv: c2(npv), irr, irr_pct: irr != null ? Math.round(irr * 1e4) / 100 : null,
+    payback_period: payback(false), discounted_payback: payback(true),
+    profitability_index: pvOut > 0 ? Math.round((pvIn / pvOut) * 1e6) / 1e6 : null,
+    total_inflow: c2(totalIn), total_outflow: c2(totalOut), periods: cf.length - 1,
+  };
+}
 // Demand forecast (stateless) over a numeric time series. linear (least-squares trend),
 // moving_average (mean of last `window`), or exp_smoothing (level via alpha). Returns the
 // next `horizon` periods. Serves SCM demand planning (feed the shortfall into reorder/MRP).
@@ -10550,7 +10597,7 @@ async function handleRequest(request, env, ctx) {
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
       //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization)$/i);
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization|investment)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
@@ -10564,7 +10611,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
+        const res = calc === "investment" ? investmentAnalysis(body) : calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }
