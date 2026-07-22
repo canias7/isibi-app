@@ -617,6 +617,22 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: SLA / deadlines (read-time status + overdue queue) [part 1 of 2]
+
+Time-based primitive (the last automation gap). Table-level `sla:{start,mins,done?}` — clock runs
+from `start` date col (default created_at) for `mins` (a number, or a duration string parsed by new
+`slaMinutes()`: `30m`/`4h`/`2d`/`1w`); a `done:{field,values}` status stops it. Two pieces:
+(1) read-time `attachSla(def,rows)` adds `row._sla = {due_at, remaining_mins, overdue, done}` (like
+attachCurrency — wired into doExpand + the tree read path), for overdue badges / urgency sort;
+(2) `GET /rows/<t>/overdue[?where=&limit=&offset=]` — the overdue queue, computed IN SQL
+(`datetime(start,'+<mins> minutes') < datetime('now')`, done-state excluded), most-overdue-first,
+read-visibility scoped (user→own/team via buildD1Filter over withVisible(userReadBase)), honors
+?where= + trash, paginated with total. dm[3] `overdue` added to the rows regex (+ dm[4] `escalate`
+reserved for part 2). No cron — deliberately: a global per-site sweep is the scale frontier; the
+ESCALATION ACTION (auto-reassign/flag the overdue set, wireable to a scheduler) is part 2, next PR.
+Offline batch82 (18/18, uses Date-relative timestamps), full suite (65) green. BACKEND_RULES documents
+it after the geo/near section.
+
 ## 2026-07-22 — CRM gap layer: grouped-report controls (sort / top-N / HAVING)
 
 Reporting completion. `buildD1Stats` gained shared controls applied to ALL grouped paths (plain
