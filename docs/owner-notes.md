@@ -6661,6 +6661,22 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-22 — saved searches (data API)
+- **`/searches`** — per-member saved searches. A member saves a named `{table, query}` (query = a list
+  query-string or `{where,q,sort,order,limit}` object) and re-RUNs it. Private per member (PK
+  `(user_id,name)` — another member's is a 404 to you). **The security-critical part**: RUN reuses
+  `buildD1List` but under a base scoped to the caller (own rows on `user`, public on display/feed/admin,
+  403 on `collect`) AND — this is the fix the design workflow's adversarial review caught — it ANDs the
+  SAME default `visClause` as the list read (trash + expired + not-yet-published + archived) into the
+  base. Without that, a member could save a search over a `scheduled` feed table and RUN it to read
+  OTHERS' unpublished drafts before publish_at. `buildD1List` ignores the withTrashed/withScheduled
+  params so a stored query can't re-widen. New helper `defaultVisClause(def)` factors the clause. Scope
+  is deliberately NARROWER than the full read (no teamScope/teamRead widening) — safe by construction.
+  `_searches` wired into GDPR erase. batch176 (26/26) incl. the leak guard (B's RUN does NOT return A's
+  future-scheduled post). **This completes the 6-primitive batch (tax/commission/installments +
+  referrals + flags + searches) from the design workflow — all shipped, all cross-checked against its
+  adversarial review.**
+
 ## 2026-07-22 — feature flags (data API)
 - **`/flags`** — per-site feature flags for generated apps. Admin upserts `{key, enabled?, rollout?
   (0-100), roles?[], teams?[], value?}`; members hit `GET /flags/eval[?key=]` to see what's on for
