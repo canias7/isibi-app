@@ -45,7 +45,14 @@ export async function smokeTest(distDir) {
   const port = server.address().port;
 
   const chromium = await loadChromium();
-  const launchOpts = { args: ["--no-sandbox", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist"] };
+  // Force the WebGL path: `--disable-features=WebGPU` removes navigator.gpu so a 3D
+  // game's `WebGPUEngine.IsSupportedAsync` returns false and it takes its mandated
+  // WebGL fallback. This is deliberate — WebGPU under headless swiftshader is
+  // unreliable (half-inits to a blank canvas or crashes) and its init pulls the
+  // twgsl/glslang compilers off cdn.babylonjs.com, which fails in this offline
+  // container. WebGL is what nearly every real browser uses today and is the only
+  // path we can test headline-clean, so the smoke test verifies THAT path renders.
+  const launchOpts = { args: ["--no-sandbox", "--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist", "--disable-features=WebGPU"] };
   if (process.env.CHROMIUM_PATH) launchOpts.executablePath = process.env.CHROMIUM_PATH;
   const browser = await chromium.launch(launchOpts);
   let blank = true;
@@ -59,9 +66,29 @@ export async function smokeTest(distDir) {
       // requestfailed handler reports those with the real filename instead, so
       // skip the generic console dupe (and never flag the auto favicon fetch).
       if (/Failed to load resource/i.test(t)) return;
+      // Babylon lazy-loads WebGPU/texture helpers from cdn.babylonjs.com; those 404
+      // in this offline container and Babylon logs an error before degrading (the
+      // game falls back to WebGL and runs fine, and they load for real users). Don't
+      // count a graceful cross-origin-helper failure as the game being broken.
+      if (/babylonjs\.com|twgsl|glslang|ktx2|WebGPU|Unable to load the WebGPU/i.test(t)) return;
       errors.push("console.error: " + t.slice(0, 200));
     });
-    page.on("requestfailed", (r) => { const u = r.url(); if (!u.startsWith("data:") && !/favicon\.ico$/.test(u)) errors.push("asset failed: " + u.split("/").pop()); });
+    // Only flag the GAME'S OWN (same-origin) asset failures — a missing sprite/model
+    // the build should have bundled is a real bug. A failed CROSS-ORIGIN fetch is not:
+    // Babylon lazy-loads helpers from cdn.babylonjs.com (the WebGPU twgsl/glslang
+    // compilers, the KTX2 decoder, noise textures) and those 404 in this offline build
+    // container even though the game degrades gracefully (WebGPU→WebGL) and they load
+    // fine for real users. Flagging them here made every 3D game fail the smoke test
+    // and waste the whole auto-fix budget on an infra hiccup Sonnet can't fix.
+    page.on("requestfailed", (r) => { const u = r.url(); if (u.startsWith(`http://localhost:${port}/`) && !/favicon\.ico$/.test(u)) errors.push("asset failed: " + u.split("/").pop()); });
+
+    // Hide navigator.gpu so a 3D game's WebGPU feature-detect (`WebGPUEngine.
+    // IsSupportedAsync`) returns false and it deterministically takes its mandated
+    // WebGL fallback — belt-and-braces with the --disable-features=WebGPU launch flag,
+    // since some Chromium builds still expose navigator.gpu. Headless swiftshader
+    // WebGPU is unreliable and its init fetches compilers off cdn.babylonjs.com; the
+    // WebGL path is what real browsers use today and the only one we can test clean.
+    await page.addInitScript(() => { try { Object.defineProperty(navigator, "gpu", { value: undefined, configurable: true }); } catch {} });
 
     await page.goto(`http://localhost:${port}/`, { waitUntil: "load", timeout: 15000 });
     await page.waitForTimeout(BOOT_MS);
