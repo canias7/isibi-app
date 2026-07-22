@@ -6661,6 +6661,23 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-22 — finance calculators: sales tax + installments + commission
+- Three more stateless `/finance/*` calculators (same route/pattern as depreciation/amortization/eoq/
+  breakeven/forecast — any signed-in member, touch no data, cents-exact): added to the finance regex +
+  dispatch and documented in `BACKEND_RULES`.
+  - **`POST /finance/tax`** — sales/VAT: `{subtotal, rate | rates:[{name?,rate,compound?}], inclusive?}` →
+    `{subtotal, tax, total, taxes:[{name,rate,amount}]}`. Additive OR compound (tax-on-tax) jurisdictions;
+    `inclusive` backs the net out of a tax-inclusive price (residual on the last line so it ties to the cent);
+    compound+inclusive rejected (ambiguous). batch171 (20/20).
+  - **`POST /finance/installments`** — split `total` (minus optional `down`) into `count` payments; rate 0 =
+    equal split, rate>0 = amortized annuity reusing the loan tie-out (final payment clears balance to exactly
+    0); `start`+`freq` stamp due dates; a down that covers the whole total → all-zero schedule. batch172 (33/33).
+  - **`POST /finance/commission`** — flat `rate` or marginal `brackets:[{up_to?,rate}]` (each rate on the
+    portion inside it, like tax brackets; open-ended top), optional flat `base`. batch173 (19/19).
+  - **Hazard note:** a concurrent merge (the game session's PR landing) reset the working tree to origin/main
+    mid-run and WIPED my uncommitted worker.js edits (untracked test files survived). Lesson: with two sessions
+    on the shared tree, apply the full change in one pass and COMMIT immediately — never leave substantial work
+    uncommitted across steps. Full suite 156 green after re-applying + committing.
 - **GAME STUDIO — Phase 7: environment + props (2026-07-22).** Owner: 3D games looked like "open space" with
   no background/items. GAME_3D_RULES now REQUIRES a real environment (no more empty void): ATMOSPHERE (exp2 fog
   matching clearColor so distance hazes out), a SKYBOX (big emissive infiniteDistance box so the horizon isn't
