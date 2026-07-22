@@ -6588,3 +6588,16 @@ backend's security + money correctness. Full suite 146 green.
   `"*"` wildcard now works, undeclared target refused).
 This is the 7th adversarial batch; 6 found no bugs, this one found + fixed the `"*"` semantics bug. Full
 suite 147 green.
+
+## 2026-07-22 — HARDENING PASS 4 (temporal + uniqueness + approval) — no new bugs
+- **batch165 (17)** — effective-dated as-of BOUNDARIES (day-before a change → old value; on-date → new,
+  inclusive; day-after → new), same-date re-record UPSERTS (no duplicate history row), attribute isolation,
+  typed/object values round-trip, before-any → null, non-admin write 403. Uniqueness: uniqueCI is
+  case-insensitive & GLOBAL across members ('Alice' vs 'alice' → 409 code:duplicate), unique is
+  case-sensitive ('ABC' dup → 409, 'abc' allowed).
+- **batch166 (13)** — approval workflow SECURITY: a writer CAN'T forge approval_status via a normal PATCH
+  (stays pending; the guarded status col is endpoint-set-only) — verified even an ADMIN PATCH can't set it;
+  non-approver role → 403; multi-approver is OR (any listed role approves — finance approved a
+  manager|finance table); double-approve non-corrupting; reject works; approvals log attributes actors.
+9 adversarial batches total (158–166): 1 real bug found+fixed (the transition "*" wildcard), 8 clean.
+Full suite 149 green.
