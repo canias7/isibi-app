@@ -4362,6 +4362,22 @@ async function ensureSegments(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _segments (name TEXT PRIMARY KEY, table_name TEXT NOT NULL, filter TEXT, created_at TEXT, updated_at TEXT)");
   _segReady.add(uuid);
 }
+// Teams / organizations / workspaces — group members into teams with a role each (owner/admin/
+// member), the foundation for any B2B/multi-tenant app (a CRM workspace, a project team, an org).
+// `_teams` = the groups, `_team_members` = who's in each + their role. Additive: doesn't change the
+// owner_id row model — an app stores a team_id on its rows and filters by the caller's teams.
+const _teamsReady = new Set();
+async function ensureTeams(env, uuid) {
+  if (_teamsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _teams (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_by INTEGER, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_members (team_id INTEGER NOT NULL, user_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT, PRIMARY KEY (team_id, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_tm_user ON _team_members (user_id)"); } catch {}
+  _teamsReady.add(uuid);
+}
+async function teamRoleOf(env, uuid, teamId, userId) {
+  const r = await cfD1Query(env, uuid, "SELECT role FROM _team_members WHERE team_id=? AND user_id=?", [teamId, userId]);
+  return r[0] ? r[0].role : null;
+}
 // Outbound webhooks — an app registers external URLs to receive its events (order.created,
 // signup…), then fires them; the server POSTs a signed JSON payload to each subscriber and logs
 // the attempt. `_webhooks` = subscriptions, `_webhook_deliveries` = the delivery log. Ensured once.
@@ -9074,6 +9090,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _consents WHERE user_id=?", [u.id]],
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
+            ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
           ]) { try { await cfD1Query(env, uuid, q, args); } catch {} }
           await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
           return Response.json({ ok: true, deleted: true });
@@ -10252,6 +10269,143 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: true, name: seg.name, table: seg.table_name, filter: seg.filter });
         } catch (e) { console.error("segments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "segments failed" }, { status: 502 }); }
+      }
+      // TEAMS / ORGANIZATIONS / WORKSPACES — group members into teams with a role each. The
+      // foundation for B2B/multi-tenant apps: a shared workspace, a project team, an org account.
+      //   POST   /api/db/<slug>/teams {name}                      → create (caller becomes owner)
+      //   GET    /api/db/<slug>/teams                             → teams the caller belongs to
+      //   GET    /api/db/<slug>/teams/<id>                        → team + members (members only)
+      //   PATCH  /api/db/<slug>/teams/<id> {name}                 → rename (owner/admin)
+      //   DELETE /api/db/<slug>/teams/<id>                        → delete team + memberships (owner)
+      //   GET    /api/db/<slug>/teams/<id>/members                → member list
+      //   POST   /api/db/<slug>/teams/<id>/members {user, role?}  → add a member (owner/admin)
+      //   PATCH  /api/db/<slug>/teams/<id>/members/<userId> {role}→ change role / transfer owner (owner)
+      //   DELETE /api/db/<slug>/teams/<id>/members/<userId>       → remove a member (owner/admin)
+      //   POST   /api/db/<slug>/teams/<id>/leave                  → caller leaves the team
+      const tmm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/teams(?:\/(\d+)(?:\/(members|leave)(?:\/(\d+))?)?)?$/i);
+      if (tmm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tmm[1].toLowerCase(), teamId = tmm[2] ? parseInt(tmm[2], 10) : null, sub = tmm[3] || null, memberId = tmm[4] ? parseInt(tmm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureTeams(env, uuid);
+          const rd = () => rateOk(slug + "|" + ip + "|teamr", 300), wr = () => rateOk(slug + "|" + ip + "|teamw", 120);
+          const now = () => new Date().toISOString();
+          // ── /teams (no id) ──────────────────────────────────────────────────────────────
+          if (!teamId) {
+            if (request.method === "POST") {
+              if (!wr()) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const name = String(body.name || "").trim().slice(0, 120);
+              if (!name) return Response.json({ ok: false, error: "a team name is required" }, { status: 400 });
+              const ins = await cfD1Query(env, uuid, "INSERT INTO _teams (name, created_by, created_at) VALUES (?,?,?) RETURNING id", [name, userId, now()]);
+              const id = ins[0] && ins[0].id;
+              await cfD1Query(env, uuid, "INSERT INTO _team_members (team_id, user_id, role, created_at) VALUES (?,?,'owner',?)", [id, userId, now()]);
+              return Response.json({ ok: true, id, name, role: "owner" });
+            }
+            if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT t.id, t.name, t.created_at, tm.role, (SELECT COUNT(*) FROM _team_members WHERE team_id=t.id) AS members FROM _teams t JOIN _team_members tm ON tm.team_id=t.id WHERE tm.user_id=? ORDER BY t.id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, teams: rows.map((r) => ({ id: r.id, name: r.name, role: r.role, members: Number(r.members) || 0, created_at: r.created_at })) });
+          }
+          // Everything below is scoped to a team the caller must belong to.
+          const myRole = await teamRoleOf(env, uuid, teamId, userId);
+          const exists = myRole != null || !!(await cfD1Query(env, uuid, "SELECT 1 FROM _teams WHERE id=?", [teamId]))[0];
+          if (!exists) return Response.json({ ok: false, error: "team not found" }, { status: 404 });
+          if (!myRole) return Response.json({ ok: false, error: "not a member of this team" }, { status: 403 }); // membership required to see anything
+          const canManage = myRole === "owner" || myRole === "admin";
+          // ── /teams/<id>/leave ───────────────────────────────────────────────────────────
+          if (sub === "leave") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!wr()) return tooMany();
+            if (myRole === "owner") return Response.json({ ok: false, error: "an owner can't leave — transfer ownership or delete the team first" }, { status: 409 });
+            await cfD1Query(env, uuid, "DELETE FROM _team_members WHERE team_id=? AND user_id=?", [teamId, userId]);
+            return Response.json({ ok: true, left: teamId });
+          }
+          // ── /teams/<id>/members ─────────────────────────────────────────────────────────
+          if (sub === "members") {
+            if (memberId == null) {
+              if (request.method === "GET") {
+                if (!rd()) return tooMany();
+                const rows = await cfD1Query(env, uuid, "SELECT tm.user_id, tm.role, tm.created_at, u.display_name, u.avatar_url FROM _team_members tm LEFT JOIN _users u ON u.id=tm.user_id WHERE tm.team_id=? ORDER BY CASE tm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, tm.user_id LIMIT 2000", [teamId]);
+                return Response.json({ ok: true, members: rows.map((r) => ({ user_id: r.user_id, role: r.role, display_name: r.display_name, avatar_url: r.avatar_url, created_at: r.created_at })) });
+              }
+              if (request.method === "POST") {
+                if (!canManage) return Response.json({ ok: false, error: "only an owner or admin can add members" }, { status: 403 });
+                if (!wr()) return tooMany();
+                let body = {}; try { body = await request.json(); } catch {}
+                const u = parseInt(body.user, 10); if (!(u > 0)) return Response.json({ ok: false, error: "a valid `user` id is required" }, { status: 400 });
+                if (!(await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [u]))[0]) return Response.json({ ok: false, error: "that member doesn't exist" }, { status: 404 });
+                let role = String(body.role || "member").toLowerCase(); if (role !== "member" && role !== "admin") role = "member";
+                if (role === "admin" && myRole !== "owner") return Response.json({ ok: false, error: "only the owner can add an admin" }, { status: 403 });
+                if ((await cfD1Query(env, uuid, "SELECT 1 FROM _team_members WHERE team_id=? AND user_id=?", [teamId, u]))[0]) return Response.json({ ok: false, error: "already a member", code: "duplicate" }, { status: 409 });
+                await cfD1Query(env, uuid, "INSERT INTO _team_members (team_id, user_id, role, created_at) VALUES (?,?,?,?)", [teamId, u, role, now()]);
+                return Response.json({ ok: true, team_id: teamId, user_id: u, role });
+              }
+              return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+            }
+            // /teams/<id>/members/<userId>
+            const targetRole = await teamRoleOf(env, uuid, teamId, memberId);
+            if (!targetRole) return Response.json({ ok: false, error: "that member isn't in this team" }, { status: 404 });
+            if (request.method === "PATCH") {
+              if (myRole !== "owner") return Response.json({ ok: false, error: "only the owner can change roles" }, { status: 403 });
+              if (!wr()) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              let role = String(body.role || "").toLowerCase();
+              if (!["member", "admin", "owner"].includes(role)) return Response.json({ ok: false, error: "role must be member, admin, or owner" }, { status: 400 });
+              if (role === "owner") {
+                if (memberId === userId) return Response.json({ ok: true, team_id: teamId, user_id: memberId, role: "owner" }); // already owner
+                // Transfer ownership: promote the target, demote the current owner to admin.
+                await cfD1Query(env, uuid, "UPDATE _team_members SET role='owner' WHERE team_id=? AND user_id=?", [teamId, memberId]);
+                await cfD1Query(env, uuid, "UPDATE _team_members SET role='admin' WHERE team_id=? AND user_id=?", [teamId, userId]);
+                return Response.json({ ok: true, team_id: teamId, user_id: memberId, role: "owner", transferred_from: userId });
+              }
+              if (memberId === userId) return Response.json({ ok: false, error: "transfer ownership before changing your own role" }, { status: 409 });
+              await cfD1Query(env, uuid, "UPDATE _team_members SET role=? WHERE team_id=? AND user_id=?", [role, teamId, memberId]);
+              return Response.json({ ok: true, team_id: teamId, user_id: memberId, role });
+            }
+            if (request.method === "DELETE") {
+              if (!canManage) return Response.json({ ok: false, error: "only an owner or admin can remove members" }, { status: 403 });
+              if (!wr()) return tooMany();
+              if (targetRole === "owner") return Response.json({ ok: false, error: "can't remove the owner" }, { status: 409 });
+              if (targetRole === "admin" && myRole !== "owner") return Response.json({ ok: false, error: "only the owner can remove an admin" }, { status: 403 });
+              await cfD1Query(env, uuid, "DELETE FROM _team_members WHERE team_id=? AND user_id=?", [teamId, memberId]);
+              return Response.json({ ok: true, removed: memberId });
+            }
+            return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+          }
+          // ── /teams/<id> ─────────────────────────────────────────────────────────────────
+          if (request.method === "GET") {
+            if (!rd()) return tooMany();
+            const team = (await cfD1Query(env, uuid, "SELECT id, name, created_by, created_at FROM _teams WHERE id=?", [teamId]))[0];
+            const members = await cfD1Query(env, uuid, "SELECT tm.user_id, tm.role, u.display_name, u.avatar_url FROM _team_members tm LEFT JOIN _users u ON u.id=tm.user_id WHERE tm.team_id=? ORDER BY CASE tm.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, tm.user_id LIMIT 2000", [teamId]);
+            return Response.json({ ok: true, team: Object.assign({}, team, { my_role: myRole }), members });
+          }
+          if (request.method === "PATCH") {
+            if (!canManage) return Response.json({ ok: false, error: "only an owner or admin can rename the team" }, { status: 403 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 120);
+            if (!name) return Response.json({ ok: false, error: "a team name is required" }, { status: 400 });
+            await cfD1Query(env, uuid, "UPDATE _teams SET name=? WHERE id=?", [name, teamId]);
+            return Response.json({ ok: true, id: teamId, name });
+          }
+          if (request.method === "DELETE") {
+            if (myRole !== "owner") return Response.json({ ok: false, error: "only the owner can delete the team" }, { status: 403 });
+            if (!wr()) return tooMany();
+            await cfD1Query(env, uuid, "DELETE FROM _team_members WHERE team_id=?", [teamId]);
+            await cfD1Query(env, uuid, "DELETE FROM _teams WHERE id=?", [teamId]);
+            return Response.json({ ok: true, deleted: teamId });
+          }
+          return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+        } catch (e) { console.error("teams failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "teams failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
