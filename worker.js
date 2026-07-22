@@ -3735,6 +3735,29 @@ async function reserveStock(env, uuid, data, userId) {
   if (!ins[0]) return { err: "not enough available to reserve", code: "stock" };
   return { reservation: { id: ins[0].id, item, location, qty: qty / 1000, ref, status: "active" }, level: await stockLevel(env, uuid, item, location) };
 }
+// Inventory valuation — weighted-average cost. Each item's unit cost is the value-weighted
+// mean of its costed receipts (Σ qty×unit_cost ÷ Σ qty over positive moves that carry a
+// unit_cost); on-hand at each location is valued at that item cost. Transfers (no cost)
+// don't move the average. Returns per item+location rows + a grand total.
+async function stockValuation(env, uuid, filter) {
+  await ensureStock(env, uuid);
+  const fw = []; const fp = [];
+  if (filter.item) { fw.push("item=?"); fp.push(filter.item); }
+  if (filter.location) { fw.push("location=?"); fp.push(filter.location); }
+  const wsql = fw.length ? " WHERE " + fw.join(" AND ") : "";
+  // Item-level weighted-average unit cost (in cents), from costed receipts only.
+  const costRows = await cfD1Query(env, uuid, "SELECT item, SUM(qty_m*unit_cost_c) AS num, SUM(qty_m) AS den FROM _stock_moves WHERE qty_m>0 AND unit_cost_c IS NOT NULL" + (filter.item ? " AND item=?" : "") + " GROUP BY item", filter.item ? [filter.item] : []);
+  const avgC = new Map(); for (const r of costRows) if (r.den) avgC.set(r.item, r.num / r.den);
+  const ohRows = await cfD1Query(env, uuid, "SELECT item, location, SUM(qty_m) AS oh FROM _stock_moves" + wsql + " GROUP BY item, location ORDER BY item, location LIMIT 5000", fp);
+  let totalC = 0;
+  const rows = ohRows.map((r) => {
+    const ac = avgC.get(r.item); const onHand = (r.oh || 0) / 1000;
+    const valueC = ac == null ? null : Math.round((r.oh || 0) * ac / 1000); // (qty_m × cost_c)/1000 → cents
+    if (valueC != null) totalC += valueC;
+    return { item: r.item, location: r.location, on_hand: onHand, avg_cost: ac == null ? null : Math.round(ac) / 100, value: valueC == null ? null : valueC / 100 };
+  });
+  return { valuation: rows, total_value: totalC / 100 };
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -8961,7 +8984,7 @@ async function handleRequest(request, env, ctx) {
       //   GET  /api/db/<slug>/stock/reservations[?item=&location=&status=]  → reservations
       //   POST /api/db/<slug>/stock/reservations/<id>/release              → free a reservation
       //   POST /api/db/<slug>/stock/reservations/<id>/fulfill              → issue the reserved qty + close it
-      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
+      const stm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(moves|level|levels|valuation|reserve|transfer|reservations)(?:\/(\d+)\/(release|fulfill))?$/i);
       if (stm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = stm[1].toLowerCase(), resource = stm[2].toLowerCase(), resvId = stm[3] ? parseInt(stm[3], 10) : null, resvAct = stm[4] ? stm[4].toLowerCase() : null;
@@ -9043,6 +9066,13 @@ async function handleRequest(request, env, ctx) {
             const below = Number(url.searchParams.get("below"));
             if (Number.isFinite(below)) levels = levels.filter((l) => l.available < below);
             return Response.json({ ok: true, levels });
+          }
+          if (resource === "valuation") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rd()) return tooMany();
+            const item = _stockItem(url.searchParams.get("item"));
+            const loc = url.searchParams.get("location");
+            return Response.json(Object.assign({ ok: true }, await stockValuation(env, uuid, { item: item || null, location: loc ? _stockLoc(loc) : null })));
           }
           if (resource === "reserve") {
             if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
