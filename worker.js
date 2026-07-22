@@ -3821,15 +3821,18 @@ function buildD1Stats(url, tn, allowCols, base) {
   }
   const selects = ["COUNT(*) AS _count"];
   for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + sqlIdent(col) + ") AS " + k + "__" + col);
-  let groupCol = (url.searchParams.get("group") || "").toLowerCase();
-  if (groupCol && !f.filterable.has(groupCol)) groupCol = "";
+  // GROUP BY one OR MORE columns (comma-separated) → multi-dimensional "matrix" reports
+  // ("pipeline by stage AND by rep"). Up to 4 dimensions; each must be a filterable column.
+  const groupCols = (url.searchParams.get("group") || "").toLowerCase().split(",").map((s) => s.trim()).filter((c) => c && f.filterable.has(c)).slice(0, 4);
   let sql;
-  if (groupCol) {
-    sql = "SELECT " + sqlIdent(groupCol) + " AS _group, " + selects.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY " + sqlIdent(groupCol) + " ORDER BY _count DESC LIMIT 200";
+  if (groupCols.length) {
+    const gsel = groupCols.map((c, i) => sqlIdent(c) + " AS _g" + i).join(", ");
+    const gby = groupCols.map((c) => sqlIdent(c)).join(", ");
+    sql = "SELECT " + gsel + ", " + selects.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY " + gby + " ORDER BY _count DESC LIMIT 500";
   } else {
     sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql;
   }
-  return { sql, params: f.params.slice(), wanted, groupCol };
+  return { sql, params: f.params.slice(), wanted, groupCols };
 }
 // Relations: for a set of rows, `?expand=<fk_col>[,<fk_col>]` attaches each row's
 // referenced parent (declared via a column `ref`). Batched (one SELECT … WHERE id IN
@@ -8462,9 +8465,14 @@ async function handleRequest(request, env, ctx) {
             base = withTagFilter(withVisible(base)); // stats respect trash + ?tag= filter
             const b = buildD1Stats(url, tn, allow, base);
             const r = await cfD1Query(env, uuid, b.sql, b.params);
-            if (b.groupCol) {
-              const groups = r.map((row) => Object.assign({ value: row._group }, shapeD1Stats(row, b.wanted)));
-              return Response.json({ ok: true, group: b.groupCol, groups });
+            if (b.groupCols && b.groupCols.length) {
+              const groups = r.map((row) => {
+                const g = {};
+                b.groupCols.forEach((c, i) => { g[c] = row["_g" + i]; });
+                if (b.groupCols.length === 1) g.value = row["_g0"]; // backward-compatible single-dim shape (`value` + aggs)
+                return Object.assign(g, shapeD1Stats(row, b.wanted));
+              });
+              return Response.json(b.groupCols.length === 1 ? { ok: true, group: b.groupCols[0], groups } : { ok: true, groupBy: b.groupCols, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted)));
           }
