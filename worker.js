@@ -3578,6 +3578,17 @@ async function ensureNotes(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notes (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT NOT NULL, row_id INTEGER NOT NULL, author_id INTEGER, kind TEXT NOT NULL DEFAULT 'note', body TEXT, created_at TEXT)");
   _notesReady.add(uuid);
 }
+// File attachments on records — a contract PDF on a deal, a photo on a ticket. Bytes live in the
+// R2 SITES_BUCKET (stored base64 so it round-trips faithfully; decoded when streamed back); the
+// metadata (filename, type, size, key, uploader) lives in the site's own D1 `_attachments`, keyed
+// (row_table,row_id). Fetched back through the Worker so access follows the record's visibility —
+// the provider/bucket is never exposed. Ensured once per isolate.
+const _attachReady = new Set();
+async function ensureAttachments(env, uuid) {
+  if (_attachReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _attachments (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT NOT NULL, row_id INTEGER NOT NULL, filename TEXT, content_type TEXT, size INTEGER, r2_key TEXT NOT NULL, uploaded_by INTEGER, created_at TEXT)");
+  _attachReady.add(uuid);
+}
 // A signed-in member can log/see notes on a record they can SEE: public-read tables
 // (display/feed/admin) → any member; a `user` table → the row's owner, its owner's manager
 // (teamRead), or an admin. `collect` (write-only) exposes nothing, so no notes there.
@@ -8357,11 +8368,42 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, q, results, count });
       }
     }
+    // Phase D.1 — attachment fetch: GET /api/db/<slug>/attach/<attId> streams a record's stored
+    // file from R2 (base64 → bytes) with its content-type. Access follows the underlying record's
+    // visibility (public-read tables → anyone; a `user` row → its owner/team/admin), so the bucket
+    // is never exposed. A missing/forbidden attachment is an indistinguishable 404.
+    {
+      const am = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/attach\/(\d+)$/i);
+      if (am) {
+        if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+        const slug = am[1].toLowerCase(), attId = parseInt(am[2], 10);
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        await ensureAttachments(env, uuid);
+        const a = (await cfD1Query(env, uuid, "SELECT * FROM _attachments WHERE id=?", [attId]))[0];
+        if (!a) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        const tdef = tableDef(spec, a.row_table);
+        if (!tdef) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        const access = tdef.access || "collect";
+        let userId = null;
+        const atok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (atok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, atok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!(await memberCanSeeRow(env, uuid, tdef, sqlIdent(a.row_table), a.row_id, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        let obj = null; try { obj = await env.SITES_BUCKET.get(a.r2_key); } catch {}
+        if (!obj) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        const b64 = await obj.text();
+        let bytes; try { const bin = atob(b64); bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i); } catch { return Response.json({ ok: false, error: "corrupt" }, { status: 502 }); }
+        const safeName = String(a.filename || "file").replace(/["\r\n]/g, "");
+        return new Response(bytes, { headers: { "content-type": a.content_type || "application/octet-stream", "content-disposition": 'inline; filename="' + safeName + '"', "cache-control": "private, max-age=300" } });
+      }
+    }
     // Phase D — public data API: /api/db/<slug>/rows/<table>[/<id>], access enforced
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8385,6 +8427,7 @@ async function handleRequest(request, env, ctx) {
         const isApprovalsLog = dm[4] === "approvals";
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
+        const isAttach = dm[4] === "attach";
         const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree", "duplicates", "overdue"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -8789,6 +8832,54 @@ async function handleRequest(request, env, ctx) {
             const at = new Date().toISOString();
             const ins = await cfD1Query(env, uuid, "INSERT INTO _notes (row_table,row_id,author_id,kind,body,created_at) VALUES (?,?,?,?,?,?) RETURNING id", [table, rowId, userId, kind, text, at]);
             return Response.json({ ok: true, note: { id: ins[0] && ins[0].id, row_id: rowId, kind, body: text, author_id: userId, created_at: at } });
+          }
+          // File attachments — POST /rows/<t>/<id>/attach {filename, content_type?, data:<base64>}
+          // stores a file against a record (bytes in R2, metadata in _attachments); GET lists the
+          // record's attachments (metadata + fetch url); DELETE /rows/<t>/<id>/attach/<attId>
+          // removes your own (admin any). Bytes are fetched back through /api/db/<slug>/attach/<id>
+          // so access follows the record's visibility. A member must be able to SEE the record.
+          if (isAttach) {
+            if (access === "collect") return Response.json({ ok: false, error: "no attachments on a write-only table" }, { status: 400 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const attId = dm[5] && /^\d+$/.test(dm[5]) ? parseInt(dm[5], 10) : null;
+            await ensureAttachments(env, uuid);
+            if (!(await memberCanSeeRow(env, uuid, def, tn, rowId, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (method === "GET") {
+              const list = await cfD1Query(env, uuid, "SELECT id, filename, content_type, size, uploaded_by, created_at FROM _attachments WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT 200", [table, rowId]);
+              for (const a of list) a.url = "/api/db/" + slug + "/attach/" + a.id;
+              return Response.json({ ok: true, id: rowId, attachments: list });
+            }
+            if (method === "DELETE") {
+              if (!(attId > 0)) return Response.json({ ok: false, error: "DELETE needs an attachment id: /rows/<t>/<id>/attach/<attId>" }, { status: 400 });
+              const arow = await cfD1Query(env, uuid, "SELECT uploaded_by, r2_key FROM _attachments WHERE id=? AND row_table=? AND row_id=?", [attId, table, rowId]);
+              if (!arow[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              let mayDel = arow[0].uploaded_by === userId;
+              if (!mayDel) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); mayDel = !!(rr[0] && rr[0].role === "admin"); }
+              if (!mayDel) return Response.json({ ok: false, error: "you can only remove your own attachment" }, { status: 403 });
+              try { await env.SITES_BUCKET.delete(arow[0].r2_key); } catch {}
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _attachments WHERE id=?", [attId]);
+              return Response.json({ ok: true, deleted: ex.changes || 0 });
+            }
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST/GET/DELETE" }, { status: 405 });
+            const cnt = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _attachments WHERE row_table=? AND row_id=?", [table, rowId]);
+            if (((cnt[0] && cnt[0].n) || 0) >= 50) return badReq("attachment limit reached for this record (50)");
+            const abody = await readBody();
+            const filename = String(abody.filename || abody.name || "file").slice(0, 200).replace(/[\r\n]/g, "");
+            let data = String(abody.data || abody.base64 || abody.content || "");
+            if (data.startsWith("data:")) { const comma = data.indexOf(","); if (comma > 0) data = data.slice(comma + 1); }
+            data = data.replace(/\s/g, "");
+            if (!data) return badReq("data (base64) required");
+            if (data.length > 14000000) return badReq("file too large (max ~10 MB)");
+            let size;
+            try { size = atob(data).length; } catch { return badReq("invalid base64 data"); }
+            const ct = String(abody.content_type || abody.type || "application/octet-stream").slice(0, 120).replace(/[\r\n]/g, "");
+            const key = "attach/" + slug + "/" + table + "/" + rowId + "/" + crypto.randomUUID();
+            try { await env.SITES_BUCKET.put(key, data); } catch { return Response.json({ ok: false, error: "storage failed" }, { status: 502 }); }
+            const at = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _attachments (row_table,row_id,filename,content_type,size,r2_key,uploaded_by,created_at) VALUES (?,?,?,?,?,?,?,?) RETURNING id", [table, rowId, filename, ct, size, key, userId, at]);
+            const id = ins[0] && ins[0].id;
+            return Response.json({ ok: true, attachment: { id, row_id: rowId, filename, content_type: ct, size, uploaded_by: userId, created_at: at, url: "/api/db/" + slug + "/attach/" + id } });
           }
           // Unified activity TIMELINE — GET /rows/<t>/<id>/timeline merges a record's notes
           // (_notes), approval decisions (_approvals), and field-change audit events (_audit,
