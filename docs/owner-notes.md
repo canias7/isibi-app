@@ -617,6 +617,22 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: SLA escalation action [part 2 of 2]
+
+Completes SLA. `sla.escalate:{to?, field?, value?}` config + `POST /rows/<t>/overdue/escalate`
+(dm[4] `escalate`, added to regex in part 1). Admin/writeRole-gated (siteRoleAllows). Sweeps the
+overdue set ORG-WIDE (base=withVisible(null), not owner-scoped — it's an ops action) and applies the
+action to rows NOT YET escalated: reassign owner_id to `to` (resolveMemberId; needs an owner column)
+and/or set `field`=`value`. IDEMPOTENT via a `NOT (<all actions already satisfied>)` guard, so a
+scheduler can hit it repeatedly; capped at 2000 rows/call via an id-subquery. Refactored the overdue
+WHERE into a shared `overdueParts(baseClause)` closure (escalate uses it org-wide; the GET queue
+keeps its ?where-aware path). Does NOT resolve rows (they stay overdue until a done status). NO
+built-in timer by design (per-site cron = scale frontier) — the endpoint is wireable to a scheduled
+function or external cron. Offline batch83 (16/16): reassign+flag on a feed table, field-only on an
+admin table, idempotency, non-admin 403, still-overdue-after-escalate, no-config 400, POST-only.
+Full suite (66) green. GOTCHA confirmed in testing: `created_at` is a managed col the client can't
+set, so an SLA `start` you want to backdate must be a DECLARED date column (opened_at), not created_at.
+
 ## 2026-07-22 — CRM gap layer: SLA / deadlines (read-time status + overdue queue) [part 1 of 2]
 
 Time-based primitive (the last automation gap). Table-level `sla:{start,mins,done?}` — clock runs
