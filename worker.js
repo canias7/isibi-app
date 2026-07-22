@@ -3602,6 +3602,7 @@ async function ensureLedger(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL, ledger TEXT NOT NULL DEFAULT 'gl', account TEXT NOT NULL, dim TEXT, debit_c INTEGER NOT NULL DEFAULT 0, credit_c INTEGER NOT NULL DEFAULT 0, memo TEXT, meta TEXT, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _journal_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, ledger TEXT NOT NULL DEFAULT 'gl', memo TEXT, lines TEXT, created_at TEXT)"); // recurring-journal templates (balanced line sets posted on demand)
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _accounts (account TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, code TEXT)"); // chart of accounts (classifies accounts for P&L / balance sheet)
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, period TEXT NOT NULL, ledger TEXT NOT NULL DEFAULT 'gl', amount_c INTEGER NOT NULL, notes TEXT, UNIQUE(account, period, ledger))"); // budget targets per account per period
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_acct ON _ledger_lines (ledger, account)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_entry ON _ledger_lines (entry_id)"); } catch {}
   _ledgerReady.add(uuid);
@@ -9100,7 +9101,7 @@ async function handleRequest(request, env, ctx) {
       //   DELETE /api/db/<slug>/ledger/accounts/<account>  → unclassify
       //   GET    /api/db/<slug>/ledger/pnl?from=&to=[&ledger=]           → income statement
       //   GET    /api/db/<slug>/ledger/balance-sheet?as_of=[&ledger=]    → balance sheet
-      const cam = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(accounts|pnl|balance-sheet)(?:\/([A-Za-z0-9_.:-]{1,64}))?$/i);
+      const cam = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(accounts|pnl|balance-sheet|budgets|budget-report)(?:\/([A-Za-z0-9_.:-]{1,64}))?$/i);
       if (cam && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = cam[1].toLowerCase(), resource = cam[2].toLowerCase(), acctKey = cam[3] || null;
@@ -9175,6 +9176,56 @@ async function handleRequest(request, env, ctx) {
             assets.sort((a, b) => b.amount - a.amount); liabilities.sort((a, b) => b.amount - a.amount); equity.sort((a, b) => b.amount - a.amount);
             const liabEqEarn = tl + te + earn;
             return Response.json({ ok: true, as_of: asOf, assets, total_assets: ta / 100, liabilities, total_liabilities: tl / 100, equity, total_equity: te / 100, retained_earnings: earn / 100, total_liabilities_and_equity: liabEqEarn / 100, balanced: ta === liabEqEarn && unclassified.length === 0, unclassified });
+          }
+          if (resource === "budgets") {
+            if (request.method === "GET") {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const where = ["ledger=?"]; const params = [ledgerName];
+              const per = (url.searchParams.get("period") || "").trim(); if (per) { where.push("period=?"); params.push(per); }
+              const rows = await cfD1Query(env, uuid, "SELECT id, account, period, amount_c, notes FROM _budgets WHERE " + where.join(" AND ") + " ORDER BY period, account LIMIT 20000", params);
+              return Response.json({ ok: true, budgets: rows.map((r) => ({ id: r.id, account: r.account, period: r.period, amount: r.amount_c / 100, notes: r.notes })) });
+            }
+            if (request.method === "DELETE") {
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              const bid = parseInt(acctKey || "", 10); if (!(bid > 0)) return Response.json({ ok: false, error: "budget id required" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _budgets WHERE id=?", [bid]);
+              return ex.changes > 0 ? Response.json({ ok: true, id: bid, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+            }
+            // POST — upsert a budget line
+            if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const account = String(body.account || "").trim(); const period = String(body.period || "").trim();
+            if (!account || !period) return Response.json({ ok: false, error: "account and period are required" }, { status: 400 });
+            const amtC = toCents(body.amount); if (amtC == null) return Response.json({ ok: false, error: "amount must be a number" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _budgets (account, period, ledger, amount_c, notes) VALUES (?,?,?,?,?) ON CONFLICT(account, period, ledger) DO UPDATE SET amount_c=excluded.amount_c, notes=excluded.notes", [account, period, ledgerName, amtC, body.notes != null ? String(body.notes).slice(0, 300) : null]);
+            return Response.json({ ok: true, account, period, amount: amtC / 100 });
+          }
+          if (resource === "budget-report") {
+            // Budget vs actual for a named period. `period` selects the budget lines; `from`/`to`
+            // bound the actuals pulled from the ledger. Variance is oriented by account type
+            // (income = credit−debit, expense = debit−credit), so "over/under" reads naturally.
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+            const period = (url.searchParams.get("period") || "").trim();
+            if (!period) return Response.json({ ok: false, error: "period is required" }, { status: 400 });
+            const from = dateOf(url.searchParams.get("from")), to = dateOf(url.searchParams.get("to"));
+            const budRows = await cfD1Query(env, uuid, "SELECT account, amount_c FROM _budgets WHERE ledger=? AND period=?", [ledgerName, period]);
+            const budget = new Map(budRows.map((r) => [r.account, r.amount_c]));
+            const bals = await statementBalances(env, uuid, ledgerName, { from, to });
+            const actual = new Map(); for (const r of bals) actual.set(r.account, { d: r.d || 0, c: r.c || 0 });
+            const orient = (account) => { const info = tmap.get(account); const a = actual.get(account) || { d: 0, c: 0 }; return (info && info.type === "income") ? (a.c - a.d) : (a.d - a.c); };
+            const accounts = new Set([...budget.keys(), ...actual.keys()]);
+            const lines = []; let tb = 0, taAct = 0;
+            for (const account of [...accounts].sort()) {
+              const b = budget.get(account); const act = orient(account);
+              const info = tmap.get(account); const isPL = info && (info.type === "income" || info.type === "expense");
+              // Include budgeted accounts, and unbudgeted income/expense accounts that had activity
+              // (surfaces unbudgeted P&L spend). Skip unbudgeted balance-sheet/unclassified accounts.
+              if (b === undefined && !(isPL && act !== 0)) continue;
+              const bc = b || 0; tb += bc; taAct += act;
+              lines.push({ account, type: (tmap.get(account) || {}).type || null, budget: bc / 100, actual: act / 100, variance: (act - bc) / 100, pct: bc ? Math.round((act / bc) * 1000) / 10 : null });
+            }
+            return Response.json({ ok: true, period, from: from || null, to: to || null, lines, totals: { budget: tb / 100, actual: taAct / 100, variance: (taAct - tb) / 100 } });
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("accounts/statements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "statements failed" }, { status: 502 }); }

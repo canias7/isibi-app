@@ -754,6 +754,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   `/ledger/(accounts|pnl|balance-sheet)(/<acct>)?` (string acct id, distinct from the numeric-id ledger
   route). batch123 (31/31) — a 5-entry books scenario ties out: assets 11500 = AP 300 + capital 10000 +
   earnings 1200; date-scoped P&L; unclassified detection + fix. Full suite 106 green.
+- **PHASE 12 — BUDGETS VS ACTUALS** (finance): `_budgets` table (UNIQUE account+period+ledger). `POST
+  /ledger/budgets {account,period,amount,notes?}` upsert, `GET /ledger/budgets[?period=]`, `DELETE
+  /ledger/budgets/<id>`. `GET /ledger/budget-report?period=<label>&from=&to=` compares that period's budget
+  lines against ledger actuals over [from,to] → per-account {budget, actual, variance, pct} + totals. Actual
+  oriented by account type (income credit−debit, else debit−credit) so over/under reads naturally; unbudgeted
+  income/expense accounts WITH activity still surface (budget 0), but unbudgeted balance-sheet/unclassified
+  accounts are excluded (no cash-line clutter). Added budgets|budget-report to the statements route. batch124
+  (22/22) — revenue under 2000, rent over 200 @106.7%, salaries on budget, cash excluded, unbudgeted expense
+  surfaced. Full suite 107 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
