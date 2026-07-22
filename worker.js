@@ -7259,18 +7259,42 @@ async function handleRequest(request, env, ctx) {
       let bal0; try { bal0 = await readCredits(auth); } catch { bal0 = 0; }
       if (!(bal0 >= gbCredits(2500, GB_MAX_OUT))) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
       const dumpFiles = (f) => Object.entries(f).map(([p, s]) => "===FILE: " + p + "===\n" + s).join("\n\n").slice(0, 90000);
-      // Non-streaming Sonnet call (builds are short; a first cut doesn't stream).
-      const gen = async (system, user) => {
+      // The build STREAMS as NDJSON so the Studio shows it live (Claude-Code style):
+      // {ev:"code"} carries source as the model writes it, {ev:"phase"} marks
+      // generating→compiling→(fixing)→publishing, terminal {ev:"done"|"error"}.
+      // Streaming also keeps the HTTP connection alive through the ~60s build so it
+      // never trips a client/edge idle timeout. ctx.waitUntil keeps the writer alive.
+      const enc = new TextEncoder();
+      const { readable, writable } = new TransformStream();
+      const writer = writable.getWriter();
+      const emit = (o) => writer.write(enc.encode(JSON.stringify(o) + "\n")).catch(() => {});
+      // Streaming Sonnet call; forwards text deltas to onDelta, returns full text + usage.
+      const streamGen = async (system, user, onDelta) => {
         const r = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
           headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, system, messages: [{ role: "user", content: user }] }),
+          body: JSON.stringify({ model: GB_MODEL, max_tokens: GB_MAX_OUT, stream: true, system, messages: [{ role: "user", content: user }] }),
           signal: AbortSignal.timeout(180000),
         });
-        if (!r.ok) { const d = await r.json().catch(() => ({})); const e = new Error("gen " + r.status); e.status = r.status; throw e; }
-        const j = await r.json();
-        const text = (j.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
-        return { text, usedIn: (j.usage && j.usage.input_tokens) || 0, usedOut: (j.usage && j.usage.output_tokens) || Math.ceil(text.length / 4) };
+        if (!r.ok) { const e = new Error("gen " + r.status); e.status = r.status; throw e; }
+        const reader = r.body.getReader(); const dec = new TextDecoder();
+        let buf = "", text = "", usedIn = 0, usedOut = 0;
+        for (;;) {
+          const { value, done } = await reader.read(); if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let nl;
+          while ((nl = buf.indexOf("\n")) >= 0) {
+            const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+            if (!line.startsWith("data:")) continue;
+            const js = line.slice(5).trim(); if (!js || js === "[DONE]") continue;
+            let ev; try { ev = JSON.parse(js); } catch { continue; }
+            if (ev.type === "content_block_delta" && ev.delta && ev.delta.type === "text_delta") { text += ev.delta.text; if (onDelta) onDelta(ev.delta.text); }
+            else if (ev.type === "message_start" && ev.message && ev.message.usage) usedIn = ev.message.usage.input_tokens || 0;
+            else if (ev.type === "message_delta" && ev.usage) usedOut = ev.usage.output_tokens || usedOut;
+          }
+        }
+        if (!usedOut) usedOut = Math.ceil(text.length / 4);
+        return { text, usedIn, usedOut };
       };
       const buildGame = async (files) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
@@ -7279,45 +7303,56 @@ async function handleRequest(request, env, ctx) {
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
-      try {
-        let cost = 0;
-        const g = await gen(GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief);
-        let files = parseGameFiles(g.text);
-        if (!files["src/main.js"]) return Response.json({ ok: false, error: "the generated game came out incomplete — try again" }, { status: 200 });
-        cost += gbCredits(g.usedIn, g.usedOut);
-        try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
-        // Build + Phase-4 auto-fix loop: up to 2 fix passes across BOTH compile
-        // failures (bd.ok === false) and runtime smoke failures (smoke.passed false).
-        let bd, buildMs, attempt = 0;
-        for (;;) {
-          ({ bd, buildMs } = await buildGame(files));
-          const compileFail = !bd.ok;
-          const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
-          if (!compileFail && !runtimeFail) break;
-          if (attempt >= 2) break;
-          attempt++;
-          const fixPrompt = compileFail
-            ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
-            : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
-          let fg; try { fg = await gen(GAME_RULES, fixPrompt); } catch { break; }
-          cost += gbCredits(fg.usedIn, fg.usedOut);
-          try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
-          const fixed = parseGameFiles(fg.text);
-          if (!Object.keys(fixed).length) break;
-          Object.assign(files, fixed);
+      // Batch code deltas so the client gets readable chunks, not a flood.
+      let codeBuf = "";
+      const flushCode = (force) => { if (codeBuf && (force || codeBuf.length >= 120)) { emit({ ev: "code", t: codeBuf }); codeBuf = ""; } };
+      const onDelta = (d) => { codeBuf += d; flushCode(false); };
+      const run = async () => {
+        try {
+          let cost = 0;
+          emit({ ev: "phase", phase: "generating" });
+          const g = await streamGen(GAME_RULES, "Build this game. Output ONLY the file blocks.\n\n" + brief, onDelta);
+          flushCode(true);
+          let files = parseGameFiles(g.text);
+          if (!files["src/main.js"]) { emit({ ev: "error", msg: "the generated game came out incomplete — try again" }); return; }
+          cost += gbCredits(g.usedIn, g.usedOut);
+          try { await useCredits(auth, gbCredits(g.usedIn, g.usedOut)); } catch {}
+          let bd, buildMs, attempt = 0;
+          for (;;) {
+            emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
+            ({ bd, buildMs } = await buildGame(files));
+            const compileFail = !bd.ok;
+            const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
+            if (!compileFail && !runtimeFail) break;
+            if (attempt >= 2) break;
+            attempt++;
+            emit({ ev: "phase", phase: "fixing" });
+            const fixPrompt = compileFail
+              ? ("The kaplay build FAILED to compile. Fix it and return the FULL corrected file blocks (only changed files). Output ONLY file blocks.\n\nBUILD ERROR:\n" + String(bd.error || "").slice(0, 3000) + "\n\nCurrent files:\n\n" + dumpFiles(files))
+              : (gameFixRules(bd.smoke.errors) + "\n\nCurrent files:\n\n" + dumpFiles(files));
+            let fg; try { fg = await streamGen(GAME_RULES, fixPrompt, onDelta); flushCode(true); } catch { break; }
+            cost += gbCredits(fg.usedIn, fg.usedOut);
+            try { await useCredits(auth, gbCredits(fg.usedIn, fg.usedOut)); } catch {}
+            const fixed = parseGameFiles(fg.text);
+            if (!Object.keys(fixed).length) break;
+            Object.assign(files, fixed);
+          }
+          if (!bd.ok) { emit({ ev: "error", stage: "build", msg: String(bd.error || "build failed").slice(0, 600), fixed: attempt }); return; }
+          emit({ ev: "phase", phase: "publishing" });
+          const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
+          const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
+          await writeGameDistToR2(env, slug, bd.files);
+          try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
+          let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
+          emit({ ev: "done", url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter });
+        } catch (e) {
+          emit({ ev: "error", msg: (e && e.status === 402) ? "not enough credits" : String(e && e.message || e).slice(0, 200) });
+        } finally {
+          try { await writer.close(); } catch {}
         }
-        if (!bd.ok) return Response.json({ ok: false, stage: "build", error: String(bd.error || "build failed").slice(0, 1200), fixed: attempt }, { status: 200 });
-        // Publish → live at /g/<slug>/, and stash source for later revise/rollback.
-        const seed = ((brief.toLowerCase().match(/[a-z0-9]+/g) || ["game"]).slice(0, 3).join("-").slice(0, 40)) || "game";
-        const slug = seed + "-" + crypto.randomUUID().slice(0, 6);
-        await writeGameDistToR2(env, slug, bd.files);
-        try { await env.SITES_BUCKET.put("gamesrc/" + slug + ".json", JSON.stringify({ files, uid: gu.id }), { httpMetadata: { contentType: "application/json" } }); } catch {}
-        let balAfter; try { balAfter = await readCredits(auth); } catch { balAfter = bal0 - cost; }
-        return Response.json({ ok: true, url: "/g/" + slug + "/", slug, buildMs, fixed: attempt, smoke: bd.smoke || null, cost, balance: balAfter, model: GB_MODEL });
-      } catch (e) {
-        if (e && e.status === 402) return Response.json({ ok: false, error: "not enough credits", need: "credits" }, { status: 402 });
-        return Response.json({ ok: false, error: String(e && e.message || e).slice(0, 300) }, { status: 200 });
-      }
+      };
+      ctx.waitUntil(run());
+      return new Response(readable, { headers: { "content-type": "application/x-ndjson; charset=utf-8", "cache-control": "no-store" } });
     }
 
     // POST /api/game/revise — iterate on an existing game ("make it faster", "add a

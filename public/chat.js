@@ -11659,6 +11659,7 @@ function renderGames() {
             '<button class="gs-build" type="button" id="gsBuild">Build game →</button>' +
           '</div>' +
         '</div>' +
+        '<pre class="gs-code" id="gsCode" hidden></pre>' +
         cards +
       '</div>';
   }
@@ -11731,37 +11732,48 @@ async function gameStudioRevise(slug, instruction) {
   }
 }
 
+// Live phase labels for the streamed build.
+const GAME_PHASES = { generating: 'Designing & writing the code…', compiling: 'Compiling…', fixing: 'Fixing a hiccup…', publishing: 'Publishing…' };
 async function gameStudioBuild(brief) {
   if (gameBuilding) return;
   gameBuilding = true;
   const btn = document.getElementById('gsBuild');
   const status = document.getElementById('gsStatus');
+  const codeEl = document.getElementById('gsCode');
   if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
-  const steps = ['Designing the game…', 'Writing the code…', 'Compiling…', 'Play-testing…'];
-  let si = 0;
-  if (status) status.textContent = steps[0];
-  const tick = setInterval(() => { si = Math.min(si + 1, steps.length - 1); if (status) status.textContent = steps[si]; }, 9000);
+  if (status) status.textContent = 'Starting…';
+  if (codeEl) { codeEl.textContent = ''; codeEl.hidden = false; }
+  const appendCode = (t) => { if (!codeEl) return; codeEl.textContent += t; if (codeEl.textContent.length > 12000) codeEl.textContent = codeEl.textContent.slice(-9000); codeEl.scrollTop = codeEl.scrollHeight; };
+  let done = null, err = null;
   try {
     const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
-    const d = await r.json().catch(() => ({}));
-    clearInterval(tick);
-    if (r.status === 402 || d.need === 'credits') {
-      if (status) status.textContent = 'Out of credits — top up to build a game.';
-      if (typeof openCredits === 'function') openCredits(true);
-      return;
+    if (r.status === 402) { if (status) status.textContent = 'Out of credits — top up to build a game.'; if (typeof openCredits === 'function') openCredits(true); return; }
+    if (!r.ok || !r.body) { if (status) status.textContent = '⚠️ Couldn’t start the build — try again.'; return; }
+    // Consume the NDJSON stream: {ev:"phase"|"code"|"done"|"error"}.
+    const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = '';
+    for (;;) {
+      const { value, done: rd } = await reader.read(); if (rd) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.ev === 'phase') { if (status) status.textContent = GAME_PHASES[ev.phase] || ev.phase; }
+        else if (ev.ev === 'code') { appendCode(ev.t); }
+        else if (ev.ev === 'done') { done = ev; }
+        else if (ev.ev === 'error') { err = ev; }
+      }
     }
-    if (!r.ok || !d.ok) {
-      if (status) status.textContent = '⚠️ ' + (d.error || 'That build didn’t come together — try again, maybe simpler.');
-      return;
-    }
+    if (err) { if (status) status.textContent = '⚠️ ' + (err.msg || 'That build didn’t come together — try again, maybe simpler.'); return; }
+    if (!done) { if (status) status.textContent = '⚠️ The build ended early — try again.'; return; }
     const games = gamesLoad();
-    games.unshift({ slug: d.slug, url: d.url, ts: Date.now() });
+    games.unshift({ slug: done.slug, url: done.url, ts: Date.now() });
     gamesSave(games);
-    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
-    gameOpenSlug = d.slug;
+    if (typeof done.balance === 'number' && typeof setCredits === 'function') setCredits(done.balance);
+    gameOpenSlug = done.slug;
     renderGames();
   } catch (e) {
-    clearInterval(tick);
     if (status) status.textContent = '⚠️ Couldn’t reach the game builder just now — give it a moment.';
   } finally {
     gameBuilding = false;

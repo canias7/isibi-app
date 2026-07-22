@@ -5977,3 +5977,20 @@ boss", "neon green theme") — the core thing that makes a builder a studio.
 - Validated locally: the revise merge→rebuild→smoke path passes (modified breakout
   source → vite build OK → smoke PASS non-blank/zero-errors); the revise bar renders
   + wires with no JS errors. Live Sonnet edit untested (same as build).
+
+## 2026-07-22 — Game Studio: streaming build (live code + phases, no idle-timeout risk)
+`/api/game/build` now STREAMS NDJSON (mirrors the React builder): `{ev:"phase"}`
+(generating→compiling→fixing→publishing), `{ev:"code"}` (the kaplay source as
+Sonnet writes it), terminal `{ev:"done"|"error"}`. Streaming keeps the HTTP
+connection alive through the ~60s build so it can't trip a client/edge idle
+timeout, and the Studio watches the code get written (Lovable-style).
+- worker.js: build endpoint switched to TransformStream + streaming Anthropic
+  (`streamGen`) + `ctx.waitUntil(run())`. Pre-stream guards (auth/config/credits)
+  still return JSON (incl. 402). Auto-fix loop + publish unchanged, just emits events.
+- chat.js: `gameStudioBuild()` consumes the NDJSON stream — live phase status + a
+  `.gs-code` panel that fills with the streamed source (auto-scroll, capped) — then
+  on `done` opens the preview + updates the ✦ pill. `GAME_PHASES` labels.
+- styles.css: `.gs-code` mono panel.
+- Validated in-browser with a mocked NDJSON stream: live phases + streamed code
+  render, then the preview opens and credits update, zero JS errors. (Revise still
+  uses its status-line timer — a fast follow to stream too.)
