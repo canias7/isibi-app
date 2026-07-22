@@ -617,6 +617,16 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: on:{update} function triggers
+
+Workflow gap. Functions could trigger on:{insert} only; added on:{update} so an automation
+runs after a single-row PATCH (field-change automation). normalizeFnSpec parses
+on:{update:"table"} (+ "update:table" string forms); insertTriggersFor fetch broadened to
+insert|update fns; new fireRowTriggers(event) + fireUpdateTriggers, called after a SUCCESSFUL
+own-row + admin PATCH with input {_event:'update', id, ...changedFields}. Pairs with
+`transitions` for stage-driven automation (deal → won ⇒ log activity / notify). Offline
+batch68 (4/4, harness mocks site_functions + captures the async trigger), full suite green.
+
 ## 2026-07-22 — CRM gap layer: team/manager-hierarchy visibility (teamRead)
 
 Completes the SHARING MODEL (CRM gap #1). Table-level `"teamRead":true` on a `user` table →
