@@ -4532,6 +4532,42 @@ async function ensureWaitlist(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_waitlist_seq ON _waitlist (list, seq)"); } catch {}
   _waitlistReady.add(uuid);
 }
+// Daily check-in streaks (habit / gamification). One row per (user_id, day) — a member checks in at
+// most once per UTC day. Ensured once per isolate.
+const _checkinsReady = new Set();
+async function ensureCheckins(env, uuid) {
+  if (_checkinsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _checkins (user_id INTEGER NOT NULL, day TEXT NOT NULL, created_at TEXT, PRIMARY KEY (user_id, day))");
+  _checkinsReady.add(uuid);
+}
+// Validate a YYYY-MM-DD string via a UTC round-trip (rejects malformed + calendar-impossible dates
+// like 2026-02-30). Returns the string or null. dayEpoch = the integer UTC day number (for gap math).
+function validDay(s) {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d) ? s : null;
+}
+function dayEpoch(s) { const [y, m, d] = s.split("-").map(Number); return Math.round(Date.UTC(y, m - 1, d) / 86400000); }
+// Streak stats from a member's day strings. current = the consecutive run ending today OR yesterday
+// (a gap breaks it); longest = the max consecutive run ever; days come in already sorted ascending.
+function checkinStreaks(daysAsc, todayStr) {
+  const total = daysAsc.length;
+  if (!total) return { current_streak: 0, longest_streak: 0, total: 0, last_day: null };
+  const eds = daysAsc.map(dayEpoch);
+  let longest = 1, run = 1;
+  for (let i = 1; i < eds.length; i++) {
+    if (eds[i] === eds[i - 1] + 1) { run++; if (run > longest) longest = run; }
+    else if (eds[i] !== eds[i - 1]) run = 1;
+  }
+  const todayE = dayEpoch(todayStr), lastE = eds[eds.length - 1];
+  let current = 0;
+  if (lastE === todayE || lastE === todayE - 1) {
+    current = 1;
+    for (let i = eds.length - 2; i >= 0; i--) { if (eds[i] === eds[i + 1] - 1) current++; else if (eds[i] !== eds[i + 1]) break; }
+  }
+  return { current_streak: current, longest_streak: longest, total, last_day: daysAsc[daysAsc.length - 1] };
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9286,6 +9322,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _searches WHERE user_id=?", [u.id]],                               // saved searches
             ["DELETE FROM _reviews WHERE user_id=?", [u.id]],                                // ratings & reviews
             ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
+            ["DELETE FROM _checkins WHERE user_id=?", [u.id]],                               // daily check-in streaks
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10725,6 +10762,52 @@ async function handleRequest(request, env, ctx) {
           const entries = rows.map((r) => ({ user_id: r.user_id, status: r.status, seq: r.seq, position: r.status === "waiting" ? ++pos : null, joined_at: r.joined_at }));
           return Response.json({ ok: true, list, total: (cnt && cnt.total) || 0, waiting: (cnt && cnt.waiting) || 0, entries });
         } catch (e) { console.error("waitlist failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "waitlist failed" }, { status: 502 }); }
+      }
+      // DAILY CHECK-IN STREAKS (habit / gamification) — a member checks in at most ONCE per UTC day
+      // (a composite-PK atomic INSERT...WHERE NOT EXISTS; a 2nd check-in the same day is a no-op, not an
+      // error), and reads their current + longest streak. current = the consecutive run ending today or
+      // yesterday; longest = the max run ever. All per-member (no cross-member surface).
+      //   POST /api/db/<slug>/streak/checkin {day?}  → {checked_in, current_streak, longest_streak, total}
+      //   GET  /api/db/<slug>/streak                 → {current_streak, longest_streak, total, last_day, days:[…]}
+      const skm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/streak(?:\/(checkin))?$/i);
+      if (skm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = skm[1].toLowerCase(), sub = skm[2] ? skm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureCheckins(env, uuid);
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const allDays = async () => (await cfD1Query(env, uuid, "SELECT day FROM _checkins WHERE user_id=? ORDER BY day DESC LIMIT 3660", [userId])).map((r) => r.day).reverse(); // ascending, capped ~10y
+          // CHECK IN for a day (default today). Atomic once-per-day guard.
+          if (sub === "checkin") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|stc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let day = todayStr;
+            if (body.day !== undefined && body.day !== null) {
+              const v = validDay(String(body.day));
+              if (!v) return Response.json({ ok: false, error: "day must be YYYY-MM-DD" }, { status: 400 });
+              if (dayEpoch(v) > dayEpoch(todayStr)) return Response.json({ ok: false, error: "can't check in for a future day" }, { status: 400 });
+              day = v;
+            }
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _checkins (user_id, day, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM _checkins WHERE user_id=? AND day=?)", [userId, day, new Date().toISOString(), userId, day]);
+            const stats = checkinStreaks(await allDays(), todayStr);
+            return Response.json({ ok: true, checked_in: !!ex.changes, day, current_streak: stats.current_streak, longest_streak: stats.longest_streak, total: stats.total });
+          }
+          // GET streak stats + a recent-days list (most-recent-first, capped).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|sts", 300)) return tooMany();
+          const asc = await allDays();
+          const stats = checkinStreaks(asc, todayStr);
+          return Response.json({ ok: true, current_streak: stats.current_streak, longest_streak: stats.longest_streak, total: stats.total, last_day: stats.last_day, days: asc.slice(-60).reverse() });
+        } catch (e) { console.error("streak failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "streak failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
