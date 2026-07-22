@@ -627,6 +627,8 @@ is delivered.
 
 - #24 Version diff: `GET /rows/<t>/<id>/diff[/<histId>]` (or ?rev=) compares a history snapshot vs the
   current row → changed fields {from,to}. Default = latest snapshot (last edit's changes). batch93 (14/14).
+- #9 Admin impersonation: `POST /api/db/<slug>/auth/impersonate {user}` (admin) → 1h token acting AS a
+  member, `imp:<adminId>` claim, logged to _audit. batch94 (10/10).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
