@@ -4511,6 +4511,16 @@ async function ensureSavedSearches(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _searches (user_id INTEGER NOT NULL, name TEXT NOT NULL, table_name TEXT NOT NULL, query TEXT, created_at TEXT, PRIMARY KEY (user_id, name))");
   _searchesReady.add(uuid);
 }
+// Ratings & reviews over any subject (a product id, listing slug, any key). One review per member per
+// subject — PK(subject,user_id) so re-submitting UPSERTS. Reads (list + summary) are public; writing
+// or deleting your own needs a site-user token (an admin may delete anyone's). Ensured once per isolate.
+const _reviewsReady = new Set();
+async function ensureReviews(env, uuid) {
+  if (_reviewsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reviews (subject TEXT NOT NULL, user_id INTEGER NOT NULL, rating INTEGER NOT NULL, title TEXT, body TEXT, created_at TEXT, updated_at TEXT, PRIMARY KEY (subject, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reviews_subject ON _reviews (subject)"); } catch {}
+  _reviewsReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9263,6 +9273,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _consents WHERE user_id=?", [u.id]],
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
             ["DELETE FROM _searches WHERE user_id=?", [u.id]],                               // saved searches
+            ["DELETE FROM _reviews WHERE user_id=?", [u.id]],                                // ratings & reviews
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10531,6 +10542,90 @@ async function handleRequest(request, env, ctx) {
             : await cfD1Query(env, uuid, "SELECT name, table_name, query, created_at FROM _searches WHERE user_id=? ORDER BY name LIMIT 500", [userId]);
           return Response.json({ ok: true, searches: rows.map((r) => ({ name: r.name, table: r.table_name, query: r.query, created_at: r.created_at })) });
         } catch (e) { console.error("searches failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "searches failed" }, { status: 502 }); }
+      }
+      // RATINGS & REVIEWS — one review per member per subject (a product id, listing slug, any key);
+      // re-submitting UPSERTS. Reads are PUBLIC (a reviews widget renders to anyone); writing/deleting
+      // your own needs a site-user token, and an admin may delete anyone's to moderate.
+      //   POST   /api/db/<slug>/reviews {subject, rating(1-5), title?, body?}  → upsert my review
+      //   GET    /api/db/<slug>/reviews?subject=<s>[&sort=recent|top&limit=&offset=]  → the reviews (public)
+      //   GET    /api/db/<slug>/reviews/summary?subject=<s>  → {count, average, distribution:{1..5}} (public)
+      //   GET    /api/db/<slug>/reviews/mine?subject=<s>     → my review or null (member)
+      //   DELETE /api/db/<slug>/reviews?subject=<s>          → delete mine ; admin +&user=<id> moderates any
+      const rvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/reviews(?:\/(summary|mine))?$/i);
+      if (rvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rvm[1].toLowerCase(), sub = rvm[2] ? rvm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureReviews(env, uuid);
+          const qsSubject = () => String(url.searchParams.get("subject") || "").trim().slice(0, 160);
+          // POST — upsert MY review (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|rvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const subject = String(body.subject || "").trim().slice(0, 160);
+            if (!subject) return Response.json({ ok: false, error: "a subject is required" }, { status: 400 });
+            const rating = Math.floor(Number(body.rating));
+            if (!Number.isFinite(rating) || rating < 1 || rating > 5) return Response.json({ ok: false, error: "rating must be an integer 1–5" }, { status: 400 });
+            const title = body.title != null && body.title !== "" ? String(body.title).slice(0, 160) : null;
+            const rbody = body.body != null && body.body !== "" ? String(body.body).slice(0, 4000) : null;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _reviews (subject, user_id, rating, title, body, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(subject, user_id) DO UPDATE SET rating=excluded.rating, title=excluded.title, body=excluded.body, updated_at=excluded.updated_at", [subject, userId, rating, title, rbody, now, now]);
+            return Response.json({ ok: true, subject, rating, title, body: rbody });
+          }
+          // SUMMARY — aggregate (public).
+          if (sub === "summary") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            if (!rateOk(slug + "|" + ip + "|rvs", 300)) return tooMany();
+            const a = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n, AVG(rating) AS avg, SUM(CASE WHEN rating=1 THEN 1 ELSE 0 END) AS r1, SUM(CASE WHEN rating=2 THEN 1 ELSE 0 END) AS r2, SUM(CASE WHEN rating=3 THEN 1 ELSE 0 END) AS r3, SUM(CASE WHEN rating=4 THEN 1 ELSE 0 END) AS r4, SUM(CASE WHEN rating=5 THEN 1 ELSE 0 END) AS r5 FROM _reviews WHERE subject=?", [subject]))[0];
+            const count = a && a.n ? a.n : 0;
+            return Response.json({ ok: true, subject, count, average: count ? Math.round(a.avg * 100) / 100 : 0, distribution: { 1: (a && a.r1) || 0, 2: (a && a.r2) || 0, 3: (a && a.r3) || 0, 4: (a && a.r4) || 0, 5: (a && a.r5) || 0 } });
+          }
+          // MINE — my own review for a subject (member).
+          if (sub === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            const row = (await cfD1Query(env, uuid, "SELECT subject, rating, title, body, created_at, updated_at FROM _reviews WHERE subject=? AND user_id=?", [subject, userId]))[0];
+            return Response.json({ ok: true, subject, review: row || null });
+          }
+          // DELETE — mine by default; an admin may moderate any with &user=<id>.
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const subject = qsSubject();
+            if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+            let target = userId;
+            const other = url.searchParams.get("user");
+            if (other != null && other !== "" && String(other) !== String(userId)) {
+              const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+              if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+              target = parseInt(other, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+            }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _reviews WHERE subject=? AND user_id=?", [subject, target]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such review" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, subject });
+          }
+          // GET list (public) — a subject's reviews, newest-first or highest-first.
+          const subject = qsSubject();
+          if (!subject) return Response.json({ ok: false, error: "a ?subject= is required" }, { status: 400 });
+          if (!rateOk(slug + "|" + ip + "|rvl", 300)) return tooMany();
+          const order = String(url.searchParams.get("sort") || "recent").toLowerCase() === "top" ? "rating DESC, created_at DESC" : "created_at DESC";
+          const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+          const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+          const rows = await cfD1Query(env, uuid, "SELECT user_id, rating, title, body, created_at, updated_at FROM _reviews WHERE subject=? ORDER BY " + order + " LIMIT ? OFFSET ?", [subject, lim, off]);
+          return Response.json({ ok: true, subject, reviews: rows });
+        } catch (e) { console.error("reviews failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reviews failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
