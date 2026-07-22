@@ -692,6 +692,16 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   total only, tax_account required iff doc has tax, account fields required. Added `post` to the documents
   route act group. batch116 (23/23) — invoice + mirror bill + no-tax + period-lock + idempotency. Full suite
   99 green. This is the first primitive that COMPOSES two others (documents × ledger) into a real ERP flow.
+- **PHASE 6b — DOCUMENT→STOCK POSTING** (documents × stock): `POST /documents/<id>/post-stock {location?,
+  direction?}` fulfils a doc — issues (sales_order/invoice) or receives (purchase_order/bill, carrying the
+  line unit_price as cost for valuation) each line naming an `item`. Direction inferred from doc type
+  (regex purchase|bill|grn|receipt → receive) or forced. IDEMPOTENT via `_documents.stock_posted` (ALTER;
+  surfaced in getDocument) → 409 `stock_posted`. ALL-OR-NOTHING for issues: pre-checks availability across
+  ALL lines (summing repeated items) before posting any, so a multi-line order never half-ships (409 `stock`
+  with the short item); each move still individually guarded. Added `post-stock` to the doc route act group
+  (ordered before `post` in the alternation). batch117 (21/21) — sales issue, purchase receive+valuation,
+  explicit direction, all-or-nothing, summed-need, no-item-lines, idempotency. Full suite 100 suites green.
+  With 6a+6b an order now flows quote→order→(post-stock issues inventory)→invoice→(post posts the ledger).
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
