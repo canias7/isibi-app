@@ -6035,3 +6035,17 @@ test loads them locally).
   `new PhotonImage`/`get_bytes` API). Safety nets mean the worst case is
   placeholder/opaque sprites, never a broken game. Sounds/music deferred (fal audio
   is voice/music-oriented) — v1 games are silent.
+
+## 2026-07-22 — Game Studio: built-in 8-bit SFX kit (games have sound, zero gen cost)
+Closed Phase 6's audio gap without fal (its audio is voice/music, not SFX): a small
+procedural 8-bit **SFX kit is baked into the game container image** and referenced by
+the generation contract — no per-build audio generation, no cost.
+- `builder-game/template/public/sfx/*.wav` — 7 synthesized sounds (jump, coin, hit,
+  shoot, explode, powerup, blip; ~56 KB total). Baked into the image via `COPY
+  template/`; Vite copies public/ into dist/, so every game has `sfx/<name>.wav`.
+  (build-server only wipes src/ + public/assets, so the kit persists across builds.)
+- `game-gen.mjs`: GAME_RULES (and thus GAME_ASSET_RULES) now has a SOUND section —
+  `k.loadSound("<name>","sfx/<name>.wav")` + `k.play(...)`, wired to the obvious
+  events. Applies to BOTH shape and sprite games.
+- Validated: a game that loads + plays the kit builds and smoke-passes (all 7 wavs
+  bundled into dist/sfx/, sounds trigger on input, zero errors).
