@@ -3584,6 +3584,88 @@ async function reportState(env, uuid, target, userId) {
   if (userId) { const m = await cfD1Query(env, uuid, "SELECT 1 FROM _reports WHERE target=? AND reporter_id=?", [target, userId]); mine = !!m[0]; }
   return { count: (cnt[0] && cnt[0].n) || 0, mine };
 }
+// ── Double-entry LEDGER / posting engine (ERP finance foundation) ────────────────
+// A general journal: every entry is a set of debit/credit LINES that must balance
+// (Σdebit = Σcredit). Entries are APPEND-ONLY and IMMUTABLE — a posted entry is never
+// edited or deleted, only REVERSED by a mirror entry. Because D1 has no multi-row
+// transaction, atomicity is achieved by design: the header is written `posted=0`, then
+// the lines, then the header is flipped to `posted=1` as the LAST step — and EVERY read
+// (balances, listings) counts only lines whose entry is posted. A crash mid-write leaves
+// an invisible half-entry, never an unbalanced or partial ledger. Amounts are stored in
+// whole cents alongside the decimal so the balance invariant is exact (no float drift).
+// One database can hold several named ledgers (`ledger`, default 'gl') — a general ledger
+// plus subledgers (AP, AR, inventory) that all post through the same primitive.
+const _ledgerReady = new Set();
+async function ensureLedger(env, uuid) {
+  if (_ledgerReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, ledger TEXT NOT NULL DEFAULT 'gl', ref TEXT, memo TEXT, entry_date TEXT NOT NULL, posted INTEGER NOT NULL DEFAULT 0, posted_at TEXT, reverses INTEGER, reversed_by INTEGER, created_by INTEGER, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL, ledger TEXT NOT NULL DEFAULT 'gl', account TEXT NOT NULL, dim TEXT, debit_c INTEGER NOT NULL DEFAULT 0, credit_c INTEGER NOT NULL DEFAULT 0, memo TEXT, meta TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_acct ON _ledger_lines (ledger, account)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_entry ON _ledger_lines (entry_id)"); } catch {}
+  _ledgerReady.add(uuid);
+}
+// Round a money value to whole cents (integer), rejecting non-finite input.
+function toCents(v) { const n = Number(v); if (!Number.isFinite(n)) return null; return Math.round(n * 100); }
+// Validate + normalize the lines of a journal entry. Returns {lines, err}. Each line must
+// name an account and put a positive amount on EXACTLY ONE side (debit XOR credit); the
+// whole entry must balance to the cent and be non-empty.
+function normalizeLedgerLines(raw) {
+  if (!Array.isArray(raw) || !raw.length) return { err: "at least one line is required" };
+  if (raw.length > 200) return { err: "too many lines (max 200)" };
+  const lines = []; let dr = 0, cr = 0;
+  for (let i = 0; i < raw.length; i++) {
+    const ln = raw[i] || {};
+    const account = String(ln.account == null ? "" : ln.account).trim();
+    if (!account || account.length > 64) return { err: "line " + (i + 1) + ": account is required (≤64 chars)" };
+    const d = toCents(ln.debit || 0), c = toCents(ln.credit || 0);
+    if (d == null || c == null) return { err: "line " + (i + 1) + ": debit/credit must be numbers" };
+    if (d < 0 || c < 0) return { err: "line " + (i + 1) + ": amounts can't be negative" };
+    if ((d > 0) === (c > 0)) return { err: "line " + (i + 1) + ": put an amount on exactly one side (debit OR credit)" };
+    dr += d; cr += c;
+    lines.push({ account, dim: ln.dim != null && ln.dim !== "" ? String(ln.dim).slice(0, 64) : null, debit_c: d, credit_c: c, memo: ln.memo != null ? String(ln.memo).slice(0, 300) : null, meta: ln.meta !== undefined ? JSON.stringify(ln.meta) : null });
+  }
+  if (dr !== cr) return { err: "entry doesn't balance: debits " + (dr / 100).toFixed(2) + " ≠ credits " + (cr / 100).toFixed(2) };
+  if (dr === 0) return { err: "entry total can't be zero" };
+  return { lines, totalCents: dr };
+}
+// Post a balanced entry: header(posted=0) → lines → header posted=1. Returns the entry.
+async function postLedgerEntry(env, uuid, ledger, data, userId) {
+  await ensureLedger(env, uuid);
+  const { lines, err } = normalizeLedgerLines(data && data.lines);
+  if (err) return { err };
+  const date = /^\d{4}-\d{2}-\d{2}/.test(String(data.date || "")) ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
+  const ref = data.ref != null ? String(data.ref).slice(0, 120) : null;
+  const memo = data.memo != null ? String(data.memo).slice(0, 500) : null;
+  const ins = await cfD1Query(env, uuid, "INSERT INTO _ledger_entries (ledger, ref, memo, entry_date, posted, reverses, created_by, created_at) VALUES (?,?,?,?,0,?,?,?) RETURNING id", [ledger, ref, memo, date, data._reverses || null, userId || null, now]);
+  const entryId = ins[0] && ins[0].id;
+  if (!entryId) return { err: "could not create entry" };
+  for (const ln of lines) await cfD1Query(env, uuid, "INSERT INTO _ledger_lines (entry_id, ledger, account, dim, debit_c, credit_c, memo, meta, created_at) VALUES (?,?,?,?,?,?,?,?,?)", [entryId, ledger, ln.account, ln.dim, ln.debit_c, ln.credit_c, ln.memo, ln.meta, now]);
+  await cfD1Query(env, uuid, "UPDATE _ledger_entries SET posted=1, posted_at=? WHERE id=?", [now, entryId]);
+  return { entry: await getLedgerEntry(env, uuid, entryId) };
+}
+// Fetch one entry (header + lines, amounts back in decimal), or null.
+async function getLedgerEntry(env, uuid, id) {
+  const e = await cfD1Query(env, uuid, "SELECT * FROM _ledger_entries WHERE id=?", [id]);
+  if (!e[0]) return null;
+  const rows = await cfD1Query(env, uuid, "SELECT id, account, dim, debit_c, credit_c, memo, meta FROM _ledger_lines WHERE entry_id=? ORDER BY id", [id]);
+  const lines = rows.map((r) => ({ id: r.id, account: r.account, dim: r.dim, debit: r.debit_c / 100, credit: r.credit_c / 100, memo: r.memo, meta: r.meta ? (() => { try { return JSON.parse(r.meta); } catch { return null; } })() : null }));
+  const h = e[0];
+  return { id: h.id, ledger: h.ledger, ref: h.ref, memo: h.memo, entry_date: h.entry_date, posted: !!h.posted, posted_at: h.posted_at, reverses: h.reverses, reversed_by: h.reversed_by, created_by: h.created_by, created_at: h.created_at, lines };
+}
+// Per-account balances (a trial balance when no account filter). Posted lines only.
+async function ledgerBalances(env, uuid, ledger, opts) {
+  await ensureLedger(env, uuid);
+  const where = ["e.posted=1", "l.ledger=?"]; const params = [ledger];
+  if (opts.account) { where.push("l.account=?"); params.push(opts.account); }
+  if (opts.dim) { where.push("l.dim=?"); params.push(opts.dim); }
+  if (opts.from) { where.push("e.entry_date>=?"); params.push(opts.from); }
+  if (opts.to) { where.push("e.entry_date<=?"); params.push(opts.to); }
+  const rows = await cfD1Query(env, uuid, "SELECT l.account, SUM(l.debit_c) AS d, SUM(l.credit_c) AS c FROM _ledger_lines l JOIN _ledger_entries e ON e.id=l.entry_id WHERE " + where.join(" AND ") + " GROUP BY l.account ORDER BY l.account", params);
+  let td = 0, tc = 0;
+  const accounts = rows.map((r) => { const d = r.d || 0, c = r.c || 0; td += d; tc += c; return { account: r.account, debit: d / 100, credit: c / 100, balance: (d - c) / 100 }; });
+  return { accounts, total_debit: td / 100, total_credit: tc / 100, balanced: td === tc };
+}
 // Approvals — a sign-off workflow on a table declaring `approval:{approvers,status}`. A row is
 // submitted (status→pending), then an approver (a member whose role is in `approvers`, or admin)
 // approves (→approved) or rejects (→rejected). The status lives in the row's platform-added
@@ -8568,6 +8650,93 @@ async function handleRequest(request, env, ctx) {
           console.error("apikeys failed:", e && e.message, e && e.detail);
           return Response.json({ ok: false, error: "apikeys failed" }, { status: 502 });
         }
+      }
+      // DOUBLE-ENTRY LEDGER (ERP finance) — a balanced, append-only, immutable general journal.
+      // ADMIN-gated (finance). One DB can hold several named ledgers via ?ledger= (default 'gl').
+      //   POST   /api/db/<slug>/ledger/entries {ledger?, ref?, memo?, date?, lines:[{account,debit?,credit?,dim?,memo?,meta?}]}
+      //          → posts a balanced entry (Σdebit=Σcredit) → {entry}
+      //   GET    /api/db/<slug>/ledger/entries[?ledger=&account=&ref=&from=&to=&posted=&limit=&offset=] → {entries:[…header+total]}
+      //   GET    /api/db/<slug>/ledger/entries/<id>            → {entry} (header + lines)
+      //   POST   /api/db/<slug>/ledger/entries/<id>/reverse {date?,memo?} → posts a mirror entry
+      //   GET    /api/db/<slug>/ledger/balance?account=<a>[&ledger=&dim=&from=&to=] → one account's {debit,credit,balance}
+      //   GET    /api/db/<slug>/ledger/trial-balance[?ledger=&from=&to=] → every account's balances + totals + `balanced`
+      const lgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(entries|balance|trial-balance)(?:\/(\d+)(?:\/(reverse))?)?$/i);
+      if (lgm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lgm[1].toLowerCase(), resource = lgm[2].toLowerCase(), entryId = lgm[3] ? parseInt(lgm[3], 10) : null, sub = lgm[4] ? lgm[4].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureLedger(env, uuid);
+          const ledgerOf = (src) => { const raw = src && typeof src.get === "function" ? src.get("ledger") : (src && src.ledger); const v = String(raw || "gl").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40); return v || "gl"; };
+          if (resource === "entries") {
+            if (request.method === "POST" && entryId && sub === "reverse") {
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              const orig = await getLedgerEntry(env, uuid, entryId);
+              if (!orig || !orig.posted) return Response.json({ ok: false, error: "entry not found" }, { status: 404 });
+              if (orig.reversed_by) return Response.json({ ok: false, error: "already reversed", code: "reversed", reversed_by: orig.reversed_by }, { status: 409 });
+              let body = {}; try { body = await request.json(); } catch {}
+              const revLines = orig.lines.map((l) => ({ account: l.account, dim: l.dim, debit: l.credit, credit: l.debit, memo: l.memo, meta: l.meta }));
+              const res = await postLedgerEntry(env, uuid, orig.ledger, { lines: revLines, date: body.date, ref: body.ref != null ? body.ref : "REVERSAL of #" + entryId, memo: body.memo != null ? body.memo : orig.memo, _reverses: entryId }, userId);
+              if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+              await cfD1Query(env, uuid, "UPDATE _ledger_entries SET reversed_by=? WHERE id=?", [res.entry.id, entryId]);
+              return Response.json({ ok: true, entry: res.entry, reverses: entryId });
+            }
+            if (sub) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+            if (request.method === "GET" && entryId) {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const entry = await getLedgerEntry(env, uuid, entryId);
+              return entry ? Response.json({ ok: true, entry }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+            }
+            if (request.method === "GET") {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const where = ["e.ledger=?"]; const params = [ledgerOf(url.searchParams)];
+              const acct = (url.searchParams.get("account") || "").trim();
+              if (acct) { where.push("EXISTS (SELECT 1 FROM _ledger_lines l WHERE l.entry_id=e.id AND l.account=?)"); params.push(acct); }
+              const ref = (url.searchParams.get("ref") || "").trim(); if (ref) { where.push("e.ref=?"); params.push(ref); }
+              const from = (url.searchParams.get("from") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(from)) { where.push("e.entry_date>=?"); params.push(from.slice(0, 10)); }
+              const to = (url.searchParams.get("to") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(to)) { where.push("e.entry_date<=?"); params.push(to.slice(0, 10)); }
+              const postedQ = url.searchParams.get("posted"); if (postedQ === "0") where.push("e.posted=0"); else if (postedQ !== "all") where.push("e.posted=1");
+              const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+              const off = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
+              const rows = await cfD1Query(env, uuid, "SELECT e.id, e.ledger, e.ref, e.memo, e.entry_date, e.posted, e.posted_at, e.reverses, e.reversed_by, e.created_at, (SELECT SUM(debit_c) FROM _ledger_lines l WHERE l.entry_id=e.id) AS total_c FROM _ledger_entries e WHERE " + where.join(" AND ") + " ORDER BY e.entry_date DESC, e.id DESC LIMIT ? OFFSET ?", params.concat([lim, off]));
+              const entries = rows.map((r) => ({ id: r.id, ledger: r.ledger, ref: r.ref, memo: r.memo, entry_date: r.entry_date, posted: !!r.posted, posted_at: r.posted_at, reverses: r.reverses, reversed_by: r.reversed_by, created_at: r.created_at, total: (r.total_c || 0) / 100 }));
+              return Response.json({ ok: true, entries });
+            }
+            // POST — create a balanced entry
+            if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const res = await postLedgerEntry(env, uuid, ledgerOf(body), body, userId);
+            if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+            return Response.json({ ok: true, entry: res.entry });
+          }
+          if (resource === "balance" || resource === "trial-balance") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+            const opts = { dim: (url.searchParams.get("dim") || "").trim() || null };
+            const from = (url.searchParams.get("from") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(from)) opts.from = from.slice(0, 10);
+            const to = (url.searchParams.get("to") || "").trim(); if (/^\d{4}-\d{2}-\d{2}/.test(to)) opts.to = to.slice(0, 10);
+            if (resource === "balance") {
+              const account = (url.searchParams.get("account") || "").trim();
+              if (!account) return Response.json({ ok: false, error: "account required" }, { status: 400 });
+              opts.account = account;
+              const res = await ledgerBalances(env, uuid, ledgerOf(url.searchParams), opts);
+              const a = res.accounts[0] || { account, debit: 0, credit: 0, balance: 0 };
+              return Response.json({ ok: true, account: a.account, debit: a.debit, credit: a.credit, balance: a.balance });
+            }
+            const res = await ledgerBalances(env, uuid, ledgerOf(url.searchParams), opts);
+            return Response.json(Object.assign({ ok: true }, res));
+          }
+          return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
+        } catch (e) { console.error("ledger failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ledger failed" }, { status: 502 }); }
       }
       // Mentions → notifications — a member @mentions others in a post/comment; the app
       // detects the handles client-side and calls this with the mentioned user ids, which
