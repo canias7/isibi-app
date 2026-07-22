@@ -657,6 +657,9 @@ is delivered.
 - CLONE: `POST /rows/<t>/<id>/clone [{overrides}]` duplicates a row (auto id/slug/number/timestamps
   regenerate), applies overrides, stamps caller as owner on user/feed; same write scope; UNIQUE clash
   → 409 (via the existing outer catch). batch103 (14/14).
+- #32 Distinct-count: `?distinct=col[,col]` → COUNT(DISTINCT col), returned as `distinct:{col:n}`; a
+  separate agg family appended to all stats paths (main/cross/time). "How many unique customers".
+  batch104 (8/8). (Verified existing: recycle-bin ?trashed=1, ?expired=1, ?archived=1.)
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
