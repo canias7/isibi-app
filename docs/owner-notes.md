@@ -6661,6 +6661,19 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-22 — feature flags (data API)
+- **`/flags`** — per-site feature flags for generated apps. Admin upserts `{key, enabled?, rollout?
+  (0-100), roles?[], teams?[], value?}`; members hit `GET /flags/eval[?key=]` to see what's on for
+  THEM. A flag is ON iff enabled AND role-matches AND team-matches AND the member falls in the rollout
+  bucket. Bucketing = FNV-1a hash of `key:userId` mod 100 (deterministic — raising the % only adds
+  users, never flaps; independent per flag). Team gate reuses `_team_members` (one query per eval, only
+  when a flag is team-scoped). Eval is fail-safe (unknown/deleted flag → `on:false`, never 404) so a
+  client can gate on any key. Upsert is a single atomic `INSERT … ON CONFLICT`. `_flags` is global
+  per-site (not user-scoped) → no account-erase line needed. batch175 (25/25). Cross-checked against the
+  design workflow's adversarially-reviewed flags spec (which is what added team targeting + the
+  fail-safe-eval contract to my first cut). NOTE: role gate reads role from a fresh `_users` SELECT
+  (accurate), not the JWT — so a role change takes effect immediately.
+
 ## 2026-07-22 — referral tracking + attribution (data API)
 - **`/referrals/*`** — a "refer a friend" program for generated apps (any signed-in member).
   `POST /referrals/code` → my stable deterministic code (base36(userId)+FNV-1a suffix, get-or-create);

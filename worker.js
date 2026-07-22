@@ -4472,6 +4472,34 @@ async function ensureReferrals(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ref_referrer ON _referrals (referrer_id)"); } catch {}
   _refReady.add(uuid);
 }
+// Feature flags — an admin configures flags; each member EVALUATES which are on for them (enabled +
+// role targeting + deterministic % rollout). `_flags`: key (PK), enabled, rollout (0-100 %), roles
+// (JSON array or null = everyone), value (JSON payload or null), timestamps. Ensured once per isolate.
+const _flagsReady = new Set();
+async function ensureFlags(env, uuid) {
+  if (_flagsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _flags (key TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, rollout INTEGER NOT NULL DEFAULT 100, roles TEXT, teams TEXT, value TEXT, created_at TEXT, updated_at TEXT)");
+  _flagsReady.add(uuid);
+}
+// Deterministic 0–99 bucket for (flag, member) — FNV-1a over "key:userId". Stable across calls, so a
+// member's rollout membership only ever flips ON as the rollout % rises — it never flaps.
+function flagBucket(key, userId) {
+  const s = String(key) + ":" + String(userId);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return h % 100;
+}
+// Is a flag ON for a member with `role`? enabled AND (no role filter OR their role matches) AND they
+// fall in the rollout bucket (rollout 100 = everyone enabled, 0 = nobody).
+function flagOnFor(flag, userId, role) {
+  if (!flag || !flag.enabled) return false;
+  let roles = null; if (flag.roles) { try { roles = JSON.parse(flag.roles); } catch {} }
+  if (Array.isArray(roles) && roles.length && !roles.includes(role)) return false;
+  const rollout = flag.rollout == null ? 100 : flag.rollout;
+  if (rollout >= 100) return true;
+  if (rollout <= 0) return false;
+  return flagBucket(flag.key, userId) < rollout;
+}
 // Deterministic, stable referral code for a member: base36(userId) + a short FNV-1a-derived suffix
 // (so codes aren't trivially sequential/guessable), UPPERCASE. Same (uuid,userId) → same code, and
 // the base36(userId) prefix already guarantees uniqueness across members (no random collisions).
@@ -10304,6 +10332,89 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown referrals endpoint" }, { status: 404 });
         } catch (e) { console.error("referrals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "referrals failed" }, { status: 502 }); }
+      }
+      // FEATURE FLAGS — an admin configures flags; each member evaluates which are on for THEM
+      // (enabled + role targeting + deterministic % rollout, so a gradual rollout is stable per user).
+      //   POST   /api/db/<slug>/flags {key, enabled?, rollout?(0-100), roles?[], teams?[], value?}  (ADMIN upsert)
+      //   GET    /api/db/<slug>/flags                    → every flag + its config (ADMIN)
+      //   DELETE /api/db/<slug>/flags/<key>              → remove a flag (ADMIN)
+      //   GET    /api/db/<slug>/flags/eval[?key=<k>]     → what's ON for me (any member)
+      const flm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/flags(?:\/(.+))?$/i);
+      if (flm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = flm[1].toLowerCase(); const tail = flm[2] ? decodeURIComponent(flm[2]) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureFlags(env, uuid);
+          const roleRow = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          const role = roleRow[0] ? roleRow[0].role : null, isAdmin = role === "admin";
+          const parse = (s) => { if (!s) return null; try { return JSON.parse(s); } catch { return null; } };
+          // Evaluate flags for ME (any signed-in member). Team-gated flags need my memberships,
+          // loaded lazily (one query) only if some evaluated flag actually restricts by team.
+          if (tail === "eval") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|flge", 300)) return tooMany();
+            let myTeams = null;
+            const teamOk = async (f) => {
+              const teams = parse(f.teams); if (!Array.isArray(teams) || !teams.length) return true;
+              if (myTeams == null) { try { await ensureTeams(env, uuid); myTeams = new Set((await cfD1Query(env, uuid, "SELECT team_id FROM _team_members WHERE user_id=?", [userId])).map((r) => r.team_id)); } catch { myTeams = new Set(); } }
+              return teams.some((t) => myTeams.has(t));
+            };
+            const one = url.searchParams.get("key");
+            if (one) {
+              const f = (await cfD1Query(env, uuid, "SELECT key, enabled, rollout, roles, teams, value FROM _flags WHERE key=?", [one]))[0];
+              if (!f) return Response.json({ ok: true, key: one, on: false, value: null }); // unknown/deleted flag → fail-safe OFF, never 404
+              const on = flagOnFor(f, userId, role) && (await teamOk(f));
+              return Response.json({ ok: true, key: f.key, on, value: on ? parse(f.value) : null });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT key, enabled, rollout, roles, teams, value FROM _flags ORDER BY key ASC");
+            const flags = [];
+            for (const f of rows) { const on = flagOnFor(f, userId, role) && (await teamOk(f)); flags.push({ key: f.key, on, value: on ? parse(f.value) : null }); }
+            return Response.json({ ok: true, flags });
+          }
+          // Everything below is ADMIN.
+          if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // Upsert a flag.
+          if (!tail && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|flgw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const key = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(key)) return Response.json({ ok: false, error: "key must be 1–80 chars of A–Z 0–9 _ . : -" }, { status: 400 });
+            if (key.toLowerCase() === "eval") return Response.json({ ok: false, error: "'eval' is reserved" }, { status: 400 });
+            const enabled = (body.enabled === true || body.enabled === 1 || body.enabled === "true") ? 1 : 0;
+            const rollout = body.rollout == null || body.rollout === "" ? 100 : Math.floor(Number(body.rollout));
+            if (!Number.isFinite(rollout) || rollout < 0 || rollout > 100) return Response.json({ ok: false, error: "rollout must be 0–100" }, { status: 400 });
+            let roles = null;
+            if (Array.isArray(body.roles) && body.roles.length) roles = JSON.stringify(body.roles.slice(0, 20).map((x) => String(x).slice(0, 40)));
+            let teams = null;
+            if (Array.isArray(body.teams) && body.teams.length) { const ids = body.teams.slice(0, 50).map((x) => Math.floor(Number(x))).filter((n) => Number.isFinite(n) && n > 0); if (ids.length) teams = JSON.stringify(ids); }
+            let value = null;
+            if (body.value !== undefined && body.value !== null) { value = JSON.stringify(body.value); if (value.length > 4000) return Response.json({ ok: false, error: "value too large (max 4000 chars)" }, { status: 400 }); }
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _flags (key, enabled, rollout, roles, teams, value, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled, rollout=excluded.rollout, roles=excluded.roles, teams=excluded.teams, value=excluded.value, updated_at=excluded.updated_at", [key, enabled, rollout, roles, teams, value, now, now]);
+            return Response.json({ ok: true, key, enabled: !!enabled, rollout, roles: parse(roles), teams: parse(teams), value: parse(value) });
+          }
+          // List every flag + config.
+          if (!tail && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|flgl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT key, enabled, rollout, roles, teams, value, updated_at FROM _flags ORDER BY key ASC");
+            return Response.json({ ok: true, flags: rows.map((f) => ({ key: f.key, enabled: !!f.enabled, rollout: f.rollout, roles: parse(f.roles), teams: parse(f.teams), value: parse(f.value), updated_at: f.updated_at })) });
+          }
+          // Delete a flag.
+          if (tail && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _flags WHERE key=?", [tail]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such flag" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key: tail });
+          }
+          return Response.json({ ok: false, error: "unsupported flags request" }, { status: 405 });
+        } catch (e) { console.error("flags failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "flags failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
