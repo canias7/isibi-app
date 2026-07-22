@@ -2182,16 +2182,13 @@ function setMode(m) {
     b.classList.toggle('active', on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
   });
-  // Game mode is a BUILD pipeline (kaplay → container → /g/<slug>/), not a media
-  // generation — hide the media-only controls (model/settings/attach/effort/
-  // orchestrator) via a body class and skip the media menu builders.
-  document.body.classList.toggle('mode-game', m === 'game');
+  buildMenu();
   document.getElementById('input').placeholder =
-    m === 'game' ? 'Describe your game — “a neon endless runner”…' :
     m === 'image' ? 'Describe your image…' :
     m === 'audio' ? 'Type what you want the voice to say…' :
     'Describe your scene…';
-  if (m !== 'game') { buildMenu(); buildOptMenus(); stampComposer(); }
+  buildOptMenus();
+  stampComposer();
 }
 
 // Effort picker (top-left of the main chat) — how detailed the director's
@@ -6037,13 +6034,6 @@ function send(fromButton) {
   // Lip-sync models are prompt-less — they run off the attachments, not text.
   const promptless = mode === 'video' && currentOpts() && currentOpts().noPrompt;
   if (!text && !promptless) return;
-  // Game mode: a whole separate build pipeline. Route here before any of the
-  // media-generation checks/attachments below, which don't apply to games.
-  if (mode === 'game') {
-    input.value = ''; input.style.height = 'auto';
-    buildGame(text);
-    return;
-  }
   // Voice is capped at 2,000 characters server-side; block over-length scripts
   // here (keeping the text) instead of letting the tail get silently cut off.
   if (mode === 'audio' && text.length > 2000) {
@@ -6120,67 +6110,6 @@ function send(fromButton) {
   // the orchestrator off OR they don't have the add-on (or its budget is spent).
   if (directorMode === 'off' || !orchActive()) { generateMedia(sendText); return; }
   startDirector(sendText);
-}
-
-// ── Game builder (frontend) ───────────────────────────────────────────────
-// Game mode → POST /api/game/build → the worker runs Sonnet(GAME_RULES) →
-// container `vite build` + runtime smoke test → auto-fix loop → publishes to
-// /g/<slug>/. We show a build status while it works, then drop a PLAYABLE card
-// (an iframe of the live game) into the chat — same "result lands in the thread"
-// pattern as a media generation. (No streaming yet; a build is ~30–60s.)
-let _gameBuilding = false;
-async function buildGame(brief) {
-  if (_gameBuilding) return;
-  _gameBuilding = true;
-  addMsg('user', brief);
-  const loader = addMsg('agent', '🎮 Building your game… ~30–60s (designing → compiling → play-testing).');
-  try {
-    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
-    const d = await r.json().catch(() => ({}));
-    if (loader) loader.remove();
-    if (r.status === 402 || d.need === 'credits') {
-      addMsg('agent', 'You’re out of credits for a game build — top up and try again.');
-      if (typeof openCredits === 'function') openCredits(true);
-      return;
-    }
-    if (!r.ok || !d.ok) {
-      addMsg('agent', '⚠️ ' + (d.error || 'That build didn’t come together — try again, maybe a little simpler.'));
-      return;
-    }
-    renderGameCard(d);
-    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
-  } catch (e) {
-    if (loader) loader.remove();
-    addMsg('agent', '⚠️ Couldn’t reach the game builder just now — give it a moment and try again.');
-  } finally {
-    _gameBuilding = false;
-  }
-}
-
-// A finished game: a framed, playable iframe of the live /g/<slug>/ build plus
-// an Open-in-new-tab link and a play-tested note. Title derived from the slug.
-function renderGameCard(d) {
-  const box = document.getElementById('messages');
-  if (!box) return;
-  const card = document.createElement('div');
-  card.className = 'msg agent game-card landed';
-  card.innerHTML =
-    '<div class="gc-head">' +
-      '<span class="gc-badge">🎮 Game</span>' +
-      '<span class="gc-title"></span>' +
-      '<a class="gc-open" target="_blank" rel="noopener">Open ↗</a>' +
-    '</div>' +
-    '<div class="gc-frame"><iframe title="Game preview" loading="lazy" allow="autoplay; fullscreen"></iframe></div>' +
-    '<div class="gc-note"></div>';
-  const title = String(d.slug || 'game').split('-').slice(0, -1).join(' ') || 'Your game';
-  card.querySelector('.gc-title').textContent = title;
-  card.querySelector('.gc-open').href = d.url;
-  card.querySelector('iframe').src = d.url;
-  card.querySelector('.gc-note').textContent =
-    'Play-tested ✓' + (d.fixed ? ' · auto-fixed ' + d.fixed + '×' : '') +
-    (typeof d.cost === 'number' ? ' · ' + d.cost + ' credits' : '');
-  box.appendChild(card);
-  try { card.scrollIntoView({ behavior: 'smooth', block: 'end' }); } catch {}
 }
 
 // ── Auth gate ────────────────────────────────────────
@@ -6537,7 +6466,7 @@ function enterApp() {
   // fresh session or anything unknown).
   let lastView = 'home';
   try { lastView = localStorage.getItem(VIEW_KEY) || 'home'; } catch {}
-  const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'sites', 'integrations', 'settings'];
+  const KNOWN_VIEWS = ['home', 'gallery', 'avatar', 'mediaAgent', 'sites', 'games', 'integrations', 'settings'];
   showView(KNOWN_VIEWS.includes(lastView) ? lastView : 'home');
   // Staged attachments from before the refresh — re-apply the active chat's,
   // and garbage-collect expired/orphaned stashes in the background.
@@ -9077,6 +9006,14 @@ function crtSelect() {
     if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
     return;
   }
+  // GAME is the door into the standalone Game Studio — its own screen, never the
+  // media studio (mirrors the WEBSITE channel above).
+  if (opt.dataset.kind === 'game') {
+    try { localStorage.setItem(VIEW_KEY, 'games'); } catch (e) {}
+    if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }
+    if (typeof openAuthFrom === 'function') openAuthFrom('start', 'app');
+    return;
+  }
   if (opt.dataset.live === '1') {
     try { if (localStorage.getItem(VIEW_KEY) === 'sites') localStorage.setItem(VIEW_KEY, 'home'); } catch (e) {}
     if (window.Auth && Auth.isSignedIn()) { enterApp(); return; }   // already in → straight to the studio
@@ -11440,6 +11377,8 @@ function showView(name) {
   // WEBSITE channel) — while it's open, the studio chrome (chats sidebar, the
   // Gallery/Avatar/Media-Agent tabs, the Back arrow) disappears entirely.
   document.body.classList.toggle('in-sites', name === 'sites');
+  // The Game Studio is likewise its own product — hide the studio chrome while it's open.
+  document.body.classList.toggle('in-games', name === 'games');
   // The jump-to-latest chevron belongs to the Home thread only.
   const sd = document.getElementById('scrollDown');
   if (sd && name !== 'home') sd.classList.remove('show');
@@ -11447,6 +11386,7 @@ function showView(name) {
   if (name === 'avatar') renderAvatar();
   if (name === 'mediaAgent') renderMediaAgent();
   if (name === 'sites') renderSites();
+  if (name === 'games') renderGames();
   if (name === 'integrations') renderIntegrations();
   if (name === 'settings') renderSettings();
   document.querySelectorAll('.side-item[data-view], .top-tab[data-view]').forEach((i) =>
@@ -11642,5 +11582,134 @@ if (params.get('credits') === 'added') {
     addMsg('agent', '✦ Payment received — your credits are landing now.');
     setTimeout(fetchCredits, 2500);
     setTimeout(fetchCredits, 8000);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Game Studio — a STANDALONE screen (its own view, like the Website Builder).
+// Entered from the landing's GAME channel → showView('games') → renderGames().
+// Prompt → POST /api/game/build (Sonnet(GAME_RULES) → container build + runtime
+// smoke test → auto-fix loop → publish to /g/<slug>/) → a big playable iframe.
+// Not a mode inside the media composer — it never touches the video generator.
+// ══════════════════════════════════════════════════════════════════════════
+const GAMES_KEY = 'zephyr_games_v1';
+let gameOpenSlug = null;
+let gameBuilding = false;
+function gamesLoad() { try { return JSON.parse(localStorage.getItem(GAMES_KEY) || '[]'); } catch { return []; } }
+function gamesSave(list) { try { localStorage.setItem(GAMES_KEY, JSON.stringify(list.slice(0, 40))); } catch {} }
+
+const GAME_GENRES = [
+  { key: 'runner', label: 'Endless runner', prompt: 'An endless runner where you dash and double-jump over neon obstacles and grab glowing orbs. It gets faster over time.' },
+  { key: 'flappy', label: 'Flappy', prompt: 'A flappy-style game — tap or press space to fly through the gaps between neon pipes. One life, score per pipe.' },
+  { key: 'breakout', label: 'Breakout', prompt: 'A breakout game — bounce a ball off a paddle to smash a wall of colourful neon bricks. Three lives, win when the wall is cleared.' },
+  { key: 'topdown', label: 'Top-down shooter', prompt: 'A top-down arena shooter — move with WASD, aim with the mouse, and blast endless waves of enemies that home in on you.' },
+  { key: 'platformer', label: 'Platformer', prompt: 'A platformer — run and double-jump across floating platforms, collect coins, and reach the goal flag to win.' },
+];
+
+function gameTitle(slug) {
+  const t = String(slug || 'game').split('-').slice(0, -1).join(' ').trim();
+  return t ? t.replace(/\b\w/g, (c) => c.toUpperCase()) : 'Your game';
+}
+
+function renderGames() {
+  const view = document.getElementById('viewGames');
+  if (!view) return;
+  const games = gamesLoad();
+  const open = gameOpenSlug ? games.find((g) => g.slug === gameOpenSlug) : null;
+
+  const head =
+    '<div class="gs-top">' +
+      '<button class="gs-back" type="button" id="gsBack">‹ Studio</button>' +
+      '<div class="gs-brand">🎮 <b>Game Studio</b></div>' +
+      '<div style="flex:1"></div>' +
+      (open ? '<a class="gs-open" href="' + open.url + '" target="_blank" rel="noopener">Open ↗</a>' +
+              '<button class="gs-new" type="button" id="gsNew">+ New game</button>' : '') +
+    '</div>';
+
+  let body;
+  if (open) {
+    body =
+      '<div class="gs-stage">' +
+        '<div class="gs-frame-wrap"><div class="gs-frame">' +
+          '<iframe title="' + gameTitle(open.slug) + '" src="' + open.url + '" allow="autoplay; fullscreen"></iframe>' +
+        '</div>' +
+        '<div class="gs-meta"><b>' + gameTitle(open.slug) + '</b><span>Play-tested ✓ · click the game to play</span></div></div>' +
+      '</div>';
+  } else {
+    const chips = GAME_GENRES.map((g) => '<button class="gs-chip" type="button" data-genre="' + g.key + '">' + g.label + '</button>').join('');
+    const cards = games.length
+      ? '<div class="gs-recent"><div class="gs-recent-lab">Your games</div><div class="gs-grid">' +
+          games.map((g) => '<button class="gs-card" type="button" data-slug="' + g.slug + '"><span class="gs-card-frame"><iframe tabindex="-1" title="" src="' + g.url + '" scrolling="no"></iframe></span><span class="gs-card-t">' + gameTitle(g.slug) + '</span></button>').join('') +
+        '</div></div>'
+      : '';
+    body =
+      '<div class="gs-compose">' +
+        '<h1 class="gs-h1">What are we <span class="gs-grad">playing</span>?</h1>' +
+        '<p class="gs-sub">Describe a game. isibi writes it, compiles it, and play-tests it before you see it.</p>' +
+        '<div class="gs-chips">' + chips + '</div>' +
+        '<div class="gs-box">' +
+          '<textarea id="gsPrompt" rows="3" placeholder="e.g. a neon endless runner where you dodge obstacles and collect orbs…"></textarea>' +
+          '<div class="gs-box-foot">' +
+            '<span class="gs-status" id="gsStatus"></span>' +
+            '<button class="gs-build" type="button" id="gsBuild">Build game →</button>' +
+          '</div>' +
+        '</div>' +
+        cards +
+      '</div>';
+  }
+  view.innerHTML = head + body;
+
+  const back = view.querySelector('#gsBack'); if (back) back.onclick = () => showView('home');
+  const nw = view.querySelector('#gsNew'); if (nw) nw.onclick = () => { gameOpenSlug = null; renderGames(); };
+  view.querySelectorAll('.gs-card').forEach((c) => { c.onclick = () => { gameOpenSlug = c.dataset.slug; renderGames(); }; });
+  view.querySelectorAll('.gs-chip').forEach((ch) => { ch.onclick = () => {
+    const g = GAME_GENRES.find((x) => x.key === ch.dataset.genre);
+    const ta = view.querySelector('#gsPrompt'); if (g && ta) { ta.value = g.prompt; ta.focus(); }
+  }; });
+  const buildBtn = view.querySelector('#gsBuild');
+  if (buildBtn) buildBtn.onclick = () => {
+    const ta = view.querySelector('#gsPrompt');
+    const brief = (ta && ta.value || '').trim();
+    if (!brief) { if (ta) ta.focus(); return; }
+    gameStudioBuild(brief);
+  };
+}
+
+async function gameStudioBuild(brief) {
+  if (gameBuilding) return;
+  gameBuilding = true;
+  const btn = document.getElementById('gsBuild');
+  const status = document.getElementById('gsStatus');
+  if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+  const steps = ['Designing the game…', 'Writing the code…', 'Compiling…', 'Play-testing…'];
+  let si = 0;
+  if (status) status.textContent = steps[0];
+  const tick = setInterval(() => { si = Math.min(si + 1, steps.length - 1); if (status) status.textContent = steps[si]; }, 9000);
+  try {
+    const r = await apiFetch('/api/game/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ brief }) });
+    const d = await r.json().catch(() => ({}));
+    clearInterval(tick);
+    if (r.status === 402 || d.need === 'credits') {
+      if (status) status.textContent = 'Out of credits — top up to build a game.';
+      if (typeof openCredits === 'function') openCredits(true);
+      return;
+    }
+    if (!r.ok || !d.ok) {
+      if (status) status.textContent = '⚠️ ' + (d.error || 'That build didn’t come together — try again, maybe simpler.');
+      return;
+    }
+    const games = gamesLoad();
+    games.unshift({ slug: d.slug, url: d.url, ts: Date.now() });
+    gamesSave(games);
+    if (typeof d.balance === 'number' && typeof setCredits === 'function') setCredits(d.balance);
+    gameOpenSlug = d.slug;
+    renderGames();
+  } catch (e) {
+    clearInterval(tick);
+    if (status) status.textContent = '⚠️ Couldn’t reach the game builder just now — give it a moment.';
+  } finally {
+    gameBuilding = false;
+    const b2 = document.getElementById('gsBuild');
+    if (b2) { b2.disabled = false; b2.textContent = 'Build game →'; }
   }
 }

@@ -4971,3 +4971,23 @@ still crash on frame 1 or draw nothing).
   account so the first deploy builds the ./builder-game Docker image; confirm with
   `GET /api/game/build-health`. Phase 6 (generated sprites w/ alpha + SFX/music)
   is deferred — v1 ships primitive/vector neon art.
+
+## 2026-07-22 (rev) — Game Studio moved to its OWN screen (not a composer mode)
+Owner's call: the game builder is its own product screen, exactly like the Website
+Builder — do NOT mix it into the video-generator composer. Reverted the "Game mode
+in the media composer" wiring and rebuilt it as a standalone view.
+- **viewGames** (new view, `renderGames()`): entered from the landing GAME channel
+  (`crtSelect` → `showView('games')`, mirrors the WEBSITE→sites door). `body.in-games`
+  hides the studio chrome (chats sidebar + top tabs), same as `body.in-sites`.
+- Screen = header (‹ Studio back + 🎮 Game Studio) → "What are we playing?" compose
+  (genre chips runner/flappy/breakout/topdown/platformer prefill the prompt, a
+  textarea, Build game →, a live status line) → on build, a big PLAYABLE iframe of
+  `/g/<slug>/` (Open ↗ / + New game). Built games persist in `zephyr_games_v1` and
+  show as live-thumbnail cards under "Your games".
+- `gameStudioBuild()` posts to `/api/game/build`; 402→openCredits, balance→setCredits.
+- The media composer + video generator are untouched (mode switch back to Audio/
+  Image/Video only). Verified: renderGames compose + playable preview render with a
+  real build in the iframe, zero JS errors.
+- NOTE: the landing GAME channel still shows the "coming soon" placeholder text while
+  tuned (data-live="0"); selecting it works and routes to the studio. A landing
+  polish (flip it to read live) is a small follow-up.
