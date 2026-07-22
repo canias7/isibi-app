@@ -6475,3 +6475,15 @@ membership (white-box + black-box), guards. Full suite 137 green.
   pending list, invitee mine-list, wrong-person-accept 403, accept-joins, re-invite-member 409, decline,
   member-can't-invite, admin-can't-invite-admin, revoke, erase-wipes-invites (white-box), guards. Full
   suite 138 green.
+
+- **Per-team settings / config** (teams follow-up — multi-tenant workspaces need own settings): a per-team
+  JSON KV store, separate from the site-wide `/config`. `_team_config (team_id, key, value PK)`. Route
+  `/teams/<id>/config(/<key>)?` (its own regex — keys aren't numeric so it can't ride the teams sub-group):
+  GET all → {config:{k:v}} / GET key → {key,value} (any MEMBER reads), POST key {value} (owner/admin,
+  JSON value ≤20KB, upsert), DELETE key (owner/admin). Values JSON.parse round-trip (string/bool/number/
+  object). Isolated per team; cleared on team delete (also added _team_invites cleanup to team-delete while
+  there). Considered a full `team` table ACCESS MODE (shared team data) but it has ~15 `access==='user'`
+  touch points across schema/insert/read/delete/export/GDPR — too invasive to bolt on safely, deferred;
+  per-team config is the clean additive win. batch156 (22/22) — JSON round-trips, whole-config read,
+  member-reads/owner-admin-writes, non-member 403 r/w, upsert, delete, per-team isolation, team-delete
+  clears config (white-box), guards. Full suite 139 green.

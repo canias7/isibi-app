@@ -4372,6 +4372,7 @@ async function ensureTeams(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _teams (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_members (team_id INTEGER NOT NULL, user_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TEXT, PRIMARY KEY (team_id, user_id))");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_invites (id INTEGER PRIMARY KEY AUTOINCREMENT, team_id INTEGER NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', invited_by INTEGER, status TEXT NOT NULL DEFAULT 'pending', created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _team_config (team_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, updated_at TEXT, PRIMARY KEY (team_id, key))");
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_tm_user ON _team_members (user_id)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ti_email ON _team_invites (email, status)"); } catch {}
   _teamsReady.add(uuid);
@@ -10285,6 +10286,55 @@ async function handleRequest(request, env, ctx) {
       //   PATCH  /api/db/<slug>/teams/<id>/members/<userId> {role}→ change role / transfer owner (owner)
       //   DELETE /api/db/<slug>/teams/<id>/members/<userId>       → remove a member (owner/admin)
       //   POST   /api/db/<slug>/teams/<id>/leave                  → caller leaves the team
+      // Per-team settings / config KV (each workspace configures itself — branding, prefs, flags).
+      // Any member READS; owner/admin WRITE. Values are JSON. Separate from the site-wide /config.
+      //   GET    /api/db/<slug>/teams/<id>/config           → {config:{key:value}}
+      //   GET    /api/db/<slug>/teams/<id>/config/<key>     → {key, value}
+      //   POST   /api/db/<slug>/teams/<id>/config/<key> {value}  → set (owner/admin)
+      //   DELETE /api/db/<slug>/teams/<id>/config/<key>    → remove (owner/admin)
+      const tcfgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/teams\/(\d+)\/config(?:\/([a-z0-9_.:-]{1,60}))?$/i);
+      if (tcfgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tcfgm[1].toLowerCase(), teamId = parseInt(tcfgm[2], 10), key = (tcfgm[3] || "").toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureTeams(env, uuid);
+          const myRole = await teamRoleOf(env, uuid, teamId, userId);
+          if (!myRole) return Response.json({ ok: false, error: "not a member of this team" }, { status: 403 });
+          const parseVal = (s) => { try { return JSON.parse(s); } catch { return s; } };
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|teamr", 300)) return tooMany();
+            if (key) {
+              const r = (await cfD1Query(env, uuid, "SELECT value FROM _team_config WHERE team_id=? AND key=?", [teamId, key]))[0];
+              return Response.json({ ok: true, key, value: r ? parseVal(r.value) : null });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT key, value FROM _team_config WHERE team_id=? LIMIT 1000", [teamId]);
+            const config = {}; for (const r of rows) config[r.key] = parseVal(r.value);
+            return Response.json({ ok: true, config });
+          }
+          // writes: owner/admin only.
+          if (!(myRole === "owner" || myRole === "admin")) return Response.json({ ok: false, error: "only an owner or admin can change team settings" }, { status: 403 });
+          if (!key) return Response.json({ ok: false, error: "a config key is required in the path" }, { status: 400 });
+          if (request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|teamw", 120)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _team_config WHERE team_id=? AND key=?", [teamId, key]);
+            return Response.json({ ok: true, key, removed: (ex.changes || 0) > 0 });
+          }
+          if (!rateOk(slug + "|" + ip + "|teamw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!("value" in body)) return Response.json({ ok: false, error: "a `value` is required" }, { status: 400 });
+          const val = JSON.stringify(body.value); if (val.length > 20000) return Response.json({ ok: false, error: "value too large (≤20KB)" }, { status: 413 });
+          await cfD1Query(env, uuid, "INSERT INTO _team_config (team_id, key, value, updated_at) VALUES (?,?,?,?) ON CONFLICT(team_id, key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at", [teamId, key, val, new Date().toISOString()]);
+          return Response.json({ ok: true, key, value: body.value });
+        } catch (e) { console.error("team config failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "team config failed" }, { status: 502 }); }
+      }
       // Team invites addressed to the CALLER (by their email) — the invitee side.
       //   GET  /api/db/<slug>/teams/invites/mine          → my pending invites
       //   POST /api/db/<slug>/teams/invites/<id>/accept   → join that team
@@ -10480,6 +10530,8 @@ async function handleRequest(request, env, ctx) {
             if (myRole !== "owner") return Response.json({ ok: false, error: "only the owner can delete the team" }, { status: 403 });
             if (!wr()) return tooMany();
             await cfD1Query(env, uuid, "DELETE FROM _team_members WHERE team_id=?", [teamId]);
+            try { await cfD1Query(env, uuid, "DELETE FROM _team_invites WHERE team_id=?", [teamId]); } catch {}
+            try { await cfD1Query(env, uuid, "DELETE FROM _team_config WHERE team_id=?", [teamId]); } catch {}
             await cfD1Query(env, uuid, "DELETE FROM _teams WHERE id=?", [teamId]);
             return Response.json({ ok: true, deleted: teamId });
           }
