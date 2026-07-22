@@ -716,6 +716,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   start+freq (month/quarter/year, UTC). New `/finance/*` calculator namespace (any signed-in member, no data
   touched). depreciationSchedule() helper beside ledgerBalances. Composes with a normal assets table + Phase-7
   recurring journals to post each period. batch119 (22/22). Full suite 102 green.
+- **PHASE 9 — PAYMENTS/ALLOCATIONS + AR/AP AGING** (finance): `_doc_allocations` table + `_documents.due_date`
+  column. `POST /documents/<id>/allocations {amount,ref?,memo?,date?,allowOverpay?}` applies a payment (409
+  `overpay` if > outstanding unless forced); `GET` lists w/ paid+outstanding; `DELETE …/<allocId>` unapplies.
+  getDocument now computes `paid`/`outstanding` (Σ allocations) + surfaces `due_date`; create/PATCH accept
+  due_date. AGING: `GET /documents/aging?type=&as_of=&party=&buckets=30,60,90` → open docs (outstanding>0,
+  status NOT draft/cancelled/void) bucketed current/1-30/31-60/61-90/91+ by days past due_date (COALESCE
+  doc_date), grouped by party + totals + a per-doc list; correlated-subquery outstanding in one query;
+  Date.parse day math. batch120 (26/26). Full suite 103 green. (Payments are tracked as allocations, not yet
+  auto-posted to the ledger/cash — that's an app choice or a later doc-action; keeps AR/AP decoupled from GL.)
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
