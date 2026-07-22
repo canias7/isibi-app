@@ -6166,3 +6166,15 @@ the generation contract — no per-build audio generation, no cost.
   batch138 (22/22) — active/expired/future-start/cancelled, per-feature independence, list, upsert-renew,
   member-own vs admin, revoke. Full suite 121 green. Commerce theme: wallet + promotions + entitlements
   (+ existing cart/coupons) — solid. Next theme: SOCIAL (follow graph + feed, DMs).
+
+## 2026-07-22 — SOCIAL theme (follow graph already existed; feed is new)
+
+- **HOME FEED / TIMELINE** (`/api/db/<slug>/feed`, social): DISCOVERED a full follow graph already exists
+  (`_follows(follower_id,followee_id)` + toggleFollow/followState/followList, route `/follow/<userId>`) —
+  so did NOT rebuild it (removed my duplicate follows helper+route). The FEED is the new part: `GET /feed
+  ?table=<t>&limit=&before=` → rows of a **`feed`-access** table owned by whoever the caller follows
+  (`owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)`), newest-first, keyset via `before`/
+  `next_before`, respecting the table's trash. Restricted to `feed` access ONLY — a private `user` table is
+  rejected (would leak private rows to followers). batch139 (18/18) — followees-only, excludes self/non-
+  followees, newest-first, keyset pages, unfollow drops posts, trashed excluded, empty-when-no-follows,
+  user-table-rejected. Full suite 122 green. (2nd collision caught+handled — like /coupons earlier.)

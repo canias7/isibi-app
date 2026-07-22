@@ -4158,6 +4158,8 @@ function entIsActive(row) {
   if (row.expires && now > row.expires) return false;
   return true;
 }
+// (Follow graph already exists above — `_follows(follower_id, followee_id)` + toggleFollow/
+// followState/followList. The HOME FEED below reuses that table; no new follows primitive.)
 // Post a credit (+) or debit (−). A debit that would overdraw is refused (unless allowNegative).
 async function postWallet(env, uuid, data, userId) {
   await ensureWallet(env, uuid);
@@ -10252,6 +10254,40 @@ async function handleRequest(request, env, ctx) {
           const row = (await cfD1Query(env, uuid, "SELECT * FROM _entitlements WHERE account=? AND feature=?", [account, feature]))[0];
           return Response.json({ ok: true, account, feature, plan: row.plan, status: row.status, active: entIsActive(row), expires: row.expires });
         } catch (e) { console.error("entitlements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "entitlements failed" }, { status: 502 }); }
+      }
+      // HOME FEED (social) — a timeline of rows in a user/feed table owned by the accounts
+      // the caller follows, newest-first. Keyset via `before` (an id). Requires the follow graph.
+      //   GET /api/db/<slug>/feed?table=<t>[&limit=&before=]
+      const fdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/feed$/i);
+      if (fdm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fdm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureFollows(env, uuid);
+          if (!rateOk(slug + "|" + ip + "|feed", 300)) return tooMany();
+          const table = String(url.searchParams.get("table") || "").trim();
+          if (!/^[a-z_][a-z0-9_]{0,40}$/i.test(table)) return Response.json({ ok: false, error: "a valid ?table= is required" }, { status: 400 });
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          if (def.access !== "feed") return Response.json({ ok: false, error: "feed only works on a `feed`-access table (public rows owned by members); `user` tables are private" }, { status: 400 });
+          const tn = sqlIdent(table);
+          const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "30", 10) || 30));
+          const where = ["owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)"]; const params = [userId];
+          if (def.trash) where.push("deleted_at IS NULL");
+          const before = parseInt(url.searchParams.get("before") || "", 10); if (Number.isFinite(before)) { where.push("id < ?"); params.push(before); }
+          const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + where.join(" AND ") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+          parseJsonRows(def, rows);
+          return Response.json({ ok: true, table, rows, next_before: rows.length === lim ? rows[rows.length - 1].id : null });
+        } catch (e) { console.error("feed failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "feed failed" }, { status: 502 }); }
       }
       // SCHEDULING / BOOKINGS — book time slots on a resource with no double-booking. Any
       // signed-in member books (owner-stamped); admin sees/manages all, members their own.
