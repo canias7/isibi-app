@@ -6317,3 +6317,18 @@ the data API — so a generated app couldn't build an in-app analytics page from
     arcade panel embeds 3 specific showcase slugs (a-top-down-ceab20 / a-platformer-arrow-78fcf7 / a-breakout-game-9d6feb)
     — swap for curated permanent games; if deleted the frames go blank (degrades gracefully). WEBSITE channel still shows
     its old "coming soon" chatbox text (same latent thing) — left as-is, GAME-only scope.
+
+- **Webhook auto-fire on row changes** (integration): a table with `webhooks:true` now AUTO-fires
+  `<table>.created/updated/deleted` to matching subscribers on every single-row write — no manual
+  `/emit`. `webhooks:["created","deleted"]` opts into a subset. Payload `data` = the row (created →
+  id+owner_id+fields via `RETURNING id`; updated → id+changed; deleted → {id}). Wiring: refactored the
+  emit delivery loop into a shared `deliverWebhooks()`, added `autoFireWebhooks(env,ctx,uuid,def,action,row)`
+  (fire-and-forget via ctx.waitUntil, never blocks/fails the write), and called it at the 6 single-row CRUD
+  sites (admin + user/feed × create/update/delete) next to the existing `fireInsert/UpdateTriggers`. Cheap
+  when off: a per-isolate `_hasHooks` cache means a hookless site pays nothing (invalidated on register/
+  delete); tables without the flag skip entirely. Parsed `webhooks` into coerceTable + norm.push (aliases
+  emitEvents/fireWebhooks). Bulk/upsert intentionally NOT auto-fired (documented — use /emit). Added the two
+  plain inserts a `RETURNING id` (full suite confirms no regression). Harness gained `drain()` to await
+  ctx.waitUntil work (general — helps any fire-and-forget test). batch148 (9/9) — created/updated/deleted
+  fire, no-flag table silent, created-only table skips update/delete, all deliveries logged ok, cache
+  invalidation on subscriber delete stops firing. Full suite 131 green.

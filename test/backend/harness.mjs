@@ -100,9 +100,12 @@ export function installHarness() {
     SITES_BUCKET: makeBucket(),
     ANTHROPIC_API_KEY: "",
   };
-  const ctx = { waitUntil: (p) => { if (p && p.catch) p.catch(() => {}); } };
+  const pending = [];
+  const ctx = { waitUntil: (p) => { if (p && p.then) { pending.push(p); p.catch(() => {}); } } };
+  // Await any fire-and-forget work scheduled via ctx.waitUntil (webhook auto-fire, triggers…).
+  const drain = async () => { while (pending.length) { const batch = pending.splice(0); await Promise.allSettled(batch); } };
 
-  return { env, ctx, OWNER, OWNER_TOKEN, backends, dbs, getDb, restore() { globalThis.fetch = realFetch; } };
+  return { env, ctx, OWNER, OWNER_TOKEN, backends, dbs, getDb, drain, restore() { globalThis.fetch = realFetch; } };
 }
 
 // Convenience client bound to a worker handler + harness env.
