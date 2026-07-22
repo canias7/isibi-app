@@ -732,8 +732,17 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   `components` (items with no BOM) + `subassemblies` (intermediate built items), scaled by qty, fractional
   exact (round to 3 dp). Cycle + depth>30 detection → 409 `cycle`; no-BOM top → 404. qty in milli-units.
   Route `/bom(/<sku>(/explode)?)?`. batch121 (26/26) — 2-level bike/wheel, cross-branch aggregation,
-  fractional, replace, cycle. Full suite 104 green. (Next 10b: work orders that explode→issue components→
-  receive the finished product, + MRP netting requirements against on-hand.)
+  fractional, replace, cycle. Full suite 104 green.
+- **PHASE 10b — WORK ORDERS + MRP** (manufacturing): `_work_orders` table. `POST /work-orders {product,qty,
+  location?}` plans a build (requires a BOM). `GET /work-orders/<id>` explodes + shows requirements w/
+  availability + `can_build`. `POST /work-orders/<id>/build` = pre-check all leaf components available
+  (all-or-nothing 409), roll up finished cost from component avg costs (itemAvgCost helper), ISSUE each
+  component (wo-issue), RECEIVE the product (wo-receipt) valued at rolled-up unit cost — IDEMPOTENT via
+  `built` flag (409). `/cancel` a planned WO (can't cancel a built one). MRP: `POST /mrp {demand:[{product,
+  qty}], location?}` explodes the whole basket, aggregates leaf needs (a no-BOM product nets as itself →
+  purchased), nets vs on-hand available → `{requirements, shortfalls}`. woOut serializer. batch122 (33/33) —
+  incl. finished cost roll-up (10×$2+15×$1)/5=$7 flowing into gizmo valuation $35, all-or-nothing, idempotent,
+  MRP shortfalls. Full suite 105 green. Manufacturing spine done: BOM→WO→build→MRP.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 

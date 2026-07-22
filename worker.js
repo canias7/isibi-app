@@ -3846,6 +3846,20 @@ function explodeBom(map, product, qty) {
     subassemblies: [...subs.entries()].map(([component, q]) => ({ component, qty: round3(q) })).sort((a, b) => a.component < b.component ? -1 : 1),
   };
 }
+// Work orders — an order to BUILD a quantity of a product. Building explodes its BOM,
+// issues the leaf components from stock, and receives the finished product (valued at the
+// rolled-up component cost). Append-only-ish: a `built` flag makes the build idempotent.
+const _woReady = new Set();
+async function ensureWorkOrders(env, uuid) {
+  if (_woReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _work_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, product TEXT NOT NULL, qty_m INTEGER NOT NULL, location TEXT NOT NULL DEFAULT 'main', status TEXT NOT NULL DEFAULT 'planned', built INTEGER NOT NULL DEFAULT 0, ref TEXT, notes TEXT, created_by INTEGER, created_at TEXT, built_at TEXT)");
+  _woReady.add(uuid);
+}
+// Weighted-average unit cost (cents) for one item, or null if it has no costed receipts.
+async function itemAvgCost(env, uuid, item) {
+  const r = await cfD1Query(env, uuid, "SELECT SUM(qty_m*unit_cost_c) AS num, SUM(qty_m) AS den FROM _stock_moves WHERE item=? AND qty_m>0 AND unit_cost_c IS NOT NULL", [item]);
+  return (r[0] && r[0].den) ? (r[0].num / r[0].den) : null;
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9212,6 +9226,143 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
         } catch (e) { console.error("bom failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "bom failed" }, { status: 502 }); }
+      }
+      // WORK ORDERS (ERP manufacturing) — build a quantity of a product from its BOM. ADMIN.
+      //   POST /api/db/<slug>/work-orders {product, qty, location?, ref?, notes?} → plan a build
+      //   GET  /api/db/<slug>/work-orders[?status=&product=]     → list
+      //   GET  /api/db/<slug>/work-orders/<id>    → WO + exploded requirements + availability + can_build
+      //   POST /api/db/<slug>/work-orders/<id>/build [{location?}] → issue components, receive product (idempotent)
+      //   POST /api/db/<slug>/work-orders/<id>/cancel            → cancel a planned WO
+      const wom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/work-orders(?:\/(\d+)(?:\/(build|cancel))?)?$/i);
+      if (wom && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wom[1].toLowerCase(), woId = wom[2] ? parseInt(wom[2], 10) : null, act = wom[3] ? wom[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureWorkOrders(env, uuid); await ensureBom(env, uuid); await ensureStock(env, uuid);
+          const woOut = (w) => ({ id: w.id, product: w.product, qty: w.qty_m / 1000, location: w.location, status: w.status, built: !!w.built, ref: w.ref, notes: w.notes, created_at: w.created_at, built_at: w.built_at });
+          if (woId && act === "build") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wow", 60)) return tooMany();
+            const w = (await cfD1Query(env, uuid, "SELECT * FROM _work_orders WHERE id=?", [woId]))[0];
+            if (!w) return Response.json({ ok: false, error: "work order not found" }, { status: 404 });
+            if (w.built) return Response.json({ ok: false, error: "already built", code: "built" }, { status: 409 });
+            if (w.status === "cancelled") return Response.json({ ok: false, error: "work order is cancelled", code: "cancelled" }, { status: 409 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const location = body.location ? _stockLoc(body.location) : w.location;
+            const qty = w.qty_m / 1000;
+            const ex = explodeBom(await loadBomMap(env, uuid), w.product, qty);
+            if (ex.err) return Response.json({ ok: false, error: ex.err, code: ex.code }, { status: ex.code === "no_bom" ? 404 : 409 });
+            // Pre-check availability across all components, then roll up their cost.
+            let costC = 0; let costKnown = true;
+            for (const comp of ex.components) {
+              const lv = await stockLevel(env, uuid, comp.component, location);
+              if (lv.available < comp.qty) return Response.json({ ok: false, error: "insufficient " + comp.component + " at " + location, code: "stock", component: comp.component, needed: comp.qty, available: lv.available }, { status: 409 });
+              const ac = await itemAvgCost(env, uuid, comp.component); if (ac == null) costKnown = false; else costC += Math.round(comp.qty * 1000 * ac / 1000);
+            }
+            const issued = [];
+            for (const comp of ex.components) {
+              const mv = await postStockMove(env, uuid, { item: comp.component, location, qty: -comp.qty, kind: "wo-issue", ref: w.ref || "WO-" + woId }, userId);
+              if (mv.err) return Response.json({ ok: false, error: mv.err + " (partially issued — resolve manually)", code: "stock", issued: issued.map((m) => m.id) }, { status: 409 });
+              issued.push(mv.move);
+            }
+            const unitCost = (costKnown && qty > 0) ? (costC / qty) / 100 : undefined; // finished-goods cost = rolled-up components
+            const prod = await postStockMove(env, uuid, { item: w.product, location, qty: qty, kind: "wo-receipt", ref: w.ref || "WO-" + woId, unit_cost: unitCost }, userId);
+            await cfD1Query(env, uuid, "UPDATE _work_orders SET built=1, status='built', built_at=? WHERE id=?", [new Date().toISOString(), woId]);
+            return Response.json({ ok: true, product: w.product, qty, location, issued, produced: prod.move, unit_cost: unitCost == null ? null : unitCost });
+          }
+          if (woId && act === "cancel") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wow", 60)) return tooMany();
+            const w = (await cfD1Query(env, uuid, "SELECT built FROM _work_orders WHERE id=?", [woId]))[0];
+            if (!w) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (w.built) return Response.json({ ok: false, error: "can't cancel a built work order", code: "built" }, { status: 409 });
+            await cfD1Query(env, uuid, "UPDATE _work_orders SET status='cancelled' WHERE id=?", [woId]);
+            return Response.json({ ok: true, id: woId, status: "cancelled" });
+          }
+          if (act) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+          if (woId && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wor", 300)) return tooMany();
+            const w = (await cfD1Query(env, uuid, "SELECT * FROM _work_orders WHERE id=?", [woId]))[0];
+            if (!w) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const ex = explodeBom(await loadBomMap(env, uuid), w.product, w.qty_m / 1000);
+            let requirements = null, canBuild = null;
+            if (!ex.err) { requirements = []; canBuild = true; for (const comp of ex.components) { const lv = await stockLevel(env, uuid, comp.component, w.location); const short = Math.max(0, Math.round((comp.qty - lv.available) * 1000) / 1000); if (short > 0) canBuild = false; requirements.push({ component: comp.component, required: comp.qty, available: lv.available, shortfall: short }); } }
+            return Response.json({ ok: true, work_order: woOut(w), requirements, can_build: canBuild });
+          }
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wor", 300)) return tooMany();
+            const where = []; const params = [];
+            const st = (url.searchParams.get("status") || "").toLowerCase().replace(/[^a-z]/g, ""); if (st) { where.push("status=?"); params.push(st); }
+            const pr = _bomSku(url.searchParams.get("product")); if (pr) { where.push("product=?"); params.push(pr); }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _work_orders" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT 500", params);
+            return Response.json({ ok: true, work_orders: rows.map(woOut) });
+          }
+          if (request.method === "POST" && !woId) {
+            if (!rateOk(slug + "|" + ip + "|wow", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const product = _bomSku(body.product); if (!product) return Response.json({ ok: false, error: "product must be a SKU" }, { status: 400 });
+            const qm = toMilli(body.qty); if (qm == null || qm <= 0) return Response.json({ ok: false, error: "qty must be positive" }, { status: 400 });
+            const has = await cfD1Query(env, uuid, "SELECT 1 FROM _boms WHERE product=?", [product]);
+            if (!has[0]) return Response.json({ ok: false, error: "no BOM defined for " + product + " — define one first", code: "no_bom" }, { status: 400 });
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _work_orders (product, qty_m, location, status, ref, notes, created_by, created_at) VALUES (?,?,?, 'planned', ?,?,?,?) RETURNING id", [product, qm, _stockLoc(body.location), body.ref != null ? String(body.ref).slice(0, 120) : null, body.notes != null ? String(body.notes).slice(0, 500) : null, userId, new Date().toISOString()]);
+            const w = (await cfD1Query(env, uuid, "SELECT * FROM _work_orders WHERE id=?", [ins[0] && ins[0].id]))[0];
+            return Response.json({ ok: true, work_order: woOut(w) });
+          }
+          return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
+        } catch (e) { console.error("work-orders failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "work orders failed" }, { status: 502 }); }
+      }
+      // MRP — material requirements planning: explode a basket of demand, aggregate leaf
+      // component needs, net against on-hand availability → shortfalls to buy/build. ADMIN.
+      //   POST /api/db/<slug>/mrp {demand:[{product, qty}], location?} → {requirements:[{component,required,available,shortfall}], shortfalls:[…]}
+      const mrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mrp$/i);
+      if (mrm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mrm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureBom(env, uuid); await ensureStock(env, uuid);
+          if (!rateOk(slug + "|" + ip + "|mrp", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.demand) || !body.demand.length) return Response.json({ ok: false, error: "demand:[{product, qty}] is required" }, { status: 400 });
+          const location = body.location ? _stockLoc(body.location) : "main";
+          const map = await loadBomMap(env, uuid);
+          const need = new Map();
+          for (const d of body.demand.slice(0, 500)) {
+            const product = _bomSku(d && d.product); const q = Number(d && d.qty);
+            if (!product || !Number.isFinite(q) || q <= 0) return Response.json({ ok: false, error: "each demand needs a SKU product and positive qty" }, { status: 400 });
+            const ex = explodeBom(map, product, q);
+            if (ex.err && ex.code === "cycle") return Response.json({ ok: false, error: ex.err, code: "cycle" }, { status: 409 });
+            if (ex.err) { need.set(product, (need.get(product) || 0) + q); continue; } // no BOM → the product itself is the requirement (raw/purchased)
+            for (const comp of ex.components) need.set(comp.component, (need.get(comp.component) || 0) + comp.qty);
+          }
+          const requirements = [];
+          for (const [component, required] of [...need.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+            const lv = await stockLevel(env, uuid, component, location);
+            const req = Math.round(required * 1000) / 1000;
+            const shortfall = Math.max(0, Math.round((req - lv.available) * 1000) / 1000);
+            requirements.push({ component, required: req, available: lv.available, shortfall });
+          }
+          return Response.json({ ok: true, location, requirements, shortfalls: requirements.filter((r) => r.shortfall > 0) });
+        } catch (e) { console.error("mrp failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mrp failed" }, { status: 502 }); }
       }
       // STOCK LEDGER (ERP inventory) — append-only movements; on-hand = Σqty; reservations
       // earmark availability. No-negative-stock is enforced atomically. ADMIN-gated.
