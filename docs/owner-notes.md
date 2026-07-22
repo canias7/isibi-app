@@ -743,6 +743,17 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   purchased), nets vs on-hand available → `{requirements, shortfalls}`. woOut serializer. batch122 (33/33) —
   incl. finished cost roll-up (10×$2+15×$1)/5=$7 flowing into gizmo valuation $35, all-or-nothing, idempotent,
   MRP shortfalls. Full suite 105 green. Manufacturing spine done: BOM→WO→build→MRP.
+- **PHASE 11 — CHART OF ACCOUNTS + FINANCIAL STATEMENTS** (accounting crown jewel): `_accounts` table
+  (account PK, type asset|liability|equity|income|expense, name, code). `POST /ledger/accounts` upsert,
+  `GET /ledger/accounts`, `DELETE /ledger/accounts/<account>`. `GET /ledger/pnl?from=&to=&ledger=` →
+  income (credit−debit) / expenses (debit−credit) / net_income over the period. `GET /ledger/balance-sheet
+  ?as_of=` → assets (debit−credit) / liabilities+equity (credit−debit) / retained_earnings (income−expense
+  cumulative rolls into equity) / `balanced` (A === L+E+earnings AND no unclassified). Sign conventions
+  handled in cents via statementBalances (cents-exact per-account d/c) + accountTypeMap. Unclassified accounts
+  with activity are surfaced (never silently dropped) and flip balanced=false. Separate route
+  `/ledger/(accounts|pnl|balance-sheet)(/<acct>)?` (string acct id, distinct from the numeric-id ledger
+  route). batch123 (31/31) — a 5-entry books scenario ties out: assets 11500 = AP 300 + capital 10000 +
+  earnings 1200; date-scoped P&L; unclassified detection + fix. Full suite 106 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 
