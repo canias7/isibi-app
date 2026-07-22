@@ -2649,7 +2649,14 @@ async function cascadeDeleteRow(env, uuid, spec, table, tn, id, scopeSql, scopeP
     if (k.mode === "restrict") continue;
     try {
       if (k.mode === "setnull") await cfD1Query(env, uuid, "UPDATE " + sqlIdent(k.table) + " SET " + sqlIdent(k.col) + "=NULL WHERE " + sqlIdent(k.col) + "=?", [id]);
-      else await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id]);
+      else {
+        // Cascade-delete the children AND sweep THEIR satellites (notes/attachments+R2/…) too, so a
+        // parent delete doesn't orphan a child's activity or leak its attachment bytes.
+        let childIds = [];
+        try { childIds = (await cfD1Query(env, uuid, "SELECT id FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id])).map((r) => r.id); } catch {}
+        await cfD1Query(env, uuid, "DELETE FROM " + sqlIdent(k.table) + " WHERE " + sqlIdent(k.col) + "=?", [id]);
+        if (childIds.length) await purgeRowSatellites(env, uuid, k.table, childIds);
+      }
     } catch (e) { console.error("cascade child (" + k.mode + ") failed:", k.table, e && e.message); }
   }
   await cfD1Query(env, uuid, "DELETE FROM " + tn + " WHERE id=?" + (scopeSql || ""), [id].concat(sp));

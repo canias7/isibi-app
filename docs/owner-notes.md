@@ -617,6 +617,15 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — Hardening: cascade-deleted CHILD rows' satellites are swept too
+
+Closes the last delete-cascade follow-up. `cascadeDeleteRow`'s cascade branch now SELECTs the child
+ids before deleting them, then calls `purgeRowSatellites` for each cascade child table — so deleting
+a parent no longer orphans a child's notes/attachments or leaks the child's R2 bytes. One level
+(matches the existing cascade philosophy); setnull children are untouched (they survive). Offline
+batch89 (9/9): parent delete → both cascade children gone + their notes/attachments purged + both R2
+objects removed. Full suite (72) green.
+
 ## 2026-07-22 — Reporting: expression aggregates (weighted forecast)
 
 `sum=<alias>:<expr>` in stats — aggregate a SQL arithmetic expression (`+ - * /` + parens over
