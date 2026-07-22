@@ -3486,6 +3486,34 @@ async function logApproval(env, uuid, table, rowId, action, actorId, note) {
   await ensureApprovals(env, uuid);
   await cfD1Query(env, uuid, "INSERT INTO _approvals (row_table,row_id,action,actor_id,note,at) VALUES (?,?,?,?,?,?)", [table, rowId, action, actorId || null, String(note || "").slice(0, 1000) || null, new Date().toISOString()]);
 }
+// Activity notes — a member logs a note/call/email/meeting/task against any record (a CRM
+// activity log against a contact or deal). Polymorphic: keyed by (row_table, row_id). Stored in
+// `_notes` with the author + a `kind` + free-text body. Reads are newest-first with the author's
+// public profile; a member removes their OWN note (an admin removes any). Ensured once per isolate.
+const _notesReady = new Set();
+const NOTE_KINDS = new Set(["note", "call", "email", "meeting", "task", "sms", "log"]);
+async function ensureNotes(env, uuid) {
+  if (_notesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _notes (id INTEGER PRIMARY KEY AUTOINCREMENT, row_table TEXT NOT NULL, row_id INTEGER NOT NULL, author_id INTEGER, kind TEXT NOT NULL DEFAULT 'note', body TEXT, created_at TEXT)");
+  _notesReady.add(uuid);
+}
+// A signed-in member can log/see notes on a record they can SEE: public-read tables
+// (display/feed/admin) → any member; a `user` table → the row's owner, its owner's manager
+// (teamRead), or an admin. `collect` (write-only) exposes nothing, so no notes there.
+async function memberCanSeeRow(env, uuid, def, tn, rowId, userId, access) {
+  if (access === "collect") return false;
+  if (access !== "user") return true;
+  const row = await cfD1Query(env, uuid, "SELECT owner_id FROM " + tn + " WHERE id=?", [rowId]);
+  if (!row[0]) return false;
+  if (row[0].owner_id === userId) return true;
+  const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+  if (rr[0] && rr[0].role === "admin") return true;
+  if (def.teamRead && row[0].owner_id != null) {
+    const dl = await cfD1Query(env, uuid, "WITH RECURSIVE dl(id) AS (SELECT ? UNION SELECT u.id FROM _users u JOIN dl ON u.manager_id = dl.id) SELECT 1 FROM dl WHERE id=? LIMIT 1", [userId, row[0].owner_id]);
+    if (dl[0]) return true;
+  }
+  return false;
+}
 // Polls — one vote per member per poll (change your vote by voting again). A poll is any
 // string id (e.g. `best-logo` or `question:${id}`); options are app-defined strings. Stored
 // in `_polls` with PK (poll, user_id), so re-voting UPDATES the member's choice — real
@@ -8154,7 +8182,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8174,6 +8202,7 @@ async function handleRequest(request, env, ctx) {
         const isArchive = dm[4] === "archive" || dm[4] === "unarchive";
         const isApprovalAct = dm[4] === "submit" || dm[4] === "approve" || dm[4] === "reject";
         const isApprovalsLog = dm[4] === "approvals";
+        const isNotes = dm[4] === "notes";
         const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -8532,6 +8561,52 @@ async function handleRequest(request, env, ctx) {
             await logApproval(env, uuid, table, rowId, dm[4], userId, body.note);
             fireUpdateTriggers(env, ctx, slug, table, { id: rowId, [statusCol]: decision, _approval: dm[4] });
             return Response.json({ ok: true, id: rowId, status: decision });
+          }
+          // Activity notes — POST /rows/<t>/<id>/notes {body, kind?} logs a note/call/email/
+          // meeting/task against a record (a CRM activity log); GET lists them newest-first with
+          // the author's public profile (optional ?kind= filter, ?limit=); DELETE
+          // /rows/<t>/<id>/notes/<noteId> removes your own note (an admin removes any). A member
+          // must be able to SEE the record (owner/team/admin on user tables; anyone on a
+          // public-read table). Not available on write-only `collect` tables.
+          if (isNotes) {
+            if (access === "collect") return Response.json({ ok: false, error: "notes aren't available on a write-only table" }, { status: 400 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const noteId = dm[5] && /^\d+$/.test(dm[5]) ? parseInt(dm[5], 10) : null;
+            await ensureNotes(env, uuid);
+            // A member must be able to SEE the record before reading, adding, or removing any of
+            // its notes — so an outsider can't even discover that a note exists (always 404).
+            if (!(await memberCanSeeRow(env, uuid, def, tn, rowId, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            if (method === "GET") {
+              const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+              const kindF = String(url.searchParams.get("kind") || "").toLowerCase();
+              const wh = ["row_table=?", "row_id=?"]; const pv = [table, rowId];
+              if (NOTE_KINDS.has(kindF)) { wh.push("kind=?"); pv.push(kindF); }
+              const notes = await cfD1Query(env, uuid, "SELECT id, author_id, kind, body, created_at FROM _notes WHERE " + wh.join(" AND ") + " ORDER BY id DESC LIMIT " + lim, pv);
+              const ids = [...new Set(notes.map((n) => n.author_id).filter((v) => v != null))];
+              let byId = new Map();
+              if (ids.length) { try { const au = await cfD1Query(env, uuid, "SELECT id,display_name,avatar_url FROM _users WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); byId = new Map(au.map((a) => [a.id, a])); } catch {} }
+              for (const n of notes) n.author = n.author_id != null ? (byId.get(n.author_id) || null) : null;
+              return Response.json({ ok: true, id: rowId, notes });
+            }
+            if (method === "DELETE") {
+              if (!(noteId > 0)) return Response.json({ ok: false, error: "DELETE needs a note id: /rows/<t>/<id>/notes/<noteId>" }, { status: 400 });
+              const nn = await cfD1Query(env, uuid, "SELECT author_id FROM _notes WHERE id=? AND row_table=? AND row_id=?", [noteId, table, rowId]);
+              if (!nn[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              let mayDel = nn[0].author_id === userId;
+              if (!mayDel) { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); mayDel = !!(rr[0] && rr[0].role === "admin"); }
+              if (!mayDel) return Response.json({ ok: false, error: "you can only remove your own note" }, { status: 403 });
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _notes WHERE id=?", [noteId]);
+              return Response.json({ ok: true, deleted: ex.changes || 0 });
+            }
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST/GET/DELETE" }, { status: 405 });
+            const body = await readBody();
+            const kind = NOTE_KINDS.has(String(body.kind || "").toLowerCase()) ? String(body.kind).toLowerCase() : "note";
+            const text = String(body.body != null ? body.body : (body.text != null ? body.text : "")).slice(0, 5000);
+            if (!text.trim()) return Response.json({ ok: false, error: "note body required" }, { status: 400 });
+            const at = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _notes (row_table,row_id,author_id,kind,body,created_at) VALUES (?,?,?,?,?,?) RETURNING id", [table, rowId, userId, kind, text, at]);
+            return Response.json({ ok: true, note: { id: ins[0] && ins[0].id, row_id: rowId, kind, body: text, author_id: userId, created_at: at } });
           }
           // Reassign a record's owner — POST /rows/<t>/<id>/assign {user:<id|email>}. On a
           // table WITH an owner (user/feed), an ADMIN — or the current owner's MANAGER on a
