@@ -3809,6 +3809,15 @@ async function stockLots(env, uuid, filter) {
   if (filter.expiringBefore) out = out.filter((l) => l.expiry && l.expiry <= filter.expiringBefore);
   return out;
 }
+// Reorder rules — per item+location min (reorder point) + how much to reorder. Powers the
+// replenishment report: items whose AVAILABLE has fallen to/below the point, with a
+// suggested order qty (to `target` if set, else a fixed `reorder_qty`, else back to point).
+const _reorderReady = new Set();
+async function ensureReorder(env, uuid) {
+  if (_reorderReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _reorder_rules (item TEXT NOT NULL, location TEXT NOT NULL DEFAULT 'main', point_m INTEGER NOT NULL, qty_m INTEGER, target_m INTEGER, supplier TEXT, PRIMARY KEY (item, location))");
+  _reorderReady.add(uuid);
+}
 // Reserve stock — earmarks qty against availability (on-hand − active reservations),
 // refused atomically if it would oversell. Returns the reservation.
 async function reserveStock(env, uuid, data, userId) {
@@ -10114,6 +10123,75 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("stock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "stock failed" }, { status: 502 }); }
+      }
+      // REORDER RULES + REPLENISHMENT (WMS/SCM) — per-item min levels + a "what to order" report.
+      // ADMIN. (Separate route: item ids in the path aren't numeric, unlike the main stock route.)
+      //   POST   /api/db/<slug>/stock/reorder-rules {item, location?, reorder_point, reorder_qty?, target?, supplier?}
+      //   GET    /api/db/<slug>/stock/reorder-rules[?item=&location=]      → the rules
+      //   DELETE /api/db/<slug>/stock/reorder-rules/<item>[?location=]     → remove a rule
+      //   GET    /api/db/<slug>/stock/replenishment[?location=]           → items at/below reorder point + suggested qty
+      const rom = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/stock\/(reorder-rules|replenishment)(?:\/([A-Za-z0-9_.-]{1,80}))?$/i);
+      if (rom && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rom[1].toLowerCase(), resource = rom[2].toLowerCase(), ruleItem = rom[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureReorder(env, uuid); await ensureStock(env, uuid);
+          if (resource === "replenishment") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|stkr", 300)) return tooMany();
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : null;
+            const rules = await cfD1Query(env, uuid, "SELECT * FROM _reorder_rules" + (loc ? " WHERE location=?" : "") + " LIMIT 5000", loc ? [loc] : []);
+            const suggestions = [];
+            for (const rule of rules) {
+              const lv = await stockLevel(env, uuid, rule.item, rule.location);
+              const point = rule.point_m / 1000;
+              if (lv.available > point) continue; // above the reorder point → fine
+              let order;
+              if (rule.target_m != null) order = Math.max(0, (rule.target_m - Math.round(lv.available * 1000)) / 1000);
+              else if (rule.qty_m != null) order = rule.qty_m / 1000;
+              else order = Math.max(0, point - lv.available);
+              if (order > 0) suggestions.push({ item: rule.item, location: rule.location, available: lv.available, reorder_point: point, suggested_order: Math.round(order * 1000) / 1000, supplier: rule.supplier || null });
+            }
+            suggestions.sort((a, b) => (a.available - a.reorder_point) - (b.available - b.reorder_point));
+            return Response.json({ ok: true, location: loc, suggestions });
+          }
+          // reorder-rules
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|stkr", 300)) return tooMany();
+            const where = []; const params = [];
+            const it = _stockItem(url.searchParams.get("item")); if (it) { where.push("item=?"); params.push(it); }
+            const loc = url.searchParams.get("location"); if (loc) { where.push("location=?"); params.push(_stockLoc(loc)); }
+            const rows = await cfD1Query(env, uuid, "SELECT * FROM _reorder_rules" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY item, location LIMIT 5000", params);
+            return Response.json({ ok: true, rules: rows.map((r) => ({ item: r.item, location: r.location, reorder_point: r.point_m / 1000, reorder_qty: r.qty_m == null ? null : r.qty_m / 1000, target: r.target_m == null ? null : r.target_m / 1000, supplier: r.supplier || null })) });
+          }
+          if (request.method === "DELETE") {
+            if (!rateOk(slug + "|" + ip + "|stkw", 120)) return tooMany();
+            const it = _stockItem(ruleItem); if (!it) return Response.json({ ok: false, error: "item required" }, { status: 400 });
+            const loc = url.searchParams.get("location") ? _stockLoc(url.searchParams.get("location")) : "main";
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _reorder_rules WHERE item=? AND location=?", [it, loc]);
+            return ex.changes > 0 ? Response.json({ ok: true, item: it, location: loc, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+          }
+          // POST — upsert a rule
+          if (!rateOk(slug + "|" + ip + "|stkw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const it = _stockItem(body.item); if (!it) return Response.json({ ok: false, error: "item is required" }, { status: 400 });
+          const loc = _stockLoc(body.location);
+          const point = toMilli(body.reorder_point); if (point == null || point < 0) return Response.json({ ok: false, error: "reorder_point must be a number ≥ 0" }, { status: 400 });
+          const qty = body.reorder_qty != null && body.reorder_qty !== "" ? toMilli(body.reorder_qty) : null;
+          const target = body.target != null && body.target !== "" ? toMilli(body.target) : null;
+          await cfD1Query(env, uuid, "INSERT INTO _reorder_rules (item, location, point_m, qty_m, target_m, supplier) VALUES (?,?,?,?,?,?) ON CONFLICT(item, location) DO UPDATE SET point_m=excluded.point_m, qty_m=excluded.qty_m, target_m=excluded.target_m, supplier=excluded.supplier", [it, loc, point, qty, target, body.supplier != null ? String(body.supplier).slice(0, 120) : null]);
+          return Response.json({ ok: true, item: it, location: loc, reorder_point: point / 1000 });
+        } catch (e) { console.error("reorder failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reorder failed" }, { status: 502 }); }
       }
       // AR/AP AGING — open documents of a type bucketed by how overdue they are, for a
       // receivables/payables report. Uses due_date (falls back to doc_date). ADMIN-gated.

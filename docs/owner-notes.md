@@ -652,6 +652,13 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   mechanism). Non-lot moves fully unchanged. stockLots helper; added lots|allocate to the stock route.
   batch129 (20/20) — FEFO order, lot-scoped 409, expiring filter, serial ship-twice-409, non-lot untouched.
   Full suite 112 green. Serves WMS/SCM.
+- **VERT 4 — REORDER / REPLENISHMENT** (WMS/SCM, ADMIN): `_reorder_rules` (PK item+location, point_m, qty_m,
+  target_m, supplier). `POST /stock/reorder-rules` upsert, `GET /stock/reorder-rules[?item=&location=]`,
+  `DELETE /stock/reorder-rules/<item>[?location=]`. `GET /stock/replenishment[?location=]` → for each rule
+  computes stockLevel.available; if ≤ point, suggests order = target−available (if target) | fixed qty | back
+  to point; sorted most-negative-first; carries supplier. Separate route (item path ≠ numeric). ensureReorder
+  helper. batch130 (16/16) — fixed qty, top-up-to-target, healthy-excluded, reservation-triggers, default=up-
+  to-point, delete. Full suite 113 green.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
