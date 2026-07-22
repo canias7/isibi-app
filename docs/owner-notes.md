@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-22 — referral tracking + attribution (data API)
+- **`/referrals/*`** — a "refer a friend" program for generated apps (any signed-in member).
+  `POST /referrals/code` → my stable deterministic code (base36(userId)+FNV-1a suffix, get-or-create);
+  `POST /referrals/claim {code}` attributes me to the code's owner exactly ONCE (atomic: PK on
+  `referred_id` + `INSERT … WHERE NOT EXISTS` → a 2nd claim/code-switch changes 0 rows → 409; self →
+  400, unknown → 404); `GET /referrals/mine` → my code + who I referred (+timestamps); `GET
+  /referrals/leaderboard` (admin) ranks top referrers. Tables `_referral_codes`/`_referrals` wired
+  into GDPR erase. batch174 (24/24). Reward payout is left to wallet/points/entitlement off the claim.
+- **Process note:** the design workflow's agents were writing straight to worker.js on the shared tree,
+  which collided with my manual edits and got repeatedly discarded on tree-syncs. Takeaway confirmed:
+  uncommitted tracked changes here are ephemeral (a sibling session's PR merge resets the tree) — so I
+  now apply one primitive, test, and COMMIT before touching anything else. Harvested this referral code
+  from a saved diff and re-applied it cleanly.
+
 ## 2026-07-22 — finance calculators: sales tax + installments + commission
 - Three more stateless `/finance/*` calculators (same route/pattern as depreciation/amortization/eoq/
   breakeven/forecast — any signed-in member, touch no data, cents-exact): added to the finance regex +

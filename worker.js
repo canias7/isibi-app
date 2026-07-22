@@ -4460,6 +4460,28 @@ async function ensureSegments(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _segments (name TEXT PRIMARY KEY, table_name TEXT NOT NULL, filter TEXT, created_at TEXT, updated_at TEXT)");
   _segReady.add(uuid);
 }
+// Referral tracking + attribution — each member has one stable referral CODE; a new member
+// claims a code ONCE to attribute themselves to a referrer; a leaderboard ranks top referrers.
+// `_referral_codes` = one code per member (code UNIQUE), `_referrals` = the claim edges with a
+// PRIMARY KEY on referred_id so a member can be referred AT MOST ONCE. Ensured once per isolate.
+const _refReady = new Set();
+async function ensureReferrals(env, uuid) {
+  if (_refReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _referral_codes (user_id INTEGER PRIMARY KEY, code TEXT UNIQUE NOT NULL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _referrals (referrer_id INTEGER NOT NULL, referred_id INTEGER PRIMARY KEY, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ref_referrer ON _referrals (referrer_id)"); } catch {}
+  _refReady.add(uuid);
+}
+// Deterministic, stable referral code for a member: base36(userId) + a short FNV-1a-derived suffix
+// (so codes aren't trivially sequential/guessable), UPPERCASE. Same (uuid,userId) → same code, and
+// the base36(userId) prefix already guarantees uniqueness across members (no random collisions).
+function referralCodeFor(uuid, userId) {
+  const s = String(uuid) + ":" + String(userId);
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const suffix = h.toString(36).toUpperCase().slice(0, 4).padStart(4, "0");
+  return Number(userId).toString(36).toUpperCase() + suffix;
+}
 // Teams / organizations / workspaces — group members into teams with a role each (owner/admin/
 // member), the foundation for any B2B/multi-tenant app (a CRM workspace, a project team, an org).
 // `_teams` = the groups, `_team_members` = who's in each + their role. Additive: doesn't change the
@@ -9193,6 +9215,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
+            ["DELETE FROM _referral_codes WHERE user_id=?", [u.id]],                          // their referral code
+            ["DELETE FROM _referrals WHERE referrer_id=? OR referred_id=?", [u.id, u.id]],     // referral edges either side
           ]) { try { await cfD1Query(env, uuid, q, args); } catch {} }
           await cfD1Query(env, uuid, "DELETE FROM _users WHERE id=?", [u.id]);
           return Response.json({ ok: true, deleted: true });
@@ -10213,6 +10237,73 @@ async function handleRequest(request, env, ctx) {
           });
           return Response.json({ ok: true, metrics });
         } catch (e) { console.error("kpi failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "kpi failed" }, { status: 502 }); }
+      }
+      // REFERRAL TRACKING + ATTRIBUTION — every member has a stable referral code; a new member
+      // claims a code ONCE to attribute themselves to a referrer; a leaderboard ranks top referrers.
+      //   POST /api/db/<slug>/referrals/code          → get-or-create MY stable referral code {code}
+      //   POST /api/db/<slug>/referrals/claim {code}  → attribute me to the code's owner, ONCE
+      //          → {referrer_id} · 400 self/blank · 404 unknown code · 409 already claimed
+      //   GET  /api/db/<slug>/referrals/mine          → {code, referred_count, referred:[{user_id, at}]}
+      //   GET  /api/db/<slug>/referrals/leaderboard[?limit=]  → {leaderboard:[{referrer_id, count}]} (ADMIN)
+      const rfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/referrals(?:\/(code|claim|mine|leaderboard))?$/i);
+      if (rfm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rfm[1].toLowerCase(), sub = rfm[2] ? rfm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        if (!sub) return Response.json({ ok: false, error: "use /referrals/code, /claim, /mine or /leaderboard" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureReferrals(env, uuid);
+          // My stable referral code — get-or-create (idempotent upsert, deterministic value).
+          if (sub === "code") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|refc", 120)) return tooMany();
+            const code = referralCodeFor(uuid, userId);
+            await cfD1Query(env, uuid, "INSERT INTO _referral_codes (user_id, code, created_at) VALUES (?,?,?) ON CONFLICT(user_id) DO NOTHING", [userId, code, new Date().toISOString()]);
+            const row = (await cfD1Query(env, uuid, "SELECT code FROM _referral_codes WHERE user_id=?", [userId]))[0];
+            return Response.json({ ok: true, code: row ? row.code : code });
+          }
+          // Claim a code → attribute me to its owner, exactly once (atomic single-statement guard).
+          if (sub === "claim") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|refx", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const code = String(body.code || "").trim().toUpperCase().slice(0, 40);
+            if (!code) return Response.json({ ok: false, error: "a referral code is required" }, { status: 400 });
+            const owner = (await cfD1Query(env, uuid, "SELECT user_id FROM _referral_codes WHERE code=?", [code]))[0];
+            if (!owner) return Response.json({ ok: false, error: "that referral code doesn't exist" }, { status: 404 });
+            if (Number(owner.user_id) === Number(userId)) return Response.json({ ok: false, error: "you can't refer yourself" }, { status: 400 });
+            // PK on referred_id + WHERE NOT EXISTS = one atomic insert: a second claim changes 0 rows.
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _referrals (referrer_id, referred_id, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM _referrals WHERE referred_id=?)", [owner.user_id, userId, new Date().toISOString(), userId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "you've already claimed a referral" }, { status: 409 });
+            return Response.json({ ok: true, referrer_id: owner.user_id });
+          }
+          // People I referred (+ my code).
+          if (sub === "mine") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|refm", 300)) return tooMany();
+            const codeRow = (await cfD1Query(env, uuid, "SELECT code FROM _referral_codes WHERE user_id=?", [userId]))[0];
+            const rows = await cfD1Query(env, uuid, "SELECT referred_id, created_at FROM _referrals WHERE referrer_id=? ORDER BY created_at DESC, referred_id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, code: codeRow ? codeRow.code : null, referred_count: rows.length, referred: rows.map((r) => ({ user_id: r.referred_id, at: r.created_at })) });
+          }
+          // Leaderboard — top referrers (ADMIN: exposes other members' totals).
+          if (sub === "leaderboard") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rateOk(slug + "|" + ip + "|refl", 300)) return tooMany();
+            const lim = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50));
+            const rows = await cfD1Query(env, uuid, "SELECT referrer_id, COUNT(*) AS count FROM _referrals GROUP BY referrer_id ORDER BY count DESC, referrer_id ASC LIMIT ?", [lim]);
+            return Response.json({ ok: true, leaderboard: rows.map((r) => ({ referrer_id: r.referrer_id, count: r.count })) });
+          }
+          return Response.json({ ok: false, error: "unknown referrals endpoint" }, { status: 404 });
+        } catch (e) { console.error("referrals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "referrals failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
