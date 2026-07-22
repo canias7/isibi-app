@@ -6251,3 +6251,14 @@ the data API — so a generated app couldn't build an in-app analytics page from
   (22/22) — deterministic seed via harness `getDb`: window totals exclude out-of-window rows, byEvent/byPath
   breakdowns, zero-filled continuous series (verified the gap days = 0), event/path filters, reversed-window
   normalize, `?days=1` captures today, non-admin 403 / signed-out 401 / empty-window 0. Full suite 126 green.
+
+- **Conversion funnel** (analytics): `GET /api/db/<slug>/funnel?table=<t>&steps=a,b,c` (ADMIN) — over the
+  app's OWN event-log table (one row per actor per step; a `feed` table with an `event` column is the
+  natural fit). For each step k it counts DISTINCT actors who did steps[0..k] (all of them, in the window)
+  via a single `GROUP BY actor HAVING COUNT(DISTINCT step)=k+1` per step — so it's a real monotonic funnel,
+  repeated steps dedupe, and out-of-funnel steps are ignored (IN-clause scoped). Returns per-step
+  `{count, pct_of_top, pct_of_prev}` + `overall_conversion`. `step_col` default 'event', `actor` default
+  'owner_id' (both validated against the table's columns), optional `from`/`to` on created_at. Admin-only
+  (reads across every actor). batch144 (20/20) — 4 actors with different drop-off (incl. an out-of-order
+  skipper + a duplicate step + an unrelated step), monotonic check, %s, window empty/full, all guards.
+  Full suite 127 green.
