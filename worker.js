@@ -3601,6 +3601,7 @@ async function ensureLedger(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, ledger TEXT NOT NULL DEFAULT 'gl', ref TEXT, memo TEXT, entry_date TEXT NOT NULL, posted INTEGER NOT NULL DEFAULT 0, posted_at TEXT, reverses INTEGER, reversed_by INTEGER, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL, ledger TEXT NOT NULL DEFAULT 'gl', account TEXT NOT NULL, dim TEXT, debit_c INTEGER NOT NULL DEFAULT 0, credit_c INTEGER NOT NULL DEFAULT 0, memo TEXT, meta TEXT, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _journal_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, ledger TEXT NOT NULL DEFAULT 'gl', memo TEXT, lines TEXT, created_at TEXT)"); // recurring-journal templates (balanced line sets posted on demand)
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _accounts (account TEXT PRIMARY KEY, type TEXT NOT NULL, name TEXT, code TEXT)"); // chart of accounts (classifies accounts for P&L / balance sheet)
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_acct ON _ledger_lines (ledger, account)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_entry ON _ledger_lines (entry_id)"); } catch {}
   _ledgerReady.add(uuid);
@@ -3669,6 +3670,18 @@ async function ledgerBalances(env, uuid, ledger, opts) {
   let td = 0, tc = 0;
   const accounts = rows.map((r) => { const d = r.d || 0, c = r.c || 0; td += d; tc += c; return { account: r.account, debit: d / 100, credit: c / 100, balance: (d - c) / 100 }; });
   return { accounts, total_debit: td / 100, total_credit: tc / 100, balanced: td === tc };
+}
+// Per-account debit/credit totals in CENTS (posted lines only), for exact statement math.
+async function statementBalances(env, uuid, ledger, opts) {
+  await ensureLedger(env, uuid);
+  const where = ["e.posted=1", "l.ledger=?"]; const params = [ledger];
+  if (opts.from) { where.push("e.entry_date>=?"); params.push(opts.from); }
+  if (opts.to) { where.push("e.entry_date<=?"); params.push(opts.to); }
+  return await cfD1Query(env, uuid, "SELECT l.account, SUM(l.debit_c) AS d, SUM(l.credit_c) AS c FROM _ledger_lines l JOIN _ledger_entries e ON e.id=l.entry_id WHERE " + where.join(" AND ") + " GROUP BY l.account", params);
+}
+async function accountTypeMap(env, uuid) {
+  const rows = await cfD1Query(env, uuid, "SELECT account, type, name FROM _accounts LIMIT 20000");
+  const m = new Map(); for (const r of rows) m.set(r.account, { type: r.type, name: r.name }); return m;
 }
 // Depreciation schedule (stateless calculator) — straight-line or declining-balance. Cents
 // throughout so it ties out exactly: the final period absorbs any rounding residual so
@@ -9079,6 +9092,92 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("ledger failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ledger failed" }, { status: 502 }); }
+      }
+      // CHART OF ACCOUNTS + FINANCIAL STATEMENTS (ERP finance) — classify accounts, then
+      // produce a P&L and balance sheet from the ledger. ADMIN-gated.
+      //   POST   /api/db/<slug>/ledger/accounts {account, type, name?, code?}  (type: asset|liability|equity|income|expense)
+      //   GET    /api/db/<slug>/ledger/accounts            → the chart
+      //   DELETE /api/db/<slug>/ledger/accounts/<account>  → unclassify
+      //   GET    /api/db/<slug>/ledger/pnl?from=&to=[&ledger=]           → income statement
+      //   GET    /api/db/<slug>/ledger/balance-sheet?as_of=[&ledger=]    → balance sheet
+      const cam = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(accounts|pnl|balance-sheet)(?:\/([A-Za-z0-9_.:-]{1,64}))?$/i);
+      if (cam && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cam[1].toLowerCase(), resource = cam[2].toLowerCase(), acctKey = cam[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureLedger(env, uuid);
+          const ledgerName = String(url.searchParams.get("ledger") || "gl").toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40) || "gl";
+          const dateOf = (v) => { const s = String(v || ""); return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : null; };
+          const TYPES = ["asset", "liability", "equity", "income", "expense"];
+          if (resource === "accounts") {
+            if (request.method === "GET") {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const rows = await cfD1Query(env, uuid, "SELECT account, type, name, code FROM _accounts ORDER BY code, account LIMIT 20000");
+              return Response.json({ ok: true, accounts: rows });
+            }
+            if (request.method === "DELETE") {
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              if (!acctKey) return Response.json({ ok: false, error: "account required" }, { status: 400 });
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _accounts WHERE account=?", [acctKey]);
+              return ex.changes > 0 ? Response.json({ ok: true, account: acctKey, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+            }
+            // POST — classify (upsert)
+            if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const account = String(body.account || "").trim();
+            const type = String(body.type || "").toLowerCase().trim();
+            if (!account) return Response.json({ ok: false, error: "account is required" }, { status: 400 });
+            if (!TYPES.includes(type)) return Response.json({ ok: false, error: "type must be one of: " + TYPES.join(", ") }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _accounts (account, type, name, code) VALUES (?,?,?,?) ON CONFLICT(account) DO UPDATE SET type=excluded.type, name=excluded.name, code=excluded.code", [account, type, body.name != null ? String(body.name).slice(0, 120) : null, body.code != null ? String(body.code).slice(0, 40) : null]);
+            return Response.json({ ok: true, account, type });
+          }
+          const tmap = await accountTypeMap(env, uuid);
+          if (resource === "pnl") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+            const from = dateOf(url.searchParams.get("from")), to = dateOf(url.searchParams.get("to"));
+            const bals = await statementBalances(env, uuid, ledgerName, { from, to });
+            const income = [], expenses = [], unclassified = []; let inc = 0, exp = 0;
+            for (const r of bals) {
+              const d = r.d || 0, c = r.c || 0; const info = tmap.get(r.account);
+              if (info && info.type === "income") { income.push({ account: r.account, name: info.name || null, amount: (c - d) / 100 }); inc += c - d; }
+              else if (info && info.type === "expense") { expenses.push({ account: r.account, name: info.name || null, amount: (d - c) / 100 }); exp += d - c; }
+              else if (!info && (d - c) !== 0) unclassified.push({ account: r.account, amount: (d - c) / 100 });
+            }
+            income.sort((a, b) => b.amount - a.amount); expenses.sort((a, b) => b.amount - a.amount);
+            return Response.json({ ok: true, from: from || null, to: to || null, income, total_income: inc / 100, expenses, total_expenses: exp / 100, net_income: (inc - exp) / 100, unclassified });
+          }
+          if (resource === "balance-sheet") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+            const asOf = dateOf(url.searchParams.get("as_of")) || new Date().toISOString().slice(0, 10);
+            const bals = await statementBalances(env, uuid, ledgerName, { to: asOf });
+            const assets = [], liabilities = [], equity = [], unclassified = []; let ta = 0, tl = 0, te = 0, earn = 0;
+            for (const r of bals) {
+              const d = r.d || 0, c = r.c || 0; const info = tmap.get(r.account); const type = info && info.type;
+              if (type === "asset") { assets.push({ account: r.account, name: info.name || null, amount: (d - c) / 100 }); ta += d - c; }
+              else if (type === "liability") { liabilities.push({ account: r.account, name: info.name || null, amount: (c - d) / 100 }); tl += c - d; }
+              else if (type === "equity") { equity.push({ account: r.account, name: info.name || null, amount: (c - d) / 100 }); te += c - d; }
+              else if (type === "income") earn += c - d; // current-period earnings roll into equity
+              else if (type === "expense") earn -= d - c;
+              else if ((d - c) !== 0) unclassified.push({ account: r.account, amount: (d - c) / 100 });
+            }
+            assets.sort((a, b) => b.amount - a.amount); liabilities.sort((a, b) => b.amount - a.amount); equity.sort((a, b) => b.amount - a.amount);
+            const liabEqEarn = tl + te + earn;
+            return Response.json({ ok: true, as_of: asOf, assets, total_assets: ta / 100, liabilities, total_liabilities: tl / 100, equity, total_equity: te / 100, retained_earnings: earn / 100, total_liabilities_and_equity: liabEqEarn / 100, balanced: ta === liabEqEarn && unclassified.length === 0, unclassified });
+          }
+          return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
+        } catch (e) { console.error("accounts/statements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "statements failed" }, { status: 502 }); }
       }
       // FISCAL PERIODS / period close (ERP finance) — freeze the ledger through a date so
       // finalized books can't be altered by a backdated post. ADMIN-gated.
