@@ -6572,3 +6572,19 @@ backend's security + money correctness. Full suite 146 green.
   headless): a single robot playing "Running" animates (9.6% frame-diff); THREE instances via
   instantiateModelsToScene each animate independently (17% frame-diff, different stride phases, 0 errors).
   worker-only change (game-gen.mjs). NEXT: increment 2 (Havok/Rapier physics), expand the CC0 model pack.
+## 2026-07-22 — HARDENING PASS 3 (workflow/temporal guards) — FOUND + FIXED A REAL BUG
+- **BUG FIXED — state-machine `"*"` wildcard was fallback-only, not additive.** The transition guard did
+  `allowed = map[from] || map["*"]` → a state WITH its own transition list could never use the `"*"`
+  wildcard targets, so a rule like `"*":["cancelled"]` ("cancellable from anywhere") was silently ignored
+  for every state that had its own moves — contradicting the doc ("allow leaving ANY value"). Fixed to
+  `allowed = [].concat(map[from]||[], map["*"]||[])` (additive). Backward-compatible: states without a
+  specific list already fell through to `"*"`; the only behavior change is that `"*"` targets are NOW also
+  allowed from states that have their own list (the intended/documented behavior). Doc clarified. Found by
+  batch164's adversarial `"*"` probe.
+- **batch164 (20)** — workflow/temporal guards: bookings no-double-book (overlap + enclosing → 409),
+  back-to-back (end==start) allowed, different resource OK, cancel frees the slot; timeclock no double
+  clock-in (409), clock-out reports minutes, re-clock-in after out; leave no-overdraw (take exactly balance
+  ok, past → 409, allowNegative permits); state machine (legal step ok, illegal → 409 code:transition,
+  `"*"` wildcard now works, undeclared target refused).
+This is the 7th adversarial batch; 6 found no bugs, this one found + fixed the `"*"` semantics bug. Full
+suite 147 green.
