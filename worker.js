@@ -8404,6 +8404,52 @@ async function handleRequest(request, env, ctx) {
         }
       }
     }
+    // Phase D.-1 — SCHEMA INTROSPECTION: GET /api/db/<slug>/schema publicly describes the site's
+    // tables, columns (type + validation rules + ref), relations, and enabled capabilities — so a
+    // frontend, integrator, or AI client can DISCOVER the API without guessing. Structure only,
+    // never row data; public (the generated app already knows its own shape).
+    {
+      const scm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/schema$/i);
+      if (scm) {
+        if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+        const slug = scm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const spec = await loadSiteSchema(env, uuid);
+        const FEATURES = ["trash", "version", "history", "audit", "timestamps", "ordered", "pinnable", "expires", "scheduled", "archivable", "sync", "teamRead"];
+        const OBJFEAT = ["geo", "sla", "approval", "sequence", "currency", "formulas", "fieldRoles", "roundRobin", "assignBy", "searchWeights", "transitions"];
+        const tables = ((spec && spec.tables) || []).map((tdef) => {
+          const rules = tdef.rules || {};
+          const num = new Set((tdef.num || []).map((c) => String(c).toLowerCase()));
+          const json = new Set((tdef.json || []).map((c) => String(c).toLowerCase()));
+          const refs = tdef.refs || {};
+          const managed = new Set(["id", "created_at", "owner_id"]);
+          const columns = (Array.isArray(tdef.columns) ? tdef.columns : []).filter((c) => !managed.has(String(c).toLowerCase())).map((c) => {
+            const lc = String(c).toLowerCase(); const r = rules[lc] || {};
+            const col = { name: c, type: json.has(lc) ? "json" : num.has(lc) ? "number" : "text" };
+            if (r.required) col.required = true;
+            if (refs[lc]) col.ref = refs[lc];
+            if (r.enum) col.enum = r.enum;
+            if (r.format) col.format = r.format;
+            if (r.max != null) col.maxLength = r.max;
+            if (r.minLen != null) col.minLength = r.minLen;
+            if (r.numMin != null) col.min = r.numMin;
+            if (r.numMax != null) col.max = r.numMax;
+            if (r.pattern) col.pattern = r.pattern;
+            if (r.immutable) col.immutable = true;
+            return col;
+          });
+          const features = FEATURES.filter((k) => tdef[k]).concat(OBJFEAT.filter((k) => tdef[k]));
+          const out = { name: tdef.name, access: tdef.access || "collect", columns };
+          if (Object.keys(refs).length) out.relations = refs;
+          if (features.length) out.features = features;
+          if (Array.isArray(tdef.writeRoles) && tdef.writeRoles.length) out.writeRoles = tdef.writeRoles;
+          return out;
+        });
+        return Response.json({ ok: true, slug, tables });
+      }
+    }
     // Phase D.0 — GLOBAL SEARCH across a site's tables: GET /api/db/<slug>/search?q=…
     // [&tables=a,b][&per=N]. Runs the same free-text `q` match each table's list read uses, over
     // EVERY readable table at once (a CRM's global search bar → matching contacts + deals +
