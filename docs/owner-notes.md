@@ -6301,3 +6301,19 @@ the data API — so a generated app couldn't build an in-app analytics page from
   NOTE: delivery is synchronous-awaited — fine for a handful of hooks; if a site ever needs many/laggy
   subscribers, move to a queue. Failure-path logging (non-2xx/unreachable) is coded but not asserted (the
   test harness returns 200 for any external URL); exercise it live if it ever matters.
+- **GAME STUDIO — genre/quality sweep + revise + management UI (2026-07-22).**
+  - **Sweep:** built + HEADLESS-PLAY-TESTED one game per genre (runner/flappy/platformer/breakout/topdown),
+    shapes mode, ~75 credits total. All 5 boot clean AND are genuinely playable — HUD scores actually climb
+    through injected play, lives/waves progress, GAME OVER→restart works, zero runtime errors. (Play harness:
+    mirror the built /g/<slug>/ dist locally, serve on localhost, drive chromium with synthetic input, pixel-diff
+    frames. Chromium can't use the agent proxy — ERR_CONNECTION_RESET — so hit isibi.ai via curl + a localhost mirror.)
+  - **Revise verified LIVE:** POST /api/game/revise "2× paddle + 2 balls" on the breakout game → applied + republished
+    to the SAME slug, smoke passed, 12 credits.
+  - **Management UI (frontend + 1 endpoint):** `DELETE /api/game/delete?slug=` (owner-checked, wipes games/<slug>/ dist
+    + gamesrc/<slug>.json, idempotent). Grid cards gained a hover delete button (🗑 → confirm → server delete → drop from
+    zephyr_games_v1 → re-render, sbToast). Landing GAME channel is now LIVE (was NO-SIGNAL "coming soon"): its own
+    `data-panel="game"` arcade preview (3 live game iframes, lazy-loaded like the WEBSITE cascade), an active chatbox
+    with "Describe a game — press Enter…" (submitLand game branch → pendingGameBrief → prefills the Studio). NOTE: the
+    arcade panel embeds 3 specific showcase slugs (a-top-down-ceab20 / a-platformer-arrow-78fcf7 / a-breakout-game-9d6feb)
+    — swap for curated permanent games; if deleted the frames go blank (degrades gracefully). WEBSITE channel still shows
+    its old "coming soon" chatbox text (same latent thing) — left as-is, GAME-only scope.
