@@ -8782,7 +8782,7 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
@@ -8799,6 +8799,7 @@ async function handleRequest(request, env, ctx) {
         const isShare = dm[4] === "share";
         const isAssign = dm[4] === "assign";
         const isMerge = dm[4] === "merge";
+        const isClone = dm[4] === "clone";
         const isMove = dm[4] === "move";
         const isHistory = dm[4] === "history";
         const isDiff = dm[4] === "diff";
@@ -9092,6 +9093,38 @@ async function handleRequest(request, env, ctx) {
             return Response.json({ ok: true, id: rowId, col, value: r[0] ? r[0].v : null });
           }
 
+          // Clone a record — POST /rows/<t>/<id>/clone [{overrides:{…}}] duplicates a row into a
+          // new one ("duplicate this invoice/project"). Copies the app columns (auto id/slug/number/
+          // timestamps regenerate), applies any overrides, and stamps the caller as owner on
+          // user/feed tables. Same write scope as creating a row; a UNIQUE clash surfaces as 409.
+          if (isClone) {
+            if (method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!(rowId > 0)) return Response.json({ ok: false, error: "missing row id" }, { status: 400 });
+            if (access === "display" || access === "collect") return Response.json({ ok: false, error: "not allowed" }, { status: 403 });
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            let cScope = "", cSp = [];
+            if (access === "feed" || access === "user") { cScope = " AND owner_id=?"; cSp = [userId]; }
+            else if (access === "admin") { if (!(await siteRoleAllows(env, uuid, userId, def))) return Response.json({ ok: false, error: "not allowed" }, { status: 403 }); }
+            const src = (await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE id=?" + cScope, [rowId].concat(cSp)))[0];
+            if (!src) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+            const cbody = {};
+            for (const col of allow) if (src[col] !== undefined && src[col] !== null) cbody[col] = src[col];
+            const reqB = await readBody();
+            const ov = (reqB && typeof reqB.overrides === "object" && reqB.overrides) ? reqB.overrides : reqB;
+            if (ov && typeof ov === "object") for (const [k, v] of Object.entries(ov)) { const lc = String(k).toLowerCase(); if (allow.some((c) => String(c).toLowerCase() === lc)) cbody[lc] = v; }
+            { const e = validateRow(def, cbody, true); if (e) return badReq(e); }
+            const cuse = allow.filter((c) => cbody[c] !== undefined);
+            if (await maybeSlug(env, uuid, def, tn, cbody) && !cuse.includes("slug")) cuse.push("slug");
+            if (await maybeSequence(env, uuid, def, tn, cbody) && def.sequence && !cuse.includes(def.sequence.field)) cuse.push(def.sequence.field);
+            jsonizeRow(def, cbody);
+            const owned = (access === "feed" || access === "user");
+            const ccols = owned ? cuse.concat(["owner_id"]) : cuse;
+            const cvals = owned ? cuse.map((c) => cbody[c]).concat([userId]) : cuse.map((c) => cbody[c]);
+            const ins = await cfD1Query(env, uuid, "INSERT INTO " + tn + " (" + ccols.map(sqlIdent).join(",") + ") VALUES (" + ccols.map(() => "?").join(",") + ") RETURNING id", cvals);
+            const newId = ins[0] && ins[0].id;
+            fireInsertTriggers(env, ctx, slug, table, cbody);
+            return Response.json({ ok: true, id: newId, from: rowId });
+          }
           // Merge duplicate records — POST /rows/<t>/<id>/merge {from:<otherId>, fillBlanks?}.
           // ADMIN-only. Folds the `from` row INTO this one: every child row that references
           // `from` (any table with a `ref` to this one) is repointed to this id, then `from`
