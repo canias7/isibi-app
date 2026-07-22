@@ -617,6 +617,16 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: formula fields (arithmetic)
+
+Third CRM gap (data-model). `computed` only concatenates strings; added a table-level
+`"formulas":{"name":[tok,…]}` that computes a NUMBER per row from arithmetic over columns —
+tokens are numeric columns or literal numbers with + - * / and correct precedence (* / bind
+first). New `attachFormulas()` in the read pipeline (doExpand + the changes read path);
+read-only, non-numeric operand or /0 → null. Covers CRM money math: line_total = quantity *
+unit_price, net = subtotal - discount, with_tax = subtotal * 1.2. Forwarded through
+coerceTable + norm.push. Offline batch65 (6/6), full suite green.
+
 ## 2026-07-22 — CRM gap layer: stage-gating / state machine (transitions)
 
 Second CRM gap (workflow). Table-level `"transitions":{"<col>":{"<from>":["<to>",…]}}` — a
