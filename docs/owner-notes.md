@@ -617,6 +617,26 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: approval workflow (submit → approve/reject, audited)
+
+Workflow gap (the last of the three harder CRM gaps). Table-level
+`"approval":{approvers:[roles],status?:"approval_status"}`. The `status` col is PLATFORM-ADDED
+(applySiteSchema, like `pinned`) and pushed into `listExtras` (queryable/sortable) but deliberately
+NOT into `allow` — so `pickCols` won't accept it from a write body. That closes the self-approve
+hole: an owner/writer can't PATCH themselves to approved; only the endpoints set it. Endpoints
+(dm[4] added to the rows regex: submit|approve|reject|approvals):
+- `POST /rows/<t>/<id>/submit {note?}` — a writer of the row (owner on user/feed, admin/writeRole on
+  admin) → status `pending`.
+- `POST /rows/<t>/<id>/approve|reject {note?}` — a member whose role ∈ approvers (or admin) →
+  `approved`/`rejected`; fires on:{update}.
+- `GET /rows/<t>/<id>/approvals` — the decision log (action, actor_id, note, at; newest first) +
+  current status.
+Pending QUEUE = the normal list filter `?where=approval_status:eq:pending` (pairs with teamRead so a
+manager sees their team's). Audit trail in a new platform `_approvals` table (ensureApprovals/
+logApproval, lazy per-isolate). The `exist` lookup only selects owner_id on user/feed tables (admin
+tables have none — that was the one bug in testing, fixed). Offline batch73 (19/19) incl. the
+self-approve-hole check, full suite (56) green. BACKEND_RULES RBAC section documents it.
+
 ## 2026-07-22 — CRM gap layer: multi-currency (native storage, base-currency roll-ups)
 
 Data-model gap. Table-level `"currency":{amount,code,base,rates,as?}` — `amount` = money col,
