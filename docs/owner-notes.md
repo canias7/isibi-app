@@ -617,6 +617,18 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: duplicate check (does-this-already-exist lookup)
+
+Data-quality gap. `GET /rows/<t>/duplicates?email=…&phone=…` (dm[3] `duplicates` added to the rows
+regex) → `{matches, count, on}`, existing rows matching ANY supplied declared column (OR),
+case-insensitive + trimmed (`LOWER(TRIM(col))=LOWER(TRIM(?))`). `&exclude=<id>` skips a row (edit
+mode). Schema-free — the client names which columns to check; unknown/control (limit/exclude/fields)
+params ignored; no valid key → 400. Read-only GET; read-visibility scoped via userReadBase +
+withVisible (user table → own/team only, no cross-user leak; public-read → all; collect → 403),
+runs through doExpand so field-level security applies. Composes with /merge (fold the found dup) and
+column uniqueCI (hard block instead of soft warn). Offline batch78 (15/15), full suite (61) green.
+BACKEND_RULES documents it after the FACETS section.
+
 ## 2026-07-22 — CRM gap layer: round-robin assignment (lead routing)
 
 Workflow gap. Table-level `roundRobin:{among:[roles]}` on a user/feed table → each new row's
