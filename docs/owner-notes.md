@@ -6601,3 +6601,10 @@ suite 147 green.
   manager|finance table); double-approve non-corrupting; reject works; approvals log attributes actors.
 9 adversarial batches total (158–166): 1 real bug found+fixed (the transition "*" wildcard), 8 clean.
 Full suite 149 green.
+
+## 2026-07-22 — HARDENING PASS 5 (per-row sharing) — no bug
+- **batch167 (18)** — per-row sharing/collaboration privilege boundaries: unshared member can't read;
+  after share, view+edit collaborators can READ (by-id + shared-with-me list); a VIEW collaborator can't
+  PATCH or DELETE (404); an EDIT collaborator CAN PATCH but NOT delete (delete stays owner-only); only the
+  OWNER lists/adds/revokes shares (collaborator gets 404); revoke instantly cuts read+edit; you can't share
+  a row you don't own. 10 adversarial batches total (158–167): 1 real bug found+fixed, 9 clean. Suite 150 green.
