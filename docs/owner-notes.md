@@ -641,6 +641,18 @@ runs through doExpand so field-level security applies. Composes with /merge (fol
 column uniqueCI (hard block instead of soft warn). Offline batch78 (15/15), full suite (61) green.
 BACKEND_RULES documents it after the FACETS section.
 
+## 2026-07-22 — CRM gap layer: territory / field-based assignment (assignBy)
+
+Workflow gap, companion to round-robin. Table-level `assignBy:{field, map:{value:token}, default?}`
+on a user/feed table routes a new row to a specific member by a field value (region/product/tier →
+named rep). New `resolveAssignee(env,uuid,def,table,body,fallback)` supersedes the direct
+roundRobinOwner call at both insert sites: it tries assignBy FIRST (field value → `map[value]` or
+`default`, resolved via `resolveMemberId` — id or email → member id), then round-robin, then the
+creator. So territory routing wins for known segments and round-robin spreads the rest (declare both
+on one table). Tokens validated as id or email (≤120 chars); map keys lowercased/trimmed; unresolved
+token → fall through. Normalizer + norm.push carry `assignBy`. Offline batch80 (12/12) incl. the
+assignBy+roundRobin composition, full suite (63) green. BACKEND_RULES documents it after round-robin.
+
 ## 2026-07-22 — CRM gap layer: round-robin assignment (lead routing)
 
 Workflow gap. Table-level `roundRobin:{among:[roles]}` on a user/feed table → each new row's
