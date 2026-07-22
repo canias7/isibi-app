@@ -640,6 +640,10 @@ is delivered.
 - #8 Login history: each login records ip/ua/at to `_logins` (best-effort, wrapped so it never breaks
   auth; trimmed to last 50/member); `GET /api/db/<slug>/auth/logins` returns the caller's recent
   sign-ins. batch98 (7/7). (#62 notifications unread/mark-read already existed.)
+- #29 Deep nested expand: `expand=fk1.fk2` chains up the ref graph (order→customer→company) in one
+  request, batched per hop, public-read-only per hop, up to 3 hops. expandRows rewritten. batch99 (5/5).
+  (Verified already-existing: #16 composite unique via `unique:[[a,b]]`, #38 JSON export, #62 notif
+  unread/mark-read, #100 Retry-After on 429.)
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
