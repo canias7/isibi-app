@@ -687,6 +687,13 @@ is delivered.
   = edit mode (required may be absent, immutables still blocked). No uniqueness/ref check (that's /duplicates),
   no login (no data touched). Isolated dm3 sub-action reusing the pure validateRow — zero risk to write paths.
   batch109 (12/12). (Confirmed NOT already present: no dryRun/validate flag anywhere before this.)
+- TIME-SERIES ZERO-FILL: `?fill=1` on a single time-bucket stats group (`group=<col>:<gran>`) fills empty
+  periods with count:0 buckets so a trend chart is gap-free. New `fillTimeSeries()` helper beside
+  shapeD1Stats; UTC date math reproduces the exact SQLite strftime labels (year/month/day/hour — NOT week's
+  %W); zero buckets get `shapeD1Stats(null,…)` shape (nulls); capped at 2000 buckets (wider span → sparse
+  unchanged). Only touches the single-time-dim response branch. batch110 (15/15) verifies exact label
+  sequences (Jan→Apr months, 96-day span, year gaps). (Verified already-existing while auditing: `?upsert=<col>`
+  create-or-update, `?fields=` sparse projection.)
 - #86 Per-key rate limits: an admin can cap a specific API key at N req/min via `POST .../apikeys
   {label, rpm}` (0/negative/non-numeric → unlimited, huge clamps to 100000); `_apikeys` gains an `rpm`
   column (best-effort ALTER for old tables). resolveApiKeyUser now returns `{user,keyId,rpm}`; the
