@@ -617,6 +617,20 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: auto-numbering / sequences (record numbers)
+
+Data-model gap. Table-level `sequence:{field, prefix?, pad?, start?}` stamps each new row with the
+next human-readable number (INV-01000, LEAD-0042). Backed by the existing atomic `bumpCounter`
+(_counters row `seq:<table>`, `INSERT … ON CONFLICT DO UPDATE … RETURNING n`), so gap-free + no
+collisions. New `maybeSequence(env,uuid,def,tn,body)` helper (mirrors maybeSlug) sets body[field] and
+returns true so the caller adds the column; threaded into ALL insert paths — the 4 single-row row
+handlers (collect/feed/user/admin), upsertRow, and insertMany (batch adds the field to the col set
+since it's not in `allow`). The field is PLATFORM-ADDED (applySiteSchema, like the approval status
+col), kept OUT of `allow` (authoritative — a client-sent value is ignored, and PATCH can't change
+it), and pushed into `listExtras` so it's queryable/sortable. Normalizer + norm.push carry it.
+Offline batch76 (13/13; note: `?sort=id` defaults to DESC — tests use `&order=asc`), full suite (59)
+green. BACKEND_RULES schema section documents it after multi-currency.
+
 ## 2026-07-22 — CRM gap layer: unified activity timeline (notes + approvals + audit)
 
 The record history panel — `GET /rows/<t>/<id>/timeline[?types=&limit=]` merges a record's `_notes`,
