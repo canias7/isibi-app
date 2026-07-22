@@ -6459,3 +6459,19 @@ batch154 (36/36) — create/owner, add member+admin, all role gates (member can'
 admin, admin can't change roles / remove admins / remove owner), dedup+unknown-user, member-list ordering,
 non-member 403, ownership transfer (both sides), leave (owner blocked), delete (owner-only), erase-wipes-
 membership (white-box + black-box), guards. Full suite 137 green.
+
+- **Team invites by email** (teams follow-up — closes the "invite-by-email is a future follow-up" note):
+  the way teams actually grow, since you never know a user's id. `_team_invites` (id, team_id, email,
+  role, invited_by, status pending/accepted/declined/revoked). Manager side (owner/admin): `POST /teams/
+  <id>/invites {email, role?}` (only owner invites admin; inviting a current member → 409; dup pending →
+  returns existing `already:true`), `GET /teams/<id>/invites` (pending list), `DELETE /teams/<id>/invites/
+  <inviteId>` (→ revoked). Invitee side (any signed-in member, matched by their _users email): `GET /teams/
+  invites/mine` (+ team_name), `POST /teams/invites/<id>/accept` (joins as invited role, idempotent if
+  already a member, email must match), `POST /teams/invites/<id>/decline`. Added `invites` to the teams
+  route sub-group + a separate `/teams/invites/(mine|<id>/accept|decline)` route. Invites table folded into
+  ensureTeams; wired into GDPR erase (invites sent OR addressed to the deleted email are wiped). Flow:
+  invite email → they sign up / already exist → see under /invites/mine → accept. Email-a-link is left to
+  an `email` function step (documented). batch155 (29/29) — invite member+admin, dup/bad-email, team
+  pending list, invitee mine-list, wrong-person-accept 403, accept-joins, re-invite-member 409, decline,
+  member-can't-invite, admin-can't-invite-admin, revoke, erase-wipes-invites (white-box), guards. Full
+  suite 138 green.
