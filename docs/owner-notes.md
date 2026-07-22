@@ -644,6 +644,9 @@ is delivered.
   request, batched per hop, public-read-only per hop, up to 3 hops. expandRows rewritten. batch99 (5/5).
   (Verified already-existing: #16 composite unique via `unique:[[a,b]]`, #38 JSON export, #62 notif
   unread/mark-read, #100 Retry-After on 429.)
+- #83 Event stream: `GET /rows/<t>/events[?since=&limit=]` (audit:true tables, admin/writeRole) → the
+  insert/update/delete change log oldest-first with a cursor — unlike ?changes (new rows only) it
+  includes updates+deletes. Reuses _audit (no new write hooks). batch100 (11/11).
 ## 2026-07-22 — Attachments: storage-usage endpoint
 
 `GET /api/db/<slug>/storage` (Phase D.2, admin-gated) → `{attachments:{count,bytes}, by_table:[…]}`
