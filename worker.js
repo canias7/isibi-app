@@ -2062,13 +2062,18 @@ function normalizeFnSpec(spec) {
   // Optional schedule: run on a timer from the cron. Clamp 5 min … 30 days.
   const em = spec.schedule && parseInt(spec.schedule.everyMinutes, 10);
   if (Number.isFinite(em) && em > 0) out.schedule = { everyMinutes: Math.min(43200, Math.max(5, em)) };
-  // Optional event trigger: run automatically when a row is inserted into a declared
-  // table. Accepts { on:{ insert:"table" } }, "on":"insert:table", or trigger:"insert:table".
-  let trig = null;
-  if (spec.on && typeof spec.on === "object" && typeof spec.on.insert === "string") trig = spec.on.insert;
-  else if (typeof spec.on === "string" && /^insert:/i.test(spec.on)) trig = spec.on.slice(7);
-  else if (typeof spec.trigger === "string" && /^insert:/i.test(spec.trigger)) trig = spec.trigger.slice(7);
-  if (trig) { const t = String(trig).replace(/[^a-z0-9_]/gi, "").slice(0, 41); if (t) out.on = { insert: t }; }
+  // Optional event trigger: run automatically when a row is inserted INTO or UPDATED IN a
+  // declared table. Accepts { on:{ insert:"table" } } / { on:{ update:"table" } },
+  // "on":"insert:table" / "on":"update:table", or trigger:"insert:table" / "update:table".
+  let trigI = null, trigU = null;
+  if (spec.on && typeof spec.on === "object") { if (typeof spec.on.insert === "string") trigI = spec.on.insert; if (typeof spec.on.update === "string") trigU = spec.on.update; }
+  else if (typeof spec.on === "string" && /^insert:/i.test(spec.on)) trigI = spec.on.slice(7);
+  else if (typeof spec.on === "string" && /^update:/i.test(spec.on)) trigU = spec.on.slice(7);
+  else if (typeof spec.trigger === "string" && /^insert:/i.test(spec.trigger)) trigI = spec.trigger.slice(7);
+  else if (typeof spec.trigger === "string" && /^update:/i.test(spec.trigger)) trigU = spec.trigger.slice(7);
+  const _cleanTrig = (x) => { const t = String(x).replace(/[^a-z0-9_]/gi, "").slice(0, 41); return t || null; };
+  const oi = trigI ? _cleanTrig(trigI) : null, ou = trigU ? _cleanTrig(trigU) : null;
+  if (oi || ou) { out.on = {}; if (oi) out.on.insert = oi; if (ou) out.on.update = ou; }
   return out;
 }
 // Pull declared <script type="application/isibi-fn" data-name="X">{spec}</script>
@@ -2186,22 +2191,26 @@ async function insertTriggersFor(env, slug) {
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/site_functions?slug=eq.${encodeURIComponent(slug)}&enabled=is.true&select=owner_id,published_site_id,name,spec&limit=50`, { headers: { apikey: env.SUPABASE_SERVICE_KEY, Authorization: "Bearer " + env.SUPABASE_SERVICE_KEY }, signal: AbortSignal.timeout(6000) });
     const rows = await r.json().catch(() => []);
-    if (Array.isArray(rows)) fns = rows.filter((x) => x && x.spec && x.spec.on && x.spec.on.insert);
+    if (Array.isArray(rows)) fns = rows.filter((x) => x && x.spec && x.spec.on && (x.spec.on.insert || x.spec.on.update));
   } catch {}
   _trigCache.set(slug, { at: Date.now(), fns });
   return fns;
 }
-function fireInsertTriggers(env, ctx, slug, table, rowData) {
+// Fire the functions whose `on.<event>` names this table. event = "insert" | "update".
+function fireRowTriggers(env, ctx, slug, table, rowData, event) {
   if (!env.SUPABASE_SERVICE_KEY) return;
   const run = async () => {
     let fns; try { fns = await insertTriggersFor(env, slug); } catch { return; }
     for (const f of fns) {
-      if (String(f.spec.on.insert).toLowerCase() !== String(table).toLowerCase()) continue;
-      try { await runSiteFunction(env, { owner_id: f.owner_id, published_site_id: f.published_site_id, spec: f.spec }, rowData || {}, slug); } catch {}
+      const target = f.spec.on && f.spec.on[event];
+      if (!target || String(target).toLowerCase() !== String(table).toLowerCase()) continue;
+      try { await runSiteFunction(env, { owner_id: f.owner_id, published_site_id: f.published_site_id, spec: f.spec }, Object.assign({ _event: event }, rowData || {}), slug); } catch {}
     }
   };
   if (ctx && ctx.waitUntil) ctx.waitUntil(run()); else run();
 }
+function fireInsertTriggers(env, ctx, slug, table, rowData) { fireRowTriggers(env, ctx, slug, table, rowData, "insert"); }
+function fireUpdateTriggers(env, ctx, slug, table, rowData) { fireRowTriggers(env, ctx, slug, table, rowData, "update"); }
 async function runSiteFunction(env, row, input, slug) {
   const steps = Array.isArray(row.spec && row.spec.steps) ? row.spec.steps.slice(0, 8) : [];
   const data = { input: input && typeof input === "object" && !Array.isArray(input) ? input : {}, steps: {} };
@@ -8723,7 +8732,7 @@ async function handleRequest(request, env, ctx) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              return versionResp(await applyVersionedUpdate(use, body, " AND owner_id=?", [userId])); // own row only; optimistic-lock aware
+              { const _u = await applyVersionedUpdate(use, body, " AND owner_id=?", [userId]); if (_u.ok) fireUpdateTriggers(env, ctx, slug, table, Object.assign({ id: rowId }, body)); return versionResp(_u); } // own row only; optimistic-lock aware; fires on:{update} functions on success
             }
             if (method === "DELETE" && rowId != null) {
               if (!(await doDelete(" AND owner_id=?", [userId]))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
@@ -8761,7 +8770,7 @@ async function handleRequest(request, env, ctx) {
               const body = await readBody(); const use = pickCols(body);
               if (!use.length) return Response.json({ ok: false, error: "no data" }, { status: 400 });
               { const e = vErr(body, false); if (e) return badReq(e); }
-              return versionResp(await applyVersionedUpdate(use, body, "", [])); // admin edits any row; optimistic-lock aware
+              { const _u = await applyVersionedUpdate(use, body, "", []); if (_u.ok) fireUpdateTriggers(env, ctx, slug, table, Object.assign({ id: rowId }, body)); return versionResp(_u); } // admin edits any row; optimistic-lock aware; fires on:{update} functions on success
             }
             if (method === "DELETE" && rowId != null) {
               if (!(await doDelete("", []))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
