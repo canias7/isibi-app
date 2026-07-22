@@ -618,6 +618,24 @@ round-trip, so it can't be built+verified without owner credentials. Everything 
 is delivered.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
+
+> **WRAP (end of the overnight run).** Shipped **20 net-new backend features** this session, each its own
+> tested PR (#601–#620), full offline suite green throughout (74 → 93 suites). The build-out is **done for
+> the buildable-now tier**: after the first ~20, every further roadmap item I audited turned out to ALREADY
+> EXIST (upsert `?upsert=`, sparse `?fields=`, bulk insert `{rows:[]}` + bulk PATCH/DELETE-by-filter,
+> optimistic concurrency `version:true`+`If-Match`, saved views `_views`, multi-dim pivots `group=a,b`,
+> cross-table + child-rollup aggregates, referential `onDelete` restrict/cascade/setnull, notifications,
+> recycle-bin filters, Retry-After, composite unique). I did NOT ship marginal/uninvited endpoints just to
+> pad the count. **What's left is the needs-infra tier** — cannot be built AND verified offline, so flagged
+> not shipped: realtime/presence over WebSockets+Durable Objects; a delivery-guaranteed job/Queue (retrying
+> outbound **webhooks**, scheduled fan-out); **SMS/2FA** (Twilio/TOTP — also an auth-flow risk); per-site
+> transactional **email** flows (site-user verify/reset need a per-site sender); media **transcode** +
+> **presigned direct upload** (R2 multipart); **tax/payments** providers. Also deliberately deferred as
+> architectural, not oversights: atomic multi-statement **transactions** (D1 HTTP can't), stateful
+> **session revoke** (would make the stateless JWT stateful), **idempotency keys** (invasive to all 4 write
+> paths), **median/percentile** (no SQLite builtin). Recommend picking these off one at a time WITH a live
+> deploy to test against, not blind offline. Per-item detail below.
+
 - #20 Field masking: table-level `mask:{col:{roles,keep,char}}` partial-reveals a sensitive column
   to non-privileged readers (card `••••4242`); read-time attach beside stripFieldRoles, admin sees full.
   batch92 (8/8).
