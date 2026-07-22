@@ -3670,6 +3670,48 @@ async function ledgerBalances(env, uuid, ledger, opts) {
   const accounts = rows.map((r) => { const d = r.d || 0, c = r.c || 0; td += d; tc += c; return { account: r.account, debit: d / 100, credit: c / 100, balance: (d - c) / 100 }; });
   return { accounts, total_debit: td / 100, total_credit: tc / 100, balanced: td === tc };
 }
+// Depreciation schedule (stateless calculator) — straight-line or declining-balance. Cents
+// throughout so it ties out exactly: the final period absorbs any rounding residual so
+// total depreciation = cost − salvage to the cent, and book value ends exactly at salvage.
+// Pairs with recurring journals (post each period's amount) + a normal assets table.
+function depreciationSchedule(opts) {
+  const costC = toCents(opts.cost); if (costC == null || costC <= 0) return { err: "cost must be a positive number" };
+  const salvageC = opts.salvage != null && opts.salvage !== "" ? toCents(opts.salvage) : 0;
+  if (salvageC == null || salvageC < 0) return { err: "salvage must be ≥ 0" };
+  if (salvageC > costC) return { err: "salvage can't exceed cost" };
+  const life = Math.floor(Number(opts.life));
+  if (!Number.isFinite(life) || life < 1 || life > 1200) return { err: "life must be 1–1200 periods" };
+  const m = String(opts.method || "straight_line").toLowerCase();
+  const isDB = m === "declining_balance" || m === "declining" || m === "ddb" || m === "double_declining";
+  const depreciable = costC - salvageC;
+  const sched = []; let book = costC, acc = 0;
+  if (isDB) {
+    let factor = Number(opts.factor); if (!Number.isFinite(factor) || factor < 1 || factor > 5) factor = 2;
+    const rate = factor / life;
+    for (let p = 1; p <= life; p++) {
+      let dep;
+      if (p === life) dep = book - salvageC; // final period cleans up any residual
+      else { dep = Math.round(book * rate); if (book - dep < salvageC) dep = book - salvageC; if (dep < 0) dep = 0; }
+      book -= dep; acc += dep;
+      sched.push({ period: p, depreciation: dep / 100, accumulated: acc / 100, book_value: book / 100 });
+    }
+  } else {
+    const per = Math.round(depreciable / life);
+    for (let p = 1; p <= life; p++) {
+      const dep = p === life ? (depreciable - per * (life - 1)) : per;
+      book -= dep; acc += dep;
+      sched.push({ period: p, depreciation: dep / 100, accumulated: acc / 100, book_value: book / 100 });
+    }
+  }
+  // Optional per-period dates from a start + frequency.
+  const start = /^\d{4}-\d{2}-\d{2}/.test(String(opts.start || "")) ? String(opts.start).slice(0, 10) : null;
+  const freq = String(opts.freq || "").toLowerCase();
+  if (start && ["month", "quarter", "year"].includes(freq)) {
+    const [y, mo, d] = start.split("-").map(Number); const step = freq === "year" ? 12 : freq === "quarter" ? 3 : 1;
+    for (let i = 0; i < sched.length; i++) { const dt = new Date(Date.UTC(y, mo - 1, d)); dt.setUTCMonth(dt.getUTCMonth() + i * step); sched[i].date = dt.toISOString().slice(0, 10); }
+  }
+  return { method: isDB ? "declining_balance" : "straight_line", cost: costC / 100, salvage: salvageC / 100, life, total_depreciable: depreciable / 100, schedule: sched };
+}
 // ── STOCK LEDGER (ERP inventory foundation) ──────────────────────────────────────
 // Append-only movement log per item+location: on-hand = Σ(signed qty). Reservations
 // earmark stock without moving it (available = on-hand − active reservations). The
@@ -9021,6 +9063,27 @@ async function handleRequest(request, env, ctx) {
           const ins = await cfD1Query(env, uuid, "INSERT INTO _periods (name, start_date, end_date, status, created_at) VALUES (?,?,?, 'open', ?) RETURNING id", [name, start, end, new Date().toISOString()]);
           return Response.json({ ok: true, id: ins[0] && ins[0].id, name, start_date: start, end_date: end, status: "open" });
         } catch (e) { console.error("periods failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "periods failed" }, { status: 502 }); }
+      }
+      // FINANCE CALCULATORS (ERP) — stateless, touch no data (any signed-in member).
+      //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
+      //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation)$/i);
+      if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fcm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
+        if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
+        let body = {}; try { body = await request.json(); } catch {}
+        const res = depreciationSchedule(body);
+        if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
+        return Response.json(Object.assign({ ok: true }, res));
       }
       // STOCK LEDGER (ERP inventory) — append-only movements; on-hand = Σqty; reservations
       // earmark availability. No-negative-stock is enforced atomically. ADMIN-gated.
