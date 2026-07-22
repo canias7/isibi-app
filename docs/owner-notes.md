@@ -617,6 +617,16 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: stage-gating / state machine (transitions)
+
+Second CRM gap (workflow). Table-level `"transitions":{"<col>":{"<from>":["<to>",…]}}` — a
+PATCH that moves a guarded column off a declared step is refused with 409
+{code:'transition', from, to, allowed}. `"*"` from-key allows leaving any value; a PATCH
+that doesn't touch the column is unaffected. Single choke point before the access branches
+(covers feed/user/admin PATCH). Forwarded through coerceTable + norm.push. Also memoized
+`readBody` (read-once) so the guard + the branch share one parse. Enforces opportunity-stage
+/ case-status / order-state flows in the DB. Offline batch64 (8/8), full suite green.
+
 ## 2026-07-22 — CRM gap layer: multi-dimensional reports (matrix/pivot)
 
 First of the "enterprise CRM gaps" build. The stats endpoint already did single-column
