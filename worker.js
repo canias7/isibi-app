@@ -4019,6 +4019,102 @@ function demandForecast(opts) {
   for (let k = 1; k <= horizon; k++) { const x = n + k - 1; forecast.push({ step: n + k, value: r2(intercept + slope * x) }); }
   return { method: "linear", slope: r2(slope), intercept: r2(intercept), forecast };
 }
+// Installment / payment-plan schedule (stateless calculator) — split a `total` into `count` equal
+// installments after an optional `down` payment. With `rate` (annual %) > 0 it's an amortized plan
+// over the financed amount (`total − down`), reusing the SAME annuity math as amortizationSchedule
+// (periodic rate = rate/100/freq, freq default 12; the final installment clears the residual so the
+// balance ends EXACTLY 0 and principal ties out to the cent); rate 0 → an equal-principal split with
+// no interest. `start`+`freq` stamps each row's due date. Cents-exact. Powers BNPL / financing /
+// pay-over-time plans. Any signed-in member (touches no data).
+function installmentPlan(opts) {
+  const totalC = toCents(opts.total); if (totalC == null || totalC <= 0) return { err: "total must be a positive number" };
+  const count = Math.floor(Number(opts.count)); if (!Number.isFinite(count) || count < 1 || count > 600) return { err: "count must be 1–600 installments" };
+  const downC = (opts.down != null && opts.down !== "") ? toCents(opts.down) : 0;
+  if (downC == null || downC < 0 || downC > totalC) return { err: "down must be between 0 and total" };
+  const rate = Number(opts.rate != null && opts.rate !== "" ? opts.rate : 0); if (!Number.isFinite(rate) || rate < 0 || rate > 1000) return { err: "rate must be an annual percentage 0–1000" };
+  let freq = Math.floor(Number(opts.freq)); if (!Number.isFinite(freq) || freq < 1 || freq > 366) freq = 12; // installments per year
+  const financedC = totalC - downC; const r = rate / 100 / freq; // periodic rate
+  const sched = []; let balance = financedC, totalInterest = 0, paymentC;
+  if (financedC === 0) { paymentC = 0; for (let p = 1; p <= count; p++) sched.push({ n: p, amount: 0, principal: 0, interest: 0, balance: 0 }); } // fully covered by the down payment
+  else {
+    paymentC = r === 0 ? Math.round(financedC / count) : Math.round(financedC * r / (1 - Math.pow(1 + r, -count)));
+    if (paymentC < 1) paymentC = 1;
+    for (let p = 1; p <= count; p++) {
+      const interest = Math.round(balance * r);
+      let principalPay = paymentC - interest, pay = paymentC;
+      if (p === count || principalPay >= balance) { principalPay = balance; pay = balance + interest; } // final installment clears the residual
+      if (principalPay < 0) { principalPay = 0; pay = interest; }
+      balance -= principalPay; totalInterest += interest;
+      sched.push({ n: p, amount: pay / 100, interest: interest / 100, principal: principalPay / 100, balance: balance / 100 });
+      if (balance <= 0) balance = 0;
+    }
+  }
+  const start = /^\d{4}-\d{2}-\d{2}/.test(String(opts.start || "")) ? String(opts.start).slice(0, 10) : null;
+  const monthsPer = { 12: 1, 6: 2, 4: 3, 3: 4, 2: 6, 1: 12 }[freq]; // installments/yr → months between (common cases)
+  if (start && monthsPer) { const [y, mo, d] = start.split("-").map(Number); for (let i = 0; i < sched.length; i++) { const dt = new Date(Date.UTC(y, mo - 1, d)); dt.setUTCMonth(dt.getUTCMonth() + (i + 1) * monthsPer); sched[i].date = dt.toISOString().slice(0, 10); } }
+  return { total: totalC / 100, down: downC / 100, financed: financedC / 100, payment: paymentC / 100, count, total_interest: totalInterest / 100, total_paid: (financedC + totalInterest) / 100, schedule: sched };
+}
+// Sales/VAT tax calculator (stateless) — cents-exact. One `rate` (defaults its line to "tax") or a
+// `rates[]` list of jurisdictions (state + county + city), each `{name?, rate, compound?}`. An
+// additive rate charges on the base subtotal; a `compound:true` rate charges on the running total
+// (subtotal + prior taxes — tax-on-tax, e.g. an old QST-on-GST). `inclusive:true` means the given
+// `subtotal` is tax-inclusive: the net is backed out and the per-jurisdiction split ties to the
+// cent (the rounding residual is absorbed by the last line). Compound + inclusive is rejected (the
+// back-out is ambiguous). Powers invoicing / POS / checkout. Any signed-in member (touches no data).
+function taxCalc(opts) {
+  const subtotalC = toCents(opts.subtotal != null ? opts.subtotal : opts.amount);
+  if (subtotalC == null || subtotalC < 0) return { err: "subtotal must be a number ≥ 0" };
+  let rates;
+  if (Array.isArray(opts.rates)) rates = opts.rates.map((r) => (r && typeof r === "object") ? { name: r.name != null && r.name !== "" ? String(r.name).slice(0, 64) : null, rate: Number(r.rate), compound: r.compound === true || r.compound === "true" } : { name: null, rate: Number(r), compound: false });
+  else if (opts.rate != null && opts.rate !== "") rates = [{ name: opts.name != null && opts.name !== "" ? String(opts.name).slice(0, 64) : "tax", rate: Number(opts.rate), compound: false }];
+  else return { err: "provide rate or rates[]" };
+  if (!rates.length) return { err: "at least one rate is required" };
+  if (rates.length > 20) return { err: "too many rates (max 20)" };
+  if (rates.some((r) => !Number.isFinite(r.rate) || r.rate < 0 || r.rate > 100)) return { err: "each rate must be a percentage 0–100" };
+  const inclusive = opts.inclusive === true || opts.inclusive === "true";
+  if (inclusive && rates.some((r) => r.compound)) return { err: "compound rates can't be combined with inclusive pricing" };
+  const taxes = []; let netC, taxC, totalC;
+  if (!inclusive) {
+    netC = subtotalC; let running = subtotalC;
+    for (const r of rates) { const onC = r.compound ? running : subtotalC; const amt = Math.round(onC * r.rate / 100); taxes.push({ name: r.name, rate: r.rate, amount: amt / 100 }); running += amt; }
+    totalC = running; taxC = totalC - netC;
+  } else {
+    totalC = subtotalC; // the given amount is tax-inclusive (all rates additive here)
+    let sum = 0; for (const r of rates) sum += r.rate;
+    netC = Math.round(totalC / (1 + sum / 100)); taxC = totalC - netC;
+    for (const r of rates) { const amt = Math.round(netC * r.rate / 100); taxes.push({ name: r.name, rate: r.rate, amount: amt / 100 }); }
+    const lineSum = taxes.reduce((s, l) => s + Math.round(l.amount * 100), 0), resid = taxC - lineSum;
+    if (resid !== 0 && taxes.length) taxes[taxes.length - 1].amount = Math.round(taxes[taxes.length - 1].amount * 100 + resid) / 100;
+  }
+  return { subtotal: netC / 100, tax: taxC / 100, total: totalC / 100, inclusive, taxes };
+}
+// Tiered / marginal commission calculator (stateless) — a flat `rate` or `brackets[]` where each
+// bracket's rate applies ONLY to the portion of `amount` inside it (marginal, like income-tax
+// brackets), cents-exact. A bracket's `up_to` is its upper bound; the last bracket omits it (open-
+// ended). Optional flat `base` is added on top. Powers sales-comp / payroll / SPM. Any member.
+function commissionCalc(opts) {
+  const amountC = toCents(opts.amount);
+  if (amountC == null || amountC < 0) return { err: "amount must be a number ≥ 0" };
+  let brackets;
+  if (Array.isArray(opts.brackets) && opts.brackets.length) brackets = opts.brackets.map((b) => ({ up_to: (b.up_to != null && b.up_to !== "") ? toCents(b.up_to) : ((b.upTo != null && b.upTo !== "") ? toCents(b.upTo) : null), rate: Number(b.rate) }));
+  else if (opts.rate != null && opts.rate !== "") brackets = [{ up_to: null, rate: Number(opts.rate) }];
+  else return { err: "provide rate or brackets[]" };
+  if (brackets.length > 50) return { err: "too many brackets (max 50)" };
+  if (brackets.some((b) => !Number.isFinite(b.rate) || b.rate < 0 || b.rate > 100000)) return { err: "each bracket rate must be a percentage 0–100000" };
+  if (brackets.some((b) => b.up_to != null && (!Number.isFinite(b.up_to) || b.up_to < 0))) return { err: "each bracket up_to must be ≥ 0" };
+  brackets.sort((a, b) => (a.up_to == null ? Infinity : a.up_to) - (b.up_to == null ? Infinity : b.up_to));
+  const lines = []; let lower = 0, totalC = 0;
+  for (const b of brackets) {
+    if (lower >= amountC) break;
+    const cap = b.up_to == null ? amountC : Math.min(b.up_to, amountC), span = cap - lower;
+    if (span > 0) { const c = Math.round(span * b.rate / 100); lines.push({ from: lower / 100, to: b.up_to == null ? null : b.up_to / 100, rate: b.rate, portion: span / 100, commission: c / 100 }); totalC += c; }
+    lower = b.up_to == null ? amountC : b.up_to;
+  }
+  const baseC = (opts.base != null && opts.base !== "") ? (toCents(opts.base) || 0) : 0;
+  totalC += Math.max(0, baseC);
+  const eff = amountC > 0 ? Math.round((totalC / amountC) * 1e4) / 100 : 0;
+  return { amount: amountC / 100, base: Math.max(0, baseC) / 100, commission: totalC / 100, effective_rate: eff, brackets: lines };
+}
 // ── STOCK LEDGER (ERP inventory foundation) ──────────────────────────────────────
 // Append-only movement log per item+location: on-hand = Σ(signed qty). Reservations
 // earmark stock without moving it (available = on-hand − active reservations). The
@@ -10955,7 +11051,7 @@ async function handleRequest(request, env, ctx) {
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
       //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization|investment|breakeven|eoq)$/i);
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast|amortization|investment|breakeven|eoq|installments|tax|commission)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
@@ -10969,7 +11065,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = calc === "eoq" ? eoqCalc(body) : calc === "breakeven" ? breakevenCalc(body) : calc === "investment" ? investmentAnalysis(body) : calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
+        const res = calc === "tax" ? taxCalc(body) : calc === "commission" ? commissionCalc(body) : calc === "installments" ? installmentPlan(body) : calc === "eoq" ? eoqCalc(body) : calc === "breakeven" ? breakevenCalc(body) : calc === "investment" ? investmentAnalysis(body) : calc === "amortization" ? amortizationSchedule(body) : calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }
