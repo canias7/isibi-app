@@ -13112,7 +13112,7 @@ async function handleRequest(request, env, ctx) {
               if (!cur[0]) continue; // row missing → let the branch return its own 404
               const from = cur[0].v == null ? "" : String(cur[0].v);
               if (from === to) continue; // no change
-              const allowed = map[from] || map["*"] || [];
+              const allowed = [].concat(map[from] || [], map["*"] || []); // "*" targets are allowed from ANY state (additive), not just when the state has no list of its own
               if (!allowed.includes(to)) return Response.json({ ok: false, error: "can't move " + col + " from '" + from + "' to '" + to + "' — not an allowed step", code: "transition", column: col, from, to, allowed }, { status: 409 });
             }
           }
