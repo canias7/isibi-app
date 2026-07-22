@@ -6661,3 +6661,11 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+- **GAME STUDIO — Phase 7: environment + props (2026-07-22).** Owner: 3D games looked like "open space" with
+  no background/items. GAME_3D_RULES now REQUIRES a real environment (no more empty void): ATMOSPHERE (exp2 fog
+  matching clearColor so distance hazes out), a SKYBOX (big emissive infiniteDistance box so the horizon isn't
+  black), a neon GRID floor (thin emissive line-boxes), BOUNDARY WALLS enclosing the arena, and PROPS/set-dressing
+  (~12-18 scattered crates/barrels/pillars/cover-walls with neon emissive + shadow casters + collisions, doubling
+  as cover). All primitives — ZERO new assets, worker-only rules change. VALIDATED headless: an arena with
+  fog+skybox+grid+walls+14 props reads as a real neon place (0 errors). Real prop MODELS (crates/containers from
+  Kenney/Quaternius CC0 kits) are the asset-path follow-up, same sourcing challenge as characters.
