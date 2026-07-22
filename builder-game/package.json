@@ -5,7 +5,8 @@
   "description": "Deps pre-baked into the game build-service container image so each per-game build is just `vite build` (fast). The generator emits kaplay game source that uses ONLY these packages. Mirrors ../builder (the React app builder), engine swapped for kaplay.",
   "dependencies": {
     "kaplay": "^3001.0.0",
-    "@babylonjs/core": "^7.0.0"
+    "@babylonjs/core": "^7.0.0",
+    "@babylonjs/loaders": "^7.0.0"
   },
   "devDependencies": {
     "vite": "^5.4.0",

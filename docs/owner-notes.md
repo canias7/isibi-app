@@ -6547,3 +6547,17 @@ Full suite 144 green.
   duplicate-email signup refused.
 Six adversarial batches total (158–163), ALL green, ZERO real bugs found — high confidence in the
 backend's security + money correctness. Full suite 146 green.
+- **GAME STUDIO — Phase 7 increment 3: real 3D models (CC0 asset pack) (2026-07-22).** 3D games can now use
+  actual rigged 3D models, not just primitive boxes. Added `@babylonjs/loaders` to the game container + a
+  curated CC0 model pack baked at `/app/modelpack/` (OUTSIDE public/ so 2D + primitive-3D games aren't bloated).
+  The build-service copies ONLY the models a given game references into public/models/ before `vite build`
+  (worker parses the generated 3D code for `models/<name>.glb`, passes the list; build-server copyModels()).
+  GAME_3D_RULES gained an ASSETS section (optional SceneLoader + glTF-loader imports, ImportMeshAsync, scale
+  guidance, async-safe placement). VALIDATED (real): the actual build-server copies robot.glb into dist/models,
+  a game loading it builds (128 files) and renders a proper rigged robot character headlessly (68.8% non-blank,
+  0 errors). **STARTER PACK IS THIN: only `robot.glb`** (RobotExpressive, clean CC0, 464KB — usable for player
+  + tinted/scaled enemies). Khronos sample models are 8-17MB (unusable); reliable low-poly CC0 URLs for
+  Kenney/Quaternius weren't fetchable here. **TO GROW THE PACK: drop CC0 .glb files in `builder-game/models/`
+  and list them in GAME_3D_RULES' ASSETS section** (like the voice-preview MP3 backlog) — Kenney.nl / Quaternius
+  / KayKit are the right sources (uniformly CC0, low-poly, small). Model bundling adds ~1.5MB loader + the model
+  to games that USE models (opt-in via referencing them); box-only 3D games stay lean.

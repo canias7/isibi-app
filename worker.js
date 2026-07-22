@@ -7897,10 +7897,10 @@ async function handleRequest(request, env, ctx) {
         if (!usedOut) usedOut = Math.ceil(text.length / 4);
         return { text, usedIn, usedOut };
       };
-      const buildGame = async (files, assets) => {
+      const buildGame = async (files, assets, models) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
         const t0 = Date.now();
-        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, smoke: true }) }));
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, models: models || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
@@ -7931,7 +7931,7 @@ async function handleRequest(request, env, ctx) {
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files, gameAssets));
+            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/models\/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.split("/").pop().toLowerCase()))] : null));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;
@@ -8029,10 +8029,10 @@ async function handleRequest(request, env, ctx) {
         if (!usedOut) usedOut = Math.ceil(text.length / 4);
         return { text, usedIn, usedOut };
       };
-      const buildGame = async (files, assets) => {
+      const buildGame = async (files, assets, models) => {
         const c = getContainer(env.GAME_BUILD_CONTAINER);
         const t0 = Date.now();
-        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, smoke: true }) }));
+        const br = await c.fetch(new Request("http://build/build", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ files, assets: assets || undefined, models: models || undefined, smoke: true }) }));
         const bd = await br.json().catch(() => ({ ok: false, error: "build service returned no JSON" }));
         return { bd, buildMs: Date.now() - t0 };
       };
@@ -8060,7 +8060,7 @@ async function handleRequest(request, env, ctx) {
           let bd, buildMs, attempt = 0;
           for (;;) {
             emit({ ev: "phase", phase: attempt ? "fixing" : "compiling" });
-            ({ bd, buildMs } = await buildGame(files, gameAssets));
+            ({ bd, buildMs } = await buildGame(files, gameAssets, engine === "3d" ? [...new Set((JSON.stringify(files).match(/models\/[a-z0-9_-]+\.glb/gi) || []).map((s) => s.split("/").pop().toLowerCase()))] : null));
             const compileFail = !bd.ok;
             const runtimeFail = bd.ok && bd.smoke && !bd.smoke.passed;
             if (!compileFail && !runtimeFail) break;

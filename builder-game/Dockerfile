@@ -24,6 +24,10 @@ ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # A default template so `vite build` always has a valid project; generated source
 # overwrites index.html + src/** per request.
 COPY template/ ./
+# Curated CC0 3D model pack (Phase 7 increment 3). Baked OUTSIDE public/ so 2D and
+# primitive-3D games aren't bloated — the build-service copies only the models a
+# given game references into public/models/ before `vite build`.
+COPY models/ ./modelpack/
 COPY build-server.mjs smoke.mjs ./
 
 ENV NODE_ENV=production
