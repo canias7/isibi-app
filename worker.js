@@ -3617,6 +3617,30 @@ async function purgeRowSatellites(env, uuid, table, ids) {
   }
   try { await cfD1Query(env, uuid, "DELETE FROM _links WHERE a IN (" + tph + ") OR b IN (" + tph + ")", [...targets, ...targets]); } catch {}
 }
+// MOVE a row's satellite data onto another row of the same table — used by /merge so folding a
+// duplicate keeps its notes, attachments, approvals, tags, and activity on the survivor instead of
+// losing them. Composite-PK tables (tags/shares/reactions/reports/bookmarks/links) use UPDATE OR
+// IGNORE so a value the survivor ALREADY has isn't duplicated; the loser's leftover of that value
+// is then dropped. Best-effort per table.
+async function reassignRowSatellites(env, uuid, table, fromId, toId) {
+  const from = parseInt(fromId, 10), to = parseInt(toId, 10);
+  if (!(from > 0) || !(to > 0) || from === to) return;
+  const oldT = table + ":" + from, newT = table + ":" + to;
+  for (const tb of ["_notes", "_approvals", "_history", "_attachments"]) {
+    try { await cfD1Query(env, uuid, "UPDATE " + tb + " SET row_id=? WHERE row_table=? AND row_id=?", [to, table, from]); } catch {}
+  }
+  for (const tb of ["_tags", "_shares"]) {
+    try { await cfD1Query(env, uuid, "UPDATE OR IGNORE " + tb + " SET row_id=? WHERE row_table=? AND row_id=?", [to, table, from]); } catch {}
+    try { await cfD1Query(env, uuid, "DELETE FROM " + tb + " WHERE row_table=? AND row_id=?", [table, from]); } catch {}
+  }
+  for (const tb of ["_reactions", "_reports", "_bookmarks"]) {
+    try { await cfD1Query(env, uuid, "UPDATE OR IGNORE " + tb + " SET target=? WHERE target=?", [newT, oldT]); } catch {}
+    try { await cfD1Query(env, uuid, "DELETE FROM " + tb + " WHERE target=?", [oldT]); } catch {}
+  }
+  try { await cfD1Query(env, uuid, "UPDATE OR IGNORE _links SET a=? WHERE a=?", [newT, oldT]); } catch {}
+  try { await cfD1Query(env, uuid, "UPDATE OR IGNORE _links SET b=? WHERE b=?", [newT, oldT]); } catch {}
+  try { await cfD1Query(env, uuid, "DELETE FROM _links WHERE a=? OR b=?", [oldT, oldT]); } catch {}
+}
 // A signed-in member can log/see notes on a record they can SEE: public-read tables
 // (display/feed/admin) → any member; a `user` table → the row's owner, its owner's manager
 // (teamRead), or an admin. `collect` (write-only) exposes nothing, so no notes there.
@@ -8768,6 +8792,7 @@ async function handleRequest(request, env, ctx) {
             for (const ch of childRefsOf(spec, table)) {
               try { const ex = await cfD1Exec(env, uuid, "UPDATE " + sqlIdent(ch.table) + " SET " + sqlIdent(ch.col) + "=? WHERE " + sqlIdent(ch.col) + "=?", [rowId, from]); repointed[ch.table] = (repointed[ch.table] || 0) + (ex.changes || 0); } catch {}
             }
+            await reassignRowSatellites(env, uuid, table, from, rowId); // keep the loser's notes/attachments/activity on the survivor
             try { await cfD1Exec(env, uuid, "DELETE FROM " + tn + " WHERE id=?", [from]); } catch {}
             return Response.json({ ok: true, into: rowId, from, repointed });
           }
