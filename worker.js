@@ -4521,6 +4521,17 @@ async function ensureReviews(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_reviews_subject ON _reviews (subject)"); } catch {}
   _reviewsReady.add(uuid);
 }
+// Waitlist / fair FIFO queue — a member JOINS a named list ONCE (a strictly-increasing `seq` via a
+// single atomic INSERT...SELECT), sees their live POSITION (count of still-'waiting' rows ahead + 1),
+// or LEAVES; an admin views the ordered queue and CLAIMs the front (or a named user) via a single
+// atomic guarded UPDATE. PRIMARY KEY (list, user_id) enforces one row per member per list.
+const _waitlistReady = new Set();
+async function ensureWaitlist(env, uuid) {
+  if (_waitlistReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _waitlist (list TEXT NOT NULL, user_id INTEGER NOT NULL, joined_at TEXT, status TEXT NOT NULL DEFAULT 'waiting', seq INTEGER, PRIMARY KEY (list, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_waitlist_seq ON _waitlist (list, seq)"); } catch {}
+  _waitlistReady.add(uuid);
+}
 // The DEFAULT row-visibility suffix for a table (param-free): hide trashed / expired / not-yet-published
 // / archived rows — IDENTICAL to the list read's visClause. ANDed into a saved search's base so a stored
 // query can never re-widen visibility (buildD1List ignores the withTrashed/withScheduled/… params).
@@ -9274,6 +9285,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _views WHERE user_id=?", [u.id]],                                  // saved views/filters
             ["DELETE FROM _searches WHERE user_id=?", [u.id]],                               // saved searches
             ["DELETE FROM _reviews WHERE user_id=?", [u.id]],                                // ratings & reviews
+            ["DELETE FROM _waitlist WHERE user_id=?", [u.id]],                               // waitlist entries
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -10626,6 +10638,93 @@ async function handleRequest(request, env, ctx) {
           const rows = await cfD1Query(env, uuid, "SELECT user_id, rating, title, body, created_at, updated_at FROM _reviews WHERE subject=? ORDER BY " + order + " LIMIT ? OFFSET ?", [subject, lim, off]);
           return Response.json({ ok: true, subject, reviews: rows });
         } catch (e) { console.error("reviews failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "reviews failed" }, { status: 502 }); }
+      }
+      // WAITLIST / QUEUE — a fair FIFO queue per named list. A member JOINS once (a strictly-increasing
+      // `seq` is assigned by a SINGLE atomic INSERT...SELECT with seq = MAX(seq)+1, guarded by
+      // WHERE NOT EXISTS so a re-join changes 0 rows), sees their live POSITION (count of still-'waiting'
+      // rows with a smaller seq, +1), or LEAVES. An admin views the ordered queue + counts and CLAIMs
+      // the front (or a named user) — a SINGLE atomic guarded UPDATE (seq = the current MIN waiting seq)
+      // flips them out of 'waiting', so concurrent claim-front calls drain DIFFERENT members, never
+      // double-claim, and everyone behind advances (position counts only 'waiting' rows).
+      //   POST /api/db/<slug>/waitlist/<list>/join   → join once → {joined, status, position, seq}
+      //   GET  /api/db/<slug>/waitlist/<list>/me     → {status, position, seq} · 404 if not on it
+      //   POST /api/db/<slug>/waitlist/<list>/leave  → remove myself · 404 if not on it
+      //   GET  /api/db/<slug>/waitlist/<list>        → (ADMIN) ordered entries + counts
+      //   POST /api/db/<slug>/waitlist/<list>/claim {user?, as?} → (ADMIN) claim front or a named user
+      const wlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/waitlist\/([A-Za-z0-9_.:-]{1,60})(?:\/(join|me|leave|claim))?$/i);
+      if (wlm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wlm[1].toLowerCase(), list = wlm[2], sub = wlm[3] ? wlm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureWaitlist(env, uuid);
+          const positionOf = async (seq) => (await cfD1Query(env, uuid, "SELECT COUNT(*) AS ahead FROM _waitlist WHERE list=? AND status='waiting' AND seq < ?", [list, seq]))[0].ahead + 1;
+          // JOIN — once per (list,user). SINGLE atomic INSERT...SELECT; seq = MAX+1; NOT EXISTS → re-join is a no-op.
+          if (sub === "join") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlj", 60)) return tooMany();
+            const now = new Date().toISOString();
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _waitlist (list, user_id, joined_at, status, seq) SELECT ?, ?, ?, 'waiting', (SELECT COALESCE(MAX(seq),0)+1 FROM _waitlist WHERE list=?) WHERE NOT EXISTS (SELECT 1 FROM _waitlist WHERE list=? AND user_id=?)", [list, userId, now, list, list, userId]);
+            const row = (await cfD1Query(env, uuid, "SELECT status, seq FROM _waitlist WHERE list=? AND user_id=?", [list, userId]))[0];
+            if (!row) return Response.json({ ok: false, error: "join failed" }, { status: 502 });
+            const position = row.status === "waiting" ? await positionOf(row.seq) : null;
+            return Response.json({ ok: true, joined: !!ex.changes, status: row.status, position, seq: row.seq });
+          }
+          // ME — my own standing (private: only ever reads the caller's own row).
+          if (sub === "me") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlme", 300)) return tooMany();
+            const row = (await cfD1Query(env, uuid, "SELECT status, seq FROM _waitlist WHERE list=? AND user_id=?", [list, userId]))[0];
+            if (!row) return Response.json({ ok: false, error: "you're not on this waitlist" }, { status: 404 });
+            const position = row.status === "waiting" ? await positionOf(row.seq) : null;
+            return Response.json({ ok: true, status: row.status, position, seq: row.seq });
+          }
+          // LEAVE — remove myself (only ever deletes the caller's own row).
+          if (sub === "leave") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wll", 60)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _waitlist WHERE list=? AND user_id=?", [list, userId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "you're not on this waitlist" }, { status: 404 });
+            return Response.json({ ok: true, left: true });
+          }
+          // Everything below is ADMIN.
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // CLAIM — a SINGLE atomic guarded UPDATE. Front = the current MIN waiting seq (re-evaluated
+          // inside the one statement), or a named user. RETURNING reports who was claimed.
+          if (sub === "claim") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|wlc", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            let as = String(body.as || "invited").toLowerCase();
+            if (!/^[a-z_]{1,20}$/.test(as) || as === "waiting") as = "invited";
+            let claimed;
+            if (body.user != null && body.user !== "") {
+              const target = parseInt(body.user, 10);
+              if (!Number.isFinite(target)) return Response.json({ ok: false, error: "bad user id" }, { status: 400 });
+              claimed = await cfD1Query(env, uuid, "UPDATE _waitlist SET status=? WHERE list=? AND user_id=? AND status='waiting' RETURNING user_id, seq", [as, list, target]);
+            } else {
+              claimed = await cfD1Query(env, uuid, "UPDATE _waitlist SET status=? WHERE list=? AND status='waiting' AND seq=(SELECT MIN(seq) FROM _waitlist WHERE list=? AND status='waiting') RETURNING user_id, seq", [as, list, list]);
+            }
+            if (!claimed || !claimed.length) return Response.json({ ok: false, error: "no waiting member to claim" }, { status: 409 });
+            return Response.json({ ok: true, status: as, claimed: { user_id: claimed[0].user_id, seq: claimed[0].seq } });
+          }
+          // LIST (admin) — the ordered queue (front-2000 by seq) + full counts (independent of the page).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "use GET" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|wllist", 300)) return tooMany();
+          const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS total, SUM(CASE WHEN status='waiting' THEN 1 ELSE 0 END) AS waiting FROM _waitlist WHERE list=?", [list]))[0];
+          const rows = await cfD1Query(env, uuid, "SELECT user_id, status, seq, joined_at FROM _waitlist WHERE list=? ORDER BY seq ASC LIMIT 2000", [list]);
+          let pos = 0;
+          const entries = rows.map((r) => ({ user_id: r.user_id, status: r.status, seq: r.seq, position: r.status === "waiting" ? ++pos : null, joined_at: r.joined_at }));
+          return Response.json({ ok: true, list, total: (cnt && cnt.total) || 0, waiting: (cnt && cnt.waiting) || 0, entries });
+        } catch (e) { console.error("waitlist failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "waitlist failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
