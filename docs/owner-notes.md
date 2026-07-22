@@ -683,6 +683,14 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   locale or all). ensureI18n + _i18nNs/_i18nLoc sanitizers. batch133 (21/21) — fallback fills gaps + requested
   wins, single-key, namespaces isolate, public-read/admin-write, delete one-locale-or-all. Full suite 116
   green. Serves CMS.
+- **VERT 8 — TIME & ATTENDANCE / CLOCK** (HRMS, `/api/db/<slug>/timeclock/*`): `_time_entries`(employee,
+  clock_in,clock_out,minutes). `POST /timeclock/in {at?,note?}` opens a shift via atomic guard (NOT EXISTS
+  open shift → 409 `open`); `/out {at?}` closes newest open shift, minutes=(out−in)/60000 (409 `not_open`).
+  `/entry {employee,clock_in,clock_out}` (admin) adds a corrected completed shift. `/status`, `/entries
+  ?from=&to=`, `/summary?employee=&from=&to=` (hours; admin omits employee → per-employee groupby). Member =
+  self (empOf forces own unless admin names employee). to-date bound → +T23:59:59.999Z. batch134 (24/24) —
+  8.5h calc, double-in 409, out-when-not-in 409, date-scoped, manual entry, org summary admin-only. Full
+  suite 117 green. Serves HRMS.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 

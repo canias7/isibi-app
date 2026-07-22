@@ -4018,6 +4018,15 @@ async function ensureI18n(env, uuid) {
 }
 const _i18nNs = (v) => { const s = String(v == null || v === "" ? "default" : v).toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60); return s || "default"; };
 const _i18nLoc = (v) => { const s = String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 16); return s || null; };
+// Time & attendance: clock in opens a shift, clock out closes it (computing minutes). An
+// employee can't have two open shifts (atomic guard). Summary totals worked hours.
+const _timeReady = new Set();
+async function ensureTimeclock(env, uuid) {
+  if (_timeReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _time_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, employee TEXT NOT NULL, clock_in TEXT NOT NULL, clock_out TEXT, minutes INTEGER, note TEXT, created_by INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_te_emp ON _time_entries (employee, clock_in)"); } catch {}
+  _timeReady.add(uuid);
+}
 // Grade a submitted answer against a key. Case/whitespace-insensitive; a key that's an array
 // accepts any-of (scalar answer) or exact-set (array answer) for multi-select.
 function quizCorrect(key, ans) {
@@ -10062,6 +10071,105 @@ async function handleRequest(request, env, ctx) {
           for (const [k, v] of pairs) { const kk = String(k).slice(0, 120); if (!kk) continue; await cfD1Query(env, uuid, "INSERT INTO _translations (namespace, key, locale, value) VALUES (?,?,?,?) ON CONFLICT(namespace, key, locale) DO UPDATE SET value=excluded.value", [nsBody, kk, locale, v == null ? null : String(v).slice(0, 20000)]); }
           return Response.json({ ok: true, namespace: nsBody, locale, saved: pairs.length });
         } catch (e) { console.error("i18n failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "i18n failed" }, { status: 502 }); }
+      }
+      // TIME & ATTENDANCE / CLOCK (HRMS) — clock in/out → worked hours. A signed-in member
+      // clocks themselves (employee = their id); an admin can act for any `employee`.
+      //   POST /api/db/<slug>/timeclock/in {employee?, at?, note?}   → open a shift (409 if already in)
+      //   POST /api/db/<slug>/timeclock/out {employee?, at?}         → close the open shift → {minutes}
+      //   POST /api/db/<slug>/timeclock/entry {employee?, clock_in, clock_out, note?}  (admin) → add a completed shift
+      //   GET  /api/db/<slug>/timeclock/status?employee=            → {clocked_in, since}
+      //   GET  /api/db/<slug>/timeclock/entries?employee=&from=&to= → shift history
+      //   GET  /api/db/<slug>/timeclock/summary?employee=&from=&to= → total hours (per employee if unscoped, admin)
+      const tcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/timeclock\/(in|out|entry|status|entries|summary)$/i);
+      if (tcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tcm[1].toLowerCase(), action = tcm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const isAdmin = (((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin");
+          await ensureTimeclock(env, uuid);
+          const empOf = (given) => { const g = given != null && given !== "" ? String(given).slice(0, 80) : null; if (g && g !== String(userId) && !isAdmin) return null; return g || String(userId); };
+          const rd = () => rateOk(slug + "|" + ip + "|tcr", 300), wr = () => rateOk(slug + "|" + ip + "|tcw", 120);
+          if (action === "in") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = empOf(body.employee); if (!emp) return Response.json({ ok: false, error: "you can only clock yourself in" }, { status: 403 });
+            const at = _normDT(body.at) || new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _time_entries (employee, clock_in, note, created_by, created_at) SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM _time_entries WHERE employee=? AND clock_out IS NULL) RETURNING id",
+              [emp, at, body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString(), emp]);
+            if (!ins[0]) return Response.json({ ok: false, error: "already clocked in", code: "open" }, { status: 409 });
+            return Response.json({ ok: true, id: ins[0].id, employee: emp, clock_in: at });
+          }
+          if (action === "out") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = empOf(body.employee); if (!emp) return Response.json({ ok: false, error: "you can only clock yourself out" }, { status: 403 });
+            const open = (await cfD1Query(env, uuid, "SELECT id, clock_in FROM _time_entries WHERE employee=? AND clock_out IS NULL ORDER BY id DESC LIMIT 1", [emp]))[0];
+            if (!open) return Response.json({ ok: false, error: "not clocked in", code: "not_open" }, { status: 409 });
+            const at = _normDT(body.at) || new Date().toISOString();
+            const mins = Math.max(0, Math.round((Date.parse(at) - Date.parse(open.clock_in)) / 60000));
+            await cfD1Query(env, uuid, "UPDATE _time_entries SET clock_out=?, minutes=? WHERE id=?", [at, mins, open.id]);
+            return Response.json({ ok: true, id: open.id, employee: emp, clock_in: open.clock_in, clock_out: at, minutes: mins, hours: Math.round((mins / 60) * 100) / 100 });
+          }
+          if (action === "entry") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+            if (!isAdmin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!wr()) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const emp = String(body.employee || "").trim(); const ci = _normDT(body.clock_in), co = _normDT(body.clock_out);
+            if (!emp) return Response.json({ ok: false, error: "employee required" }, { status: 400 });
+            if (!ci || !co) return Response.json({ ok: false, error: "clock_in and clock_out must be datetimes" }, { status: 400 });
+            if (!(ci < co)) return Response.json({ ok: false, error: "clock_out must be after clock_in" }, { status: 400 });
+            const mins = Math.round((Date.parse(co) - Date.parse(ci)) / 60000);
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _time_entries (employee, clock_in, clock_out, minutes, note, created_by, created_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [emp, ci, co, mins, body.note != null ? String(body.note).slice(0, 300) : null, userId, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, employee: emp, minutes: mins });
+          }
+          // reads
+          if (request.method !== "GET") return Response.json({ ok: false, error: "GET only" }, { status: 405 });
+          if (!rd()) return tooMany();
+          const fromB = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("from") || "")) ? url.searchParams.get("from").slice(0, 10) : null;
+          const toRaw = /^\d{4}-\d{2}-\d{2}/.test(String(url.searchParams.get("to") || "")) ? url.searchParams.get("to").slice(0, 10) : null;
+          const toB = toRaw ? toRaw + "T23:59:59.999Z" : null;
+          if (action === "status") {
+            const emp = empOf(url.searchParams.get("employee")); if (!emp) return Response.json({ ok: false, error: "you can only view your own status" }, { status: 403 });
+            const open = (await cfD1Query(env, uuid, "SELECT clock_in FROM _time_entries WHERE employee=? AND clock_out IS NULL ORDER BY id DESC LIMIT 1", [emp]))[0];
+            return Response.json({ ok: true, employee: emp, clocked_in: !!open, since: open ? open.clock_in : null });
+          }
+          if (action === "entries") {
+            const emp = empOf(url.searchParams.get("employee")); if (!emp) return Response.json({ ok: false, error: "you can only view your own entries" }, { status: 403 });
+            const where = ["employee=?"]; const params = [emp];
+            if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+            if (toB) { where.push("clock_in<=?"); params.push(toB); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, clock_in, clock_out, minutes, note FROM _time_entries WHERE " + where.join(" AND ") + " ORDER BY clock_in DESC LIMIT 1000", params);
+            return Response.json({ ok: true, employee: emp, entries: rows.map((r) => ({ id: r.id, clock_in: r.clock_in, clock_out: r.clock_out, minutes: r.minutes, hours: r.minutes == null ? null : Math.round((r.minutes / 60) * 100) / 100, note: r.note, open: r.clock_out == null })) });
+          }
+          // summary
+          const empParam = url.searchParams.get("employee");
+          if (empParam) {
+            const emp = empOf(empParam); if (!emp) return Response.json({ ok: false, error: "you can only view your own summary" }, { status: 403 });
+            const where = ["employee=?", "clock_out IS NOT NULL"]; const params = [emp];
+            if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+            if (toB) { where.push("clock_in<=?"); params.push(toB); }
+            const r = (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(minutes),0) AS m, COUNT(*) AS n FROM _time_entries WHERE " + where.join(" AND "), params))[0] || {};
+            return Response.json({ ok: true, employee: emp, shifts: r.n || 0, minutes: r.m || 0, hours: Math.round(((r.m || 0) / 60) * 100) / 100 });
+          }
+          // no employee → everyone (admin only)
+          if (!isAdmin) return Response.json({ ok: false, error: "specify an employee (admins can omit it)" }, { status: 403 });
+          const where = ["clock_out IS NOT NULL"]; const params = [];
+          if (fromB) { where.push("clock_in>=?"); params.push(fromB); }
+          if (toB) { where.push("clock_in<=?"); params.push(toB); }
+          const rows = await cfD1Query(env, uuid, "SELECT employee, SUM(minutes) AS m, COUNT(*) AS n FROM _time_entries WHERE " + where.join(" AND ") + " GROUP BY employee ORDER BY employee LIMIT 5000", params);
+          return Response.json({ ok: true, summary: rows.map((r) => ({ employee: r.employee, shifts: r.n, minutes: r.m || 0, hours: Math.round(((r.m || 0) / 60) * 100) / 100 })) });
+        } catch (e) { console.error("timeclock failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "timeclock failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
