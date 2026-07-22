@@ -6752,3 +6752,23 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   (WebGL fallback): dense 34-prop arena + 800 ambient embers renders clean, 0 errors, procedural sprite works (no
   asset). worker-only. NOTE: CPU ParticleSystem (works on WebGL fallback AND WebGPU); could move to GPUParticleSystem
   on WebGPU later for even more. Still primitives — real prop/character MODELS remain the asset wall.
+
+- **2026-07-22 — 3D smoke test was silently burning the auto-fix budget on WebGPU (root-caused + fixed).**
+  Symptom: live 3D "fed" builds kept looping generating→compiling→fixing→fixing→fixing (max 2 fixes) before
+  publishing. Root cause: the WebGPU-first engine init (rungs #686/#689) calls Babylon `WebGPUEngine.initAsync()`,
+  which fetches the WGSL/GLSL compilers (`twgsl`/`glslang`) off `cdn.babylonjs.com`. In the offline build
+  container that cross-origin fetch network-FAILS → the smoke test's `requestfailed` handler flagged it → smoke
+  fail → 2 wasted Sonnet fix rounds on an infra hiccup Sonnet can't fix (and the long build got cut by the proxy,
+  losing the done event/slug). The game still published + ran fine (WebGL fallback is graceful) — pure waste.
+  Proven by reconstructing the exact generated source from the build stream and running it locally: compiles,
+  0 errors, robots load, non-blank — clean. Fix (all in `builder-game/smoke.mjs`, rebuilds the container):
+  (1) force the WebGL path — `--disable-features=WebGPU` launch flag + an addInitScript that sets
+  `navigator.gpu = undefined` so `IsSupportedAsync` is deterministically false (headless swiftshader WebGPU is
+  unreliable anyway; WebGL is what real browsers use today and the only path testable clean); (2) scope the
+  `requestfailed` flag to SAME-ORIGIN (`localhost:port`) only — a missing bundled sprite/model is a real bug, a
+  failed cross-origin CDN fetch during a graceful fallback is not; (3) filter console.errors mentioning
+  babylonjs.com/twgsl/glslang/ktx2/WebGPU. Net: 3D games now smoke-test their WebGL path and pass first-try —
+  no more phantom fix rounds. Also re-confirmed the "feed it" result LIVE (neon arena shooter): real animated
+  robot enemies + 800 ambient embers + dense varied props + full HUD render as a real game, not squares — but
+  props/environment are still primitives (the character models are the only real meshes; real prop/env asset
+  packs remain the wall).
