@@ -8655,10 +8655,17 @@ async function handleRequest(request, env, ctx) {
         const tdef = tableDef(spec, a.row_table);
         if (!tdef) return Response.json({ ok: false, error: "not found" }, { status: 404 });
         const access = tdef.access || "collect";
-        let userId = null;
-        const atok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-        if (atok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, atok); if (p && p.slug === slug) userId = p.sub; } catch {} }
-        if (!(await memberCanSeeRow(env, uuid, tdef, sqlIdent(a.row_table), a.row_id, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        // A valid signed link (?t=<token>) authorizes the fetch on its own — for embedding in an
+        // email / <img> / share without the Bearer token. Else fall back to record visibility.
+        let signed = false;
+        const linkTok = url.searchParams.get("t");
+        if (linkTok) { try { const secret = await initSiteAuth(env, uuid); const lp = await verifySiteUserToken(secret, linkTok); if (lp && lp.purpose === "attach" && lp.slug === slug && Number(lp.att) === attId) signed = true; } catch {} }
+        if (!signed) {
+          let userId = null;
+          const atok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (atok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, atok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!(await memberCanSeeRow(env, uuid, tdef, sqlIdent(a.row_table), a.row_id, userId, access))) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+        }
         let obj = null; try { obj = await env.SITES_BUCKET.get(a.r2_key); } catch {}
         if (!obj) return Response.json({ ok: false, error: "not found" }, { status: 404 });
         const b64 = await obj.text();
@@ -9118,6 +9125,13 @@ async function handleRequest(request, env, ctx) {
             if (method === "GET") {
               const list = await cfD1Query(env, uuid, "SELECT id, filename, content_type, size, uploaded_by, created_at FROM _attachments WHERE row_table=? AND row_id=? ORDER BY id DESC LIMIT 200", [table, rowId]);
               for (const a of list) a.url = "/api/db/" + slug + "/attach/" + a.id;
+              // ?sign=1[&ttl=<sec>] → also return a signed, expiring link per attachment that works
+              // WITHOUT a Bearer token (embed in an email / <img> src / share). Default 1h, max 7d.
+              if (url.searchParams.get("sign") === "1") {
+                const ttl = Math.min(604800, Math.max(60, parseInt(url.searchParams.get("ttl") || "3600", 10) || 3600));
+                const exp = Math.floor(Date.now() / 1000) + ttl;
+                try { const secret = await initSiteAuth(env, uuid); for (const a of list) { const tkn = await signSiteUserToken(secret, { purpose: "attach", slug, att: a.id, exp }); a.signed_url = a.url + "?t=" + tkn; } } catch {}
+              }
               return Response.json({ ok: true, id: rowId, attachments: list });
             }
             if (method === "DELETE") {
