@@ -617,6 +617,17 @@ it needs the owner to register an OAuth app and provide client id/secret + a red
 round-trip, so it can't be built+verified without owner credentials. Everything else
 is delivered.
 
+## 2026-07-22 — CRM gap layer: multi-dimensional reports (matrix/pivot)
+
+First of the "enterprise CRM gaps" build. The stats endpoint already did single-column
+GROUP BY with count/sum/avg/min/max; extended `buildD1Stats` + the stats handler to accept
+`?group=col1,col2[,…]` (up to 4 dims) → a matrix report, one row per combination
+(`{groupBy:[…], groups:[{col1,col2,count,sum:{…},avg:{…}}]}`). Single-dim shape is unchanged
+(backward compatible: still `{group, groups:[{value,…}]}`). Covers "pipeline by stage AND by
+rep" in one request. Respects where/q/tag + user-table owner scoping. Offline-verified
+batch63 (11/11), full suite green. This closes most of CRM gap #2 (reporting) — remaining:
+cross-TABLE grouping (group opps by account.industry) and HAVING (filter on an aggregate).
+
 ## 2026-07-21 — BUGFIX: schema revise dropped new app columns (+ stale flag-triggers)
 
 Found while live-testing: **re-applying a schema (what a REVISE does) never ALTER-added a
