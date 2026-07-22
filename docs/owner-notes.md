@@ -6487,3 +6487,21 @@ membership (white-box + black-box), guards. Full suite 137 green.
   per-team config is the clean additive win. batch156 (22/22) — JSON round-trips, whole-config read,
   member-reads/owner-admin-writes, non-member 403 r/w, upsert, delete, per-team isolation, team-delete
   clears config (white-box), guards. Full suite 139 green.
+
+## 2026-07-22 — TEAM-SCOPED DATA (`teamScope`) — the last known gap, done carefully
+Took on the invasive one I'd deferred twice (shared team data), but made it SAFE by gating every change
+behind the `teamScope` flag so tables without it are provably unaffected (full 139-test regression stayed
+green BEFORE writing the teamScope test). A `user` table with `teamScope:true`:
+- gets a `team_id` column (create + idempotent ALTER, both gated on t.teamScope && access==='user').
+- INSERT: caller must pass a `team_id` of a team they belong to (teamRoleOf check) → row stamped
+  owner_id=author + team_id; missing→400, non-member→403 code:'team'. Batch/upsert refused (400).
+- READ: `userReadBase` returns `team_id IN (my team ids)` (mirrors the teamRead pattern — computed once
+  from _team_members) → every member sees ALL the team's rows (shared). No team → `0=1` (sees nothing).
+  Applies to list, single-GET, and stats (all route through userReadBase).
+- WRITE: unchanged — update/delete still use `owner_id=?`, so ONLY the author edits/deletes a row. Safe
+  default; team-wide edit can be a follow-up.
+Flag parsed in coerceTable + norm.push (aliases teamShared/sharedTeam/teamData). Contained to ~5 spots,
+all flag-gated. batch157 (20/20) — shared reads (B sees A's row), membership-required create (400/403),
+team isolation (team-2 rows hidden from a team-1-only member), author-only edit/delete (teammate gets 404),
+single-GET sharing, no-team-sees-nothing, batch refused, guards. Full suite 140 green. This closes the
+teams arc: membership+roles → invites → per-team config → shared team data.
