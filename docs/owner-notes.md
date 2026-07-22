@@ -6332,3 +6332,15 @@ the data API — so a generated app couldn't build an in-app analytics page from
   ctx.waitUntil work (general — helps any fire-and-forget test). batch148 (9/9) — created/updated/deleted
   fire, no-flag table silent, created-only table skips update/delete, all deliveries logged ok, cache
   invalidation on subscriber delete stops firing. Full suite 131 green.
+
+- **Saved segments / audiences** (analytics/marketing): `POST /api/db/<slug>/segments {name,table,filter}`
+  (ADMIN) saves a named filter over a table; `GET /segments`, `GET /segments/<name>`,
+  `GET /segments/<name>/count`, `GET /segments/<name>/preview[?limit=]`, `DELETE /segments/<name>`.
+  `filter` = a list-read query string ("where=plan:eq:pro&where=spend:gte:500") OR an object
+  ({where:["plan:eq:pro","active:eq:1"]}). Reuses the EXISTING `buildD1List` filter engine — stored the
+  filter as a query string, rebuild `new URL("https://x/?"+filter)` and feed it in; count uses countSql,
+  preview uses sql with a capped ?limit. Evaluated as admin over ALL rows (base = trash-exclude when the
+  table has trash), so it's an audience tool — pair with /webhooks/emit or export. Upsert on name (PK).
+  `_segments` table. batch149 (19/19) — string + object filters, count/preview/limit, list, fetch-one,
+  upsert-updates, delete→404, all guards (non-admin 403 r/w, signed-out 401, unknown table 404, missing
+  name 400, unknown segment 404). Full suite 132 green.
