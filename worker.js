@@ -4009,6 +4009,15 @@ async function ensureQuiz(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_qa_ql ON _quiz_attempts (quiz, learner)"); } catch {}
   _quizReady.add(uuid);
 }
+// i18n: per-(namespace,key,locale) translations with default-locale fallback. Public read.
+const _i18nReady = new Set();
+async function ensureI18n(env, uuid) {
+  if (_i18nReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _translations (namespace TEXT NOT NULL DEFAULT 'default', key TEXT NOT NULL, locale TEXT NOT NULL, value TEXT, PRIMARY KEY (namespace, key, locale))");
+  _i18nReady.add(uuid);
+}
+const _i18nNs = (v) => { const s = String(v == null || v === "" ? "default" : v).toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60); return s || "default"; };
+const _i18nLoc = (v) => { const s = String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 16); return s || null; };
 // Grade a submitted answer against a key. Case/whitespace-insensitive; a key that's an array
 // accepts any-of (scalar answer) or exact-set (array answer) for multi-select.
 function quizCorrect(key, ans) {
@@ -9984,6 +9993,75 @@ async function handleRequest(request, env, ctx) {
           for (const q of qdefs) await cfD1Query(env, uuid, "INSERT INTO _quiz_questions (quiz, qid, answer, points) VALUES (?,?,?,?)", [quiz, q.qid, q.answer, q.points]);
           return Response.json({ ok: true, quiz, questions: qdefs.length, pass_pct: passPct });
         } catch (e) { console.error("quizzes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "quizzes failed" }, { status: 502 }); }
+      }
+      // LOCALIZATION / i18n (CMS) — the same string/content in many languages, with fallback.
+      // Reads are PUBLIC (a multilingual site renders to anonymous visitors, like /config);
+      // writes are ADMIN. A `fallback` locale fills any key missing in the requested locale.
+      //   GET    /api/db/<slug>/i18n?namespace=&locale=<l>[&fallback=<l>]   → {values:{key:string}} (public)
+      //   GET    /api/db/<slug>/i18n/<key>?namespace=&locale=[&fallback=]   → {value} (public)
+      //   GET    /api/db/<slug>/i18n/locales[?namespace=]                   → the locales that exist (public)
+      //   POST   /api/db/<slug>/i18n {namespace?, locale, entries:{key:value}}  OR  {namespace?, key, locale, value}  (admin)
+      //   DELETE /api/db/<slug>/i18n/<key>?namespace=&locale=              (admin)
+      const i18m = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/i18n(?:\/(locales|[A-Za-z0-9_.:-]{1,120}))?$/i);
+      if (i18m && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = i18m[1].toLowerCase(), seg = i18m[2] || null, isLocales = seg === "locales", key = (seg && !isLocales) ? seg : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          await ensureI18n(env, uuid);
+          const ns = _i18nNs(url.searchParams.get("namespace"));
+          // READS — public, no auth.
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|i18r", 600)) return tooMany();
+            if (isLocales) {
+              const rows = await cfD1Query(env, uuid, "SELECT DISTINCT locale FROM _translations WHERE namespace=? ORDER BY locale LIMIT 500", [ns]);
+              return Response.json({ ok: true, namespace: ns, locales: rows.map((r) => r.locale) });
+            }
+            const locale = _i18nLoc(url.searchParams.get("locale")); if (!locale) return Response.json({ ok: false, error: "locale is required" }, { status: 400 });
+            const fb = _i18nLoc(url.searchParams.get("fallback"));
+            const locs = fb && fb !== locale ? [fb, locale] : [locale]; // fallback first, requested overrides
+            if (key) {
+              const rows = await cfD1Query(env, uuid, "SELECT locale, value FROM _translations WHERE namespace=? AND key=? AND locale IN (" + locs.map(() => "?").join(",") + ")", [ns, key].concat(locs));
+              const byLoc = new Map(rows.map((r) => [r.locale, r.value]));
+              const value = byLoc.has(locale) ? byLoc.get(locale) : (fb ? byLoc.get(fb) : undefined);
+              return Response.json({ ok: true, namespace: ns, key, locale, value: value === undefined ? null : value });
+            }
+            const rows = await cfD1Query(env, uuid, "SELECT key, locale, value FROM _translations WHERE namespace=? AND locale IN (" + locs.map(() => "?").join(",") + ") LIMIT 20000", [ns].concat(locs));
+            const values = {};
+            for (const r of rows) if (r.locale === (fb || locale)) values[r.key] = r.value; // seed with fallback
+            for (const r of rows) if (r.locale === locale) values[r.key] = r.value;           // requested wins
+            return Response.json({ ok: true, namespace: ns, locale, fallback: fb || null, values });
+          }
+          // WRITES — admin.
+          let userId = null;
+          const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+          if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          if (!(((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|i18w", 120)) return tooMany();
+          if (request.method === "DELETE") {
+            if (!key) return Response.json({ ok: false, error: "key required in the path" }, { status: 400 });
+            const locale = _i18nLoc(url.searchParams.get("locale"));
+            if (locale) { const ex = await cfD1Exec(env, uuid, "DELETE FROM _translations WHERE namespace=? AND key=? AND locale=?", [ns, key, locale]); return Response.json({ ok: true, namespace: ns, key, locale, deleted: ex.changes || 0 }); }
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _translations WHERE namespace=? AND key=?", [ns, key]); // all locales of the key
+            return Response.json({ ok: true, namespace: ns, key, deleted: ex.changes || 0 });
+          }
+          // POST — bulk (entries) or single (key+value)
+          let body = {}; try { body = await request.json(); } catch {}
+          const nsBody = _i18nNs(body.namespace != null ? body.namespace : url.searchParams.get("namespace"));
+          const locale = _i18nLoc(body.locale); if (!locale) return Response.json({ ok: false, error: "locale is required" }, { status: 400 });
+          let pairs = [];
+          if (body.entries && typeof body.entries === "object" && !Array.isArray(body.entries)) pairs = Object.entries(body.entries);
+          else if (body.key != null) pairs = [[String(body.key), body.value]];
+          else return Response.json({ ok: false, error: "provide entries:{key:value} or key+value" }, { status: 400 });
+          if (!pairs.length) return Response.json({ ok: false, error: "nothing to save" }, { status: 400 });
+          if (pairs.length > 5000) return Response.json({ ok: false, error: "too many entries (max 5000)" }, { status: 400 });
+          for (const [k, v] of pairs) { const kk = String(k).slice(0, 120); if (!kk) continue; await cfD1Query(env, uuid, "INSERT INTO _translations (namespace, key, locale, value) VALUES (?,?,?,?) ON CONFLICT(namespace, key, locale) DO UPDATE SET value=excluded.value", [nsBody, kk, locale, v == null ? null : String(v).slice(0, 20000)]); }
+          return Response.json({ ok: true, namespace: nsBody, locale, saved: pairs.length });
+        } catch (e) { console.error("i18n failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "i18n failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.

@@ -675,6 +675,14 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   array key = any-of (scalar answer) or exact-set (array answer, multi-select). `GET /quizzes/<quiz>` hides
   key from non-admins; `/attempts` own-or-admin. batch132 (26/26) — perfect/partial, multi-select set,
   no-leak assertion, pass_pct null, attempts, authz. Full suite 115 green. Serves LMS/ATS assessments.
+- **VERT 7 — LOCALIZATION / i18n** (CMS, `/api/db/<slug>/i18n`): `_translations`(namespace,key,locale,value)
+  PK. Reads PUBLIC (like /config — a multilingual site renders to anon visitors); writes ADMIN. `GET /i18n
+  ?namespace=&locale=&fallback=` → {values:{key:string}} where fallback-locale seeds then requested-locale
+  overrides (one flat dict). `GET /i18n/<key>?locale=&fallback=` single, `GET /i18n/locales` list. `POST
+  /i18n {locale, entries:{k:v}}` bulk or `{key,value}` single upsert. `DELETE /i18n/<key>[?locale=]` (one
+  locale or all). ensureI18n + _i18nNs/_i18nLoc sanitizers. batch133 (21/21) — fallback fills gaps + requested
+  wins, single-key, namespaces isolate, public-read/admin-write, delete one-locale-or-all. Full suite 116
+  green. Serves CMS.
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
