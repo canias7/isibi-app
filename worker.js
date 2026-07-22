@@ -3976,6 +3976,31 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
       }
     }
   }
+  // Grouped-report controls (apply to EVERY grouped path): sort groups by an aggregate, cap to
+  // top-N, and filter groups with HAVING — so "top 10 accounts by revenue" or "reps whose pipeline
+  // exceeds quota" are one request. An "agg spec" is `count` | `<sum|avg|min|max>:<col>` | `value`.
+  const aggSqlExpr = (spec) => {
+    const s = String(spec == null ? "" : spec).toLowerCase().trim();
+    if (s === "count" || s === "") return "COUNT(*)";
+    if (s === "value" || s === "group") return "_g0";
+    const m = s.match(/^(sum|avg|min|max):([a-z0-9_]+)$/);
+    if (m && (f.filterable.has(m[2]) || (cfg && m[2] === cfg.as))) return m[1].toUpperCase() + "(" + aggExpr("", m[2]) + ")";
+    return null;
+  };
+  const HOPS = { gt: ">", gte: ">=", lt: "<", lte: "<=", eq: "=", ne: "!=" };
+  const havingParts = [], havingParams = [];
+  for (const raw of url.searchParams.getAll("having")) {
+    const m = String(raw).toLowerCase().match(/^([a-z0-9_:]+):(gt|gte|lt|lte|eq|ne):(-?\d+(?:\.\d+)?)$/);
+    if (!m) continue;
+    const expr = aggSqlExpr(m[1]);
+    if (!expr || expr === "_g0") continue; // HAVING is over aggregates, not the raw group value
+    havingParts.push(expr + " " + HOPS[m[2]] + " ?"); havingParams.push(Number(m[3]));
+  }
+  const havingSql = havingParts.length ? " HAVING " + havingParts.join(" AND ") : "";
+  const sortExpr = url.searchParams.get("groupSort") ? aggSqlExpr(url.searchParams.get("groupSort")) : null;
+  const sortDir = String(url.searchParams.get("groupOrder") || "").toLowerCase() === "asc" ? "ASC" : "DESC";
+  const orderOverride = sortExpr ? (sortExpr + " " + sortDir) : null;
+  const groupLimit = (() => { const n = parseInt(url.searchParams.get("groupLimit") || url.searchParams.get("topn") || "", 10); return (Number.isFinite(n) && n > 0) ? Math.min(n, 1000) : 500; })();
   const groupRaw = (url.searchParams.get("group") || "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).slice(0, 4);
   // CROSS-TABLE group — a token `fkcol.parentcol` groups by a column on the table that fk
   // points to (e.g. group opportunities by `account_id.industry` → pipeline by account
@@ -3990,8 +4015,8 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
     if (pdef && pcols && pcols.has(pcol) && f.filterable.has(fk)) {
       const qsel = ["COUNT(*) AS _count"];
       for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) qsel.push(k.toUpperCase() + "(" + aggExpr("t.", col) + ") AS " + k + "__" + col);
-      const sql = "SELECT p." + sqlIdent(pcol) + " AS _g0, " + qsel.join(", ") + " FROM (SELECT * FROM " + tn + f.whereSql + ") t LEFT JOIN " + sqlIdent(parent) + " p ON t." + sqlIdent(fk) + " = p.id GROUP BY p." + sqlIdent(pcol) + " ORDER BY _count DESC LIMIT 500";
-      return { sql, params: f.params.slice(), wanted, groupCols: [crossTok] };
+      const sql = "SELECT p." + sqlIdent(pcol) + " AS _g0, " + qsel.join(", ") + " FROM (SELECT * FROM " + tn + f.whereSql + ") t LEFT JOIN " + sqlIdent(parent) + " p ON t." + sqlIdent(fk) + " = p.id GROUP BY p." + sqlIdent(pcol) + havingSql + " ORDER BY " + (orderOverride || "_count DESC") + " LIMIT " + groupLimit;
+      return { sql, params: f.params.slice().concat(havingParams), wanted, groupCols: [crossTok] };
     }
   }
   // TIME-BUCKET group — a token `datecol:granularity` (year|month|week|day|hour) buckets rows by
@@ -4005,23 +4030,24 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
     const tsel = ["COUNT(*) AS _count"];
     for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) tsel.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
     const bucket = "strftime('" + TIME_FMT[gran] + "', " + sqlIdent(tcol) + ")";
-    const sql = "SELECT " + bucket + " AS _g0, " + tsel.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY _g0 ORDER BY _g0 ASC LIMIT 500";
-    return { sql, params: f.params.slice(), wanted, groupCols: [timeTok] };
+    const sql = "SELECT " + bucket + " AS _g0, " + tsel.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY _g0" + havingSql + " ORDER BY " + (orderOverride || "_g0 ASC") + " LIMIT " + groupLimit;
+    return { sql, params: f.params.slice().concat(havingParams), wanted, groupCols: [timeTok] };
   }
   const selects = ["COUNT(*) AS _count"];
   for (const k of ["sum", "avg", "min", "max"]) for (const col of wanted[k]) selects.push(k.toUpperCase() + "(" + aggExpr("", col) + ") AS " + k + "__" + col);
   // GROUP BY one OR MORE base columns (comma-separated) → multi-dimensional "matrix" reports
   // ("pipeline by stage AND by rep"). Up to 4 dimensions; each must be a filterable column.
   const groupCols = groupRaw.filter((c) => f.filterable.has(c)).slice(0, 4);
-  let sql;
+  let sql, outParams = f.params.slice();
   if (groupCols.length) {
     const gsel = groupCols.map((c, i) => sqlIdent(c) + " AS _g" + i).join(", ");
     const gby = groupCols.map((c) => sqlIdent(c)).join(", ");
-    sql = "SELECT " + gsel + ", " + selects.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY " + gby + " ORDER BY _count DESC LIMIT 500";
+    sql = "SELECT " + gsel + ", " + selects.join(", ") + " FROM " + tn + f.whereSql + " GROUP BY " + gby + havingSql + " ORDER BY " + (orderOverride || "_count DESC") + " LIMIT " + groupLimit;
+    outParams = f.params.slice().concat(havingParams);
   } else {
-    sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql;
+    sql = "SELECT " + selects.join(", ") + " FROM " + tn + f.whereSql; // HAVING/top-N need a GROUP BY — ignored on an ungrouped total
   }
-  return { sql, params: f.params.slice(), wanted, groupCols };
+  return { sql, params: outParams, wanted, groupCols };
 }
 // Relations: for a set of rows, `?expand=<fk_col>[,<fk_col>]` attaches each row's
 // referenced parent (declared via a column `ref`). Batched (one SELECT … WHERE id IN
