@@ -2474,9 +2474,11 @@ const SITE_IMG_USD = 0.15; // 2K nano-banana-pro (fal), = ceil(0.15/0.008)=19 cr
 // Game sprites use a CHEAPER model than hero site images: the quality bar is lower
 // (a stylised sprite on a flat green screen, then chroma-keyed) and they're made in
 // bulk (≤5/game), so nano-banana-pro at 19 credits each made AI-art games costly.
-// flux/schnell ≈ $0.003/img → 1 credit each (a ~4-sprite game drops ~76→~4 credits).
-const SPRITE_IMG_MODEL = "fal-ai/flux/schnell";
-const SPRITE_IMG_USD = 0.01;
+// flux/dev follows the "solid green screen" instruction reliably (schnell was too
+// weak — it left non-green/opaque backgrounds the chroma-key couldn't cut). ~$0.025/img
+// → ~4 credits each (a ~4-sprite game drops ~76→~16 credits, still a ~5× win).
+const SPRITE_IMG_MODEL = "fal-ai/flux/dev";
+const SPRITE_IMG_USD = 0.03;
 async function genOneSiteImage(env, prompt, aspect) {
   const r = await fetch(`https://fal.run/${SITE_IMG_MODEL}`, {
     method: "POST",
@@ -2633,11 +2635,11 @@ function chromaKeyGreenToPng(bytes) {
 async function genSpritePng(env, prompt) {
   // Green-screen prompt so the chroma-key has a clean edge; PNG + 1:1 for a sprite.
   const p = String(prompt || "game character").slice(0, 240) +
-    ", single centered subject, full body, video-game sprite, bold clean shapes, thick outline, on a solid pure chroma-key green (#00ff00) seamless flat background, no shadow, no gradient background";
+    ". Single centered subject, full body, bold clean video-game sprite art with a thick outline. The ENTIRE background is one flat solid chroma-key green (#00FF00), edge to edge, filling the whole frame — no scenery, no gradient, no shadow, no other colour behind the subject.";
   const r = await fetch(`https://fal.run/${SPRITE_IMG_MODEL}`, {
     method: "POST",
     headers: { Authorization: `Key ${env.FAL_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: p, image_size: "square_hd", num_inference_steps: 4, num_images: 1, output_format: "png", enable_safety_checker: true }),
+    body: JSON.stringify({ prompt: p, image_size: "square_hd", num_inference_steps: 28, guidance_scale: 3.5, num_images: 1, output_format: "png", enable_safety_checker: true }),
     signal: AbortSignal.timeout(120000),
   });
   const d = await r.json().catch(() => ({}));
