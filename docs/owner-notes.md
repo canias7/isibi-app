@@ -702,6 +702,13 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   (ordered before `post` in the alternation). batch117 (21/21) — sales issue, purchase receive+valuation,
   explicit direction, all-or-nothing, summed-need, no-item-lines, idempotency. Full suite 100 suites green.
   With 6a+6b an order now flows quote→order→(post-stock issues inventory)→invoice→(post posts the ledger).
+- **PHASE 7 — RECURRING JOURNALS** (finance depth): saved balanced templates. `POST /ledger/templates
+  {name, memo?, ledger?, lines}` validates balance at CREATE (via normalizeLedgerLines) so posting always
+  works; stores the raw input lines as JSON in `_journal_templates`. `GET /ledger/templates` (list),
+  `GET|DELETE /ledger/templates/<id>`, `POST /ledger/templates/<id>/post {date?,memo?}` fires a fresh dated
+  entry (respects the period lock). Extended the ledger route resource set (+templates) and sub (+post), and
+  added DELETE to the ledger route's method guard (was GET/POST/OPTIONS — a DELETE previously fell through to
+  404). batch118 (16/16). Full suite 101 green.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 

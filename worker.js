@@ -3600,6 +3600,7 @@ async function ensureLedger(env, uuid) {
   if (_ledgerReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, ledger TEXT NOT NULL DEFAULT 'gl', ref TEXT, memo TEXT, entry_date TEXT NOT NULL, posted INTEGER NOT NULL DEFAULT 0, posted_at TEXT, reverses INTEGER, reversed_by INTEGER, created_by INTEGER, created_at TEXT)");
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ledger_lines (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_id INTEGER NOT NULL, ledger TEXT NOT NULL DEFAULT 'gl', account TEXT NOT NULL, dim TEXT, debit_c INTEGER NOT NULL DEFAULT 0, credit_c INTEGER NOT NULL DEFAULT 0, memo TEXT, meta TEXT, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _journal_templates (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, ledger TEXT NOT NULL DEFAULT 'gl', memo TEXT, lines TEXT, created_at TEXT)"); // recurring-journal templates (balanced line sets posted on demand)
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_acct ON _ledger_lines (ledger, account)"); } catch {}
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ll_entry ON _ledger_lines (entry_id)"); } catch {}
   _ledgerReady.add(uuid);
@@ -8848,9 +8849,9 @@ async function handleRequest(request, env, ctx) {
       //   POST   /api/db/<slug>/ledger/entries/<id>/reverse {date?,memo?} → posts a mirror entry
       //   GET    /api/db/<slug>/ledger/balance?account=<a>[&ledger=&dim=&from=&to=] → one account's {debit,credit,balance}
       //   GET    /api/db/<slug>/ledger/trial-balance[?ledger=&from=&to=] → every account's balances + totals + `balanced`
-      const lgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(entries|balance|trial-balance)(?:\/(\d+)(?:\/(reverse))?)?$/i);
-      if (lgm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
-        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+      const lgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/ledger\/(entries|balance|trial-balance|templates)(?:\/(\d+)(?:\/(reverse|post))?)?$/i);
+      if (lgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
         const slug = lgm[1].toLowerCase(), resource = lgm[2].toLowerCase(), entryId = lgm[3] ? parseInt(lgm[3], 10) : null, sub = lgm[4] ? lgm[4].toLowerCase() : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
@@ -8922,6 +8923,52 @@ async function handleRequest(request, env, ctx) {
             }
             const res = await ledgerBalances(env, uuid, ledgerOf(url.searchParams), opts);
             return Response.json(Object.assign({ ok: true }, res));
+          }
+          if (resource === "templates") {
+            // Recurring journals — a saved, balanced set of lines you post on demand (monthly
+            // rent, accruals, depreciation). entryId here = template id; sub 'post' fires it.
+            const tId = entryId;
+            if (tId && sub === "post") {
+              if (request.method !== "POST") return Response.json({ ok: false, error: "POST only" }, { status: 405 });
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              const tr = await cfD1Query(env, uuid, "SELECT * FROM _journal_templates WHERE id=?", [tId]);
+              if (!tr[0]) return Response.json({ ok: false, error: "template not found" }, { status: 404 });
+              let body = {}; try { body = await request.json(); } catch {}
+              let tlines = []; try { tlines = JSON.parse(tr[0].lines || "[]"); } catch {}
+              const res = await postLedgerEntry(env, uuid, tr[0].ledger || "gl", { lines: tlines, date: body.date, ref: body.ref != null ? body.ref : tr[0].name, memo: body.memo != null ? body.memo : tr[0].memo }, userId);
+              if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "period_locked" ? 409 : 400 });
+              return Response.json({ ok: true, entry: res.entry, template_id: tId });
+            }
+            if (sub) return Response.json({ ok: false, error: "unknown action" }, { status: 404 });
+            if (request.method === "GET" && tId) {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const tr = await cfD1Query(env, uuid, "SELECT * FROM _journal_templates WHERE id=?", [tId]);
+              if (!tr[0]) return Response.json({ ok: false, error: "not found" }, { status: 404 });
+              let tl = []; try { tl = JSON.parse(tr[0].lines || "[]"); } catch {}
+              return Response.json({ ok: true, template: { id: tr[0].id, name: tr[0].name, ledger: tr[0].ledger, memo: tr[0].memo, lines: tl, created_at: tr[0].created_at } });
+            }
+            if (request.method === "GET") {
+              if (!rateOk(slug + "|" + ip + "|ldgr", 300)) return tooMany();
+              const rows = await cfD1Query(env, uuid, "SELECT id, name, ledger, memo, created_at FROM _journal_templates ORDER BY name, id LIMIT 500");
+              return Response.json({ ok: true, templates: rows });
+            }
+            if (request.method === "DELETE" && tId) {
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _journal_templates WHERE id=?", [tId]);
+              return ex.changes > 0 ? Response.json({ ok: true, id: tId, deleted: true }) : Response.json({ ok: false, error: "not found" }, { status: 404 });
+            }
+            if (request.method === "POST" && !tId) {
+              if (!rateOk(slug + "|" + ip + "|ldgw", 60)) return tooMany();
+              let body = {}; try { body = await request.json(); } catch {}
+              const name = body.name != null ? String(body.name).slice(0, 80) : null;
+              if (!name) return Response.json({ ok: false, error: "name is required" }, { status: 400 });
+              // Validate the lines balance now, so posting later always succeeds.
+              const chk = normalizeLedgerLines(body.lines);
+              if (chk.err) return Response.json({ ok: false, error: chk.err }, { status: 400 });
+              const ins = await cfD1Query(env, uuid, "INSERT INTO _journal_templates (name, ledger, memo, lines, created_at) VALUES (?,?,?,?,?) RETURNING id", [name, ledgerOf(body), body.memo != null ? String(body.memo).slice(0, 500) : null, JSON.stringify(body.lines), new Date().toISOString()]);
+              return Response.json({ ok: true, id: ins[0] && ins[0].id, name });
+            }
+            return Response.json({ ok: false, error: "unsupported" }, { status: 405 });
           }
           return Response.json({ ok: false, error: "unknown resource" }, { status: 404 });
         } catch (e) { console.error("ledger failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "ledger failed" }, { status: 502 }); }
