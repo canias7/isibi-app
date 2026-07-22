@@ -9650,6 +9650,64 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, from, to, total, byEvent, byPath, series, events: Object.keys(evSet).sort() });
         } catch (e) { console.error("analytics read failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "analytics failed" }, { status: 502 }); }
       }
+      // CONVERSION FUNNEL — how many distinct actors made it through an ordered set of steps
+      // (signup → activate → purchase). Computed over the app's OWN event-log table: rows that
+      // record a step per actor. For each step k, counts distinct actors who did steps[0..k]
+      // (all of them, within the window) — a monotonic funnel with per-step drop-off.
+      //   GET /api/db/<slug>/funnel?table=<t>&steps=a,b,c[&step_col=event&actor=owner_id&from=&to=]
+      //     → {steps:[{step, count, pct_of_top, pct_of_prev}], overall_conversion, …}
+      // ADMIN site-user only (reads across every actor's rows).
+      const fnm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/funnel$/i);
+      if (fnm && (request.method === "GET" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = fnm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (!rateOk(slug + "|" + ip + "|fnl", 300)) return tooMany();
+          const table = String(url.searchParams.get("table") || "").trim().toLowerCase();
+          if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid ?table= is required" }, { status: 400 });
+          const spec = await loadSiteSchema(env, uuid);
+          const def = tableDef(spec, table);
+          if (!def) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+          const colOf = (c) => String(typeof c === "string" ? c : (c && c.name) || "").toLowerCase();
+          const cols = new Set([].concat((Array.isArray(def.columns) ? def.columns : []).map(colOf).filter(Boolean), ["id", "created_at", "owner_id"]));
+          const stepCol = String(url.searchParams.get("step_col") || "event").toLowerCase();
+          if (!cols.has(stepCol)) return Response.json({ ok: false, error: "step_col must be a column on the table (default 'event')" }, { status: 400 });
+          const actor = String(url.searchParams.get("actor") || "owner_id").toLowerCase();
+          if (!cols.has(actor)) return Response.json({ ok: false, error: "actor must be a column on the table (default 'owner_id')" }, { status: 400 });
+          const steps = String(url.searchParams.get("steps") || "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 12);
+          if (steps.length < 2) return Response.json({ ok: false, error: "give at least 2 comma-separated steps" }, { status: 400 });
+          if (steps.some((s) => s.length > 60)) return Response.json({ ok: false, error: "step names are too long (≤60 chars)" }, { status: 400 });
+          const isDay = (s) => /^\d{4}-\d{2}-\d{2}/.test(s || "");
+          const from = isDay(url.searchParams.get("from")) ? url.searchParams.get("from") : null;
+          const to = isDay(url.searchParams.get("to")) ? url.searchParams.get("to") : null;
+          const tn = sqlIdent(table), sc = sqlIdent(stepCol), ac = sqlIdent(actor);
+          const out = [];
+          for (let k = 0; k < steps.length; k++) {
+            const sub = steps.slice(0, k + 1);
+            const w = [sc + " IN (" + sub.map(() => "?").join(",") + ")", ac + " IS NOT NULL"]; const p = sub.slice();
+            if (from) { w.push('"created_at" >= ?'); p.push(from); }
+            if (to) { w.push('"created_at" <= ?'); p.push(to); }
+            p.push(k + 1);
+            const sql = "SELECT COUNT(*) AS c FROM (SELECT " + ac + " FROM " + tn + " WHERE " + w.join(" AND ") + " GROUP BY " + ac + " HAVING COUNT(DISTINCT " + sc + ") = ?)";
+            let c = 0; try { const r = await cfD1Query(env, uuid, sql, p); c = (r[0] && r[0].c) || 0; } catch {}
+            out.push({ step: steps[k], count: c });
+          }
+          const top = out[0] ? out[0].count : 0;
+          const pct = (num, den) => (den ? Math.round((num / den) * 10000) / 100 : 0);
+          out.forEach((s, i) => { s.pct_of_top = pct(s.count, top); s.pct_of_prev = i === 0 ? 100 : pct(s.count, out[i - 1].count); });
+          return Response.json({ ok: true, table, step_col: stepCol, actor, from, to, steps: out, overall_conversion: pct(out[out.length - 1].count, top) });
+        } catch (e) { console.error("funnel failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "funnel failed" }, { status: 502 }); }
+      }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
       //   GET    /api/db/<slug>/config/<key>    → {key, value}
