@@ -673,6 +673,15 @@ is delivered.
   app table's rows (`{tables:{name:[rows]}, users:[safe cols]}`, json cols parsed, no password hashes) for
   an in-app 'Download all data' button. Distinct from `/api/site/backend/backup` (isibi-owner, R2) and the
   per-table `/export/<table>`. Heavier read → tighter 6/min cap. batch107 (15/15).
+- HISTOGRAM: `GET /rows/<t>/histogram?col=<numcol>&buckets=N[&min=&max=&…filters]` buckets a NUMERIC column
+  into N equal-width ranges → `{col,min,max,width,total,buckets:[{lo,hi,count}]}`. Bounds auto (MIN/MAX) or
+  pinned; out-of-range clamps to edge buckets (SQL `MAX(0,MIN(nb-1,CAST((col-lo)/w AS INT)))`); degenerate
+  min==max → single bucket. Same read-visibility + where/q/tag/trash as stats; gated to `def.num` columns.
+  Added `histogram` to the dm3 route alternation. For distribution charts where group-by (discrete values)
+  doesn't fit. batch108 (22/22). GOTCHA fixed: `Number(null)===0` (not NaN) made absent ?min/?max look
+  provided → parse null/'' as NaN first. (Verified already-existing while auditing: bulk insert `{rows:[]}`,
+  bulk PATCH/DELETE by filter, optimistic concurrency `version:true`+ifVersion/If-Match, multi-dim pivot
+  `group=a,b`, cross-table + time-bucket grouping, saved views `_views`.)
 - #86 Per-key rate limits: an admin can cap a specific API key at N req/min via `POST .../apikeys
   {label, rpm}` (0/negative/non-numeric → unlimited, huge clamps to 100000); `_apikeys` gains an `rpm`
   column (best-effort ALTER for old tables). resolveApiKeyUser now returns `{user,keyId,rpm}`; the
