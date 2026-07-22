@@ -3736,6 +3736,42 @@ function depreciationSchedule(opts) {
   }
   return { method: isDB ? "declining_balance" : "straight_line", cost: costC / 100, salvage: salvageC / 100, life, total_depreciable: depreciable / 100, schedule: sched };
 }
+// Demand forecast (stateless) over a numeric time series. linear (least-squares trend),
+// moving_average (mean of last `window`), or exp_smoothing (level via alpha). Returns the
+// next `horizon` periods. Serves SCM demand planning (feed the shortfall into reorder/MRP).
+function demandForecast(opts) {
+  const raw = Array.isArray(opts.series) ? opts.series : null;
+  if (!raw || raw.length < 2) return { err: "series must have at least 2 points" };
+  if (raw.length > 5000) return { err: "series too long (max 5000)" };
+  const vals = raw.map((p) => (p && typeof p === "object") ? Number(p.value) : Number(p));
+  if (vals.some((v) => !Number.isFinite(v))) return { err: "series values must be numbers" };
+  const n = vals.length;
+  const horizon = Math.min(100, Math.max(1, Math.floor(Number(opts.horizon) || 3)));
+  const method = String(opts.method || "linear").toLowerCase();
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const forecast = [];
+  if (method === "moving_average" || method === "ma") {
+    const w = Math.min(n, Math.max(1, Math.floor(Number(opts.window) || 3)));
+    const avg = vals.slice(n - w).reduce((s, v) => s + v, 0) / w;
+    for (let k = 1; k <= horizon; k++) forecast.push({ step: n + k, value: r2(avg) });
+    return { method: "moving_average", window: w, forecast };
+  }
+  if (method === "exp_smoothing" || method === "ses" || method === "exponential") {
+    let alpha = Number(opts.alpha); if (!Number.isFinite(alpha) || alpha <= 0 || alpha >= 1) alpha = 0.5;
+    let level = vals[0];
+    for (let i = 1; i < n; i++) level = alpha * vals[i] + (1 - alpha) * level;
+    for (let k = 1; k <= horizon; k++) forecast.push({ step: n + k, value: r2(level) });
+    return { method: "exp_smoothing", alpha, forecast };
+  }
+  // linear least-squares: fit y = intercept + slope·x over x = 0..n-1
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) { sx += i; sy += vals[i]; sxx += i * i; sxy += i * vals[i]; }
+  const denom = n * sxx - sx * sx;
+  const slope = denom !== 0 ? (n * sxy - sx * sy) / denom : 0;
+  const intercept = (sy - slope * sx) / n;
+  for (let k = 1; k <= horizon; k++) { const x = n + k - 1; forecast.push({ step: n + k, value: r2(intercept + slope * x) }); }
+  return { method: "linear", slope: r2(slope), intercept: r2(intercept), forecast };
+}
 // ── STOCK LEDGER (ERP inventory foundation) ──────────────────────────────────────
 // Append-only movement log per item+location: on-hand = Σ(signed qty). Reservations
 // earmark stock without moving it (available = on-hand − active reservations). The
@@ -9587,10 +9623,11 @@ async function handleRequest(request, env, ctx) {
       // FINANCE CALCULATORS (ERP) — stateless, touch no data (any signed-in member).
       //   POST /api/db/<slug>/finance/depreciation {cost, salvage?, life, method?='straight_line'|'declining_balance', factor?, start?, freq?}
       //        → {method, cost, salvage, life, total_depreciable, schedule:[{period, date?, depreciation, accumulated, book_value}]}
-      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation)$/i);
+      //   POST /api/db/<slug>/finance/forecast {series:[nums or {value}], method?='linear'|'moving_average'|'exp_smoothing', horizon?, window?, alpha?}
+      const fcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/finance\/(depreciation|forecast)$/i);
       if (fcm && (request.method === "POST" || request.method === "OPTIONS")) {
         if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
-        const slug = fcm[1].toLowerCase();
+        const slug = fcm[1].toLowerCase(), calc = fcm[2].toLowerCase();
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -9601,7 +9638,7 @@ async function handleRequest(request, env, ctx) {
         if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); // calculator: any signed-in member (no data touched)
         if (!rateOk(slug + "|" + ip + "|fcalc", 120)) return tooMany();
         let body = {}; try { body = await request.json(); } catch {}
-        const res = depreciationSchedule(body);
+        const res = calc === "forecast" ? demandForecast(body) : depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
       }

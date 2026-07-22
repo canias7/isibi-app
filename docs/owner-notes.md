@@ -691,6 +691,15 @@ Build order: 1 scheduling/booking ✓ · 2 effective-dated records · 3 lot/seri
   self (empOf forces own unless admin names employee). to-date bound → +T23:59:59.999Z. batch134 (24/24) —
   8.5h calc, double-in 409, out-when-not-in 409, date-scoped, manual entry, org summary admin-only. Full
   suite 117 green. Serves HRMS.
+- **VERT 9 — DEMAND FORECASTING** (SCM, `POST /api/db/<slug>/finance/forecast`): stateless calc, added to the
+  /finance route beside depreciation. `{series:[nums or {value}], method?, horizon?, window?, alpha?}` →
+  `{forecast:[{step,value}]}` for the next horizon (cap 100). linear (least-squares y=intercept+slope·x,
+  default, returns slope/intercept), moving_average (flat mean of last `window`), exp_smoothing (level via
+  alpha 0.5 default, flat). demandForecast helper. batch135 (17/17) — perfect-line extrapolation, {period,
+  value} objects, MA(3)=30 flat, SES level 31.25, flat/downward, horizon cap. Full suite 118 green. Serves
+  SCM planning (feed shortfall → reorder/MRP).
+  **── VERTICALS BUILD-OUT COMPLETE: all 9 primitives shipped as commits on ONE unmerged PR #639 (owner's
+  call: open PR, don't merge until they say). 74→118 suites across the two build-outs. Awaiting owner review. ──**
 
 ## 2026-07-22 — ERP BUILD-OUT (owner's call: "build everything needed for the ERP"). Foundation-first.
 
