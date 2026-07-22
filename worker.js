@@ -8855,10 +8855,11 @@ async function handleRequest(request, env, ctx) {
     // by the table's declared mode (collect / display / user). Only declared tables +
     // columns are reachable; identifiers are validated; every value is parameterized.
     {
-      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
+      const dm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/rows\/([a-z_][a-z0-9_]{0,40})(?:\/(\d+|stats|histogram|changes|facets|near|tree|duplicates|overdue|events)(?:\/(incr|restore|tags|share|move|history|revert|archive|unarchive|assign|merge|submit|approve|reject|approvals|notes|timeline|escalate|attach|diff|clone)(?:\/([a-z0-9_-]{1,40}))?)?)?$/i);
       if (dm) {
         const slug = dm[1].toLowerCase(), table = dm[2], method = request.method;
         const isStats = dm[3] === "stats";
+        const isHistogram = dm[3] === "histogram";
         const isChanges = dm[3] === "changes";
         const isFacets = dm[3] === "facets";
         const isNear = dm[3] === "near";
@@ -8883,7 +8884,7 @@ async function handleRequest(request, env, ctx) {
         const isNotes = dm[4] === "notes";
         const isTimeline = dm[4] === "timeline";
         const isAttach = dm[4] === "attach";
-        const rowId = dm[3] && !["stats", "changes", "facets", "near", "tree", "duplicates", "overdue", "events"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
+        const rowId = dm[3] && !["stats", "histogram", "changes", "facets", "near", "tree", "duplicates", "overdue", "events"].includes(dm[3]) ? parseInt(dm[3], 10) : null;
         if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
         const uuid = await siteBackendBySlug(env, slug);
         if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
@@ -9642,6 +9643,56 @@ async function handleRequest(request, env, ctx) {
               return Response.json(b.groupCols.length === 1 ? { ok: true, group: b.groupCols[0], groups } : { ok: true, groupBy: b.groupCols, groups });
             }
             return Response.json(Object.assign({ ok: true }, shapeD1Stats(r[0] || {}, b.wanted, b.wantedExpr)));
+          }
+
+          // Numeric histogram — bucket a numeric column's values into N equal-width ranges and
+          // count rows per range, for a distribution chart (price bands, score spread, age
+          // buckets). Unlike stats group-by (which needs discrete values), this handles a
+          // continuous field. Bounds are ?min/?max or auto-computed from the data; values
+          // outside explicit bounds clamp into the edge buckets. Same read visibility +
+          // where/q/tag/trash filters as stats. `col` must be a declared numeric column.
+          //   GET /rows/<t>/histogram?col=<numcol>&buckets=N[&min=&max=&…filters]
+          //   → {col, min, max, width, total, buckets:[{lo,hi,count}, …]}
+          if (isHistogram) {
+            if (method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (access === "collect") return Response.json({ ok: false, error: "no stats" }, { status: 403 });
+            const col = String(url.searchParams.get("col") || "").toLowerCase();
+            if (!col || !(Array.isArray(def.num) && def.num.includes(col))) return badReq("col must be a numeric column");
+            let base = null;
+            if (access === "user") { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); base = userReadBase(); }
+            base = withTagFilter(withVisible(base));
+            const f = buildD1Filter(url, allow, base);
+            const cq = sqlIdent(col);
+            const notNull = (f.whereSql ? f.whereSql + " AND " : " WHERE ") + cq + " IS NOT NULL";
+            const nb = Math.min(100, Math.max(1, parseInt(url.searchParams.get("buckets") || "10", 10) || 10));
+            const minP = url.searchParams.get("min"), maxP = url.searchParams.get("max");
+            let lo = (minP == null || minP === "") ? NaN : Number(minP);
+            let hi = (maxP == null || maxP === "") ? NaN : Number(maxP);
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
+              const mm = await cfD1Query(env, uuid, "SELECT MIN(" + cq + ") AS lo, MAX(" + cq + ") AS hi FROM " + tn + notNull, f.params.slice());
+              const row = mm[0] || {};
+              if (!Number.isFinite(lo)) lo = row.lo == null ? 0 : Number(row.lo);
+              if (!Number.isFinite(hi)) hi = row.hi == null ? 0 : Number(row.hi);
+            }
+            const rnd = (n) => Math.round(n * 1e6) / 1e6;
+            // Degenerate range (no rows, or all values equal) → a single bucket holding everything.
+            if (!(hi > lo)) {
+              const c = await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM " + tn + notNull, f.params.slice());
+              const total = (c[0] && c[0].n) || 0;
+              return Response.json({ ok: true, col, min: rnd(lo), max: rnd(hi), width: 0, total, buckets: total ? [{ lo: rnd(lo), hi: rnd(hi), count: total }] : [] });
+            }
+            const width = (hi - lo) / nb;
+            // SQL-side bucket index, clamped into [0, nb-1] so the top edge and any out-of-range
+            // values land in the first/last bucket rather than overflowing.
+            const idxExpr = "MAX(0, MIN(" + (nb - 1) + ", CAST((" + cq + " - ?) / ? AS INTEGER)))";
+            const rows = await cfD1Query(env, uuid, "SELECT " + idxExpr + " AS _b, COUNT(*) AS n FROM " + tn + notNull + " GROUP BY _b", [lo, width].concat(f.params.slice()));
+            const counts = new Map(rows.map((r) => [Number(r._b), r.n]));
+            let total = 0; const buckets = [];
+            for (let i = 0; i < nb; i++) {
+              const count = counts.get(i) || 0; total += count;
+              buckets.push({ lo: rnd(lo + i * width), hi: rnd(i === nb - 1 ? hi : lo + (i + 1) * width), count });
+            }
+            return Response.json({ ok: true, col, min: rnd(lo), max: rnd(hi), width: rnd(width), total, buckets });
           }
 
           // Faceted counts — for each requested column, the distinct values and how many
