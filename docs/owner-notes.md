@@ -769,6 +769,15 @@ numbering. Tax filing / payroll calc / bank feeds stay needs-infra (external pro
   total_tax}, input:{…}, net_tax}` (net = output − input). Default sales=invoice, purchase=bill; override via
   query. Excludes draft/cancelled/void. One GROUP BY query, classify in JS. batch125 (14/14) — 20%/10% split,
   draft excluded, date window, custom pos type folding. Full suite 108 green.
+- **PHASE 14 — LEAVE/PTO BALANCES** (HR): `_leave_ledger` append-only (employee, leave_type, days_m signed).
+  `POST /leave {employee,leave_type?,days,kind?,note?,date?,allowNegative?}` — accrual (+) / taking (−); an
+  overdrawing take is refused via the single-statement guard (like stock) → 409 `balance`, `allowNegative`
+  bypasses. `GET /leave/balance?employee=&leave_type=`, `GET /leave/balances[?leave_type=]` (all, grouped),
+  `GET /leave?employee=&leave_type=` (history). Half-days via milli. postLeave/leaveBalance/ensureLeave.
+  batch126 (22/22). Full suite 109 green. **HR decision:** only leave-balances needed a NEW primitive (the
+  no-overdraw invariant); employees/departments/timesheets/projects are plain tables (teamRead + approval +
+  stats compose them); payroll tax calc = needs-infra (external provider). ERP BUILD-OUT COMPLETE across
+  finance/inventory/sales/manufacturing/HR — 15 phases, PRs #622–636 + this.
 
 ## 2026-07-22 — ROADMAP BUILD-OUT (autonomous, ~80 buildable-now items). Progress log:
 

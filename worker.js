@@ -3874,6 +3874,43 @@ async function itemAvgCost(env, uuid, item) {
   const r = await cfD1Query(env, uuid, "SELECT SUM(qty_m*unit_cost_c) AS num, SUM(qty_m) AS den FROM _stock_moves WHERE item=? AND qty_m>0 AND unit_cost_c IS NOT NULL", [item]);
   return (r[0] && r[0].den) ? (r[0].num / r[0].den) : null;
 }
+// ── LEAVE / PTO BALANCES (ERP HR) ────────────────────────────────────────────────
+// An append-only ledger of leave accruals (+) and takings (−) per employee per leave
+// type; balance = Σ days. A taking that would overdraw the balance is refused atomically
+// (single-statement guard, like stock) unless allowNegative. Days in milli (half/quarter
+// days OK). The rest of HR (employees, timesheets, projects) is plain tables + teamRead.
+const _leaveReady = new Set();
+async function ensureLeave(env, uuid) {
+  if (_leaveReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _leave_ledger (id INTEGER PRIMARY KEY AUTOINCREMENT, employee TEXT NOT NULL, leave_type TEXT NOT NULL DEFAULT 'annual', days_m INTEGER NOT NULL, kind TEXT, ref TEXT, note TEXT, entry_date TEXT, created_by INTEGER, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_leave_et ON _leave_ledger (employee, leave_type)"); } catch {}
+  _leaveReady.add(uuid);
+}
+const _leaveType = (v) => { const s = String(v == null || v === "" ? "annual" : v).toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 40); return s || "annual"; };
+async function leaveBalance(env, uuid, employee, leaveType) {
+  await ensureLeave(env, uuid);
+  const r = await cfD1Query(env, uuid, "SELECT COALESCE(SUM(days_m),0) AS n FROM _leave_ledger WHERE employee=? AND leave_type=?", [employee, leaveType]);
+  return ((r[0] && r[0].n) || 0) / 1000;
+}
+// Record an accrual (+) or taking (−). Negative that overdraws → refused unless allowNegative.
+async function postLeave(env, uuid, data, userId) {
+  await ensureLeave(env, uuid);
+  const employee = String(data.employee == null ? "" : data.employee).trim(); if (!employee || employee.length > 80) return { err: "employee is required (≤80 chars)" };
+  const leaveType = _leaveType(data.leave_type);
+  const days = toMilli(data.days); if (days == null || days === 0) return { err: "days must be a non-zero number" };
+  const kind = data.kind != null ? String(data.kind).slice(0, 24) : (days > 0 ? "accrual" : "taken");
+  const date = /^\d{4}-\d{2}-\d{2}/.test(String(data.date || "")) ? String(data.date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const now = new Date().toISOString();
+  const cols = [employee, leaveType, days, kind, data.ref != null ? String(data.ref).slice(0, 120) : null, data.note != null ? String(data.note).slice(0, 300) : null, date, userId || null, now];
+  let ins;
+  if (days < 0 && !data.allowNegative) {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _leave_ledger (employee,leave_type,days_m,kind,ref,note,entry_date,created_by,created_at) SELECT ?,?,?,?,?,?,?,?,? WHERE (SELECT COALESCE(SUM(days_m),0) FROM _leave_ledger WHERE employee=? AND leave_type=?) + ? >= 0 RETURNING id", cols.concat([employee, leaveType, days]));
+    if (!ins[0]) return { err: "not enough leave balance", code: "balance" };
+  } else {
+    ins = await cfD1Query(env, uuid, "INSERT INTO _leave_ledger (employee,leave_type,days_m,kind,ref,note,entry_date,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id", cols);
+  }
+  return { id: ins[0] && ins[0].id, employee, leave_type: leaveType, days: days / 1000, kind, balance: await leaveBalance(env, uuid, employee, leaveType) };
+}
 // ── DOCUMENT FLOW (ERP sales/procurement) ────────────────────────────────────────
 // Generic business documents — quote, sales_order, invoice, purchase_order, bill,
 // payment, credit_note — each a header + line items with auto-computed totals, an
@@ -9299,6 +9336,60 @@ async function handleRequest(request, env, ctx) {
         const res = depreciationSchedule(body);
         if (res.err) return Response.json({ ok: false, error: res.err }, { status: 400 });
         return Response.json(Object.assign({ ok: true }, res));
+      }
+      // LEAVE / PTO BALANCES (ERP HR) — accrual/taking ledger + balances. ADMIN-gated.
+      //   POST /api/db/<slug>/leave {employee, leave_type?, days(+accrue/−take), kind?, ref?, note?, date?, allowNegative?}
+      //   GET  /api/db/<slug>/leave[?employee=&leave_type=&limit=]   → ledger history
+      //   GET  /api/db/<slug>/leave/balance?employee=<e>[&leave_type=]  → {balance}
+      //   GET  /api/db/<slug>/leave/balances[?leave_type=]           → every employee's balance
+      const lvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/leave(?:\/(balance|balances))?$/i);
+      if (lvm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lvm[1].toLowerCase(), sub = lvm[2] ? lvm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureLeave(env, uuid);
+          if (sub === "balance") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|lvr", 300)) return tooMany();
+            const employee = String(url.searchParams.get("employee") || "").trim();
+            if (!employee) return Response.json({ ok: false, error: "employee required" }, { status: 400 });
+            const leaveType = _leaveType(url.searchParams.get("leave_type"));
+            return Response.json({ ok: true, employee, leave_type: leaveType, balance: await leaveBalance(env, uuid, employee, leaveType) });
+          }
+          if (sub === "balances") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|lvr", 300)) return tooMany();
+            const where = []; const params = [];
+            if (url.searchParams.get("leave_type")) { where.push("leave_type=?"); params.push(_leaveType(url.searchParams.get("leave_type"))); }
+            const rows = await cfD1Query(env, uuid, "SELECT employee, leave_type, SUM(days_m) AS n FROM _leave_ledger" + (where.length ? " WHERE " + where.join(" AND ") : "") + " GROUP BY employee, leave_type ORDER BY employee, leave_type LIMIT 5000", params);
+            return Response.json({ ok: true, balances: rows.map((r) => ({ employee: r.employee, leave_type: r.leave_type, balance: (r.n || 0) / 1000 })) });
+          }
+          if (request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lvr", 300)) return tooMany();
+            const where = []; const params = [];
+            const emp = String(url.searchParams.get("employee") || "").trim(); if (emp) { where.push("employee=?"); params.push(emp); }
+            if (url.searchParams.get("leave_type")) { where.push("leave_type=?"); params.push(_leaveType(url.searchParams.get("leave_type"))); }
+            const lim = Math.min(500, Math.max(1, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+            const rows = await cfD1Query(env, uuid, "SELECT id, employee, leave_type, days_m, kind, ref, note, entry_date, created_at FROM _leave_ledger" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
+            return Response.json({ ok: true, entries: rows.map((r) => ({ id: r.id, employee: r.employee, leave_type: r.leave_type, days: r.days_m / 1000, kind: r.kind, ref: r.ref, note: r.note, date: r.entry_date, created_at: r.created_at })) });
+          }
+          // POST — record an accrual or taking
+          if (!rateOk(slug + "|" + ip + "|lvw", 120)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const res = await postLeave(env, uuid, body, userId);
+          if (res.err) return Response.json({ ok: false, error: res.err, code: res.code }, { status: res.code === "balance" ? 409 : 400 });
+          return Response.json(Object.assign({ ok: true }, res));
+        } catch (e) { console.error("leave failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leave failed" }, { status: 502 }); }
       }
       // BILL OF MATERIALS (ERP manufacturing) — a product's component recipe, multi-level,
       // with recursive explosion. ADMIN-gated. Product/component keys are URL-safe SKUs.
