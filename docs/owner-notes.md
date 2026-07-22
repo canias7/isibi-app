@@ -6205,3 +6205,14 @@ the generation contract — no per-build audio generation, no cost.
   auto-reload). Also hardened: the game build/revise `streamGen` now surfaces the Anthropic error body as
   `detail` in the {ev:error} (was a bare "gen 400"). NOTE: the site-builder's terminal catch still swallows
   `detail` (generic "builder hit a problem") — worth mirroring the game fix there if it ever needs debugging.
+
+- **BLOCKING crosses into DMs + feed** (social): the block feature ALREADY existed (`/block/<id>` toggle,
+  `/blocks` list, `?hideBlocked=1` opt-in feed filter, severs follows — batch36). AVOIDED a collision: I'd
+  started a duplicate `_blocks` primitive with a `kind` (block/mute) column + its own `/blocks` route — backed
+  it out entirely (the dup `const _blocksReady` was a hard parse error) and instead wired only the two NEW
+  behaviors onto the existing graph: (1) a block now STOPS DMs — `POST /dm` to someone who blocked you → 403
+  `{code:'blocked'}`, one-directional (the blocker's inbox is protected; they can still message the blocked
+  member); (2) the new home `/feed` honors `?hideBlocked=1` (same opt-in convention as the existing feed read)
+  to drop blocked authors. No schema change — reuses `_blocks(blocker_id,blocked_id)`. batch141 (11/11) —
+  baseline DM ok → block → 403 code:blocked → reverse still ok, hideBlocked drops/keeps, unblock restores.
+  Lesson (again): grep for the feature before building it. Full suite 124 green.

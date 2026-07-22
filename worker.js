@@ -10316,6 +10316,7 @@ async function handleRequest(request, env, ctx) {
           const tn = sqlIdent(table);
           const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "30", 10) || 30));
           const where = ["owner_id IN (SELECT followee_id FROM _follows WHERE follower_id=?)"]; const params = [userId];
+          if (url.searchParams.get("hideBlocked") === "1") { await ensureBlocks(env, uuid); where.push("owner_id NOT IN (SELECT blocked_id FROM _blocks WHERE blocker_id=?)"); params.push(userId); }
           if (def.trash) where.push("deleted_at IS NULL");
           const before = parseInt(url.searchParams.get("before") || "", 10); if (Number.isFinite(before)) { where.push("id < ?"); params.push(before); }
           const rows = await cfD1Query(env, uuid, "SELECT * FROM " + tn + " WHERE " + where.join(" AND ") + " ORDER BY id DESC LIMIT ?", params.concat([lim]));
@@ -10387,6 +10388,10 @@ async function handleRequest(request, env, ctx) {
           if (!text.trim()) return Response.json({ ok: false, error: "body is required" }, { status: 400 });
           const exists = (await cfD1Query(env, uuid, "SELECT 1 FROM _users WHERE id=?", [to]))[0];
           if (!exists) return Response.json({ ok: false, error: "recipient not found" }, { status: 404 });
+          // If the recipient has BLOCKED the sender (existing /block graph), the message is refused.
+          await ensureBlocks(env, uuid);
+          const blocked = (await cfD1Query(env, uuid, "SELECT 1 FROM _blocks WHERE blocker_id=? AND blocked_id=?", [to, userId]))[0];
+          if (blocked) return Response.json({ ok: false, error: "you can't message this member", code: "blocked" }, { status: 403 });
           const ins = await cfD1Query(env, uuid, "INSERT INTO _dm_messages (thread, sender_id, recipient_id, body, created_at) VALUES (?,?,?,?,?) RETURNING id", [_dmThread(userId, to), userId, to, text, new Date().toISOString()]);
           return Response.json({ ok: true, id: ins[0] && ins[0].id, to, body: text });
         } catch (e) { console.error("dm failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dm failed" }, { status: 502 }); }
