@@ -4188,20 +4188,28 @@ function buildD1Stats(url, tn, allowCols, base, def, spec) {
 async function expandRows(env, uuid, spec, def, rows, url) {
   const want = String(url.searchParams.get("expand") || "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean).slice(0, 4);
   if (!want.length || !rows.length) return rows;
-  const refs = (def && def.refs) || {};
-  for (const col of want) {
-    const refTable = refs[col];
-    if (!refTable) continue;
-    const rdef = tableDef(spec, refTable);
-    if (!rdef) continue;
-    if (!["display", "feed", "admin"].includes(rdef.access || "collect")) continue; // public-read only
-    const ids = [...new Set(rows.map((r) => r[col]).filter((v) => v != null))].slice(0, 200);
-    if (!ids.length) continue;
-    let parents = [];
-    try { parents = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(refTable) + " WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { continue; }
-    const byId = new Map(parents.map((p) => [p.id, p]));
-    const key = /_id$/i.test(col) ? col.replace(/_id$/i, "") : col + "_ref";
-    for (const r of rows) r[key] = byId.get(r[col]) || null;
+  for (const token of want) {
+    // DEEP expand — a dotted token `customer_id.company_id` chains up the ref graph (order →
+    // customer → company) in one request, batched at each hop. Each hop must be a declared ref to
+    // a PUBLIC-READ table. Up to 3 hops.
+    const chain = token.split(".").map((s) => s.trim()).filter(Boolean).slice(0, 3);
+    let curRows = rows, curDef = def;
+    for (const col of chain) {
+      const refTable = (curDef && curDef.refs) ? curDef.refs[col] : null;
+      if (!refTable) break;
+      const rdef = tableDef(spec, refTable);
+      if (!rdef || !["display", "feed", "admin"].includes(rdef.access || "collect")) break; // public-read only
+      const key = /_id$/i.test(col) ? col.replace(/_id$/i, "") : col + "_ref";
+      const ids = [...new Set(curRows.map((r) => r && r[col]).filter((v) => v != null))].slice(0, 200);
+      if (!ids.length) { for (const r of curRows) if (r) r[key] = null; break; }
+      let parents = [];
+      try { parents = await cfD1Query(env, uuid, "SELECT * FROM " + sqlIdent(refTable) + " WHERE id IN (" + ids.map(() => "?").join(",") + ")", ids); } catch { break; }
+      const byId = new Map(parents.map((p) => [p.id, p]));
+      for (const r of curRows) if (r) r[key] = byId.get(r[col]) || null;
+      curRows = curRows.map((r) => r && r[key]).filter(Boolean); // descend onto the attached parents
+      curDef = rdef;
+      if (!curRows.length) break;
+    }
   }
   return rows;
 }
