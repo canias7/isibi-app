@@ -6350,12 +6350,16 @@ the data API — so a generated app couldn't build an in-app analytics page from
     tiny {slug,url} payloads, no compaction). gamesSave→touchAssets; zephyr_games_v1 added to the sign-out wipes.
   - **WEBSITE "coming soon" fixed:** paintCrt now treats BOTH game & website as live builder channels (active
     chatbox + "Describe a website or app — press Enter…"); no channel that actually works reads as coming-soon.
-  - **Sprite cost cut ~19×:** game sprites moved off nano-banana-pro (19cr) to `fal-ai/flux/schnell`
-    (SPRITE_IMG_MODEL/SPRITE_IMG_USD=0.01 → 1cr each; ~4-sprite game 76→4cr). genSpritePng uses flux's
-    image_size:square_hd schema; build metering uses SPRITE_IMG_USD. VALIDATE the chroma-key quality on flux's
-    green screen live — if it keys worse than nano-banana, revert SPRITE_IMG_MODEL to nano-banana-pro (1 line).
+  - **Sprite cost — TRIED cheaper models, KEPT nano-banana-pro (quality).** Live-tested flux/schnell then flux/dev
+    for the green-screen sprites: BOTH failed the one thing that matters — a pure #00FF00 background the chroma-key
+    can cut. schnell left opaque/non-green backgrounds (nothing to key; one sprite 100% opaque); dev rendered
+    light/off-hue greens the key couldn't remove (one sprite came back 81% green). nano-banana-pro is the only
+    model that reliably renders a keyable pure green, so sprites STAY on it (19cr each, ~76/4-sprite game). Left
+    `SPRITE_IMG_MODEL`/`SPRITE_IMG_USD` as their own constants (= nano-banana now) so it's a 1-line retune later.
+    FUTURE lever: a WIDER chroma-key (looser r/b caps, keep g-r>40 && g-b>40 so it can't eat pink/amber/cyan
+    subjects) could unlock a cheaper model — needs careful live testing. Cost this exploration: ~60cr on 3 builds.
   - **Landing showcase robustness:** .lp-arc-body got a neon-gradient fallback so a missing showcase game degrades
-    to an on-brand tile, not a black void. (Curated-permanent swap is now cheap via flux — offer it later.)
+    to an on-brand tile, not a black void.
 
 - **Bulk update/delete by filter** (data API): `POST /api/db/<slug>/rows/<table>/bulk {op,where,set?,all?,limit?}`
   (ADMIN) — one change to every matching row in a single statement ("archive all completed", "delete all
