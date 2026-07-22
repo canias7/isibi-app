@@ -4203,6 +4203,14 @@ async function ensureKpi(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_kpi_metric ON _kpi_snapshots (metric, at)"); } catch {}
   _kpiReady.add(uuid);
 }
+// Saved segments / audiences — a named admin filter over a table ("active users", "big spenders")
+// that can be counted + previewed on demand. Stored in `_segments`. Ensured once per isolate.
+const _segReady = new Set();
+async function ensureSegments(env, uuid) {
+  if (_segReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _segments (name TEXT PRIMARY KEY, table_name TEXT NOT NULL, filter TEXT, created_at TEXT, updated_at TEXT)");
+  _segReady.add(uuid);
+}
 // Outbound webhooks — an app registers external URLs to receive its events (order.created,
 // signup…), then fires them; the server POSTs a signed JSON payload to each subscriber and logs
 // the attempt. `_webhooks` = subscriptions, `_webhook_deliveries` = the delivery log. Ensured once.
@@ -9999,6 +10007,93 @@ async function handleRequest(request, env, ctx) {
           const rows = await cfD1Query(env, uuid, "SELECT id,url,events,active,created_at, CASE WHEN secret IS NOT NULL THEN 1 ELSE 0 END AS signed FROM _webhooks ORDER BY id DESC LIMIT 200");
           return Response.json({ ok: true, webhooks: rows.map((r) => ({ id: r.id, url: r.url, events: r.events, active: !!r.active, signed: !!r.signed, created_at: r.created_at })) });
         } catch (e) { console.error("webhooks failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "webhooks failed" }, { status: 502 }); }
+      }
+      // SAVED SEGMENTS / AUDIENCES — a named admin filter over a table ("active users", "big
+      // spenders") you can re-count and preview on demand. The filter reuses the list read's
+      // where/q/sort grammar (stored as a query string); evaluation runs as admin over ALL rows.
+      //   POST   /api/db/<slug>/segments {name, table, filter}   → save/update (admin)
+      //   GET    /api/db/<slug>/segments                         → list
+      //   GET    /api/db/<slug>/segments/<name>                  → one definition
+      //   GET    /api/db/<slug>/segments/<name>/count            → matching row count
+      //   GET    /api/db/<slug>/segments/<name>/preview[?limit=] → sample matching rows
+      //   DELETE /api/db/<slug>/segments/<name>                  → remove
+      const sgm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/segments(?:\/([a-z0-9_.:-]{1,60})(?:\/(count|preview))?)?$/i);
+      if (sgm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sgm[1].toLowerCase(), name = sgm[2] ? sgm[2].toLowerCase() : null, sub = sgm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureSegments(env, uuid);
+          // Turn a segment's stored filter (a query string) into an evaluable URL against its table.
+          const evalCtx = async (seg) => {
+            const spec = await loadSiteSchema(env, uuid);
+            const def = tableDef(spec, seg.table_name);
+            if (!def) return { err: "the segment's table no longer exists" };
+            const tn = sqlIdent(seg.table_name);
+            const allow = Array.isArray(def.columns) ? def.columns : [];
+            const base = def.trash ? { clause: "deleted_at IS NULL", params: [] } : null;
+            const u2 = new URL("https://x/?" + String(seg.filter || ""));
+            return { def, tn, allow, base, u2 };
+          };
+          if (request.method === "POST" && !name) {
+            if (!rateOk(slug + "|" + ip + "|sgw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const nm = String(body.name || "").toLowerCase().replace(/[^a-z0-9_.:-]/g, "").slice(0, 60);
+            if (!nm) return Response.json({ ok: false, error: "a segment name is required" }, { status: 400 });
+            const table = String(body.table || "").toLowerCase();
+            if (!/^[a-z_][a-z0-9_]{0,40}$/.test(table)) return Response.json({ ok: false, error: "a valid table is required" }, { status: 400 });
+            const spec = await loadSiteSchema(env, uuid);
+            if (!tableDef(spec, table)) return Response.json({ ok: false, error: "unknown table" }, { status: 404 });
+            // Accept the filter as a query string, or an object {where:[…], q, sort, order}.
+            let filter = "";
+            if (typeof body.filter === "string") filter = body.filter.replace(/^\?/, "").slice(0, 2000);
+            else if (body.filter && typeof body.filter === "object") {
+              const sp = new URLSearchParams();
+              for (const [k, v] of Object.entries(body.filter)) { if (!/^[a-z]{1,20}$/i.test(k)) continue; (Array.isArray(v) ? v : [v]).slice(0, 12).forEach((x) => sp.append(k, String(x).slice(0, 200))); }
+              filter = sp.toString().slice(0, 2000);
+            }
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _segments (name,table_name,filter,created_at,updated_at) VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET table_name=excluded.table_name, filter=excluded.filter, updated_at=excluded.updated_at", [nm, table, filter, now, now]);
+            return Response.json({ ok: true, name: nm, table, filter });
+          }
+          if (request.method === "DELETE") {
+            if (!name) return Response.json({ ok: false, error: "which segment? DELETE /segments/<name>" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _segments WHERE name=?", [name]);
+            return Response.json({ ok: true, name, removed: (ex.changes || 0) > 0 });
+          }
+          // GET
+          if (!rateOk(slug + "|" + ip + "|sgr", 300)) return tooMany();
+          if (!name) {
+            const rows = await cfD1Query(env, uuid, "SELECT name, table_name, filter, created_at, updated_at FROM _segments ORDER BY name LIMIT 500");
+            return Response.json({ ok: true, segments: rows.map((r) => ({ name: r.name, table: r.table_name, filter: r.filter, created_at: r.created_at, updated_at: r.updated_at })) });
+          }
+          const seg = (await cfD1Query(env, uuid, "SELECT name, table_name, filter FROM _segments WHERE name=?", [name]))[0];
+          if (!seg) return Response.json({ ok: false, error: "segment not found" }, { status: 404 });
+          if (sub === "count") {
+            const ec = await evalCtx(seg); if (ec.err) return Response.json({ ok: false, error: ec.err }, { status: 409 });
+            const b = buildD1List(ec.u2, ec.tn, ec.allow, ec.base);
+            let n = 0; try { const r = await cfD1Query(env, uuid, b.countSql, b.countParams); n = (r[0] && r[0].n) || 0; } catch {}
+            return Response.json({ ok: true, name, table: seg.table_name, count: n });
+          }
+          if (sub === "preview") {
+            const ec = await evalCtx(seg); if (ec.err) return Response.json({ ok: false, error: ec.err }, { status: 409 });
+            const lim = Math.min(100, Math.max(1, parseInt(url.searchParams.get("limit") || "20", 10) || 20));
+            ec.u2.searchParams.set("limit", String(lim));
+            const b = buildD1List(ec.u2, ec.tn, ec.allow, ec.base);
+            let rows = []; try { rows = await cfD1Query(env, uuid, b.sql, b.params); parseJsonRows(ec.def, rows); } catch {}
+            return Response.json({ ok: true, name, table: seg.table_name, rows });
+          }
+          return Response.json({ ok: true, name: seg.name, table: seg.table_name, filter: seg.filter });
+        } catch (e) { console.error("segments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "segments failed" }, { status: 502 }); }
       }
       // App settings / config KV — public READ (the app renders from it), ADMIN-only WRITE.
       //   GET    /api/db/<slug>/config          → {config:{k:value}}
