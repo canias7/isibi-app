@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — loyalty tiers · store-credit ledger · related-content (data API, next-100)
+- **`/loyalty`** — admin spend-threshold ladder (`_loyalty_tiers`) + per-member spend (`_loyalty_spend`,
+  atomic `MAX(0, spend+amount)` upsert). `/spend` (admin) accrues → resolves tier + to_next; `/me` +
+  `/<userId>`; public `/tiers`. `_loyalty_spend` in GDPR erase. batch241 (22/22).
+- **`/store-credit`** — admin issues, member redeems; APPEND-ONLY ledger, balance=SUM(delta_c). Redeem is
+  atomic `INSERT…SELECT…WHERE (SUM>=amount)` so it can never overdraw (409 if short). Distinct from the P2P
+  `/wallet`. `_store_credit` in GDPR erase. batch242 (20/20).
+- **`/related`** — STATELESS tag-overlap recommender. POST items+target → ranked by shared-tag count,
+  Jaccard score (shared/union), target + zero-overlap excluded, limit≤100. No table. batch243 (13/13).
+- Full suite 226 green.
+
 ## 2026-07-23 — capacity slots · product bundles · win/loss analytics (data API, next-100)
 - **`/slots`** — fixed-capacity class-size booking (distinct from 1:1 `/bookings`). Atomic seat book via
   `INSERT…SELECT…WHERE (COUNT<capacity) AND NOT EXISTS(dup)` (overbook-proof under concurrency), 409 when
