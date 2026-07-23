@@ -5107,6 +5107,24 @@ async function ensureWinloss(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_winloss ON _winloss (outcome, created_at)"); } catch {}
   _winlossReady.add(uuid);
 }
+// Loyalty tiers — an admin defines spend thresholds (Bronze/Silver/Gold) with benefits; a member's running
+// spend resolves to a tier. `_loyalty_tiers` = the ladder, `_loyalty_spend` = per-member spend. Ensured once.
+const _loyaltyReady = new Set();
+async function ensureLoyalty(env, uuid) {
+  if (_loyaltyReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _loyalty_tiers (tier TEXT PRIMARY KEY, name TEXT, min_spend_c INTEGER NOT NULL DEFAULT 0, benefits TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _loyalty_spend (user_id INTEGER PRIMARY KEY, spend_c INTEGER NOT NULL DEFAULT 0, updated_at TEXT)");
+  _loyaltyReady.add(uuid);
+}
+// Store-credit ledger — an admin issues store credit to a member; the member redeems it (never below zero).
+// Append-only, balance = SUM(delta_c). Distinct from the transferable /wallet. `_store_credit`. Ensured once.
+const _storeCreditReady = new Set();
+async function ensureStoreCredit(env, uuid) {
+  if (_storeCreditReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _store_credit (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, delta_c INTEGER NOT NULL, reason TEXT, ref TEXT, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_store_credit_user ON _store_credit (user_id)"); } catch {}
+  _storeCreditReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9907,6 +9925,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _email_events WHERE lower(recipient)=lower(?)", [u.email]],        // email open/click events about them
             ["DELETE FROM _notify_subs WHERE lower(email)=lower(?)", [u.email]],             // back-in-stock/price-drop notify subs
             ["DELETE FROM _slot_bookings WHERE user_id=?", [u.id]],                          // capacity-slot seat bookings
+            ["DELETE FROM _loyalty_spend WHERE user_id=?", [u.id]],                          // loyalty spend total
+            ["DELETE FROM _store_credit WHERE user_id=?", [u.id]],                           // store-credit ledger
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -15670,6 +15690,179 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported winloss request" }, { status: 405 });
         } catch (e) { console.error("winloss failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "winloss failed" }, { status: 502 }); }
+      }
+      // LOYALTY TIERS — an admin defines spend thresholds with benefits; a member's running spend resolves
+      // to a tier + progress toward the next.
+      //   PUT/POST /api/db/<slug>/loyalty/tiers {tiers:[{tier, name?, min_spend, benefits?}]}  (ADMIN) → replace
+      //   GET    /api/db/<slug>/loyalty/tiers               (public) → the ladder
+      //   POST   /api/db/<slug>/loyalty/spend {user, amount}  (ADMIN) → add spend → {spend, tier}
+      //   GET    /api/db/<slug>/loyalty/me                  (member) → {spend, tier, next, to_next}
+      //   GET    /api/db/<slug>/loyalty/<userId>            (ADMIN) → a member's status
+      const loym = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/loyalty(?:\/(tiers|spend|me|\d+))?$/i);
+      if (loym && (request.method === "GET" || request.method === "POST" || request.method === "PUT" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = loym[1].toLowerCase(), seg = loym[2] || null, wantUser = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const resolveTier = async (spend_c) => {
+          const ladder = await cfD1Query(env, uuid, "SELECT tier, name, min_spend_c, benefits FROM _loyalty_tiers ORDER BY min_spend_c ASC");
+          if (!ladder.length) return { spend: spend_c / 100, tier: null, next: null, to_next: null };
+          let cur = null, next = null;
+          for (const tr of ladder) { if (spend_c >= tr.min_spend_c) { cur = tr; } else { next = tr; break; } }
+          return { spend: spend_c / 100, tier: cur ? { tier: cur.tier, name: cur.name, benefits: cur.benefits } : null, next: next ? { tier: next.tier, name: next.name, min_spend: next.min_spend_c / 100 } : null, to_next: next ? (next.min_spend_c - spend_c) / 100 : null };
+        };
+        try {
+          await ensureLoyalty(env, uuid);
+          // REPLACE ladder (admin).
+          if (seg === "tiers" && (request.method === "POST" || request.method === "PUT")) {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            if (!Array.isArray(body.tiers) || !body.tiers.length) return Response.json({ ok: false, error: "tiers[] is required" }, { status: 400 });
+            const seen = new Set(); const rows = [];
+            for (const tr of body.tiers.slice(0, 100)) {
+              const tier = String((tr && tr.tier) || "").trim().toLowerCase().slice(0, 40);
+              const min_spend_c = toCents(tr && tr.min_spend); if (!tier || min_spend_c == null || min_spend_c < 0) return Response.json({ ok: false, error: "each tier needs a key and a min_spend >= 0" }, { status: 400 });
+              if (seen.has(tier)) return Response.json({ ok: false, error: "duplicate tier " + tier }, { status: 400 }); seen.add(tier);
+              rows.push([tier, tr.name != null ? String(tr.name).slice(0, 80) : null, min_spend_c, tr.benefits != null ? String(tr.benefits).slice(0, 1000) : null]);
+            }
+            await cfD1Exec(env, uuid, "DELETE FROM _loyalty_tiers");
+            for (const r of rows) await cfD1Exec(env, uuid, "INSERT INTO _loyalty_tiers (tier, name, min_spend_c, benefits) VALUES (?,?,?,?)", r);
+            return Response.json({ ok: true, tiers: rows.length });
+          }
+          // GET ladder (public).
+          if (seg === "tiers" && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|loyl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT tier, name, min_spend_c, benefits FROM _loyalty_tiers ORDER BY min_spend_c ASC");
+            return Response.json({ ok: true, tiers: rows.map((r) => ({ tier: r.tier, name: r.name, min_spend: r.min_spend_c / 100, benefits: r.benefits })) });
+          }
+          // ADD spend (admin).
+          if (seg === "spend" && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|loyw", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = parseInt(body.user, 10);
+            const amount_c = toCents(body.amount);
+            if (!(target > 0)) return Response.json({ ok: false, error: "user (member id) is required" }, { status: 400 });
+            if (amount_c == null || amount_c === 0) return Response.json({ ok: false, error: "a non-zero amount is required" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _loyalty_spend (user_id, spend_c, updated_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET spend_c = MAX(0, _loyalty_spend.spend_c + ?), updated_at=excluded.updated_at RETURNING spend_c", [target, Math.max(0, amount_c), new Date().toISOString(), amount_c]);
+            return Response.json(Object.assign({ ok: true, user: target }, await resolveTier(r[0] ? r[0].spend_c : Math.max(0, amount_c))));
+          }
+          // MY status (member).
+          if (seg === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const sp = (await cfD1Query(env, uuid, "SELECT spend_c FROM _loyalty_spend WHERE user_id=?", [userId]))[0];
+            return Response.json(Object.assign({ ok: true }, await resolveTier(sp ? sp.spend_c : 0)));
+          }
+          // A member's status (admin).
+          if (wantUser != null && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const sp = (await cfD1Query(env, uuid, "SELECT spend_c FROM _loyalty_spend WHERE user_id=?", [wantUser]))[0];
+            return Response.json(Object.assign({ ok: true, user: wantUser }, await resolveTier(sp ? sp.spend_c : 0)));
+          }
+          return Response.json({ ok: false, error: "use /loyalty/tiers, /spend, /me or /<userId>" }, { status: 404 });
+        } catch (e) { console.error("loyalty failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "loyalty failed" }, { status: 502 }); }
+      }
+      // STORE-CREDIT LEDGER — an admin issues store credit to a member; the member redeems it (never below
+      // zero). Append-only, balance = SUM(delta). Distinct from the transferable /wallet.
+      //   POST   /api/db/<slug>/store-credit/issue {user, amount, reason?, ref?}  (ADMIN) → {balance}
+      //   POST   /api/db/<slug>/store-credit/redeem {amount, ref?}  (member) → deduct own balance → {balance} · 409 if short
+      //   GET    /api/db/<slug>/store-credit/me             (member) → {balance, history}
+      //   GET    /api/db/<slug>/store-credit/<userId>       (ADMIN) → {balance, history}
+      const stcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/store-credit(?:\/(issue|redeem|me|\d+))?$/i);
+      if (stcm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = stcm[1].toLowerCase(), seg = stcm[2] || null, wantUser = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const balanceOf = async (uid) => (await cfD1Query(env, uuid, "SELECT COALESCE(SUM(delta_c),0) AS b FROM _store_credit WHERE user_id=?", [uid]))[0].b;
+        try {
+          await ensureStoreCredit(env, uuid);
+          // ISSUE (admin).
+          if (seg === "issue" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            if (!rateOk(slug + "|" + ip + "|stcw", 600)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const target = parseInt(body.user, 10);
+            const amount_c = toCents(body.amount);
+            if (!(target > 0)) return Response.json({ ok: false, error: "user (member id) is required" }, { status: 400 });
+            if (amount_c == null || amount_c <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [target]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 404 });
+            await cfD1Exec(env, uuid, "INSERT INTO _store_credit (user_id, delta_c, reason, ref, created_at) VALUES (?,?,?,?,?)", [target, amount_c, body.reason != null ? String(body.reason).slice(0, 200) : null, body.ref != null ? String(body.ref).slice(0, 120) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, user: target, issued: amount_c / 100, balance: (await balanceOf(target)) / 100 });
+          }
+          // REDEEM (member) — atomic sufficient-balance guard.
+          if (seg === "redeem" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|stcr", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const amount_c = toCents(body.amount);
+            if (amount_c == null || amount_c <= 0) return Response.json({ ok: false, error: "a positive amount is required" }, { status: 400 });
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _store_credit (user_id, delta_c, reason, ref, created_at) SELECT ?, ?, 'redeem', ?, ? WHERE (SELECT COALESCE(SUM(delta_c),0) FROM _store_credit WHERE user_id=?) >= ?", [userId, -amount_c, body.ref != null ? String(body.ref).slice(0, 120) : null, new Date().toISOString(), userId, amount_c]);
+            if (!ex.changes) return Response.json({ ok: false, error: "insufficient store credit", balance: (await balanceOf(userId)) / 100 }, { status: 409 });
+            return Response.json({ ok: true, redeemed: amount_c / 100, balance: (await balanceOf(userId)) / 100 });
+          }
+          // MY balance + history (member).
+          if (seg === "me" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const history = await cfD1Query(env, uuid, "SELECT delta_c, reason, ref, created_at FROM _store_credit WHERE user_id=? ORDER BY id DESC LIMIT 100", [userId]);
+            return Response.json({ ok: true, balance: (await balanceOf(userId)) / 100, history: history.map((r) => ({ amount: r.delta_c / 100, reason: r.reason, ref: r.ref, created_at: r.created_at })) });
+          }
+          // A member's balance (admin).
+          if (wantUser != null && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+            if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const history = await cfD1Query(env, uuid, "SELECT delta_c, reason, ref, created_at FROM _store_credit WHERE user_id=? ORDER BY id DESC LIMIT 200", [wantUser]);
+            return Response.json({ ok: true, user: wantUser, balance: (await balanceOf(wantUser)) / 100, history: history.map((r) => ({ amount: r.delta_c / 100, reason: r.reason, ref: r.ref, created_at: r.created_at })) });
+          }
+          return Response.json({ ok: false, error: "use /store-credit/issue, /redeem, /me or /<userId>" }, { status: 404 });
+        } catch (e) { console.error("store-credit failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "store-credit failed" }, { status: 502 }); }
+      }
+      // RELATED CONTENT — a STATELESS recommender: given a set of items with tags and a target id, rank the
+      // others by how many tags they share with the target.
+      //   POST /api/db/<slug>/related {items:[{id, tags:[…]}], target, limit?}  → {related:[{id, score, shared}]}
+      const relm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/related$/i);
+      if (relm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = relm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|rel", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.items) || !body.items.length) return Response.json({ ok: false, error: "items[] is required" }, { status: 400 });
+          if (body.target == null || body.target === "") return Response.json({ ok: false, error: "a target id is required" }, { status: 400 });
+          const targetId = String(body.target);
+          const norm = (it) => ({ id: String((it && it.id) != null ? it.id : ""), tags: new Set((Array.isArray(it && it.tags) ? it.tags : []).map((x) => String(x).trim().toLowerCase()).filter(Boolean)) });
+          const items = body.items.slice(0, 5000).map(norm).filter((x) => x.id);
+          const target = items.find((x) => x.id === targetId);
+          if (!target) return Response.json({ ok: false, error: "the target id is not in items[]" }, { status: 400 });
+          let limit = Math.floor(Number(body.limit)); if (!(limit > 0) || limit > 100) limit = 10;
+          const scored = [];
+          for (const it of items) {
+            if (it.id === targetId) continue;
+            let shared = 0; for (const tg of it.tags) if (target.tags.has(tg)) shared++;
+            if (shared > 0) { const union = new Set([...it.tags, ...target.tags]).size; scored.push({ id: it.id, score: Math.round((union ? shared / union : 0) * 1000) / 1000, shared }); }
+          }
+          scored.sort((a, b) => b.shared - a.shared || b.score - a.score);
+          return Response.json({ ok: true, target: targetId, related: scored.slice(0, limit) });
+        } catch (e) { console.error("related failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "related failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
