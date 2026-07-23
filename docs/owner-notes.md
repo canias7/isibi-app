@@ -6661,6 +6661,17 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — downloads · waivers/e-sign · petitions (data API, next-100)
+- **`/downloads/<file>`** — download counter, optionally gated. Admin registers; `/hit` bumps count +
+  returns url (gated → 401 signed-out); public read (no count, hides url if gated); ranked list. No user
+  scope. batch268 (18/18).
+- **`/waivers/<doc>`** — versioned e-signature. Member `/sign {name,signature}` (PK doc+user+version so a
+  version bump re-requires signing), `/mine`, admin `/signatures` roster. `_waiver_signatures` erased by
+  user. batch269 (21/21).
+- **`/petitions/<slug>`** — signature drive. Member signs once (ON CONFLICT DO NOTHING), public
+  count/progress(%)/mine/recent-signers. `_petition_signatures` erased by user. batch270 (22/22).
+- Note: quizzes, checkins, polls all already existed. Full suite 253 green. (72/100 of the next-100 list.)
+
 ## 2026-07-23 — gift cards · license keys · changelog (data API, next-100)
 - **`/gift-cards`** — code-bearer stored value. Admin issues (auto/custom code, uppercased), public
   check/redeem (atomic `UPDATE…SET balance=balance-? WHERE balance>=? RETURNING`, 409 if short), void, list.

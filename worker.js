@@ -5333,6 +5333,34 @@ async function ensureChangelog(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_changelog ON _changelog (published, released_at)"); } catch {}
   _changelogReady.add(uuid);
 }
+// Downloads — a per-file download counter (optionally gated to signed-in members). `_downloads` keyed by
+// file id. Ensured once per isolate.
+const _downloadsReady = new Set();
+async function ensureDownloads(env, uuid) {
+  if (_downloadsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _downloads (file TEXT PRIMARY KEY, name TEXT, url TEXT, gated INTEGER NOT NULL DEFAULT 0, count INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  _downloadsReady.add(uuid);
+}
+// Waivers — a member e-signs a versioned waiver (name + signature text). `_waivers` = the document,
+// `_waiver_signatures` = one signature per (doc, member, version). Ensured once.
+const _waiversReady = new Set();
+async function ensureWaivers(env, uuid) {
+  if (_waiversReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _waivers (doc TEXT PRIMARY KEY, title TEXT, body TEXT, version TEXT NOT NULL DEFAULT '1', created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _waiver_signatures (doc TEXT NOT NULL, user_id INTEGER NOT NULL, version TEXT NOT NULL, name TEXT, signature TEXT, signed_at TEXT, PRIMARY KEY (doc, user_id, version))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_waiver_sig_user ON _waiver_signatures (user_id)"); } catch {}
+  _waiversReady.add(uuid);
+}
+// Petitions — a signature drive toward a goal; a member signs once. `_petitions` = the petition,
+// `_petition_signatures` = one signature per (petition, member). Ensured once.
+const _petitionsReady = new Set();
+async function ensurePetitions(env, uuid) {
+  if (_petitionsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _petitions (slug TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, goal INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _petition_signatures (petition TEXT NOT NULL, user_id INTEGER NOT NULL, name TEXT, comment TEXT, created_at TEXT, PRIMARY KEY (petition, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_petition_sig_user ON _petition_signatures (user_id)"); } catch {}
+  _petitionsReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -10158,6 +10186,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _wishlist WHERE user_id=?", [u.id]],                               // saved/wishlist items
             ["DELETE FROM _ratings WHERE user_id=?", [u.id]],                                // star ratings they gave
             ["DELETE FROM _sequence_enrollments WHERE lower(subject)=lower(?)", [u.email]],  // drip-sequence enrollment (if keyed by their email)
+            ["DELETE FROM _waiver_signatures WHERE user_id=?", [u.id]],                      // waivers they signed
+            ["DELETE FROM _petition_signatures WHERE user_id=?", [u.id]],                    // petitions they signed
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -17650,6 +17680,209 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported changelog request" }, { status: 405 });
         } catch (e) { console.error("changelog failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "changelog failed" }, { status: 502 }); }
+      }
+      // DOWNLOADS — a per-file download counter (optionally gated to signed-in members).
+      //   POST   /api/db/<slug>/downloads/<file> {name?, url?, gated?}  (ADMIN) → register a file
+      //   POST   /api/db/<slug>/downloads/<file>/hit  (public · member if gated) → count + return the url
+      //   GET    /api/db/<slug>/downloads/<file>            (public) → {count, url, name}
+      //   GET    /api/db/<slug>/downloads                   (public) → most-downloaded
+      //   DELETE /api/db/<slug>/downloads/<file>            (ADMIN)
+      const dlfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/downloads(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(hit))?)?$/i);
+      if (dlfm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dlfm[1].toLowerCase(), file = dlfm[2] || null, isHit = dlfm[3] === "hit";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureDownloads(env, uuid);
+          // REGISTER (admin).
+          if (file && !isHit && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|dlw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _downloads (file, name, url, gated, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(file) DO UPDATE SET name=excluded.name, url=excluded.url, gated=excluded.gated, updated_at=excluded.updated_at", [file, body.name != null ? String(body.name).slice(0, 200) : null, body.url != null ? String(body.url).slice(0, 2000) : null, body.gated === true || body.gated === 1 ? 1 : 0, now, now]);
+            return Response.json({ ok: true, file });
+          }
+          // HIT (public / member if gated) — count + return url.
+          if (file && isHit && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|dlh", 300)) return tooMany();
+            const d = (await cfD1Query(env, uuid, "SELECT url, gated FROM _downloads WHERE file=?", [file]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such file" }, { status: 404 });
+            if (d.gated && !userId) return Response.json({ ok: false, error: "sign in to download" }, { status: 401 });
+            const r = await cfD1Query(env, uuid, "UPDATE _downloads SET count = count + 1, updated_at=? WHERE file=? RETURNING count", [new Date().toISOString(), file]);
+            return Response.json({ ok: true, file, url: d.url, count: r[0] ? r[0].count : 1 });
+          }
+          // GET one (public — no count).
+          if (file && !isHit && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dlr", 600)) return tooMany();
+            const d = (await cfD1Query(env, uuid, "SELECT file, name, url, gated, count FROM _downloads WHERE file=?", [file]))[0];
+            if (!d) return Response.json({ ok: false, error: "no such file" }, { status: 404 });
+            return Response.json({ ok: true, file: d.file, name: d.name, url: d.gated ? null : d.url, gated: !!d.gated, count: d.count });
+          }
+          // DELETE (admin).
+          if (file && !isHit && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _downloads WHERE file=?", [file]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such file" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, file });
+          }
+          // LIST (public, most-downloaded).
+          if (!file && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dll", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT file, name, gated, count FROM _downloads ORDER BY count DESC, file ASC LIMIT 500");
+            return Response.json({ ok: true, downloads: rows.map((r) => ({ file: r.file, name: r.name, gated: !!r.gated, count: r.count })) });
+          }
+          return Response.json({ ok: false, error: "unsupported downloads request" }, { status: 405 });
+        } catch (e) { console.error("downloads failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "downloads failed" }, { status: 502 }); }
+      }
+      // WAIVERS — a member e-signs a versioned waiver (name + signature text); an admin reads the signatures.
+      //   POST   /api/db/<slug>/waivers/<doc> {title?, body?, version?}  (ADMIN) → define the waiver
+      //   GET    /api/db/<slug>/waivers/<doc>               (public) → the waiver + current version
+      //   POST   /api/db/<slug>/waivers/<doc>/sign {name, signature?}  (member) → sign the current version
+      //   GET    /api/db/<slug>/waivers/<doc>/mine          (member) → have I signed the current version?
+      //   GET    /api/db/<slug>/waivers/<doc>/signatures    (ADMIN) → who signed
+      const wvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/waivers(?:\/([A-Za-z0-9_.-]{1,60})(?:\/(sign|mine|signatures))?)?$/i);
+      if (wvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wvm[1].toLowerCase(), doc = wvm[2] || null, act = wvm[3] ? wvm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureWaivers(env, uuid);
+          // DEFINE (admin).
+          if (doc && !act && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|wvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const version = String(body.version || "1").trim().slice(0, 40) || "1";
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _waivers (doc, title, body, version, created_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(doc) DO UPDATE SET title=excluded.title, body=excluded.body, version=excluded.version, updated_at=excluded.updated_at", [doc, body.title != null ? String(body.title).slice(0, 200) : null, body.body != null ? String(body.body).slice(0, 20000) : null, version, now, now]);
+            return Response.json({ ok: true, doc, version });
+          }
+          // DELETE (admin).
+          if (doc && !act && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _waivers WHERE doc=?", [doc]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such waiver" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _waiver_signatures WHERE doc=?", [doc]); } catch {}
+            return Response.json({ ok: true, deleted: true, doc });
+          }
+          // GET waiver (public).
+          if (doc && !act && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|wvr", 600)) return tooMany();
+            const w = (await cfD1Query(env, uuid, "SELECT doc, title, body, version FROM _waivers WHERE doc=?", [doc]))[0];
+            if (!w) return Response.json({ ok: false, error: "no such waiver" }, { status: 404 });
+            return Response.json({ ok: true, waiver: w });
+          }
+          // The rest need the waiver.
+          const w = doc && act ? (await cfD1Query(env, uuid, "SELECT version FROM _waivers WHERE doc=?", [doc]))[0] : null;
+          if (doc && act && !w) return Response.json({ ok: false, error: "no such waiver" }, { status: 404 });
+          // SIGN (member).
+          if (doc && act === "sign" && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|wvs", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 200);
+            if (!name) return Response.json({ ok: false, error: "a name is required to sign" }, { status: 400 });
+            await cfD1Query(env, uuid, "INSERT INTO _waiver_signatures (doc, user_id, version, name, signature, signed_at) VALUES (?,?,?,?,?,?) ON CONFLICT(doc, user_id, version) DO UPDATE SET name=excluded.name, signature=excluded.signature, signed_at=excluded.signed_at", [doc, userId, w.version, name, body.signature != null ? String(body.signature).slice(0, 500) : null, new Date().toISOString()]);
+            return Response.json({ ok: true, doc, version: w.version, signed: true });
+          }
+          // MINE (member).
+          if (doc && act === "mine" && request.method === "GET") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            const s = (await cfD1Query(env, uuid, "SELECT name, signed_at FROM _waiver_signatures WHERE doc=? AND user_id=? AND version=?", [doc, userId, w.version]))[0];
+            return Response.json({ ok: true, doc, version: w.version, signed: !!s, signed_at: s ? s.signed_at : null });
+          }
+          // SIGNATURES (admin).
+          if (doc && act === "signatures" && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|wvsg", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT user_id, version, name, signed_at FROM _waiver_signatures WHERE doc=? ORDER BY signed_at DESC LIMIT 5000", [doc]);
+            return Response.json({ ok: true, doc, signatures: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported waivers request" }, { status: 405 });
+        } catch (e) { console.error("waivers failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "waivers failed" }, { status: 502 }); }
+      }
+      // PETITIONS — a signature drive toward a goal; a member signs once. Reading is public.
+      //   POST   /api/db/<slug>/petitions/<slug> {title, description?, goal?}  (ADMIN) → create
+      //   POST   /api/db/<slug>/petitions/<slug>/sign {name?, comment?}  (member) → sign once
+      //   GET    /api/db/<slug>/petitions/<slug>            (public) → {title, goal, signatures, progress, mine, recent}
+      //   GET    /api/db/<slug>/petitions                   (public) → list
+      //   DELETE /api/db/<slug>/petitions/<slug>            (ADMIN)
+      const petm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/petitions(?:\/([A-Za-z0-9_.-]{1,80})(?:\/(sign))?)?$/i);
+      if (petm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = petm[1].toLowerCase(), pslug = petm[2] || null, isSign = petm[3] === "sign";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensurePetitions(env, uuid);
+          // CREATE (admin).
+          if (pslug && !isSign && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|petw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const title = String(body.title || "").trim().slice(0, 200);
+            if (!title) return Response.json({ ok: false, error: "a title is required" }, { status: 400 });
+            let goal = Math.floor(Number(body.goal)); if (!Number.isFinite(goal) || goal < 0) goal = 0;
+            await cfD1Query(env, uuid, "INSERT INTO _petitions (slug, title, description, goal, created_at) VALUES (?,?,?,?,?) ON CONFLICT(slug) DO UPDATE SET title=excluded.title, description=excluded.description, goal=excluded.goal", [pslug, title, body.description != null ? String(body.description).slice(0, 2000) : null, goal, new Date().toISOString()]);
+            return Response.json({ ok: true, slug: pslug });
+          }
+          // SIGN (member).
+          if (pslug && isSign && request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|pets", 60)) return tooMany();
+            if (!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _petitions WHERE slug=?", [pslug]))[0]) return Response.json({ ok: false, error: "no such petition" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const ex = await cfD1Exec(env, uuid, "INSERT INTO _petition_signatures (petition, user_id, name, comment, created_at) VALUES (?,?,?,?,?) ON CONFLICT(petition, user_id) DO NOTHING", [pslug, userId, body.name != null ? String(body.name).slice(0, 200) : null, body.comment != null ? String(body.comment).slice(0, 500) : null, new Date().toISOString()]);
+            const count = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _petition_signatures WHERE petition=?", [pslug]))[0].n;
+            return Response.json({ ok: true, slug: pslug, signed: true, already: (ex.changes || 0) === 0, signatures: count });
+          }
+          // DELETE (admin).
+          if (pslug && !isSign && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _petitions WHERE slug=?", [pslug]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such petition" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _petition_signatures WHERE petition=?", [pslug]); } catch {}
+            return Response.json({ ok: true, deleted: true, slug: pslug });
+          }
+          // GET one (public).
+          if (pslug && !isSign && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|petr", 600)) return tooMany();
+            const p = (await cfD1Query(env, uuid, "SELECT slug, title, description, goal FROM _petitions WHERE slug=?", [pslug]))[0];
+            if (!p) return Response.json({ ok: false, error: "no such petition" }, { status: 404 });
+            const count = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _petition_signatures WHERE petition=?", [pslug]))[0].n;
+            let mine = false; if (userId) mine = !!(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _petition_signatures WHERE petition=? AND user_id=?", [pslug, userId]))[0];
+            const recent = await cfD1Query(env, uuid, "SELECT name, comment, created_at FROM _petition_signatures WHERE petition=? AND (name IS NOT NULL OR comment IS NOT NULL) ORDER BY created_at DESC LIMIT 20", [pslug]);
+            return Response.json({ ok: true, slug: p.slug, title: p.title, description: p.description, goal: p.goal, signatures: count, progress: p.goal > 0 ? Math.min(100, Math.round(count / p.goal * 100)) : null, mine, recent });
+          }
+          // LIST (public).
+          if (!pslug && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|petl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT p.slug, p.title, p.goal, (SELECT COUNT(*) FROM _petition_signatures WHERE petition=p.slug) AS signatures FROM _petitions p ORDER BY p.created_at DESC LIMIT 200");
+            return Response.json({ ok: true, petitions: rows.map((r) => ({ slug: r.slug, title: r.title, goal: r.goal, signatures: r.signatures, progress: r.goal > 0 ? Math.min(100, Math.round(r.signatures / r.goal * 100)) : null })) });
+          }
+          return Response.json({ ok: false, error: "unsupported petitions request" }, { status: 405 });
+        } catch (e) { console.error("petitions failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "petitions failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
