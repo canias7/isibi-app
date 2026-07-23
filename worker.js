@@ -4789,6 +4789,34 @@ async function ensureSnippets(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _snippets (slug TEXT PRIMARY KEY, title TEXT, body TEXT, format TEXT, published INTEGER NOT NULL DEFAULT 1, updated_at TEXT)");
   _snippetsReady.add(uuid);
 }
+// Support tickets — a member opens a ticket, staff (admin) triage/assign/resolve, both reply on a thread.
+// `_tickets` = the header (status/priority/assignee), `_ticket_messages` = the reply thread (a message may
+// be `internal` = staff-only note). Ensured once per isolate.
+const _ticketsReady = new Set();
+async function ensureTickets(env, uuid) {
+  if (_ticketsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _tickets (id INTEGER PRIMARY KEY AUTOINCREMENT, subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', priority TEXT NOT NULL DEFAULT 'normal', requester_id INTEGER NOT NULL, assignee_id INTEGER, created_at TEXT, updated_at TEXT, closed_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _ticket_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, author_id INTEGER, body TEXT NOT NULL, internal INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_tickets_req ON _tickets (requester_id, status)"); } catch {}
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_ticket_msgs ON _ticket_messages (ticket_id, id)"); } catch {}
+  _ticketsReady.add(uuid);
+}
+// Canned responses — a staff-only library of reusable reply templates (keyed by slug) to paste into ticket
+// answers. Entirely admin-scoped. Ensured once.
+const _cannedReady = new Set();
+async function ensureCanned(env, uuid) {
+  if (_cannedReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _canned (slug TEXT PRIMARY KEY, title TEXT, body TEXT NOT NULL, updated_at TEXT)");
+  _cannedReady.add(uuid);
+}
+// Help-article votes — a member marks a help/FAQ article helpful (yes) or not (no); the aggregate drives a
+// "N of M found this helpful" widget. One vote per (article, user), changeable. Ensured once.
+const _helpVotesReady = new Set();
+async function ensureHelpVotes(env, uuid) {
+  if (_helpVotesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _help_votes (article TEXT NOT NULL, user_id INTEGER NOT NULL, vote INTEGER NOT NULL, created_at TEXT, updated_at TEXT, PRIMARY KEY (article, user_id))");
+  _helpVotesReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9566,6 +9594,9 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _recent_views WHERE user_id=?", [u.id]],                           // recently-viewed
             ["DELETE FROM _experiment_events WHERE user_id=?", [u.id]],                      // A/B experiment assignments
             ["DELETE FROM _badge_awards WHERE user_id=?", [u.id]],                           // badges they earned
+            ["DELETE FROM _ticket_messages WHERE author_id=?", [u.id]],                      // support-ticket replies they wrote
+            ["DELETE FROM _tickets WHERE requester_id=?", [u.id]],                           // support tickets they opened
+            ["DELETE FROM _help_votes WHERE user_id=?", [u.id]],                             // help-article helpful votes
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -12877,6 +12908,195 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported snippets request" }, { status: 405 });
         } catch (e) { console.error("snippets failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "snippets failed" }, { status: 502 }); }
+      }
+      // SUPPORT TICKETS — a member opens a ticket, staff (admin) triage/assign/resolve, both reply on a
+      // thread; an `internal` message is a staff-only note the requester never sees.
+      //   POST   /api/db/<slug>/tickets {subject, body, priority?}   (member) → open → {id}
+      //   GET    /api/db/<slug>/tickets[?status=&mine=1&assignee=]   (member: own · admin: all/filtered)
+      //   GET    /api/db/<slug>/tickets/<id>                         (requester or admin) → ticket + thread
+      //   POST   /api/db/<slug>/tickets/<id>/messages {body, internal?}  (requester or admin) → reply
+      //   PATCH  /api/db/<slug>/tickets/<id> {status?, priority?, assignee?}  (ADMIN) → triage
+      const tkm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/tickets(?:\/(\d+)(?:\/(messages))?)?$/i);
+      if (tkm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = tkm[1].toLowerCase(), tid = tkm[2] ? parseInt(tkm[2], 10) : null, isMsgs = tkm[3] === "messages";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const STATUS = ["open", "pending", "resolved", "closed"], PRIORITY = ["low", "normal", "high", "urgent"];
+        try {
+          await ensureTickets(env, uuid);
+          const isAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return !!(rr[0] && rr[0].role === "admin"); };
+          // CREATE (member).
+          if (tid == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|tkw", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const subject = String(body.subject || "").trim().slice(0, 300);
+            const msg = String(body.body || "").trim().slice(0, 20000);
+            if (!subject) return Response.json({ ok: false, error: "a subject is required" }, { status: 400 });
+            if (!msg) return Response.json({ ok: false, error: "a message is required" }, { status: 400 });
+            let priority = String(body.priority || "").toLowerCase(); if (!PRIORITY.includes(priority)) priority = "normal";
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _tickets (subject, status, priority, requester_id, created_at, updated_at) VALUES (?,?,?,?,?,?) RETURNING id", [subject, "open", priority, userId, now, now]);
+            const newId = r[0] ? r[0].id : null;
+            if (newId) await cfD1Exec(env, uuid, "INSERT INTO _ticket_messages (ticket_id, author_id, body, internal, created_at) VALUES (?,?,?,0,?)", [newId, userId, msg, now]);
+            return Response.json({ ok: true, id: newId, status: "open", priority });
+          }
+          // LIST (member: own · admin: all + filters).
+          if (tid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|tkl", 300)) return tooMany();
+            const admin = await isAdmin();
+            const where = [], params = [];
+            if (!admin || url.searchParams.get("mine") === "1") { where.push("requester_id=?"); params.push(userId); }
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (STATUS.includes(st)) { where.push("status=?"); params.push(st); }
+            if (admin) { const asg = parseInt(url.searchParams.get("assignee"), 10); if (asg > 0) { where.push("assignee_id=?"); params.push(asg); } }
+            const rows = await cfD1Query(env, uuid, "SELECT id, subject, status, priority, requester_id, assignee_id, created_at, updated_at, closed_at FROM _tickets" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY updated_at DESC LIMIT 500", params);
+            return Response.json({ ok: true, tickets: rows });
+          }
+          // Beyond here we need the ticket; requester or admin only.
+          const ticket = (await cfD1Query(env, uuid, "SELECT id, subject, status, priority, requester_id, assignee_id, created_at, updated_at, closed_at FROM _tickets WHERE id=?", [tid]))[0];
+          if (!ticket) return Response.json({ ok: false, error: "no such ticket" }, { status: 404 });
+          const admin = await isAdmin();
+          const owns = ticket.requester_id === userId;
+          if (!admin && !owns) return Response.json({ ok: false, error: "not your ticket" }, { status: 403 });
+          // GET one + thread.
+          if (!isMsgs && request.method === "GET") {
+            const msgs = await cfD1Query(env, uuid, "SELECT id, author_id, body, internal, created_at FROM _ticket_messages WHERE ticket_id=?" + (admin ? "" : " AND internal=0") + " ORDER BY id ASC LIMIT 1000", [tid]);
+            return Response.json({ ok: true, ticket, messages: msgs });
+          }
+          // REPLY (requester or admin; internal is admin-only).
+          if (isMsgs && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|tkm", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const msg = String(body.body || "").trim().slice(0, 20000);
+            if (!msg) return Response.json({ ok: false, error: "a message is required" }, { status: 400 });
+            const internal = admin && (body.internal === true || body.internal === 1) ? 1 : 0;
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _ticket_messages (ticket_id, author_id, body, internal, created_at) VALUES (?,?,?,?,?) RETURNING id", [tid, userId, msg, internal, now]);
+            // A public reply from the requester re-opens a resolved ticket; the timestamp always bumps.
+            if (!internal && owns && !admin && (ticket.status === "resolved" || ticket.status === "closed")) await cfD1Exec(env, uuid, "UPDATE _tickets SET status='open', updated_at=?, closed_at=NULL WHERE id=?", [now, tid]);
+            else await cfD1Exec(env, uuid, "UPDATE _tickets SET updated_at=? WHERE id=?", [now, tid]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, internal: !!internal });
+          }
+          // TRIAGE (admin): status / priority / assignee.
+          if (!isMsgs && request.method === "PATCH") {
+            if (!admin) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.status != null) { const s = String(body.status).toLowerCase(); if (!STATUS.includes(s)) return Response.json({ ok: false, error: "bad status" }, { status: 400 }); sets.push("status=?"); params.push(s); sets.push("closed_at=?"); params.push(s === "closed" || s === "resolved" ? new Date().toISOString() : null); }
+            if (body.priority != null) { const p = String(body.priority).toLowerCase(); if (!PRIORITY.includes(p)) return Response.json({ ok: false, error: "bad priority" }, { status: 400 }); sets.push("priority=?"); params.push(p); }
+            if ("assignee" in body) { let asg = body.assignee == null || body.assignee === "" ? null : parseInt(body.assignee, 10); if (asg != null && !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [asg]))[0]) return Response.json({ ok: false, error: "no such user" }, { status: 400 }); sets.push("assignee_id=?"); params.push(asg); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(tid);
+            await cfD1Exec(env, uuid, "UPDATE _tickets SET " + sets.join(", ") + " WHERE id=?", params);
+            const upd = (await cfD1Query(env, uuid, "SELECT id, subject, status, priority, requester_id, assignee_id, updated_at, closed_at FROM _tickets WHERE id=?", [tid]))[0];
+            return Response.json({ ok: true, ticket: upd });
+          }
+          return Response.json({ ok: false, error: "unsupported tickets request" }, { status: 405 });
+        } catch (e) { console.error("tickets failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "tickets failed" }, { status: 502 }); }
+      }
+      // CANNED RESPONSES — a staff-only library of reusable reply templates (keyed by slug) to paste into
+      // ticket answers. Entirely admin-scoped.
+      //   POST   /api/db/<slug>/canned/<key> {title?, body}   (ADMIN) → upsert
+      //   GET    /api/db/<slug>/canned                        (ADMIN) → list
+      //   GET    /api/db/<slug>/canned/<key>                  (ADMIN) → one
+      //   DELETE /api/db/<slug>/canned/<key>                  (ADMIN)
+      const cndm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/canned(?:\/([A-Za-z0-9_.-]{1,80}))?$/i);
+      if (cndm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cndm[1].toLowerCase(), key = cndm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureCanned(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          if (key && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|cndw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const bodyText = String(body.body || "").slice(0, 20000);
+            if (!bodyText.trim()) return Response.json({ ok: false, error: "a body is required" }, { status: 400 });
+            const title = body.title != null ? String(body.title).slice(0, 200) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _canned (slug, title, body, updated_at) VALUES (?,?,?,?) ON CONFLICT(slug) DO UPDATE SET title=excluded.title, body=excluded.body, updated_at=excluded.updated_at", [key, title, bodyText, new Date().toISOString()]);
+            return Response.json({ ok: true, slug: key });
+          }
+          if (key && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _canned WHERE slug=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such response" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, slug: key });
+          }
+          if (key && request.method === "GET") {
+            const r = (await cfD1Query(env, uuid, "SELECT slug, title, body, updated_at FROM _canned WHERE slug=?", [key]))[0];
+            if (!r) return Response.json({ ok: false, error: "no such response" }, { status: 404 });
+            return Response.json({ ok: true, canned: r });
+          }
+          if (!key && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|cndl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT slug, title, body, updated_at FROM _canned ORDER BY slug ASC LIMIT 500");
+            return Response.json({ ok: true, canned: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported canned request" }, { status: 405 });
+        } catch (e) { console.error("canned failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "canned failed" }, { status: 502 }); }
+      }
+      // HELP-ARTICLE VOTES — a member marks a help/FAQ article helpful (yes) or not (no); the aggregate
+      // drives a "N of M found this helpful" widget. One changeable vote per (article, member).
+      //   POST   /api/db/<slug>/helpful/<article> {helpful:true|false}  (member) → cast/update
+      //   GET    /api/db/<slug>/helpful/<article>                       (public) → {yes,no,total,score,mine}
+      //   DELETE /api/db/<slug>/helpful/<article>                       (member) → retract my vote
+      const hvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/helpful\/([A-Za-z0-9_.\/-]{1,200})$/i);
+      if (hvm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hvm[1].toLowerCase(), article = hvm[2].slice(0, 200);
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureHelpVotes(env, uuid);
+          const tally = async () => {
+            const r = (await cfD1Query(env, uuid, "SELECT SUM(CASE WHEN vote=1 THEN 1 ELSE 0 END) AS yes, SUM(CASE WHEN vote=0 THEN 1 ELSE 0 END) AS no FROM _help_votes WHERE article=?", [article]))[0] || {};
+            const yes = r.yes || 0, no = r.no || 0, total = yes + no;
+            let mine = null;
+            if (userId) { const mr = (await cfD1Query(env, uuid, "SELECT vote FROM _help_votes WHERE article=? AND user_id=?", [article, userId]))[0]; if (mr) mine = mr.vote === 1; }
+            return { yes, no, total, score: total ? Math.round(yes / total * 100) : 0, mine };
+          };
+          // CAST (member).
+          if (request.method === "POST") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            if (!rateOk(slug + "|" + ip + "|hvw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            if (typeof body.helpful !== "boolean") return Response.json({ ok: false, error: "helpful (true/false) is required" }, { status: 400 });
+            const vote = body.helpful ? 1 : 0;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _help_votes (article, user_id, vote, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(article, user_id) DO UPDATE SET vote=excluded.vote, updated_at=excluded.updated_at", [article, userId, vote, now, now]);
+            return Response.json(Object.assign({ ok: true, article }, await tally()));
+          }
+          // RETRACT (member).
+          if (request.method === "DELETE") {
+            if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+            await cfD1Exec(env, uuid, "DELETE FROM _help_votes WHERE article=? AND user_id=?", [article, userId]);
+            return Response.json(Object.assign({ ok: true, article, retracted: true }, await tally()));
+          }
+          // AGGREGATE (public).
+          if (!rateOk(slug + "|" + ip + "|hvr", 600)) return tooMany();
+          return Response.json(Object.assign({ ok: true, article }, await tally()));
+        } catch (e) { console.error("helpful failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "helpful failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
