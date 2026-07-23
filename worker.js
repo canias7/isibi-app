@@ -5531,6 +5531,15 @@ async function ensureSessions(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_sessions_seen ON _sessions (last_seen)"); } catch {}
   _sessionsReady.add(uuid);
 }
+// Price lists — tiered / customer-group pricing with volume breaks. One row per (list, item, min_qty); a
+// lookup returns the best price whose min_qty is ≤ the requested quantity. `_price_lists`. Ensured once.
+const _priceListsReady = new Set();
+async function ensurePriceLists(env, uuid) {
+  if (_priceListsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _price_lists (id INTEGER PRIMARY KEY AUTOINCREMENT, list TEXT NOT NULL, item TEXT NOT NULL, price INTEGER NOT NULL, currency TEXT NOT NULL DEFAULT 'USD', min_qty INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT, UNIQUE (list, item, min_qty))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_price_lists_li ON _price_lists (list, item, min_qty)"); } catch {}
+  _priceListsReady.add(uuid);
+}
 // The user-scoped tables a member can export their own rows from (GDPR data portability) — kept in sync with
 // the erase list. Each entry is [table, ownerColumn]; a missing table is skipped at read time.
 const DATA_EXPORT_TABLES = [
@@ -19660,6 +19669,140 @@ async function handleRequest(request, env, ctx) {
           const percentiles = {}; for (const p of ps) percentiles[p] = round(pctl(p));
           return Response.json({ ok: true, count: n, min: round(values[0]), max: round(values[n - 1]), mean: round(sum / n), median: round(pctl(50)), percentiles });
         } catch (e) { console.error("percentile failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "percentile failed" }, { status: 502 }); }
+      }
+      // UNIT CONVERTER — a stateless converter across length / mass / volume / time / data / temperature. The
+      // category is auto-detected from the units; conversion goes through a base unit (temperature is special).
+      //   POST /api/db/<slug>/convert {value, from, to}   (public) → {result, from, to, category}
+      const cvm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/convert$/i);
+      if (cvm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = cvm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|cv", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const value = Number(body.value);
+          if (!Number.isFinite(value)) return Response.json({ ok: false, error: "a numeric value is required" }, { status: 400 });
+          const from = String(body.from || "").trim().toLowerCase(), to = String(body.to || "").trim().toLowerCase();
+          if (!from || !to) return Response.json({ ok: false, error: "from and to units are required" }, { status: 400 });
+          const CATS = {
+            length: { m: 1, km: 1000, cm: 0.01, mm: 0.001, um: 1e-6, mi: 1609.344, yd: 0.9144, ft: 0.3048, in: 0.0254, nmi: 1852 },
+            mass: { g: 1, kg: 1000, mg: 0.001, t: 1e6, tonne: 1e6, lb: 453.59237, oz: 28.349523125, st: 6350.29318 },
+            volume: { l: 1, ml: 0.001, kl: 1000, gal: 3.785411784, qt: 0.946352946, pt: 0.473176473, cup: 0.2365882365, floz: 0.0295735295625 },
+            time: { s: 1, ms: 0.001, min: 60, h: 3600, hr: 3600, d: 86400, day: 86400, wk: 604800, week: 604800 },
+            data: { b: 1, kb: 1e3, mb: 1e6, gb: 1e9, tb: 1e12, pb: 1e15, kib: 1024, mib: 1048576, gib: 1073741824, tib: 1099511627776 },
+          };
+          const TEMP = { c: 1, celsius: 1, f: 1, fahrenheit: 1, k: 1, kelvin: 1 };
+          let result = null, category = null;
+          if (TEMP[from] && TEMP[to]) {
+            category = "temperature";
+            const toC = (v, u) => u[0] === "c" ? v : (u[0] === "f" ? (v - 32) * 5 / 9 : v - 273.15);
+            const fromC = (v, u) => u[0] === "c" ? v : (u[0] === "f" ? v * 9 / 5 + 32 : v + 273.15);
+            result = fromC(toC(value, from), to);
+          } else {
+            for (const [cat, units] of Object.entries(CATS)) { if (units[from] != null && units[to] != null) { category = cat; result = value * units[from] / units[to]; break; } }
+            if (category == null) return Response.json({ ok: false, error: "unknown or mismatched units" }, { status: 400 });
+          }
+          return Response.json({ ok: true, result: Math.round(result * 1e9) / 1e9, from, to, category });
+        } catch (e) { console.error("convert failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "convert failed" }, { status: 502 }); }
+      }
+      // TEXT DIFF — a stateless line-level diff (LCS) of two texts: a sequence of {type:'eq'|'add'|'del', line}
+      // plus added/removed counts. For a 'what changed' view or a review UI.
+      //   POST /api/db/<slug>/diff {a, b}   (public) → {changes:[...], added, removed}
+      const dfm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/diff$/i);
+      if (dfm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dfm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|diff", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.a !== "string" || typeof body.b !== "string") return Response.json({ ok: false, error: "a and b strings are required" }, { status: 400 });
+          const A2 = body.a.split("\n"), B2 = body.b.split("\n");
+          if (A2.length > 5000 || B2.length > 5000) return Response.json({ ok: false, error: "too many lines (max 5000 each)" }, { status: 400 });
+          const n = A2.length, m = B2.length;
+          // LCS length table.
+          const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+          for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A2[i] === B2[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+          const changes = []; let added = 0, removed = 0; let i = 0, j = 0;
+          while (i < n && j < m) { if (A2[i] === B2[j]) { changes.push({ type: "eq", line: A2[i] }); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) { changes.push({ type: "del", line: A2[i] }); i++; removed++; } else { changes.push({ type: "add", line: B2[j] }); j++; added++; } }
+          while (i < n) { changes.push({ type: "del", line: A2[i++] }); removed++; }
+          while (j < m) { changes.push({ type: "add", line: B2[j++] }); added++; }
+          return Response.json({ ok: true, changes: changes.slice(0, 20000), added, removed });
+        } catch (e) { console.error("diff failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "diff failed" }, { status: 502 }); }
+      }
+      // PRICE LISTS — tiered / customer-group pricing with volume breaks. A lookup returns the best price whose
+      // min_qty is ≤ the requested quantity, within the named list (e.g. 'retail', 'wholesale', 'vip').
+      //   POST   /api/db/<slug>/price-lists {list, item, price, currency?, min_qty?}  (ADMIN) → upsert a tier
+      //   GET    /api/db/<slug>/price-lists/lookup?list=&item=&qty=   (public) → best applicable price
+      //   GET    /api/db/<slug>/price-lists[?list=&item=]             (ADMIN) → rows
+      //   DELETE /api/db/<slug>/price-lists/<id>                      (ADMIN)
+      const prlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/price-lists(?:\/(lookup|\d+))?$/i);
+      if (prlm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = prlm[1].toLowerCase(), seg = prlm[2] || null;
+        const isLookup = seg === "lookup", rowId = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensurePriceLists(env, uuid);
+          // LOOKUP (public).
+          if (isLookup && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|pll", 600)) return tooMany();
+            const list = String(url.searchParams.get("list") || "").trim();
+            const item = String(url.searchParams.get("item") || "").trim();
+            if (!list || !item) return Response.json({ ok: false, error: "list and item are required" }, { status: 400 });
+            let qty = Math.floor(Number(url.searchParams.get("qty"))); if (!(qty >= 1)) qty = 1;
+            const r = (await cfD1Query(env, uuid, "SELECT price, currency, min_qty FROM _price_lists WHERE list=? AND item=? AND min_qty <= ? ORDER BY min_qty DESC LIMIT 1", [list, item, qty]))[0];
+            if (!r) return Response.json({ ok: true, price: null, found: false });
+            return Response.json({ ok: true, found: true, price: r.price, currency: r.currency, min_qty: r.min_qty, qty });
+          }
+          // UPSERT (admin).
+          if (!seg && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            let body = {}; try { body = await request.json(); } catch {}
+            const list = String(body.list || "").trim().slice(0, 60), item = String(body.item || "").trim().slice(0, 200);
+            if (!list || !item) return Response.json({ ok: false, error: "list and item are required" }, { status: 400 });
+            const price = toCents(body.price);
+            if (price == null || price < 0) return Response.json({ ok: false, error: "a non-negative price is required" }, { status: 400 });
+            let minQty = Math.floor(Number(body.min_qty)); if (!(minQty >= 1)) minQty = 1;
+            let currency = String(body.currency || "USD").toUpperCase().slice(0, 8); if (!/^[A-Z]{2,8}$/.test(currency)) currency = "USD";
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _price_lists (list, item, price, currency, min_qty, created_at, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(list, item, min_qty) DO UPDATE SET price=excluded.price, currency=excluded.currency, updated_at=excluded.updated_at", [list, item, price, currency, minQty, now, now]);
+            return Response.json({ ok: true, list, item, price, currency, min_qty: minQty });
+          }
+          // DELETE (admin).
+          if (rowId != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _price_lists WHERE id=?", [rowId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such price row" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: rowId });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const list = url.searchParams.get("list"), item = url.searchParams.get("item");
+            let sql = "SELECT id, list, item, price, currency, min_qty FROM _price_lists WHERE 1=1", params = [];
+            if (list) { sql += " AND list=?"; params.push(String(list)); }
+            if (item) { sql += " AND item=?"; params.push(String(item)); }
+            sql += " ORDER BY list ASC, item ASC, min_qty ASC LIMIT 5000";
+            const rows = await cfD1Query(env, uuid, sql, params);
+            return Response.json({ ok: true, prices: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported price-lists request" }, { status: 405 });
+        } catch (e) { console.error("price-lists failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "price-lists failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
