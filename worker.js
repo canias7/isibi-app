@@ -5899,6 +5899,30 @@ async function ensureOpportunities(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_opp_period ON _opportunities (period, category)"); } catch {}
   _opportunitiesReady.add(uuid);
 }
+// Territory rules — named territories with match rules (country / postal prefix / industry / any field). A `match`
+// call returns the highest-priority territory whose rules all fit the input. One row per key. `_territories`. Ensured once.
+const _territoriesReady = new Set();
+async function ensureTerritories(env, uuid) {
+  if (_territoriesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _territories (key TEXT PRIMARY KEY, name TEXT, owner TEXT, priority INTEGER NOT NULL DEFAULT 0, rules TEXT NOT NULL DEFAULT '{}', created_at TEXT)");
+  _territoriesReady.add(uuid);
+}
+// Read receipts — who has read a given message/resource. One row per (message, user). `_read_receipts`. Ensured once.
+const _readReceiptsReady = new Set();
+async function ensureReadReceipts(env, uuid) {
+  if (_readReceiptsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _read_receipts (message TEXT NOT NULL, user_id INTEGER NOT NULL, read_at TEXT, PRIMARY KEY (message, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_receipts_user ON _read_receipts (user_id)"); } catch {}
+  _readReceiptsReady.add(uuid);
+}
+// Broadcast fan-out log — one row per broadcast send, tracking recipients + running sent/failed counts and status.
+// `_broadcasts`. Ensured once.
+const _broadcastsReady = new Set();
+async function ensureBroadcasts(env, uuid) {
+  if (_broadcastsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _broadcasts (id INTEGER PRIMARY KEY AUTOINCREMENT, channel TEXT, subject TEXT, recipients INTEGER NOT NULL DEFAULT 0, sent INTEGER NOT NULL DEFAULT 0, failed INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'sending', created_at TEXT, updated_at TEXT)");
+  _broadcastsReady.add(uuid);
+}
 // Kudos / peer recognition — a member gives kudos to another member with an optional note; a leaderboard ranks
 // top receivers. `_kudos`. Ensured once.
 const _kudosReady = new Set();
@@ -5921,7 +5945,7 @@ const DATA_EXPORT_TABLES = [
   ["_reservations", "user_id"], ["_queue_tickets", "user_id"], ["_loyalty_spend", "user_id"],
   ["_store_credit", "user_id"], ["_activity", "author_id"], ["_shifts", "user_id"], ["_timeoff", "user_id"],
   ["_subscriptions", "user_id"], ["_room_bookings", "user_id"], ["_access_log", "actor_id"],
-  ["_comparisons", "user_id"],
+  ["_comparisons", "user_id"], ["_read_receipts", "user_id"],
 ];
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
@@ -10766,6 +10790,7 @@ async function handleRequest(request, env, ctx) {
             ["UPDATE _tax_exempt SET added_by=NULL WHERE added_by=?", [u.id]],               // keep the cert, drop the admin link
             ["DELETE FROM _comparisons WHERE user_id=?", [u.id]],                            // saved comparison sets
             ["UPDATE _deposit_holds SET user_id=NULL WHERE user_id=?", [u.id]],              // keep the financial record, drop the link
+            ["DELETE FROM _read_receipts WHERE user_id=?", [u.id]],                          // read receipts
             ["UPDATE _content_hashes SET first_by=NULL WHERE first_by=?", [u.id]],           // keep the shared dedup entry, drop the link
             ["UPDATE _bans SET banned_by=NULL WHERE banned_by=?", [u.id]],                   // keep the ban, drop the admin link
             ["DELETE FROM _nps_responses WHERE user_id=?", [u.id]],                          // NPS survey responses
@@ -24059,6 +24084,178 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported forecast-categories request" }, { status: 405 });
         } catch (e) { console.error("forecast-categories failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "forecast-categories failed" }, { status: 502 }); }
+      }
+      // TERRITORY RULES — named territories with match rules; a `match` call routes an input (a lead/account) to
+      // the highest-priority territory whose rules ALL fit. Rules are a JSON object; each key lists allowed values
+      // (postal is PREFIX-matched via `postal_prefix`); a territory with no rules is a catch-all.
+      //   POST   /api/db/<slug>/territory {key, rules, name?, owner?, priority?}   (ADMIN) → upsert
+      //   POST   /api/db/<slug>/territory/match {country?, postal?, ...}           (ADMIN) → best-matching territory
+      //   GET    /api/db/<slug>/territory/<key>                                    (ADMIN) → one
+      //   GET    /api/db/<slug>/territory                                          (ADMIN) → list
+      //   DELETE /api/db/<slug>/territory/<key>                                    (ADMIN)
+      const terrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/territory(?:\/(match|[A-Za-z0-9_.:-]{1,60}))?$/i);
+      if (terrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = terrm[1].toLowerCase(), seg = terrm[2] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureTerritories(env, uuid);
+          // MATCH (admin).
+          if (seg === "match" && request.method === "POST") {
+            let input = {}; try { input = await request.json(); } catch {}
+            const rows = await cfD1Query(env, uuid, "SELECT key, name, owner, priority, rules FROM _territories ORDER BY priority DESC, key");
+            const fits = (rules) => {
+              for (const [k, allowed] of Object.entries(rules)) {
+                if (!Array.isArray(allowed) || !allowed.length) continue;
+                const list = allowed.map((x) => String(x).toLowerCase());
+                if (k === "postal_prefix") { const pv = String(input.postal == null ? "" : input.postal).toLowerCase(); if (!list.some((pre) => pv.startsWith(pre))) return false; }
+                else { const iv = input[k] == null ? "" : String(input[k]).toLowerCase(); if (!list.includes(iv)) return false; }
+              }
+              return true;
+            };
+            for (const r of rows) { let rules = {}; try { rules = JSON.parse(r.rules) || {}; } catch {} if (fits(rules)) return Response.json({ ok: true, matched: true, territory: { key: r.key, name: r.name, owner: r.owner, priority: r.priority } }); }
+            return Response.json({ ok: true, matched: false, territory: null });
+          }
+          // UPSERT (admin).
+          if (!seg && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const k = String(body.key || "").trim();
+            if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(k)) return Response.json({ ok: false, error: "a valid key is required" }, { status: 400 });
+            if (body.rules != null && (typeof body.rules !== "object" || Array.isArray(body.rules))) return Response.json({ ok: false, error: "rules must be an object" }, { status: 400 });
+            const rules = body.rules || {};
+            const prio = body.priority != null ? Math.floor(Number(body.priority)) : 0;
+            if (!Number.isFinite(prio)) return Response.json({ ok: false, error: "priority must be a number" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "INSERT INTO _territories (key, name, owner, priority, rules, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET name=excluded.name, owner=excluded.owner, priority=excluded.priority, rules=excluded.rules RETURNING key, name, owner, priority, rules", [k, body.name != null ? String(body.name).slice(0, 200) : null, body.owner != null ? String(body.owner).slice(0, 120) : null, prio, JSON.stringify(rules).slice(0, 4000), new Date().toISOString()]);
+            return Response.json({ ok: true, territory: { ...r[0], rules: JSON.parse(r[0].rules) } });
+          }
+          // READ one (admin).
+          if (seg && seg !== "match" && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT key, name, owner, priority, rules FROM _territories WHERE key=?", [seg]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such territory" }, { status: 404 });
+            return Response.json({ ok: true, territory: { ...row, rules: JSON.parse(row.rules) } });
+          }
+          // LIST (admin).
+          if (!seg && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT key, name, owner, priority, rules FROM _territories ORDER BY priority DESC, key LIMIT 1000");
+            return Response.json({ ok: true, territories: rows.map((r) => ({ ...r, rules: JSON.parse(r.rules) })) });
+          }
+          // DELETE (admin).
+          if (seg && seg !== "match" && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _territories WHERE key=?", [seg]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such territory" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, key: seg });
+          }
+          return Response.json({ ok: false, error: "unsupported territory request" }, { status: 405 });
+        } catch (e) { console.error("territory failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "territory failed" }, { status: 502 }); }
+      }
+      // READ RECEIPTS — track who has read a given message/resource (group messages, announcements, docs). A member
+      // marks a message read (idempotent); the sender/admin sees the reader list, a member sees the count + whether
+      // they've read it.
+      //   POST   /api/db/<slug>/read-receipts/<message>   (member) → mark read → {count, mine:true}
+      //   GET    /api/db/<slug>/read-receipts/<message>   (member → count+mine; ADMIN → full readers)
+      //   DELETE /api/db/<slug>/read-receipts/<message>   (ADMIN)  → clear
+      const rrcm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/read-receipts\/([A-Za-z0-9_.:-]{1,120})$/i);
+      if (rrcm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = rrcm[1].toLowerCase(), message = rrcm[2];
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null, role = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          role = ((await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]))[0] || {}).role;
+          await ensureReadReceipts(env, uuid);
+          // MARK read (member, idempotent).
+          if (request.method === "POST") {
+            await cfD1Query(env, uuid, "INSERT INTO _read_receipts (message, user_id, read_at) VALUES (?,?,?) ON CONFLICT(message, user_id) DO NOTHING", [message, userId, new Date().toISOString()]);
+            const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _read_receipts WHERE message=?", [message]))[0].n;
+            return Response.json({ ok: true, message, count: cnt, mine: true });
+          }
+          // READ status.
+          if (request.method === "GET") {
+            const cnt = (await cfD1Query(env, uuid, "SELECT COUNT(*) AS n FROM _read_receipts WHERE message=?", [message]))[0].n;
+            const mine = !!(await cfD1Query(env, uuid, "SELECT 1 FROM _read_receipts WHERE message=? AND user_id=?", [message, userId]))[0];
+            if (role === "admin") { const readers = await cfD1Query(env, uuid, "SELECT user_id, read_at FROM _read_receipts WHERE message=? ORDER BY read_at LIMIT 5000", [message]); return Response.json({ ok: true, message, count: cnt, mine, readers }); }
+            return Response.json({ ok: true, message, count: cnt, mine });
+          }
+          // CLEAR (admin).
+          if (request.method === "DELETE") {
+            if (role !== "admin") return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _read_receipts WHERE message=?", [message]);
+            return Response.json({ ok: true, cleared: true, message, removed: ex.changes || 0 });
+          }
+          return Response.json({ ok: false, error: "unsupported read-receipts request" }, { status: 405 });
+        } catch (e) { console.error("read-receipts failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "read-receipts failed" }, { status: 502 }); }
+      }
+      // BROADCAST FAN-OUT LOG — one row per broadcast send, tracking the recipient count + running sent/failed
+      // counts and status (sending -> done). A worker reports progress as it fans out.
+      //   POST   /api/db/<slug>/broadcast-log {channel, recipients, subject?}  (ADMIN) → open a broadcast
+      //   POST   /api/db/<slug>/broadcast-log/<id>/progress {sent?, failed?, done?}  (ADMIN) → report progress
+      //   GET    /api/db/<slug>/broadcast-log/<id>                             (ADMIN) → one
+      //   GET    /api/db/<slug>/broadcast-log                                  (ADMIN) → list
+      //   DELETE /api/db/<slug>/broadcast-log/<id>                             (ADMIN)
+      const brdm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/broadcast-log(?:\/(\d+)(?:\/(progress))?)?$/i);
+      if (brdm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = brdm[1].toLowerCase(), bId = brdm[2] ? parseInt(brdm[2], 10) : null, act = brdm[3] || null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          const a = await needAdmin(); if (a) return a;
+          await ensureBroadcasts(env, uuid);
+          // OPEN (admin).
+          if (!bId && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const recipients = Math.floor(Number(body.recipients));
+            if (!Number.isFinite(recipients) || recipients < 0) return Response.json({ ok: false, error: "a non-negative recipients count is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _broadcasts (channel, subject, recipients, status, created_at, updated_at) VALUES (?,?,?,'sending',?,?) RETURNING id, channel, subject, recipients, sent, failed, status", [body.channel != null ? String(body.channel).slice(0, 60) : null, body.subject != null ? String(body.subject).slice(0, 200) : null, recipients, now, now]);
+            return Response.json({ ok: true, broadcast: r[0] });
+          }
+          // PROGRESS (admin) — atomic increments + optional finish.
+          if (bId && act === "progress" && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const addSent = body.sent != null ? Math.max(0, Math.floor(Number(body.sent)) || 0) : 0;
+            const addFailed = body.failed != null ? Math.max(0, Math.floor(Number(body.failed)) || 0) : 0;
+            const done = body.done === true;
+            const r = await cfD1Query(env, uuid, "UPDATE _broadcasts SET sent=sent+?, failed=failed+?, status=CASE WHEN ? THEN 'done' ELSE status END, updated_at=? WHERE id=? RETURNING id, channel, subject, recipients, sent, failed, status", [addSent, addFailed, done ? 1 : 0, new Date().toISOString(), bId]);
+            if (!r.length) return Response.json({ ok: false, error: "no such broadcast" }, { status: 404 });
+            return Response.json({ ok: true, broadcast: r[0] });
+          }
+          // READ one (admin).
+          if (bId && !act && request.method === "GET") {
+            const row = (await cfD1Query(env, uuid, "SELECT id, channel, subject, recipients, sent, failed, status, created_at, updated_at FROM _broadcasts WHERE id=?", [bId]))[0];
+            if (!row) return Response.json({ ok: false, error: "no such broadcast" }, { status: 404 });
+            return Response.json({ ok: true, broadcast: row });
+          }
+          // LIST (admin).
+          if (!bId && request.method === "GET") {
+            const rows = await cfD1Query(env, uuid, "SELECT id, channel, subject, recipients, sent, failed, status, created_at FROM _broadcasts ORDER BY id DESC LIMIT 1000");
+            return Response.json({ ok: true, broadcasts: rows });
+          }
+          // DELETE (admin).
+          if (bId && !act && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _broadcasts WHERE id=?", [bId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such broadcast" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: bId });
+          }
+          return Response.json({ ok: false, error: "unsupported broadcast-log request" }, { status: 405 });
+        } catch (e) { console.error("broadcast-log failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "broadcast-log failed" }, { status: 502 }); }
       }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.

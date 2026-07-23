@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — territory rules · read receipts · broadcast log (data API, round 2)
+- **`/territory`** — named territories with JSON match rules (per-field allowed values, `postal_prefix` prefix-
+  match, empty = catch-all); `/match` routes an input to the highest-priority fitting territory. Admin-only.
+  `_territories` (PK key). batch378 (15/15).
+- **`/read-receipts`** — who read a message. Member marks read (idempotent `INSERT…ON CONFLICT DO NOTHING`);
+  member sees count+mine, admin sees full readers; admin clears. `_read_receipts` erased by user + exportable.
+  batch379 (16/16).
+- **`/broadcast-log`** — one row per bulk send; open (status sending), `/progress` accumulates sent/failed
+  atomically (`done:true` finishes), read/list/delete. `_broadcasts`. batch380 (17/17).
+- Full suite 361 green. (81/100 of round 2 shipped.)
+
 ## 2026-07-23 — contact enrichment · discount stack · forecast categories (data API, round 2)
 - **`/contact-enrichment`** — side key/value store per contact (merges, not replace); read one, segment by
   `?field=&value=`, delete a field or whole contact. `_enrichment` (PK contact,field). Business data (no erase).
