@@ -6666,6 +6666,15 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — string similarity · mask · sentiment (data API, round 2)
+- **`/string-similarity`** — stateless fuzzy match: Levenshtein edit distance (case-sensitive), a 0–1 similarity,
+  and the Sørensen–Dice bigram coefficient (case-insensitive). For dedupe/typo tolerance. Public. batch343 (14/14).
+- **`/mask`** — stateless PII masker: email (first char + domain), phone/card (last 4 of digits), generic
+  keep-last-N; custom mask char. Public. batch344 (10/10).
+- **`/sentiment`** — stateless AFINN-lite lexicon scorer with basic negation flip → `{score, comparative,
+  label, positive[], negative[]}`. Public. batch345 (13/13).
+- Full suite 328 green. (48/100 of round 2 shipped.)
+
 ## 2026-07-23 — business days · checksum · split amount (data API, round 2)
 - **`/business-days`** — stateless working-day calc: count business days in a range (skip weekends + a
   `holidays` list) OR find the date N business days after a start (`add`, negative ok). Public. batch340 (11/11).

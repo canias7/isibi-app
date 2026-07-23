@@ -22101,6 +22101,100 @@ async function handleRequest(request, env, ctx) {
           return Response.json({ ok: true, shares, total: Math.round(cents) / 100, count: shares.length });
         } catch (e) { console.error("split-amount failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "split-amount failed" }, { status: 502 }); }
       }
+      // STRING SIMILARITY — a stateless fuzzy-match helper: Levenshtein edit distance, a 0–1 normalized
+      // similarity, and the Sørensen–Dice bigram coefficient between two strings. For dedupe / typo tolerance.
+      //   POST /api/db/<slug>/string-similarity {a, b}   (public) → {levenshtein, similarity, dice}
+      const ssm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/string-similarity$/i);
+      if (ssm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ssm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|sim", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          if (typeof body.a !== "string" || typeof body.b !== "string") return Response.json({ ok: false, error: "a and b strings are required" }, { status: 400 });
+          const a = body.a, b = body.b;
+          if (a.length > 2000 || b.length > 2000) return Response.json({ ok: false, error: "strings too long (max 2000)" }, { status: 400 });
+          // Levenshtein (two-row DP).
+          const n = a.length, m = b.length;
+          let lev;
+          if (!n || !m) lev = Math.max(n, m);
+          else { let prev = Array.from({ length: m + 1 }, (_, j) => j); for (let i = 1; i <= n; i++) { const cur = [i]; for (let j = 1; j <= m; j++) { const cost = a[i - 1] === b[j - 1] ? 0 : 1; cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost); } prev = cur; } lev = prev[m]; }
+          const maxLen = Math.max(n, m);
+          const similarity = maxLen === 0 ? 1 : 1 - lev / maxLen;
+          // Dice bigram coefficient (case-insensitive).
+          const bigrams = (s) => { const g = new Map(); const t = s.toLowerCase(); for (let i = 0; i < t.length - 1; i++) { const bg = t.slice(i, i + 2); g.set(bg, (g.get(bg) || 0) + 1); } return g; };
+          let dice;
+          if (n < 2 || m < 2) dice = a.toLowerCase() === b.toLowerCase() ? 1 : 0;
+          else { const ga = bigrams(a), gb = bigrams(b); let inter = 0, ta = 0, tb = 0; for (const v of ga.values()) ta += v; for (const [k, v] of gb.entries()) { tb += v; if (ga.has(k)) inter += Math.min(v, ga.get(k)); } dice = (2 * inter) / (ta + tb); }
+          const round = (x) => Math.round(x * 10000) / 10000;
+          return Response.json({ ok: true, levenshtein: lev, similarity: round(similarity), dice: round(dice) });
+        } catch (e) { console.error("string-similarity failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "string-similarity failed" }, { status: 502 }); }
+      }
+      // MASK — a stateless PII masker: hide most of a value while keeping just enough to recognise it (email,
+      // phone, card, or a generic keep-last-N).
+      //   POST /api/db/<slug>/mask {value, type?, keep?, char?}   (public) → {masked}
+      const mskm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/mask$/i);
+      if (mskm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = mskm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|msk", 600)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const value = String(body.value == null ? "" : body.value);
+          if (!value) return Response.json({ ok: false, error: "value is required" }, { status: 400 });
+          const ch = (String(body.char || "•").slice(0, 1)) || "•";
+          let keep = Math.floor(Number(body.keep)); if (!(keep >= 0 && keep <= 100)) keep = 4;
+          const type = String(body.type || "generic").toLowerCase();
+          const maskTail = (s, k) => { const show = k > 0 ? s.slice(-k) : ""; const hidden = ch.repeat(Math.max(0, s.length - k)); return hidden + show; };
+          let masked;
+          if (type === "email") {
+            const at = value.indexOf("@");
+            if (at <= 0) masked = maskTail(value, keep);
+            else { const local = value.slice(0, at), domain = value.slice(at); const head = local.slice(0, 1); masked = head + ch.repeat(Math.max(1, local.length - 1)) + domain; }
+          } else if (type === "card" || type === "phone") {
+            const digits = value.replace(/\D/g, ""); const k = keep || 4; masked = ch.repeat(Math.max(0, digits.length - k)) + digits.slice(-k);
+          } else {
+            masked = maskTail(value, keep);
+          }
+          return Response.json({ ok: true, masked, type });
+        } catch (e) { console.error("mask failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "mask failed" }, { status: 502 }); }
+      }
+      // SENTIMENT — a stateless lexicon sentiment scorer (AFINN-lite) with simple negation handling: returns a
+      // total score, a per-word comparative, a label, and the matched positive/negative words.
+      //   POST /api/db/<slug>/sentiment {text}   (public) → {score, comparative, label, positive, negative}
+      const sntm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/sentiment$/i);
+      if (sntm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = sntm[1].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        try {
+          if (!rateOk(slug + "|" + ip + "|snt", 300)) return tooMany();
+          let body = {}; try { body = await request.json(); } catch {}
+          const text = typeof body.text === "string" ? body.text : "";
+          if (!text.trim()) return Response.json({ ok: false, error: "text is required" }, { status: 400 });
+          if (text.length > 50000) return Response.json({ ok: false, error: "text too large" }, { status: 400 });
+          const LEX = { great: 3, good: 2, love: 3, loved: 3, excellent: 3, awesome: 4, happy: 3, wonderful: 4, best: 3, amazing: 4, nice: 2, like: 2, liked: 2, fantastic: 4, perfect: 3, thanks: 2, thank: 2, helpful: 2, recommend: 2, enjoy: 2, enjoyed: 2, pleased: 2, satisfied: 2, brilliant: 4, superb: 4, fast: 1, easy: 1, beautiful: 3, delightful: 3, bad: -2, terrible: -3, hate: -3, hated: -3, awful: -3, worst: -3, poor: -2, horrible: -3, disappointed: -2, disappointing: -2, angry: -3, sad: -2, broken: -2, useless: -3, slow: -1, difficult: -2, confusing: -2, annoying: -2, annoyed: -2, frustrating: -2, frustrated: -2, wrong: -2, fail: -2, failed: -2, buggy: -2, crash: -2, unhappy: -3, garbage: -3, waste: -2, ugly: -2 };
+          const NEG = new Set(["not", "no", "never", "n't", "cannot", "cant", "dont", "doesnt", "isnt", "wasnt", "without"]);
+          const tokens = text.toLowerCase().match(/[a-z']+/g) || [];
+          let score = 0; const positive = [], negative = [];
+          for (let i = 0; i < tokens.length; i++) { let w = LEX[tokens[i]]; if (w == null) continue; const prev = tokens[i - 1]; if (prev && NEG.has(prev)) w = -w; score += w; if (w > 0) positive.push(tokens[i]); else if (w < 0) negative.push(tokens[i]); }
+          const words = tokens.length || 1;
+          const comparative = Math.round((score / words) * 10000) / 10000;
+          const label = score > 0 ? "positive" : (score < 0 ? "negative" : "neutral");
+          return Response.json({ ok: true, score, comparative, label, words: tokens.length, positive, negative });
+        } catch (e) { console.error("sentiment failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "sentiment failed" }, { status: 502 }); }
+      }
       // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
       // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
       //   GET  /api/db/<slug>/webhooks/dead-letter[?hook=&limit=]        (ADMIN) → failed deliveries (ok=0)
