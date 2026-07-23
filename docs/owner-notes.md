@@ -6666,6 +6666,19 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — content-hash dedup · temporary bans · access-view log (data API, round 2)
+- **`/content-hash`** — SHA-256 fingerprint dedup store (reuses `sha256hex`). Member posts `content` (or a
+  precomputed `hash`); atomic `INSERT…ON CONFLICT DO UPDATE SET hits=hits+1 RETURNING first_seen, hits` →
+  `{duplicate, first_seen, hits}`. Only the 64-hex hash is kept, never the content. Member lookup, admin
+  list/forget. Erase nulls `first_by` (keeps the shared dedup row). batch358 (18/18).
+- **`/bans`** — temporary ban list on an arbitrary key. Admin bans until now+seconds (or permanent);
+  public check auto-expires (`until IS NULL OR until > now`) → `{banned, remaining, reason}`. Upsert re-ban,
+  admin lift/list. Erase nulls `banned_by`. batch359 (22/22).
+- **`/access-log`** — append-only access-view trail. Member records a view (actor = caller); admin reads the
+  trail (resource/actor filters) or a per-resource `/summary` (`COUNT(*)`, `COUNT(DISTINCT actor_id)`).
+  `_access_log` erased by user + exportable. batch360 (13/13).
+- Full suite 343 green. (63/100 of round 2 shipped.)
+
 ## 2026-07-23 — punch cards · card type · base64 (data API, round 2)
 - **`/punch-cards`** — buy-N-get-1-free stamp card. A punch bumps a monotonic `total`; earned = `total ÷
   needed`, available = earned − `redeemed` (pure integer math — SQLite `/` binds as float in node:sqlite, so
