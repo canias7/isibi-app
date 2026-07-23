@@ -6661,6 +6661,20 @@ antimeridian/pole box), 10 clean. Full suite 152 green.
   collect→403). Zero core-path/write risk. First backlog item shipped. batch170 (23/23) — numeric min/max/
   avg/sum + distinct, text nulls/distinct/min, owner-scoping (member profiles only own rows), trash respected
   (soft-deleted row drops out + sum reflects live), empty table → 0 (no crash), guards. Full suite 153 green.
+## 2026-07-23 — webhook dead-letter/retry · apikey scopes · flag audiences (data API, next-100 DONE)
+- **`/webhooks/dead-letter` + `/webhooks/deliveries/<id>/retry`** (#91) — admin lists failed deliveries
+  (ok=0, `?hook=` filter) and re-fires one (looks up the delivery's hook+event, re-POSTs signed via the
+  existing hookSign/safeFetch, logs a new delivery). Additive — the existing `/webhooks(?:/emit|/deliveries|
+  /<id>)?$` matcher doesn't reach these deeper paths. batch295 (11/11).
+- **`/apikeys/<id>/scopes`** (#92) — GET/PUT a JSON `scopes` array of permission strings (validated
+  `[a-z0-9_.:*-]`, deduped/lowercased) on a key; additive `scopes` column via guarded ALTER; existing key
+  verification untouched (metadata for the app to gate on). batch296 (14/14).
+- **`/flag-audiences/<key>` + `/flag-audiences/<key>/match`** (#94) — target a flag by arbitrary attributes
+  ({attr:[allowed]} stored in a new `_flags.attrs` column); `match {attrs}` (public) tests a bag against the
+  rules AND the flag's enabled state → {matched, failed_on}. Kept OFF the `/flags/(.+)` catch-all path on
+  purpose. batch297 (16/16).
+- Full suite 280 green. **The next-100 Data API list is 100/100 shipped.**
+
 ## 2026-07-23 — iCal feed · CSV converter · vCard (data API, next-100)
 - **`/ical`** — stateless: `{events:[{title,start,end?,description?,location?,allDay?,uid?}], name?}` → a
   downloadable `.ics` (VCALENDAR). UTC-basic DTSTART/DTEND, `VALUE=DATE` for all-day, ICS `\ ; ,` escaping,

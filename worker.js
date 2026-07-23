@@ -3661,6 +3661,8 @@ async function ensureApiKeys(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _apikeys (id INTEGER PRIMARY KEY AUTOINCREMENT, key_hash TEXT UNIQUE NOT NULL, prefix TEXT, label TEXT, user_id INTEGER, created_at TEXT, last_used TEXT, revoked INTEGER DEFAULT 0, rpm INTEGER)");
   // Back-fill the per-key rate-limit column on tables minted before it existed.
   try { await cfD1Query(env, uuid, "ALTER TABLE _apikeys ADD COLUMN rpm INTEGER"); } catch {}
+  // Back-fill the per-key scopes column (a JSON array of permission strings) on older tables.
+  try { await cfD1Query(env, uuid, "ALTER TABLE _apikeys ADD COLUMN scopes TEXT"); } catch {}
   _apiKeysReady.add(uuid);
 }
 // Resolve an X-API-Key header to the key it identifies. Returns {user, keyId, rpm}
@@ -4479,6 +4481,8 @@ const _flagsReady = new Set();
 async function ensureFlags(env, uuid) {
   if (_flagsReady.has(uuid)) return;
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _flags (key TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0, rollout INTEGER NOT NULL DEFAULT 100, roles TEXT, teams TEXT, value TEXT, created_at TEXT, updated_at TEXT)");
+  // Attribute-audience rules (a JSON object of {attr: [allowed values]}) for the /flags/<key>/match tester.
+  try { await cfD1Query(env, uuid, "ALTER TABLE _flags ADD COLUMN attrs TEXT"); } catch {}
   _flagsReady.add(uuid);
 }
 // Deterministic 0–99 bucket for (flag, member) — FNV-1a over "key:userId". Stable across calls, so a
@@ -19524,6 +19528,144 @@ async function handleRequest(request, env, ctx) {
           lines.push("END:VCARD");
           return new Response(lines.join("\r\n") + "\r\n", { headers: { "Content-Type": "text/vcard; charset=utf-8", "Content-Disposition": "attachment; filename=contact.vcf", "Access-Control-Allow-Origin": "*" } });
         } catch (e) { console.error("vcard failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "vcard failed" }, { status: 502 }); }
+      }
+      // WEBHOOK DEAD-LETTER + RETRY — inspect failed deliveries and re-fire one. Additive to /webhooks; the
+      // existing /webhooks(?:/emit|/deliveries|/<id>)? matcher doesn't catch these deeper paths.
+      //   GET  /api/db/<slug>/webhooks/dead-letter[?hook=&limit=]        (ADMIN) → failed deliveries (ok=0)
+      //   POST /api/db/<slug>/webhooks/deliveries/<id>/retry {data?}     (ADMIN) → re-deliver to that hook
+      const wdlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/webhooks\/(?:dead-letter|deliveries\/(\d+)\/retry)$/i);
+      if (wdlm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = wdlm[1].toLowerCase(), retryId = wdlm[2] ? parseInt(wdlm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _webhook_deliveries (id INTEGER PRIMARY KEY AUTOINCREMENT, hook_id INTEGER, event TEXT, ok INTEGER, status INTEGER, error TEXT, at TEXT)");
+          // DEAD-LETTER list.
+          if (retryId == null && request.method === "GET") {
+            let limit = Math.floor(Number(url.searchParams.get("limit"))); if (!(limit >= 1 && limit <= 500)) limit = 100;
+            const hook = url.searchParams.get("hook");
+            const rows = hook && /^\d+$/.test(hook)
+              ? await cfD1Query(env, uuid, "SELECT id, hook_id, event, status, error, at FROM _webhook_deliveries WHERE ok=0 AND hook_id=? ORDER BY id DESC LIMIT ?", [parseInt(hook, 10), limit])
+              : await cfD1Query(env, uuid, "SELECT id, hook_id, event, status, error, at FROM _webhook_deliveries WHERE ok=0 ORDER BY id DESC LIMIT ?", [limit]);
+            return Response.json({ ok: true, failed: rows });
+          }
+          // RETRY one.
+          if (retryId != null && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const del = (await cfD1Query(env, uuid, "SELECT hook_id, event FROM _webhook_deliveries WHERE id=?", [retryId]))[0];
+            if (!del) return Response.json({ ok: false, error: "no such delivery" }, { status: 404 });
+            const hk = (await cfD1Query(env, uuid, "SELECT id, url, secret FROM _webhooks WHERE id=? AND active=1", [del.hook_id]))[0];
+            if (!hk) return Response.json({ ok: false, error: "the hook is gone or inactive" }, { status: 409 });
+            const payload = JSON.stringify({ event: del.event, data: body.data == null ? null : body.data, at: new Date().toISOString(), retry_of: retryId });
+            let ok = 0, status = 0, error = null;
+            try {
+              const sig = await hookSign(hk.secret, payload);
+              const headers = { "content-type": "application/json", "X-Webhook-Event": del.event };
+              if (sig) headers["X-Webhook-Signature"] = sig;
+              const resp = await safeFetch(hk.url, { method: "POST", headers, body: payload, signal: AbortSignal.timeout(5000) });
+              if (!resp) error = "blocked or unreachable";
+              else { status = resp.status; ok = resp.status >= 200 && resp.status < 300 ? 1 : 0; if (!ok) error = "HTTP " + resp.status; }
+            } catch (e) { error = String((e && e.message) || "delivery error").slice(0, 200); }
+            try { await cfD1Query(env, uuid, "INSERT INTO _webhook_deliveries (hook_id, event, ok, status, error, at) VALUES (?,?,?,?,?,?)", [hk.id, del.event, ok, status, error, new Date().toISOString()]); } catch {}
+            return Response.json({ ok: true, retried: retryId, delivered: !!ok, status, error });
+          }
+          return Response.json({ ok: false, error: "unsupported dead-letter request" }, { status: 405 });
+        } catch (e) { console.error("webhook dead-letter failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "dead-letter failed" }, { status: 502 }); }
+      }
+      // API-KEY SCOPES — attach a list of permission strings to a key so the app can gate what each key may do.
+      // Additive to /apikeys; stored in a `scopes` JSON column. Admin-only.
+      //   GET /api/db/<slug>/apikeys/<id>/scopes            (ADMIN) → {scopes}
+      //   PUT /api/db/<slug>/apikeys/<id>/scopes {scopes:[...]}  (ADMIN) → set
+      const akscm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/apikeys\/(\d+)\/scopes$/i);
+      if (akscm && (request.method === "GET" || request.method === "PUT" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = akscm[1].toLowerCase(), keyId = parseInt(akscm[2], 10);
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          await ensureApiKeys(env, uuid);
+          const row = (await cfD1Query(env, uuid, "SELECT id, scopes FROM _apikeys WHERE id=?", [keyId]))[0];
+          if (!row) return Response.json({ ok: false, error: "no such key" }, { status: 404 });
+          if (request.method === "GET") {
+            let scopes = []; try { scopes = row.scopes ? JSON.parse(row.scopes) : []; } catch { scopes = []; }
+            return Response.json({ ok: true, id: keyId, scopes });
+          }
+          // SET (PUT/POST).
+          let body = {}; try { body = await request.json(); } catch {}
+          if (!Array.isArray(body.scopes)) return Response.json({ ok: false, error: "scopes[] is required" }, { status: 400 });
+          const scopes = [...new Set(body.scopes.map((s) => String(s).trim().toLowerCase()).filter((s) => /^[a-z0-9_.:*-]{1,60}$/.test(s)))].slice(0, 100);
+          await cfD1Exec(env, uuid, "UPDATE _apikeys SET scopes=? WHERE id=?", [JSON.stringify(scopes), keyId]);
+          return Response.json({ ok: true, id: keyId, scopes });
+        } catch (e) { console.error("apikey scopes failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "apikey scopes failed" }, { status: 502 }); }
+      }
+      // FLAG ATTRIBUTE AUDIENCES — target a feature flag by arbitrary user attributes (plan=pro, country=US).
+      // Rules are {attr: [allowed values]} stored on the flag; `match` tests a supplied attribute bag against
+      // them AND the flag's enabled state. Kept off the /flags path (its catch-all matcher would swallow this).
+      //   GET  /api/db/<slug>/flag-audiences/<key>              (ADMIN) → {enabled, attrs}
+      //   PUT  /api/db/<slug>/flag-audiences/<key> {attrs:{...}}(ADMIN) → set rules (flag must exist)
+      //   POST /api/db/<slug>/flag-audiences/<key>/match {attrs:{...}}  (public) → {matched, enabled}
+      const flaudm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/flag-audiences\/([a-z0-9_.:-]{1,60})(?:\/(match))?$/i);
+      if (flaudm && (request.method === "GET" || request.method === "PUT" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, PUT, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = flaudm[1].toLowerCase(), flagKey = flaudm[2].toLowerCase(), isMatch = flaudm[3] === "match";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const parseAttrs = (raw) => { if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {}; const out = {}; for (const [k, v] of Object.entries(raw)) { const key = String(k).trim().toLowerCase(); if (!/^[a-z0-9_.:-]{1,40}$/.test(key)) continue; const vals = (Array.isArray(v) ? v : [v]).map((x) => String(x).trim().toLowerCase()).filter((x) => x && x.length <= 80).slice(0, 50); if (vals.length) out[key] = vals; } return out; };
+        try {
+          await ensureFlags(env, uuid);
+          const flag = (await cfD1Query(env, uuid, "SELECT key, enabled, attrs FROM _flags WHERE key=?", [flagKey]))[0];
+          // MATCH (public).
+          if (isMatch && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|flaud", 600)) return tooMany();
+            if (!flag) return Response.json({ ok: false, error: "no such flag" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const given = {}; const raw = (body.attrs && typeof body.attrs === "object" && !Array.isArray(body.attrs)) ? body.attrs : {};
+            for (const [k, v] of Object.entries(raw)) given[String(k).trim().toLowerCase()] = String(v).trim().toLowerCase();
+            let rules = {}; try { rules = flag.attrs ? JSON.parse(flag.attrs) : {}; } catch { rules = {}; }
+            let matched = !!flag.enabled;
+            const failed = [];
+            for (const [attr, allowed] of Object.entries(rules)) { if (!allowed.includes(given[attr])) { matched = false; failed.push(attr); } }
+            return Response.json({ ok: true, key: flagKey, enabled: !!flag.enabled, matched, failed_on: failed });
+          }
+          // SET rules (admin).
+          if (!isMatch && (request.method === "PUT" || request.method === "POST")) {
+            const a = await needAdmin(); if (a) return a;
+            if (!flag) return Response.json({ ok: false, error: "no such flag (create it via /flags first)" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const attrs = parseAttrs(body.attrs);
+            await cfD1Exec(env, uuid, "UPDATE _flags SET attrs=?, updated_at=? WHERE key=?", [JSON.stringify(attrs), new Date().toISOString(), flagKey]);
+            return Response.json({ ok: true, key: flagKey, attrs });
+          }
+          // GET rules (admin).
+          if (!isMatch && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!flag) return Response.json({ ok: false, error: "no such flag" }, { status: 404 });
+            let attrs = {}; try { attrs = flag.attrs ? JSON.parse(flag.attrs) : {}; } catch { attrs = {}; }
+            return Response.json({ ok: true, key: flagKey, enabled: !!flag.enabled, attrs });
+          }
+          return Response.json({ ok: false, error: "unsupported flag-audiences request" }, { status: 405 });
+        } catch (e) { console.error("flag-audiences failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "flag-audiences failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
