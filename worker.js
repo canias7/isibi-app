@@ -4708,6 +4708,35 @@ async function ensureRecent(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_recent_user ON _recent_views (user_id, viewed_at)"); } catch {}
   _recentReady.add(uuid);
 }
+// FAQ / knowledge base — admin-managed Q&A entries, optionally categorized + ordered; the public reads
+// the published ones (with a text search). Ensured once per isolate.
+const _faqReady = new Set();
+async function ensureFaq(env, uuid) {
+  if (_faqReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _faq (id INTEGER PRIMARY KEY AUTOINCREMENT, question TEXT NOT NULL, answer TEXT, category TEXT, sort INTEGER NOT NULL DEFAULT 0, published INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_faq_cat ON _faq (category, sort)"); } catch {}
+  _faqReady.add(uuid);
+}
+// Business hours — weekly open intervals (per day-of-week, in local minutes-since-midnight; a day can
+// have several intervals) plus per-date overrides (holidays / special hours). Powers an "open now?" check.
+const _hoursReady = new Set();
+async function ensureHours(env, uuid) {
+  if (_hoursReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _hours (id INTEGER PRIMARY KEY AUTOINCREMENT, dow INTEGER NOT NULL, open_min INTEGER NOT NULL, close_min INTEGER NOT NULL, created_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _hours_special (date TEXT PRIMARY KEY, closed INTEGER NOT NULL DEFAULT 0, open_min INTEGER, close_min INTEGER, note TEXT, created_at TEXT)");
+  _hoursReady.add(uuid);
+}
+// A/B experiments — an admin defines an experiment with weighted variants; a member is assigned a variant
+// DETERMINISTICALLY (sticky, weighted by a hash), the exposure + any conversion are recorded, and the
+// admin reads per-variant results. `_experiments` = configs, `_experiment_events` = per-member assignment.
+const _experimentsReady = new Set();
+async function ensureExperiments(env, uuid) {
+  if (_experimentsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _experiments (key TEXT PRIMARY KEY, variants TEXT, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _experiment_events (experiment TEXT NOT NULL, user_id INTEGER NOT NULL, variant TEXT, converted INTEGER NOT NULL DEFAULT 0, created_at TEXT, converted_at TEXT, PRIMARY KEY (experiment, user_id))");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_exp_events ON _experiment_events (experiment, variant)"); } catch {}
+  _experimentsReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9483,6 +9512,7 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _addresses WHERE user_id=?", [u.id]],                              // saved addresses
             ["DELETE FROM _user_settings WHERE user_id=?", [u.id]],                          // per-member settings
             ["DELETE FROM _recent_views WHERE user_id=?", [u.id]],                           // recently-viewed
+            ["DELETE FROM _experiment_events WHERE user_id=?", [u.id]],                      // A/B experiment assignments
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -12090,6 +12120,289 @@ async function handleRequest(request, env, ctx) {
             : await cfD1Query(env, uuid, "SELECT ref_table, ref_id, viewed_at FROM _recent_views WHERE user_id=? ORDER BY viewed_at DESC LIMIT ?", [userId, lim]);
           return Response.json({ ok: true, recent: rows });
         } catch (e) { console.error("recent failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "recent failed" }, { status: 502 }); }
+      }
+      // FAQ / KNOWLEDGE BASE — admin-managed Q&A; the public reads the published entries (with search +
+      // category filter). Reads are public; managing is admin.
+      //   POST   /api/db/<slug>/faq {question, answer, category?, sort?, published?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/faq[?category=&q=]     (public) → published entries
+      //   GET    /api/db/<slug>/faq/categories         (public) → the distinct categories
+      //   GET    /api/db/<slug>/faq/all                (ADMIN)  → every entry (incl. unpublished)
+      //   PATCH  /api/db/<slug>/faq/<id> {question?, answer?, category?, sort?, published?}  (ADMIN)
+      //   DELETE /api/db/<slug>/faq/<id>               (ADMIN)
+      const faqm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/faq(?:\/(all|categories|\d+))?$/i);
+      if (faqm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = faqm[1].toLowerCase(), sub = faqm[2] ? faqm[2].toLowerCase() : null, fid = faqm[2] && /^\d+$/.test(faqm[2]) ? parseInt(faqm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureFaq(env, uuid);
+          // CREATE (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|faqw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const q = String(body.question || "").trim().slice(0, 500);
+            if (!q) return Response.json({ ok: false, error: "a question is required" }, { status: 400 });
+            const ans = body.answer != null ? String(body.answer).slice(0, 8000) : null;
+            const cat = body.category != null && body.category !== "" ? String(body.category).slice(0, 80) : null;
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const published = (body.published === false || body.published === 0 || body.published === "false") ? 0 : 1;
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _faq (question, answer, category, sort, published, created_at, updated_at) VALUES (?,?,?,?,?,?,?) RETURNING id", [q, ans, cat, sort, published, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // Distinct categories (public).
+          if (sub === "categories") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|faqc", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT DISTINCT category FROM _faq WHERE published=1 AND category IS NOT NULL ORDER BY category ASC LIMIT 200");
+            return Response.json({ ok: true, categories: rows.map((r) => r.category) });
+          }
+          // All (admin, incl. unpublished).
+          if (sub === "all") {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|faqa", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, question, answer, category, sort, published, updated_at FROM _faq ORDER BY category ASC, sort ASC, id ASC LIMIT 2000");
+            return Response.json({ ok: true, faq: rows.map((r) => Object.assign(r, { published: !!r.published })) });
+          }
+          // Update / delete one (admin).
+          if (fid != null) {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method === "PATCH") {
+              let body = {}; try { body = await request.json(); } catch {}
+              const sets = [], params = [];
+              if (body.question !== undefined) { const q = String(body.question || "").trim().slice(0, 500); if (!q) return Response.json({ ok: false, error: "question can't be empty" }, { status: 400 }); sets.push("question=?"); params.push(q); }
+              if (body.answer !== undefined) { sets.push("answer=?"); params.push(body.answer != null ? String(body.answer).slice(0, 8000) : null); }
+              if (body.category !== undefined) { sets.push("category=?"); params.push(body.category != null && body.category !== "" ? String(body.category).slice(0, 80) : null); }
+              if (body.sort !== undefined) { sets.push("sort=?"); params.push(Math.floor(Number(body.sort)) || 0); }
+              if (body.published !== undefined) { sets.push("published=?"); params.push((body.published === false || body.published === 0 || body.published === "false") ? 0 : 1); }
+              if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+              sets.push("updated_at=?"); params.push(new Date().toISOString());
+              const ex = await cfD1Exec(env, uuid, "UPDATE _faq SET " + sets.join(", ") + " WHERE id=?", params.concat([fid]));
+              if (!ex.changes) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+              return Response.json({ ok: true, id: fid, updated: true });
+            }
+            if (request.method === "DELETE") {
+              const ex = await cfD1Exec(env, uuid, "DELETE FROM _faq WHERE id=?", [fid]);
+              if (!ex.changes) return Response.json({ ok: false, error: "no such entry" }, { status: 404 });
+              return Response.json({ ok: true, deleted: true, id: fid });
+            }
+            return Response.json({ ok: false, error: "use PATCH or DELETE" }, { status: 405 });
+          }
+          // Public published list (+ category filter + text search).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported faq request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|faqr", 300)) return tooMany();
+          const where = ["published=1"], params = [];
+          const cat = url.searchParams.get("category");
+          if (cat) { where.push("category=?"); params.push(String(cat).slice(0, 80)); }
+          const q = url.searchParams.get("q");
+          if (q) { const like = "%" + String(q).replace(/[%_\\]/g, "").slice(0, 80) + "%"; where.push("(question LIKE ? OR answer LIKE ?)"); params.push(like, like); }
+          const rows = await cfD1Query(env, uuid, "SELECT id, question, answer, category, sort FROM _faq WHERE " + where.join(" AND ") + " ORDER BY category ASC, sort ASC, id ASC LIMIT 500", params);
+          return Response.json({ ok: true, faq: rows });
+        } catch (e) { console.error("faq failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "faq failed" }, { status: 502 }); }
+      }
+      // BUSINESS HOURS — weekly open intervals (per day-of-week, local time) + per-date overrides
+      // (holidays / special hours), and an "open now?" check. Reads public; managing is admin. Times are
+      // local minutes-since-midnight; the open-check takes the business's tz offset (minutes from UTC).
+      //   POST   /api/db/<slug>/hours {dow(0-6), open, close}   (ADMIN) → add an open interval → {id}
+      //   GET    /api/db/<slug>/hours                            (public) → {weekly:{dow:[…]}, specials:[…]}
+      //   DELETE /api/db/<slug>/hours/<id>                       (ADMIN) → remove an interval
+      //   POST   /api/db/<slug>/hours/special {date, closed?, open?, close?, note?}  (ADMIN) → a date override
+      //   DELETE /api/db/<slug>/hours/special/<YYYY-MM-DD>       (ADMIN) → remove an override
+      //   GET    /api/db/<slug>/hours/open[?at=<ISO>&tz=<offsetMin>]  (public) → {open, reason, closes_at?}
+      const hrm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/hours(?:\/(open|special|\d+)(?:\/(\d{4}-\d{2}-\d{2}))?)?$/i);
+      if (hrm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = hrm[1].toLowerCase(), sub = hrm[2] ? hrm[2].toLowerCase() : null, dateParam = hrm[3] || null, hid = hrm[2] && /^\d+$/.test(hrm[2]) ? parseInt(hrm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const toMin = (v) => { if (v == null || v === "") return null; if (typeof v === "number" || /^\d+$/.test(String(v))) { const n = Math.floor(Number(v)); return (n >= 0 && n <= 1440) ? n : null; } const m = String(v).match(/^(\d{1,2}):(\d{2})$/); if (!m) return null; const h2 = +m[1], mi = +m[2]; return (h2 <= 24 && mi < 60) ? h2 * 60 + mi : null; };
+        try {
+          await ensureHours(env, uuid);
+          // "Open now?" (public).
+          if (sub === "open") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|hro", 300)) return tooMany();
+            const atRaw = url.searchParams.get("at");
+            const at = atRaw && !isNaN(new Date(atRaw).getTime()) ? new Date(atRaw) : new Date();
+            const tz = Math.max(-720, Math.min(840, parseInt(url.searchParams.get("tz") || "0", 10) || 0));
+            const local = new Date(at.getTime() + tz * 60000);
+            const date = local.toISOString().slice(0, 10), dow = local.getUTCDay(), mins = local.getUTCHours() * 60 + local.getUTCMinutes();
+            const sp = (await cfD1Query(env, uuid, "SELECT closed, open_min, close_min FROM _hours_special WHERE date=?", [date]))[0];
+            let intervals;
+            if (sp) { if (sp.closed) return Response.json({ ok: true, open: false, reason: "special_closed", date }); intervals = (sp.open_min != null && sp.close_min != null) ? [{ open_min: sp.open_min, close_min: sp.close_min }] : []; }
+            else intervals = await cfD1Query(env, uuid, "SELECT open_min, close_min FROM _hours WHERE dow=? ORDER BY open_min", [dow]);
+            const cur = intervals.find((i) => mins >= i.open_min && mins < i.close_min);
+            if (cur) return Response.json({ ok: true, open: true, reason: sp ? "special" : "regular", closes_at: cur.close_min, date });
+            return Response.json({ ok: true, open: false, reason: sp ? "special_hours" : (intervals.length ? "closed_now" : "closed_today"), date });
+          }
+          // Add a special-date override (admin).
+          if (sub === "special" && !dateParam && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|hrs", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const date = String(body.date || "").slice(0, 10);
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return Response.json({ ok: false, error: "date must be YYYY-MM-DD" }, { status: 400 });
+            const closed = (body.closed === true || body.closed === 1 || body.closed === "true") ? 1 : 0;
+            const openMin = closed ? null : toMin(body.open), closeMin = closed ? null : toMin(body.close);
+            if (!closed && (openMin == null || closeMin == null || closeMin <= openMin)) return Response.json({ ok: false, error: "give open<close times, or closed:true" }, { status: 400 });
+            const note = body.note != null ? String(body.note).slice(0, 200) : null;
+            await cfD1Query(env, uuid, "INSERT INTO _hours_special (date, closed, open_min, close_min, note, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(date) DO UPDATE SET closed=excluded.closed, open_min=excluded.open_min, close_min=excluded.close_min, note=excluded.note", [date, closed, openMin, closeMin, note, new Date().toISOString()]);
+            return Response.json({ ok: true, date, closed: !!closed });
+          }
+          // Remove a special-date override (admin).
+          if (sub === "special" && dateParam && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _hours_special WHERE date=?", [dateParam]);
+            return Response.json({ ok: true, deleted: (ex.changes || 0) > 0, date: dateParam });
+          }
+          // Add a weekly interval (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|hrw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const dow = Math.floor(Number(body.dow));
+            if (!Number.isFinite(dow) || dow < 0 || dow > 6) return Response.json({ ok: false, error: "dow must be 0 (Sun) – 6 (Sat)" }, { status: 400 });
+            const openMin = toMin(body.open), closeMin = toMin(body.close);
+            if (openMin == null || closeMin == null || closeMin <= openMin) return Response.json({ ok: false, error: "open and close times required (open < close)" }, { status: 400 });
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _hours (dow, open_min, close_min, created_at) VALUES (?,?,?,?) RETURNING id", [dow, openMin, closeMin, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, dow, open_min: openMin, close_min: closeMin });
+          }
+          // Remove a weekly interval (admin).
+          if (hid != null && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _hours WHERE id=?", [hid]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such interval" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: hid });
+          }
+          // GET the schedule (public).
+          if (!sub && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|hrr", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, dow, open_min, close_min FROM _hours ORDER BY dow ASC, open_min ASC LIMIT 200");
+            const weekly = {}; for (let d = 0; d < 7; d++) weekly[d] = [];
+            for (const r of rows) weekly[r.dow].push({ id: r.id, open_min: r.open_min, close_min: r.close_min });
+            const specials = await cfD1Query(env, uuid, "SELECT date, closed, open_min, close_min, note FROM _hours_special WHERE date >= ? ORDER BY date ASC LIMIT 200", [new Date().toISOString().slice(0, 10)]);
+            return Response.json({ ok: true, weekly, specials: specials.map((s) => Object.assign(s, { closed: !!s.closed })) });
+          }
+          return Response.json({ ok: false, error: "unsupported hours request" }, { status: 405 });
+        } catch (e) { console.error("hours failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "hours failed" }, { status: 502 }); }
+      }
+      // A/B EXPERIMENTS — an admin defines an experiment with weighted variants; a member is assigned a
+      // variant DETERMINISTICALLY (sticky, weighted by a hash of key:userId), the exposure + any conversion
+      // are recorded, and the admin reads per-variant results. Complements /flags (on/off) with multi-variant
+      // + conversion measurement.
+      //   POST   /api/db/<slug>/experiments/<key> {variants:[{name,weight?}] | ["a","b"], enabled?}  (ADMIN)
+      //   GET    /api/db/<slug>/experiments/<key>/assign    (member) → {variant} (sticky, records exposure)
+      //   POST   /api/db/<slug>/experiments/<key>/convert   (member) → mark my conversion
+      //   GET    /api/db/<slug>/experiments/<key>/results   (ADMIN)  → per-variant {exposures, conversions, rate}
+      //   GET    /api/db/<slug>/experiments/<key>           (ADMIN)  → the config
+      //   DELETE /api/db/<slug>/experiments/<key>           (ADMIN)
+      const expm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/experiments\/([A-Za-z0-9_.:-]{1,60})(?:\/(assign|convert|results))?$/i);
+      if (expm && (request.method === "GET" || request.method === "POST" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = expm[1].toLowerCase(), key = expm[2], sub = expm[3] ? expm[3].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const needAdmin = async () => { const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const parseVariants = (s) => { if (!s) return null; try { const v = JSON.parse(s); return Array.isArray(v) ? v : null; } catch { return null; } };
+        try {
+          await ensureExperiments(env, uuid);
+          // DEFINE (admin).
+          if (!sub && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|expw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const raw = Array.isArray(body.variants) ? body.variants : null;
+            if (!raw || !raw.length) return Response.json({ ok: false, error: "variants[] is required" }, { status: 400 });
+            const variants = [];
+            for (const v of raw.slice(0, 20)) {
+              const name = String((v && typeof v === "object") ? v.name : v).trim().slice(0, 40);
+              if (!/^[A-Za-z0-9_.-]{1,40}$/.test(name)) return Response.json({ ok: false, error: "each variant needs a simple name" }, { status: 400 });
+              let weight = (v && typeof v === "object" && v.weight != null) ? Number(v.weight) : 1;
+              if (!Number.isFinite(weight) || weight <= 0) weight = 1;
+              variants.push({ name, weight: Math.round(weight * 1000) / 1000 });
+            }
+            if (new Set(variants.map((v) => v.name)).size !== variants.length) return Response.json({ ok: false, error: "variant names must be unique" }, { status: 400 });
+            const enabled = (body.enabled === false || body.enabled === 0 || body.enabled === "false") ? 0 : 1;
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _experiments (key, variants, enabled, created_at, updated_at) VALUES (?,?,?,?,?) ON CONFLICT(key) DO UPDATE SET variants=excluded.variants, enabled=excluded.enabled, updated_at=excluded.updated_at", [key, JSON.stringify(variants), enabled, now, now]);
+            return Response.json({ ok: true, key, variants, enabled: !!enabled });
+          }
+          const exp = (await cfD1Query(env, uuid, "SELECT variants, enabled FROM _experiments WHERE key=?", [key]))[0];
+          // ASSIGN (member) — sticky, deterministic, weighted.
+          if (sub === "assign") {
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expa", 600)) return tooMany();
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            const variants = parseVariants(exp.variants) || [];
+            if (!variants.length) return Response.json({ ok: false, error: "experiment has no variants" }, { status: 409 });
+            const existing = (await cfD1Query(env, uuid, "SELECT variant FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            if (existing) return Response.json({ ok: true, variant: existing.variant, key });
+            if (!exp.enabled) return Response.json({ ok: true, variant: variants[0].name, key, disabled: true }); // control, not recorded
+            // deterministic weighted pick via FNV-1a(key:userId)
+            const s = key + ":" + userId; let hsh = 2166136261 >>> 0;
+            for (let i = 0; i < s.length; i++) { hsh ^= s.charCodeAt(i); hsh = Math.imul(hsh, 16777619) >>> 0; }
+            const total = variants.reduce((a, v) => a + v.weight, 0);
+            let point = (hsh % 100000) / 100000 * total, acc = 0, chosen = variants[0].name;
+            for (const v of variants) { acc += v.weight; if (point < acc) { chosen = v.name; break; } }
+            await cfD1Exec(env, uuid, "INSERT INTO _experiment_events (experiment, user_id, variant, converted, created_at) SELECT ?, ?, ?, 0, ? WHERE NOT EXISTS (SELECT 1 FROM _experiment_events WHERE experiment=? AND user_id=?)", [key, userId, chosen, new Date().toISOString(), key, userId]);
+            const row = (await cfD1Query(env, uuid, "SELECT variant FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            return Response.json({ ok: true, variant: row ? row.variant : chosen, key });
+          }
+          // CONVERT (member).
+          if (sub === "convert") {
+            if (request.method !== "POST") return Response.json({ ok: false, error: "use POST" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expc", 300)) return tooMany();
+            const ex = await cfD1Exec(env, uuid, "UPDATE _experiment_events SET converted=1, converted_at=? WHERE experiment=? AND user_id=? AND converted=0", [new Date().toISOString(), key, userId]);
+            if (ex.changes) return Response.json({ ok: true, converted: true });
+            const has = (await cfD1Query(env, uuid, "SELECT converted FROM _experiment_events WHERE experiment=? AND user_id=?", [key, userId]))[0];
+            if (!has) return Response.json({ ok: false, error: "not assigned to this experiment yet" }, { status: 404 });
+            return Response.json({ ok: true, converted: true, already: true });
+          }
+          // RESULTS (admin).
+          if (sub === "results") {
+            const a = await needAdmin(); if (a) return a;
+            if (request.method !== "GET") return Response.json({ ok: false, error: "read-only" }, { status: 405 });
+            if (!rateOk(slug + "|" + ip + "|expr", 300)) return tooMany();
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            const rows = await cfD1Query(env, uuid, "SELECT variant, COUNT(*) AS exposures, SUM(converted) AS conversions FROM _experiment_events WHERE experiment=? GROUP BY variant", [key]);
+            const results = rows.map((r) => ({ variant: r.variant, exposures: r.exposures, conversions: r.conversions || 0, rate: r.exposures ? Math.round(((r.conversions || 0) / r.exposures) * 10000) / 100 : 0 }));
+            return Response.json({ ok: true, key, variants: parseVariants(exp.variants), enabled: !!exp.enabled, results });
+          }
+          // CONFIG (admin) / DELETE (admin).
+          const a = await needAdmin(); if (a) return a;
+          if (request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _experiments WHERE key=?", [key]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            try { await cfD1Exec(env, uuid, "DELETE FROM _experiment_events WHERE experiment=?", [key]); } catch {}
+            return Response.json({ ok: true, deleted: true, key });
+          }
+          if (request.method === "GET") {
+            if (!exp) return Response.json({ ok: false, error: "no such experiment" }, { status: 404 });
+            return Response.json({ ok: true, key, variants: parseVariants(exp.variants), enabled: !!exp.enabled });
+          }
+          return Response.json({ ok: false, error: "unsupported experiments request" }, { status: 405 });
+        } catch (e) { console.error("experiments failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "experiments failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
