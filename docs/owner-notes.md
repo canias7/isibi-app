@@ -6666,6 +6666,22 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — markdown→sanitized HTML · proration · credit limit (data API, round 2)
+- **`/markdown`** — safe-subset Markdown renderer. Input is HTML-escaped FIRST (so `<script>`/`<img onerror>`
+  can't survive), then a known tag set is emitted: headings, bold/italic, inline + fenced code, links
+  (http/https/mailto allow-list, else plain text), ul/ol, blockquote, hr, paragraphs. Public, stateless.
+  batch363 (18/18).
+- **`/proration`** — stateless subscription-change proration: unused old-plan credit + prorated new charge over
+  remaining days → `net_cents` (negative = credit). Money in cents via `toCents`, dates clamped to the period.
+  batch364 (16/16).
+- **`/credit-limit`** — per-customer credit line. Admin sets limit; `/charge` draws down with an atomic guard
+  (`balance+amt <= limit` else 409, unchanged), `/pay` floors at 0. Member self-read, admin list/delete.
+  `_credit_limits` (one row/user, cents) erased by user. batch365 (22/22).
+- Full suite 346 green. (66/100 of round 2 shipped.)
+- NOTE: caught 3 near-duplicates before coding — a malformed `grep -E` with literal `\|` gave false "0
+  exists" for password-strength/qr/convert, which ALL already exist (`/password-strength`, `/qr`, `/convert`).
+  Reverted, re-surveyed by extracting every existing route segment, then picked genuinely-new ones.
+
 ## 2026-07-23 — content-hash dedup · temporary bans · access-view log (data API, round 2)
 - **`/content-hash`** — SHA-256 fingerprint dedup store (reuses `sha256hex`). Member posts `content` (or a
   precomputed `hash`); atomic `INSERT…ON CONFLICT DO UPDATE SET hits=hits+1 RETURNING first_seen, hits` →
