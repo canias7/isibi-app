@@ -6666,6 +6666,16 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — pluralize · mime-detect · approval-quorum (data API, round 2)
+- **`/pluralize`** — stateless English inflector: singular+plural (irregulars, suffix rules, uncountables),
+  count-aware inflected form + "N words" phrase, case preserved. Public. batch390 (21/21).
+- **`/mime-detect`** — stateless magic-byte sniffer from base64/hex (PNG/JPEG/GIF/WEBP/BMP, PDF, ZIP/GZIP,
+  MP3/MP4/M4A/WAV/OGG). Public. batch391 (16/16).
+- **`/approval-quorum`** — N-of-M sign-off. Admin open; members approve once each; reaching `needed` flips to
+  'approved' + locks; revoke while open; member read hides approver ids, admin sees them. Atomic
+  `UPDATE…WHERE status='open' RETURNING`. `_quorum` (governance, no erase). batch392 (24/24).
+- Full suite 373 green. (93/100 of round 2 shipped.)
+
 ## 2026-07-23 — checklists · number-to-words · VAT number (data API, round 2)
 - **`/checklist`** — reusable checklist template (ordered items, auto-ids) + per-member completion (check/
   uncheck, progress %/complete). Admin define/delete, public template read, member `/me`. `_checklist_templates`
