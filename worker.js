@@ -4654,6 +4654,34 @@ async function ensureAnnouncements(env, uuid) {
   await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _announcement_dismissals (announcement_id INTEGER NOT NULL, user_id INTEGER NOT NULL, dismissed_at TEXT, PRIMARY KEY (announcement_id, user_id))");
   _announcementsReady.add(uuid);
 }
+// Categories — a hierarchical taxonomy tree (blog/product categories, folders). parent_id builds the
+// tree; slug is unique. Admin-managed, public read. Ensured once per isolate.
+const _categoriesReady = new Set();
+async function ensureCategories(env, uuid) {
+  if (_categoriesReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _categories (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT UNIQUE, name TEXT NOT NULL, parent_id INTEGER, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_categories_parent ON _categories (parent_id, sort)"); } catch {}
+  _categoriesReady.add(uuid);
+}
+// Named lists / collections — a member curates named lists (wishlist, watchlist, playlist) of items that
+// reference rows in any table. `_lists` = the lists, `_list_items` = their items. Ensured once.
+const _listsReady = new Set();
+async function ensureLists(env, uuid) {
+  if (_listsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _lists (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, name TEXT NOT NULL, kind TEXT, is_public INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _list_items (id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER NOT NULL, ref_table TEXT, ref_id INTEGER, note TEXT, sort INTEGER NOT NULL DEFAULT 0, created_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_list_items ON _list_items (list_id, sort)"); } catch {}
+  _listsReady.add(uuid);
+}
+// One-time codes (OTP) — verify a short code for a purpose+identifier (confirm a phone/email, approve an
+// action). The code is stored HASHED; generate returns it once (the app sends it), verify checks it with
+// an expiry + a max-attempts lockout + single-use. One active code per (purpose, identifier). Ensured once.
+const _otpReady = new Set();
+async function ensureOtp(env, uuid) {
+  if (_otpReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _otp (purpose TEXT NOT NULL, identifier TEXT NOT NULL, code_hash TEXT, expires_at TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 5, created_at TEXT, PRIMARY KEY (purpose, identifier))");
+  _otpReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9424,6 +9452,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _notify_prefs WHERE user_id=?", [u.id]],                           // notification preferences
             ["DELETE FROM _idempotency WHERE user_id=?", [u.id]],                            // idempotency keys
             ["DELETE FROM _announcement_dismissals WHERE user_id=?", [u.id]],                // announcement dismissals
+            ["DELETE FROM _list_items WHERE list_id IN (SELECT id FROM _lists WHERE user_id=?)", [u.id]], // items in their lists
+            ["DELETE FROM _lists WHERE user_id=?", [u.id]],                                  // their named lists
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -11618,6 +11648,252 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported announcements request" }, { status: 405 });
         } catch (e) { console.error("announcements failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "announcements failed" }, { status: 502 }); }
+      }
+      // CATEGORIES — a hierarchical taxonomy tree (blog/product categories, folders). An admin manages
+      // nodes; anyone reads the tree. parent_id builds the hierarchy; reparenting is cycle-guarded.
+      //   POST   /api/db/<slug>/categories {name, slug?, parent?, sort?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/categories            (public) → {flat, tree}
+      //   GET    /api/db/<slug>/categories/<id>       (public) → {category, path (breadcrumb), children}
+      //   PATCH  /api/db/<slug>/categories/<id> {name?, slug?, parent?, sort?}  (ADMIN)
+      //   DELETE /api/db/<slug>/categories/<id>       (ADMIN) → delete; children reparent to its parent
+      const ctm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/categories(?:\/(\d+))?$/i);
+      if (ctm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ctm[1].toLowerCase(), cid = ctm[2] ? parseInt(ctm[2], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const slugify = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+        try {
+          await ensureCategories(env, uuid);
+          // CREATE (admin).
+          if (!cid && request.method === "POST") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|catw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 120);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            let cslug = body.slug ? slugify(body.slug) : slugify(name); if (!cslug) cslug = "c";
+            let parent = null;
+            if (body.parent != null && body.parent !== "") { parent = parseInt(body.parent, 10); if (!Number.isFinite(parent) || !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _categories WHERE id=?", [parent]))[0]) return Response.json({ ok: false, error: "parent category not found" }, { status: 400 }); }
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const now = new Date().toISOString();
+            try {
+              const ins = await cfD1Query(env, uuid, "INSERT INTO _categories (slug, name, parent_id, sort, created_at, updated_at) VALUES (?,?,?,?,?,?) RETURNING id", [cslug, name, parent, sort, now, now]);
+              return Response.json({ ok: true, id: ins[0] && ins[0].id, slug: cslug, name, parent_id: parent });
+            } catch (e2) { return Response.json({ ok: false, error: "that slug is taken" }, { status: 409 }); }
+          }
+          // Load the whole tree once (small taxonomies; capped).
+          const all = await cfD1Query(env, uuid, "SELECT id, slug, name, parent_id, sort FROM _categories ORDER BY sort ASC, id ASC LIMIT 5000");
+          const byId = new Map(all.map((r) => [r.id, r]));
+          // GET one + breadcrumb + children (public).
+          if (cid && request.method === "GET") {
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            const path = []; let cur = row, guard = 0;
+            while (cur && guard++ < 100) { path.unshift({ id: cur.id, slug: cur.slug, name: cur.name }); cur = cur.parent_id != null ? byId.get(cur.parent_id) : null; }
+            const children = all.filter((r) => r.parent_id === cid);
+            return Response.json({ ok: true, category: row, path, children });
+          }
+          // PATCH (admin) — cycle-guarded reparent.
+          if (cid && request.method === "PATCH") {
+            const a = await needAdmin(); if (a) return a;
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name !== undefined) { const n = String(body.name || "").trim().slice(0, 120); if (!n) return Response.json({ ok: false, error: "name can't be empty" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if (body.slug !== undefined) { const s = slugify(body.slug) || "c"; sets.push("slug=?"); params.push(s); }
+            if (body.sort !== undefined) { sets.push("sort=?"); params.push(Math.floor(Number(body.sort)) || 0); }
+            if (body.parent !== undefined) {
+              let parent = (body.parent === null || body.parent === "") ? null : parseInt(body.parent, 10);
+              if (parent != null) {
+                if (parent === cid) return Response.json({ ok: false, error: "a category can't be its own parent" }, { status: 400 });
+                if (!byId.get(parent)) return Response.json({ ok: false, error: "parent category not found" }, { status: 400 });
+                // reject if `parent` is a descendant of `cid` (would create a cycle)
+                const desc = new Set(); const stack = [cid];
+                while (stack.length) { const p = stack.pop(); for (const r of all) if (r.parent_id === p && !desc.has(r.id)) { desc.add(r.id); stack.push(r.id); } }
+                if (desc.has(parent)) return Response.json({ ok: false, error: "can't move a category under its own descendant" }, { status: 400 });
+              }
+              sets.push("parent_id=?"); params.push(parent);
+            }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            try { await cfD1Exec(env, uuid, "UPDATE _categories SET " + sets.join(", ") + " WHERE id=?", params.concat([cid])); }
+            catch (e3) { return Response.json({ ok: false, error: "that slug is taken" }, { status: 409 }); }
+            return Response.json({ ok: true, id: cid, updated: true });
+          }
+          // DELETE (admin) — children reparent to the deleted node's parent.
+          if (cid && request.method === "DELETE") {
+            const a = await needAdmin(); if (a) return a;
+            const row = byId.get(cid);
+            if (!row) return Response.json({ ok: false, error: "no such category" }, { status: 404 });
+            await cfD1Exec(env, uuid, "UPDATE _categories SET parent_id=? WHERE parent_id=?", [row.parent_id, cid]);
+            await cfD1Exec(env, uuid, "DELETE FROM _categories WHERE id=?", [cid]);
+            return Response.json({ ok: true, deleted: true, id: cid, reparented_to: row.parent_id });
+          }
+          // GET the whole tree (public).
+          if (request.method !== "GET") return Response.json({ ok: false, error: "unsupported categories request" }, { status: 405 });
+          if (!rateOk(slug + "|" + ip + "|catr", 300)) return tooMany();
+          const nodes = new Map(all.map((r) => [r.id, { id: r.id, slug: r.slug, name: r.name, parent_id: r.parent_id, sort: r.sort, children: [] }]));
+          const tree = [];
+          for (const n of nodes.values()) { if (n.parent_id != null && nodes.has(n.parent_id)) nodes.get(n.parent_id).children.push(n); else tree.push(n); }
+          return Response.json({ ok: true, flat: all, tree });
+        } catch (e) { console.error("categories failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "categories failed" }, { status: 502 }); }
+      }
+      // NAMED LISTS / COLLECTIONS — a member curates named lists (wishlist, watchlist, playlist, saved
+      // items) whose items reference rows in any table. Private by default; a list can be made public to
+      // share. Every list/item op is scoped to the owner (a public list is read-only to non-owners).
+      //   POST   /api/db/<slug>/lists {name, kind?, public?}          → create a list → {id}
+      //   GET    /api/db/<slug>/lists                                 → my lists (+ item counts)
+      //   GET    /api/db/<slug>/lists/<id>                            → a list + its items (owner, or if public)
+      //   PATCH  /api/db/<slug>/lists/<id> {name?, kind?, public?}    → rename / toggle public (owner)
+      //   DELETE /api/db/<slug>/lists/<id>                            → delete the list + items (owner)
+      //   POST   /api/db/<slug>/lists/<id>/items {table?, row?, note?, sort?}  → add an item (owner)
+      //   DELETE /api/db/<slug>/lists/<id>/items/<itemId>            → remove an item (owner)
+      const lstm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/lists(?:\/(\d+)(?:\/(items)(?:\/(\d+))?)?)?$/i);
+      if (lstm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = lstm[1].toLowerCase(), listId = lstm[2] ? parseInt(lstm[2], 10) : null, isItems = lstm[3] === "items", itemId = lstm[4] ? parseInt(lstm[4], 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        try {
+          await ensureLists(env, uuid);
+          // VIEW a single list + items — the ONLY endpoint open to non-owners (and only if public).
+          if (listId != null && !isItems && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lsr", 300)) return tooMany();
+            const l = (await cfD1Query(env, uuid, "SELECT id, user_id, name, kind, is_public, created_at FROM _lists WHERE id=?", [listId]))[0];
+            if (!l) return Response.json({ ok: false, error: "no such list" }, { status: 404 });
+            if (!l.is_public && (!userId || userId !== l.user_id)) return Response.json({ ok: false, error: "this list is private" }, { status: 403 });
+            const items = await cfD1Query(env, uuid, "SELECT id, ref_table, ref_id, note, sort, created_at FROM _list_items WHERE list_id=? ORDER BY sort ASC, id ASC LIMIT 2000", [listId]);
+            return Response.json({ ok: true, list: { id: l.id, name: l.name, kind: l.kind, is_public: !!l.is_public, owner: l.user_id, created_at: l.created_at }, items });
+          }
+          // Everything else requires a signed-in member.
+          if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+          // CREATE a list.
+          if (listId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|lsw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = String(body.name || "").trim().slice(0, 160);
+            if (!name) return Response.json({ ok: false, error: "a name is required" }, { status: 400 });
+            const kind = body.kind != null && body.kind !== "" ? String(body.kind).slice(0, 40) : null;
+            const isPublic = (body.public === true || body.public === 1 || body.public === "true") ? 1 : 0;
+            const now = new Date().toISOString();
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _lists (user_id, name, kind, is_public, created_at, updated_at) VALUES (?,?,?,?,?,?) RETURNING id", [userId, name, kind, isPublic, now, now]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id, name, kind, is_public: !!isPublic });
+          }
+          // LIST my lists.
+          if (listId == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|lsl", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT l.id, l.name, l.kind, l.is_public, l.created_at, (SELECT COUNT(*) FROM _list_items WHERE list_id=l.id) AS items FROM _lists l WHERE l.user_id=? ORDER BY l.id DESC LIMIT 500", [userId]);
+            return Response.json({ ok: true, lists: rows.map((r) => ({ id: r.id, name: r.name, kind: r.kind, is_public: !!r.is_public, items: r.items, created_at: r.created_at })) });
+          }
+          // Below: operations on a specific list — must be MINE.
+          const owned = (await cfD1Query(env, uuid, "SELECT id FROM _lists WHERE id=? AND user_id=?", [listId, userId]))[0];
+          if (!owned) return Response.json({ ok: false, error: "no such list" }, { status: 404 }); // private to owner (a foreign/absent list is a 404)
+          // ADD an item.
+          if (isItems && itemId == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|lsiw", 120)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const refTable = body.table != null && body.table !== "" ? String(body.table).toLowerCase().slice(0, 40) : null;
+            const refId = body.row != null && /^\d+$/.test(String(body.row)) ? parseInt(body.row, 10) : null;
+            const note = body.note != null && body.note !== "" ? String(body.note).slice(0, 1000) : null;
+            if ((refTable == null || refId == null) && note == null) return Response.json({ ok: false, error: "an item needs a (table,row) reference or a note" }, { status: 400 });
+            const sort = Math.floor(Number(body.sort)) || 0;
+            const ins = await cfD1Query(env, uuid, "INSERT INTO _list_items (list_id, ref_table, ref_id, note, sort, created_at) VALUES (?,?,?,?,?,?) RETURNING id", [listId, refTable, refId, note, sort, new Date().toISOString()]);
+            return Response.json({ ok: true, id: ins[0] && ins[0].id });
+          }
+          // REMOVE an item.
+          if (isItems && itemId != null && request.method === "DELETE") {
+            const ex = await cfD1Exec(env, uuid, "DELETE FROM _list_items WHERE id=? AND list_id=?", [itemId, listId]);
+            if (!ex.changes) return Response.json({ ok: false, error: "no such item" }, { status: 404 });
+            return Response.json({ ok: true, deleted: true, id: itemId });
+          }
+          // PATCH the list.
+          if (!isItems && request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.name !== undefined) { const n = String(body.name || "").trim().slice(0, 160); if (!n) return Response.json({ ok: false, error: "name can't be empty" }, { status: 400 }); sets.push("name=?"); params.push(n); }
+            if (body.kind !== undefined) { sets.push("kind=?"); params.push(body.kind != null && body.kind !== "" ? String(body.kind).slice(0, 40) : null); }
+            if (body.public !== undefined) { sets.push("is_public=?"); params.push((body.public === true || body.public === 1 || body.public === "true") ? 1 : 0); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            await cfD1Exec(env, uuid, "UPDATE _lists SET " + sets.join(", ") + " WHERE id=? AND user_id=?", params.concat([listId, userId]));
+            return Response.json({ ok: true, id: listId, updated: true });
+          }
+          // DELETE the list + items.
+          if (!isItems && request.method === "DELETE") {
+            await cfD1Exec(env, uuid, "DELETE FROM _lists WHERE id=? AND user_id=?", [listId, userId]);
+            try { await cfD1Exec(env, uuid, "DELETE FROM _list_items WHERE list_id=?", [listId]); } catch {}
+            return Response.json({ ok: true, deleted: true, id: listId });
+          }
+          return Response.json({ ok: false, error: "unsupported lists request" }, { status: 405 });
+        } catch (e) { console.error("lists failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "lists failed" }, { status: 502 }); }
+      }
+      // ONE-TIME CODES (OTP) — verify a short code for a purpose+identifier (confirm a phone/email, approve
+      // a sensitive action). /generate makes a code (returned ONCE so the APP can send it via SMS/email),
+      // stores it HASHED with an expiry + attempt cap; /verify checks it (single-use). One active code per
+      // (purpose, identifier). Any signed-in member; the app is responsible for sending it to the right place.
+      //   POST /api/db/<slug>/otp/generate {purpose, identifier, ttl?, length?, max_attempts?}  → {code, expires_at}
+      //   POST /api/db/<slug>/otp/verify   {purpose, identifier, code}  → {verified} · 400 expired · 429 locked
+      const otpm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/otp\/(generate|verify)$/i);
+      if (otpm && (request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = otpm[1].toLowerCase(), mode = otpm[2].toLowerCase();
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        try {
+          await ensureOtp(env, uuid);
+          let body = {}; try { body = await request.json(); } catch {}
+          const purpose = String(body.purpose || "").trim().slice(0, 40);
+          const identifier = String(body.identifier || "").trim().slice(0, 160);
+          if (!/^[a-z0-9_.:-]{1,40}$/i.test(purpose)) return Response.json({ ok: false, error: "a purpose is required" }, { status: 400 });
+          if (!identifier) return Response.json({ ok: false, error: "an identifier is required" }, { status: 400 });
+          const hashOf = (code) => sha256hex(purpose + ":" + identifier + ":" + code);
+          if (mode === "generate") {
+            if (!rateOk(slug + "|" + ip + "|otpg", 20) || !rateOk(slug + "|" + ip + "|" + identifier + "|otpg", 5)) return tooMany("Too many code requests — please wait a moment.");
+            let length = Math.floor(Number(body.length)); if (!Number.isFinite(length) || length < 4 || length > 10) length = 6;
+            let ttl = Math.floor(Number(body.ttl)); if (!Number.isFinite(ttl) || ttl < 60 || ttl > 86400) ttl = 600;
+            let maxAttempts = Math.floor(Number(body.max_attempts)); if (!Number.isFinite(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) maxAttempts = 5;
+            const rnd = new Uint32Array(length); crypto.getRandomValues(rnd);
+            let code = ""; for (let i = 0; i < length; i++) code += (rnd[i] % 10);
+            const codeHash = await hashOf(code);
+            const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _otp (purpose, identifier, code_hash, expires_at, attempts, max_attempts, created_at) VALUES (?,?,?,?,0,?,?) ON CONFLICT(purpose, identifier) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0, max_attempts=excluded.max_attempts, created_at=excluded.created_at", [purpose, identifier, codeHash, expiresAt, maxAttempts, new Date().toISOString()]);
+            return Response.json({ ok: true, code, expires_at: expiresAt, purpose, identifier }); // code returned once — the app sends it
+          }
+          // VERIFY.
+          if (!rateOk(slug + "|" + ip + "|otpv", 60)) return tooMany();
+          const code = String(body.code == null ? "" : body.code).trim();
+          if (!code) return Response.json({ ok: false, error: "a code is required" }, { status: 400 });
+          const row = (await cfD1Query(env, uuid, "SELECT code_hash, expires_at, attempts, max_attempts FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]))[0];
+          if (!row) return Response.json({ ok: false, error: "no active code — request a new one", verified: false }, { status: 404 });
+          if (row.attempts >= row.max_attempts) { try { await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); } catch {} return Response.json({ ok: false, error: "too many attempts — request a new code", verified: false }, { status: 429 }); }
+          if (new Date(row.expires_at).getTime() < Date.now()) { try { await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); } catch {} return Response.json({ ok: false, error: "code expired — request a new one", verified: false }, { status: 400 }); }
+          if ((await hashOf(code)) === row.code_hash) {
+            await cfD1Exec(env, uuid, "DELETE FROM _otp WHERE purpose=? AND identifier=?", [purpose, identifier]); // single-use
+            return Response.json({ ok: true, verified: true });
+          }
+          await cfD1Exec(env, uuid, "UPDATE _otp SET attempts=attempts+1 WHERE purpose=? AND identifier=?", [purpose, identifier]);
+          const left = Math.max(0, row.max_attempts - (row.attempts + 1));
+          return Response.json({ ok: true, verified: false, attempts_left: left });
+        } catch (e) { console.error("otp failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "otp failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
