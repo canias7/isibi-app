@@ -6666,6 +6666,17 @@ The first next-100 is 100/100 done. Authored a second 100-item roadmap (`backlog
 commerce/scheduling/CRM/CMS/analytics/trust primitives + more stateless utility generators — and began
 building it under the same pipeline. Round-2 batches are numbered from batch298.
 
+## 2026-07-23 — commission · sales quota · tax-exempt registry (data API, round 2)
+- **`/commission`** — stateless commission calc: flat `rate` (fraction) OR marginal `tiers` (progressive-tax
+  bracket math, unsorted-tolerant), with a per-bracket breakdown. Public. batch366 (14/14).
+- **`/sales-quota`** — per-rep, per-period target + attainment (cents; rep is a free label). Admin set/record
+  (negative corrects, floored at 0)/read/list-ranked/delete. `_sales_quota` (PK rep,period). batch367 (17/17).
+- **`/tax-exempt`** — exemption certificate registry, one per customer key with optional region + expiry;
+  expired certs read `exempt:false` (and hide the cert). Admin register(upsert)/status/list/revoke.
+  `_tax_exempt` added_by nulled on erase (cert survives). batch368 (18/18).
+- Full suite 349 green. (69/100 of round 2 shipped.)
+- Skipped `/reading-time` — `/readability` already returns reading time.
+
 ## 2026-07-23 — markdown→sanitized HTML · proration · credit limit (data API, round 2)
 - **`/markdown`** — safe-subset Markdown renderer. Input is HTML-escaped FIRST (so `<script>`/`<img onerror>`
   can't survive), then a known tag set is emitted: headings, bold/italic, inline + fenced code, links
