@@ -4877,6 +4877,32 @@ async function ensureGiveaways(env, uuid) {
   try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_giveaway_entries_user ON _giveaway_entries (user_id)"); } catch {}
   _giveawaysReady.add(uuid);
 }
+// Lead capture + scoring — a public web form captures a prospect; staff triage, score, and own it. One row
+// per lead in `_leads`. Ensured once per isolate.
+const _leadsReady = new Set();
+async function ensureLeads(env, uuid) {
+  if (_leadsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _leads (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, email TEXT, phone TEXT, company TEXT, source TEXT, notes TEXT, score INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'new', owner_id INTEGER, created_at TEXT, updated_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_leads_status ON _leads (status, score)"); } catch {}
+  _leadsReady.add(uuid);
+}
+// Deal pipeline — sales deals move across kanban stages; a board view groups them by stage with totals.
+// One row per deal in `_deals`. Ensured once.
+const _dealsReady = new Set();
+async function ensureDeals(env, uuid) {
+  if (_dealsReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _deals (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, stage TEXT NOT NULL DEFAULT 'lead', amount_c INTEGER NOT NULL DEFAULT 0, currency TEXT, contact TEXT, lead_id INTEGER, owner_id INTEGER, position INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'open', created_at TEXT, updated_at TEXT, closed_at TEXT)");
+  try { await cfD1Query(env, uuid, "CREATE INDEX IF NOT EXISTS idx_deals_stage ON _deals (stage, position)"); } catch {}
+  _dealsReady.add(uuid);
+}
+// Newsletter double opt-in — a visitor subscribes (pending + a confirm token), confirms via the token, and
+// can unsubscribe. One row per email in `_newsletter`. Ensured once.
+const _newsletterReady = new Set();
+async function ensureNewsletter(env, uuid) {
+  if (_newsletterReady.has(uuid)) return;
+  await cfD1Query(env, uuid, "CREATE TABLE IF NOT EXISTS _newsletter (email TEXT PRIMARY KEY, name TEXT, status TEXT NOT NULL DEFAULT 'pending', token TEXT, created_at TEXT, confirmed_at TEXT, unsubscribed_at TEXT)");
+  _newsletterReady.add(uuid);
+}
 // Is `hour` (0–23) inside a quiet window [start,end)? Handles a window that wraps past midnight
 // (start > end, e.g. 22→7). start === end (or either null) → no quiet window.
 function inQuietHours(hour, start, end) {
@@ -9663,6 +9689,8 @@ async function handleRequest(request, env, ctx) {
             ["DELETE FROM _giveaway_entries WHERE user_id=?", [u.id]],                       // giveaway/sweepstakes entries
             ["DELETE FROM _quote_lines WHERE quote_id IN (SELECT id FROM _quotes WHERE author_id=?)", [u.id]], // quote line items (before the quotes)
             ["DELETE FROM _quotes WHERE author_id=?", [u.id]],                               // quotes/estimates they authored
+            ["DELETE FROM _leads WHERE lower(email)=lower(?)", [u.email]],                    // a lead record captured about them
+            ["DELETE FROM _newsletter WHERE lower(email)=lower(?)", [u.email]],              // newsletter subscription
             ["DELETE FROM _notes WHERE author_id=?", [u.id]],                                // notes they authored
             ["DELETE FROM _team_members WHERE user_id=?", [u.id]],                           // team/org memberships
             ["DELETE FROM _team_invites WHERE invited_by=? OR lower(email)=lower(?)", [u.id, u.email]], // team invites they sent or received
@@ -13705,6 +13733,243 @@ async function handleRequest(request, env, ctx) {
           }
           return Response.json({ ok: false, error: "unsupported giveaways request" }, { status: 405 });
         } catch (e) { console.error("giveaways failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "giveaways failed" }, { status: 502 }); }
+      }
+      // LEAD CAPTURE + SCORING — a public web form captures a prospect; staff triage, score, and own it.
+      //   POST   /api/db/<slug>/leads {name?, email?, phone?, company?, source?, notes?}  (public) → {id}
+      //   GET    /api/db/<slug>/leads[?status=&min_score=&sort=score|new]  (ADMIN) → list
+      //   GET    /api/db/<slug>/leads/<id>                  (ADMIN)
+      //   PATCH  /api/db/<slug>/leads/<id> {status?, score?, owner?, notes?, name?, …}  (ADMIN)
+      //   POST   /api/db/<slug>/leads/<id>/score {by}       (ADMIN) → bump the score
+      //   DELETE /api/db/<slug>/leads/<id>                  (ADMIN)
+      const ldm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/leads(?:\/(\d+)(?:\/(score))?)?$/i);
+      if (ldm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = ldm[1].toLowerCase(), lid = ldm[2] ? parseInt(ldm[2], 10) : null, isScore = ldm[3] === "score";
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        const LSTATUS = ["new", "contacted", "qualified", "unqualified", "converted"];
+        try {
+          await ensureLeads(env, uuid);
+          // CAPTURE (public).
+          if (lid == null && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|ldw", 20)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const name = body.name != null ? String(body.name).trim().slice(0, 200) : null;
+            const email = body.email != null ? String(body.email).trim().slice(0, 200) : null;
+            const phone = body.phone != null ? String(body.phone).trim().slice(0, 60) : null;
+            if (!name && !email && !phone) return Response.json({ ok: false, error: "at least a name, email, or phone is required" }, { status: 400 });
+            if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "bad email" }, { status: 400 });
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _leads (name, email, phone, company, source, notes, score, status, created_at, updated_at) VALUES (?,?,?,?,?,?,0,'new',?,?) RETURNING id", [name, email, phone, body.company != null ? String(body.company).slice(0, 200) : null, body.source != null ? String(body.source).slice(0, 120) : null, body.notes != null ? String(body.notes).slice(0, 2000) : null, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null });
+          }
+          // Everything else is admin.
+          const a = await needAdmin(); if (a) return a;
+          // LIST.
+          if (lid == null && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|ldl", 300)) return tooMany();
+            const where = [], params = [];
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (LSTATUS.includes(st)) { where.push("status=?"); params.push(st); }
+            const minScore = parseInt(url.searchParams.get("min_score"), 10);
+            if (Number.isFinite(minScore)) { where.push("score >= ?"); params.push(minScore); }
+            const order = url.searchParams.get("sort") === "score" ? "score DESC, created_at DESC" : "created_at DESC";
+            const rows = await cfD1Query(env, uuid, "SELECT id, name, email, phone, company, source, score, status, owner_id, created_at FROM _leads" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY " + order + " LIMIT 1000", params);
+            return Response.json({ ok: true, leads: rows });
+          }
+          // Beyond here we need the lead.
+          const lead = (await cfD1Query(env, uuid, "SELECT id, name, email, phone, company, source, notes, score, status, owner_id, created_at, updated_at FROM _leads WHERE id=?", [lid]))[0];
+          if (!lead) return Response.json({ ok: false, error: "no such lead" }, { status: 404 });
+          if (!isScore && request.method === "GET") return Response.json({ ok: true, lead });
+          // SCORE bump.
+          if (isScore && request.method === "POST") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const by = Math.floor(Number(body.by));
+            if (!Number.isFinite(by) || by < -100000 || by > 100000) return Response.json({ ok: false, error: "by must be an integer" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "UPDATE _leads SET score = score + ?, updated_at=? WHERE id=? RETURNING score", [by, new Date().toISOString(), lid]);
+            return Response.json({ ok: true, id: lid, score: r[0] ? r[0].score : lead.score + by });
+          }
+          // PATCH.
+          if (!isScore && request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.status != null) { const s = String(body.status).toLowerCase(); if (!LSTATUS.includes(s)) return Response.json({ ok: false, error: "bad status" }, { status: 400 }); sets.push("status=?"); params.push(s); }
+            if (body.score != null) { const sc = Math.floor(Number(body.score)); if (!Number.isFinite(sc)) return Response.json({ ok: false, error: "bad score" }, { status: 400 }); sets.push("score=?"); params.push(sc); }
+            if ("owner" in body) { let o = body.owner == null || body.owner === "" ? null : parseInt(body.owner, 10); if (o != null && !(await cfD1Query(env, uuid, "SELECT 1 AS ok FROM _users WHERE id=?", [o]))[0]) return Response.json({ ok: false, error: "no such owner" }, { status: 400 }); sets.push("owner_id=?"); params.push(o); }
+            for (const f of ["name", "email", "phone", "company", "source", "notes"]) if (f in body) { sets.push(f + "=?"); params.push(body[f] != null ? String(body[f]).slice(0, f === "notes" ? 2000 : 200) : null); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(lid);
+            await cfD1Exec(env, uuid, "UPDATE _leads SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: lid });
+          }
+          // DELETE.
+          if (!isScore && request.method === "DELETE") {
+            await cfD1Exec(env, uuid, "DELETE FROM _leads WHERE id=?", [lid]);
+            return Response.json({ ok: true, deleted: true, id: lid });
+          }
+          return Response.json({ ok: false, error: "unsupported leads request" }, { status: 405 });
+        } catch (e) { console.error("leads failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "leads failed" }, { status: 502 }); }
+      }
+      // DEAL PIPELINE (kanban) — sales deals move across stages; a board view groups them by stage + totals.
+      //   POST   /api/db/<slug>/deals {title, stage?, amount?, currency?, contact?, lead?}  (ADMIN) → {id}
+      //   GET    /api/db/<slug>/deals[?stage=&status=]      (ADMIN) → flat list
+      //   GET    /api/db/<slug>/deals/board                 (ADMIN) → {stages:[{stage, count, total, deals}]}
+      //   GET    /api/db/<slug>/deals/<id>                  (ADMIN)
+      //   PATCH  /api/db/<slug>/deals/<id> {title?, stage?, amount?, position?, status?, contact?}  (ADMIN)
+      //   DELETE /api/db/<slug>/deals/<id>                  (ADMIN)
+      const dlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/deals(?:\/(board|\d+))?$/i);
+      if (dlm && (request.method === "GET" || request.method === "POST" || request.method === "PATCH" || request.method === "DELETE" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = dlm[1].toLowerCase(), seg = dlm[2] || null, isBoard = seg === "board", did = seg && /^\d+$/.test(seg) ? parseInt(seg, 10) : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 });
+        const DSTATUS = ["open", "won", "lost"];
+        const norm = (s) => String(s || "").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 60) || "lead";
+        try {
+          await ensureDeals(env, uuid);
+          const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]);
+          if (!(rr[0] && rr[0].role === "admin")) return Response.json({ ok: false, error: "admins only" }, { status: 403 });
+          // CREATE.
+          if (!seg && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|dlw", 300)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const title = String(body.title || "").trim().slice(0, 300);
+            if (!title) return Response.json({ ok: false, error: "a title is required" }, { status: 400 });
+            const amount_c = body.amount == null ? 0 : (toCents(body.amount) || 0);
+            const now = new Date().toISOString();
+            const r = await cfD1Query(env, uuid, "INSERT INTO _deals (title, stage, amount_c, currency, contact, lead_id, owner_id, position, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,0,'open',?,?) RETURNING id", [title, norm(body.stage), amount_c, body.currency != null ? String(body.currency).slice(0, 10) : null, body.contact != null ? String(body.contact).slice(0, 200) : null, body.lead != null ? parseInt(body.lead, 10) || null : null, userId, now, now]);
+            return Response.json({ ok: true, id: r[0] ? r[0].id : null, stage: norm(body.stage) });
+          }
+          // BOARD (grouped by stage).
+          if (isBoard && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dlb", 300)) return tooMany();
+            const rows = await cfD1Query(env, uuid, "SELECT id, title, stage, amount_c, currency, contact, position, status, created_at FROM _deals WHERE status='open' ORDER BY stage ASC, position ASC, id ASC LIMIT 2000");
+            const groups = new Map();
+            for (const d of rows) { if (!groups.has(d.stage)) groups.set(d.stage, []); groups.get(d.stage).push(d); }
+            const stages = [...groups.entries()].map(([stage, deals]) => ({ stage, count: deals.length, total: deals.reduce((s, d) => s + (d.amount_c || 0), 0) / 100, deals }));
+            return Response.json({ ok: true, stages });
+          }
+          // LIST (flat).
+          if (!seg && request.method === "GET") {
+            if (!rateOk(slug + "|" + ip + "|dll", 300)) return tooMany();
+            const where = [], params = [];
+            if (url.searchParams.get("stage")) { where.push("stage=?"); params.push(norm(url.searchParams.get("stage"))); }
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (DSTATUS.includes(st)) { where.push("status=?"); params.push(st); }
+            const rows = await cfD1Query(env, uuid, "SELECT id, title, stage, amount_c, currency, contact, position, status, created_at, closed_at FROM _deals" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY created_at DESC LIMIT 1000", params);
+            return Response.json({ ok: true, deals: rows });
+          }
+          // Beyond here we need the deal.
+          const deal = (await cfD1Query(env, uuid, "SELECT id, title, stage, amount_c, currency, contact, lead_id, owner_id, position, status, created_at, updated_at, closed_at FROM _deals WHERE id=?", [did]))[0];
+          if (!deal) return Response.json({ ok: false, error: "no such deal" }, { status: 404 });
+          if (request.method === "GET") return Response.json({ ok: true, deal });
+          if (request.method === "PATCH") {
+            let body = {}; try { body = await request.json(); } catch {}
+            const sets = [], params = [];
+            if (body.title != null) { const ti = String(body.title).trim().slice(0, 300); if (!ti) return Response.json({ ok: false, error: "title can't be blank" }, { status: 400 }); sets.push("title=?"); params.push(ti); }
+            if (body.stage != null) { sets.push("stage=?"); params.push(norm(body.stage)); }
+            if (body.amount != null) { const ac = toCents(body.amount); if (ac == null) return Response.json({ ok: false, error: "bad amount" }, { status: 400 }); sets.push("amount_c=?"); params.push(ac); }
+            if (body.position != null) { sets.push("position=?"); params.push(Math.floor(Number(body.position)) || 0); }
+            if ("contact" in body) { sets.push("contact=?"); params.push(body.contact != null ? String(body.contact).slice(0, 200) : null); }
+            if (body.status != null) { const s = String(body.status).toLowerCase(); if (!DSTATUS.includes(s)) return Response.json({ ok: false, error: "bad status" }, { status: 400 }); sets.push("status=?"); params.push(s); sets.push("closed_at=?"); params.push(s === "open" ? null : new Date().toISOString()); }
+            if (!sets.length) return Response.json({ ok: false, error: "nothing to update" }, { status: 400 });
+            sets.push("updated_at=?"); params.push(new Date().toISOString());
+            params.push(did);
+            await cfD1Exec(env, uuid, "UPDATE _deals SET " + sets.join(", ") + " WHERE id=?", params);
+            return Response.json({ ok: true, id: did });
+          }
+          if (request.method === "DELETE") { await cfD1Exec(env, uuid, "DELETE FROM _deals WHERE id=?", [did]); return Response.json({ ok: true, deleted: true, id: did }); }
+          return Response.json({ ok: false, error: "unsupported deals request" }, { status: 405 });
+        } catch (e) { console.error("deals failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "deals failed" }, { status: 502 }); }
+      }
+      // NEWSLETTER DOUBLE OPT-IN — a visitor subscribes (pending + a confirm token), confirms via the token,
+      // and can unsubscribe. The token is returned so the app can email it.
+      //   POST   /api/db/<slug>/newsletter/subscribe {email, name?}  (public) → {token} (pending)
+      //   POST   /api/db/<slug>/newsletter/confirm {token}  (public) → confirmed
+      //   POST   /api/db/<slug>/newsletter/unsubscribe {email} | {token}  (public)
+      //   GET    /api/db/<slug>/newsletter[?status=]        (ADMIN) → subscribers
+      //   GET    /api/db/<slug>/newsletter/stats            (ADMIN) → {pending, confirmed, unsubscribed}
+      const nlm = url.pathname.match(/^\/api\/db\/([a-z0-9-]{1,60})\/newsletter(?:\/(subscribe|confirm|unsubscribe|stats))?$/i);
+      if (nlm && (request.method === "GET" || request.method === "POST" || request.method === "OPTIONS")) {
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization", "Access-Control-Max-Age": "86400" } });
+        const slug = nlm[1].toLowerCase(), action = nlm[2] ? nlm[2].toLowerCase() : null;
+        if (!env.SUPABASE_SERVICE_KEY || !d1Configured(env)) return Response.json({ ok: false, error: "backend unavailable" }, { status: 503 });
+        const uuid = await siteBackendBySlug(env, slug);
+        if (!uuid) return Response.json({ ok: false, error: "this site has no backend yet" }, { status: 404 });
+        const ip = request.headers.get("CF-Connecting-IP") || "0";
+        let userId = null;
+        const tok = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+        if (tok) { try { const secret = await initSiteAuth(env, uuid); const p = await verifySiteUserToken(secret, tok); if (p && p.slug === slug) userId = p.sub; } catch {} }
+        const needAdmin = async () => { if (!userId) return Response.json({ ok: false, error: "sign in first" }, { status: 401 }); const rr = await cfD1Query(env, uuid, "SELECT role FROM _users WHERE id=?", [userId]); return (rr[0] && rr[0].role === "admin") ? null : Response.json({ ok: false, error: "admins only" }, { status: 403 }); };
+        try {
+          await ensureNewsletter(env, uuid);
+          // SUBSCRIBE (public) — step 1 of double opt-in.
+          if (action === "subscribe" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|nlsub", 20)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return Response.json({ ok: false, error: "a valid email is required" }, { status: 400 });
+            const existing = (await cfD1Query(env, uuid, "SELECT status FROM _newsletter WHERE email=?", [email]))[0];
+            if (existing && existing.status === "confirmed") return Response.json({ ok: true, email, status: "confirmed", already: true });
+            const token = crypto.randomUUID().replace(/-/g, "");
+            const now = new Date().toISOString();
+            await cfD1Query(env, uuid, "INSERT INTO _newsletter (email, name, status, token, created_at) VALUES (?,?, 'pending', ?, ?) ON CONFLICT(email) DO UPDATE SET status='pending', token=excluded.token, name=COALESCE(excluded.name, _newsletter.name), unsubscribed_at=NULL", [email, body.name != null ? String(body.name).slice(0, 200) : null, token, now]);
+            return Response.json({ ok: true, email, status: "pending", token });
+          }
+          // CONFIRM (public) — step 2.
+          if (action === "confirm" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|nlconf", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const token = String(body.token || "").trim();
+            if (!token) return Response.json({ ok: false, error: "a token is required" }, { status: 400 });
+            const r = await cfD1Query(env, uuid, "UPDATE _newsletter SET status='confirmed', confirmed_at=?, token=NULL WHERE token=? AND status='pending' RETURNING email", [new Date().toISOString(), token]);
+            if (!r[0]) return Response.json({ ok: false, error: "invalid or already-used token" }, { status: 404 });
+            return Response.json({ ok: true, email: r[0].email, status: "confirmed" });
+          }
+          // UNSUBSCRIBE (public).
+          if (action === "unsubscribe" && request.method === "POST") {
+            if (!rateOk(slug + "|" + ip + "|nluns", 60)) return tooMany();
+            let body = {}; try { body = await request.json(); } catch {}
+            const email = body.email != null ? String(body.email).trim().toLowerCase().slice(0, 200) : null;
+            const token = body.token != null ? String(body.token).trim() : null;
+            if (!email && !token) return Response.json({ ok: false, error: "an email or token is required" }, { status: 400 });
+            const now = new Date().toISOString();
+            const ex = email
+              ? await cfD1Exec(env, uuid, "UPDATE _newsletter SET status='unsubscribed', unsubscribed_at=?, token=NULL WHERE email=?", [now, email])
+              : await cfD1Exec(env, uuid, "UPDATE _newsletter SET status='unsubscribed', unsubscribed_at=?, token=NULL WHERE token=?", [now, token]);
+            return Response.json({ ok: true, unsubscribed: (ex.changes || 0) > 0 });
+          }
+          // STATS (admin).
+          if (action === "stats" && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            const r = (await cfD1Query(env, uuid, "SELECT SUM(status='pending') AS pending, SUM(status='confirmed') AS confirmed, SUM(status='unsubscribed') AS unsubscribed FROM _newsletter"))[0] || {};
+            return Response.json({ ok: true, pending: r.pending || 0, confirmed: r.confirmed || 0, unsubscribed: r.unsubscribed || 0 });
+          }
+          // LIST (admin).
+          if (!action && request.method === "GET") {
+            const a = await needAdmin(); if (a) return a;
+            if (!rateOk(slug + "|" + ip + "|nll", 300)) return tooMany();
+            const where = [], params = [];
+            const st = String(url.searchParams.get("status") || "").toLowerCase();
+            if (["pending", "confirmed", "unsubscribed"].includes(st)) { where.push("status=?"); params.push(st); }
+            const rows = await cfD1Query(env, uuid, "SELECT email, name, status, created_at, confirmed_at FROM _newsletter" + (where.length ? " WHERE " + where.join(" AND ") : " WHERE status='confirmed'") + " ORDER BY created_at DESC LIMIT 5000", params);
+            return Response.json({ ok: true, subscribers: rows });
+          }
+          return Response.json({ ok: false, error: "unsupported newsletter request" }, { status: 405 });
+        } catch (e) { console.error("newsletter failed:", e && e.message, e && e.detail); return Response.json({ ok: false, error: "newsletter failed" }, { status: 502 }); }
       }
       // OUTBOUND WEBHOOKS — the app registers external URLs to receive its events, then fires
       // them; the server POSTs a signed JSON payload to each matching subscriber and logs it.
